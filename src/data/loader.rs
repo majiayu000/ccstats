@@ -1,0 +1,209 @@
+use chrono::{DateTime, Local, NaiveDate, Utc};
+use rayon::prelude::*;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
+
+use super::types::{DayStats, ParsedEntry, Stats, UsageEntry};
+
+pub fn normalize_model_name(model: &str) -> String {
+    model
+        .replace("claude-", "")
+        .replace("-20250514", "")
+        .replace("-20241022", "")
+        .replace("-20240620", "")
+}
+
+pub fn find_jsonl_files() -> Vec<PathBuf> {
+    let home = dirs::home_dir().expect("Cannot find home directory");
+    let claude_path = home.join(".claude").join("projects");
+
+    let mut files = Vec::new();
+    if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", claude_path.display())) {
+        for entry in entries.flatten() {
+            files.push(entry);
+        }
+    }
+    files
+}
+
+pub fn process_file(
+    path: &PathBuf,
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+) -> (HashMap<String, DayStats>, i64, i64) {
+    let mut day_stats: HashMap<String, DayStats> = HashMap::new();
+    let mut total_entries = 0i64;
+    let mut valid_messages = 0i64;
+
+    // First pass: collect all entries grouped by message ID
+    let mut message_entries: HashMap<String, Vec<ParsedEntry>> = HashMap::new();
+    let mut no_id_entries: Vec<ParsedEntry> = Vec::new();
+
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return (day_stats, 0, 0),
+    };
+
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: UsageEntry = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // Get timestamp and convert to local date
+        let ts = match &entry.timestamp {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let utc_dt = match ts.parse::<DateTime<Utc>>() {
+            Ok(dt) => dt,
+            Err(_) => continue,
+        };
+
+        let local_dt: DateTime<Local> = utc_dt.into();
+        let date = local_dt.date_naive();
+
+        // Apply date filters
+        if let Some(s) = since {
+            if date < s {
+                continue;
+            }
+        }
+        if let Some(u) = until {
+            if date > u {
+                continue;
+            }
+        }
+
+        total_entries += 1;
+
+        let msg = match &entry.message {
+            Some(m) => m,
+            None => continue,
+        };
+
+        let usage = match &msg.usage {
+            Some(u) => u.clone(),
+            None => continue,
+        };
+
+        let model = msg
+            .model
+            .as_ref()
+            .map(|m| normalize_model_name(m))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Skip synthetic/empty entries
+        if model == "<synthetic>" || model.is_empty() {
+            continue;
+        }
+
+        let date_str = date.format("%Y-%m-%d").to_string();
+        let parsed = ParsedEntry {
+            date_str,
+            model,
+            usage,
+        };
+
+        // Group by message ID - we'll take the last entry for each ID
+        if let Some(id) = &msg.id {
+            message_entries.entry(id.clone()).or_default().push(parsed);
+        } else {
+            no_id_entries.push(parsed);
+        }
+    }
+
+    // Second pass: for each message ID, take the LAST entry (final state)
+    for (_id, entries) in message_entries {
+        if let Some(last) = entries.last() {
+            valid_messages += 1;
+            let stats = Stats {
+                input_tokens: last.usage.input_tokens.unwrap_or(0),
+                output_tokens: last.usage.output_tokens.unwrap_or(0),
+                cache_creation: last.usage.cache_creation_input_tokens.unwrap_or(0),
+                cache_read: last.usage.cache_read_input_tokens.unwrap_or(0),
+                count: 1,
+                skipped_chunks: 0,
+            };
+
+            let day = day_stats.entry(last.date_str.clone()).or_default();
+            day.stats.add(&stats);
+            day.models.entry(last.model.clone()).or_default().add(&stats);
+        }
+    }
+
+    // Also process entries without message ID (shouldn't happen often)
+    for entry in no_id_entries {
+        valid_messages += 1;
+        let stats = Stats {
+            input_tokens: entry.usage.input_tokens.unwrap_or(0),
+            output_tokens: entry.usage.output_tokens.unwrap_or(0),
+            cache_creation: entry.usage.cache_creation_input_tokens.unwrap_or(0),
+            cache_read: entry.usage.cache_read_input_tokens.unwrap_or(0),
+            count: 1,
+            skipped_chunks: 0,
+        };
+
+        let day = day_stats.entry(entry.date_str.clone()).or_default();
+        day.stats.add(&stats);
+        day.models.entry(entry.model.clone()).or_default().add(&stats);
+    }
+
+    let skipped = total_entries - valid_messages;
+    (day_stats, skipped, valid_messages)
+}
+
+pub fn merge_results(
+    results: Vec<(HashMap<String, DayStats>, i64, i64)>,
+) -> (HashMap<String, DayStats>, i64, i64) {
+    let mut merged: HashMap<String, DayStats> = HashMap::new();
+    let mut total_skipped = 0i64;
+    let mut total_valid = 0i64;
+
+    for (day_stats, skipped, valid) in results {
+        total_skipped += skipped;
+        total_valid += valid;
+
+        for (date, stats) in day_stats {
+            let day = merged.entry(date).or_default();
+
+            for (model, model_stats) in stats.models {
+                day.stats.add(&model_stats);
+                day.models.entry(model).or_default().add(&model_stats);
+            }
+        }
+    }
+
+    (merged, total_skipped, total_valid)
+}
+
+pub fn load_usage_data(
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+) -> (HashMap<String, DayStats>, i64, i64) {
+    eprintln!("Scanning JSONL files...");
+    let files = find_jsonl_files();
+    eprintln!("Found {} files", files.len());
+
+    eprintln!("Processing...");
+    let results: Vec<_> = files
+        .par_iter()
+        .map(|f| process_file(f, since, until))
+        .collect();
+
+    merge_results(results)
+}
