@@ -58,6 +58,10 @@ pub struct Cli {
     /// Disable colored output (shorthand for --color=never)
     #[arg(long, global = true)]
     pub no_color: bool,
+
+    /// Enable debug output (show processing details)
+    #[arg(long, global = true)]
+    pub debug: bool,
 }
 
 impl Cli {
