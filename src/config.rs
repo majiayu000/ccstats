@@ -22,6 +22,10 @@ pub struct Config {
     pub color: Option<String>,
     #[serde(default)]
     pub cost: Option<String>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub locale: Option<String>,
 }
 
 impl Config {
