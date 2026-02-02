@@ -89,6 +89,14 @@ pub struct Cli {
     /// Filter JSON output with jq expression (requires jq installed)
     #[arg(long, global = true, value_name = "FILTER")]
     pub jq: Option<String>,
+
+    /// Timezone for date display (e.g., "Asia/Shanghai", "UTC", "America/New_York")
+    #[arg(long, global = true, value_name = "TZ")]
+    pub timezone: Option<String>,
+
+    /// Locale for number formatting (e.g., "en", "zh", "de")
+    #[arg(long, global = true, value_name = "LOCALE")]
+    pub locale: Option<String>,
 }
 
 impl Cli {
@@ -143,6 +151,14 @@ impl Cli {
                     _ => {}
                 }
             }
+        }
+
+        // String options: only apply if CLI didn't set them
+        if self.timezone.is_none() {
+            self.timezone = config.timezone.clone();
+        }
+        if self.locale.is_none() {
+            self.locale = config.locale.clone();
         }
 
         self
