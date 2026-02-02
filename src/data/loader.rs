@@ -8,11 +8,19 @@ use std::path::PathBuf;
 use super::types::{BlockStats, DayStats, ParsedEntry, ProjectStats, SessionStats, Stats, Usage, UsageEntry};
 
 pub fn normalize_model_name(model: &str) -> String {
-    model
-        .replace("claude-", "")
-        .replace("-20250514", "")
-        .replace("-20241022", "")
-        .replace("-20240620", "")
+    // Remove "claude-" prefix
+    let name = model.replace("claude-", "");
+
+    // Remove date suffix like -20251101, -20250929, etc.
+    // Pattern: -YYYYMMDD at the end
+    if let Some(pos) = name.rfind('-') {
+        let suffix = &name[pos + 1..];
+        if suffix.len() == 8 && suffix.chars().all(|c| c.is_ascii_digit()) {
+            return name[..pos].to_string();
+        }
+    }
+
+    name
 }
 
 pub fn find_jsonl_files() -> Vec<PathBuf> {
