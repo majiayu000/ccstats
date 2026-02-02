@@ -9,7 +9,10 @@ use clap::Parser;
 
 use cli::{Cli, Commands};
 use data::load_usage_data;
-use output::{output_daily_json, output_monthly_json, print_daily_table, print_monthly_table};
+use output::{
+    output_daily_json, output_monthly_json, output_weekly_json, print_daily_table,
+    print_monthly_table, print_weekly_table,
+};
 use pricing::PricingDb;
 use utils::parse_date;
 
@@ -41,6 +44,13 @@ fn main() {
 
     // Determine output format based on command
     match &cli.command {
+        Some(Commands::Weekly) => {
+            if cli.json {
+                output_weekly_json(&day_stats, &pricing_db);
+            } else {
+                print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db);
+            }
+        }
         Some(Commands::Monthly) => {
             if cli.json {
                 output_monthly_json(&day_stats, &pricing_db);
