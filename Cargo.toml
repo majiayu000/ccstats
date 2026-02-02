@@ -1,7 +1,12 @@
 [package]
 name = "ccstats"
-version = "0.1.16"
+version = "0.1.17"
 edition = "2021"
+description = "Fast Claude Code token usage statistics CLI"
+license = "MIT"
+repository = "https://github.com/majiayu000/ccstats"
+keywords = ["claude", "anthropic", "token", "usage", "cli"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

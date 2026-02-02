@@ -121,10 +121,12 @@ pub fn process_file(
         }
 
         let date_str = date.format("%Y-%m-%d").to_string();
+        let stop_reason = msg.stop_reason.clone();
         let parsed = ParsedEntry {
             date_str,
             model,
             usage,
+            stop_reason,
         };
 
         // Group by message ID - we'll take the last entry for each ID
@@ -135,27 +137,33 @@ pub fn process_file(
         }
     }
 
-    // Second pass: for each message ID, take the LAST entry (final state)
+    // Second pass: for each message ID, take the entry with stop_reason (completed message)
     for (_id, entries) in message_entries {
-        if let Some(last) = entries.last() {
+        // Find the entry with stop_reason set (completed message)
+        let completed = entries.iter().find(|e| e.stop_reason.is_some());
+        if let Some(entry) = completed.or(entries.last()) {
             valid_messages += 1;
             let stats = Stats {
-                input_tokens: last.usage.input_tokens.unwrap_or(0),
-                output_tokens: last.usage.output_tokens.unwrap_or(0),
-                cache_creation: last.usage.cache_creation_input_tokens.unwrap_or(0),
-                cache_read: last.usage.cache_read_input_tokens.unwrap_or(0),
+                input_tokens: entry.usage.input_tokens.unwrap_or(0),
+                output_tokens: entry.usage.output_tokens.unwrap_or(0),
+                cache_creation: entry.usage.cache_creation_input_tokens.unwrap_or(0),
+                cache_read: entry.usage.cache_read_input_tokens.unwrap_or(0),
                 count: 1,
                 skipped_chunks: 0,
             };
 
-            let day = day_stats.entry(last.date_str.clone()).or_default();
+            let day = day_stats.entry(entry.date_str.clone()).or_default();
             day.stats.add(&stats);
-            day.models.entry(last.model.clone()).or_default().add(&stats);
+            day.models.entry(entry.model.clone()).or_default().add(&stats);
         }
     }
 
     // Also process entries without message ID (shouldn't happen often)
     for entry in no_id_entries {
+        // Only count if it has stop_reason (completed)
+        if entry.stop_reason.is_none() {
+            continue;
+        }
         valid_messages += 1;
         let stats = Stats {
             input_tokens: entry.usage.input_tokens.unwrap_or(0),
