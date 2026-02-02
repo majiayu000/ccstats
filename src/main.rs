@@ -50,14 +50,14 @@ fn main() {
             if cli.json {
                 output_weekly_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
             } else {
-                print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
+                print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact);
             }
         }
         Some(Commands::Monthly) => {
             if cli.json {
                 output_monthly_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
             } else {
-                print_monthly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
+                print_monthly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact);
             }
         }
         _ => {
@@ -65,7 +65,7 @@ fn main() {
             if cli.json {
                 output_daily_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
             } else {
-                print_daily_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
+                print_daily_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact);
             }
         }
     }

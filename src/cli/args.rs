@@ -62,6 +62,10 @@ pub struct Cli {
     /// Enable debug output (show processing details)
     #[arg(long, global = true)]
     pub debug: bool,
+
+    /// Compact output (fewer columns, shorter names)
+    #[arg(short = 'c', long, global = true)]
+    pub compact: bool,
 }
 
 impl Cli {

@@ -18,6 +18,19 @@ pub fn format_number(n: i64) -> String {
     result.chars().rev().collect()
 }
 
+/// Format number in compact form (K, M, B suffixes)
+fn format_compact(n: i64) -> String {
+    if n >= 1_000_000_000 {
+        format!("{:.1}B", n as f64 / 1_000_000_000.0)
+    } else if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 fn sort_keys<'a>(keys: &mut Vec<&'a String>, order: SortOrder) {
     match order {
         SortOrder::Asc => keys.sort(),
@@ -44,6 +57,7 @@ pub fn print_daily_table(
     pricing_db: &PricingDb,
     order: SortOrder,
     use_color: bool,
+    compact: bool,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
     sort_keys(&mut dates, order);
@@ -53,7 +67,16 @@ pub fn print_daily_table(
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
-    if breakdown {
+    if compact {
+        // Compact mode: Date, In, Out, Total, Cost
+        table.set_header(vec![
+            Cell::new("Date").add_attribute(Attribute::Bold),
+            Cell::new("In").add_attribute(Attribute::Bold),
+            Cell::new("Out").add_attribute(Attribute::Bold),
+            Cell::new("Total").add_attribute(Attribute::Bold),
+            Cell::new("Cost").add_attribute(Attribute::Bold),
+        ]);
+    } else if breakdown {
         table.set_header(vec![
             Cell::new("Date").add_attribute(Attribute::Bold),
             Cell::new("Model").add_attribute(Attribute::Bold),
@@ -82,7 +105,21 @@ pub fn print_daily_table(
     for date in &dates {
         let day = &day_stats[*date];
 
-        if breakdown {
+        if compact {
+            let mut day_cost = 0.0;
+            for (model, stats) in &day.models {
+                day_cost += calculate_cost(stats, model, pricing_db);
+            }
+            total_cost += day_cost;
+
+            table.add_row(vec![
+                Cell::new(*date),
+                Cell::new(format_compact(day.stats.input_tokens)),
+                Cell::new(format_compact(day.stats.output_tokens)),
+                Cell::new(format_compact(day.stats.total_tokens())),
+                Cell::new(format!("${:.2}", day_cost)),
+            ]);
+        } else if breakdown {
             let mut models: Vec<_> = day.models.keys().collect();
             models.sort();
 
@@ -130,7 +167,15 @@ pub fn print_daily_table(
     let green = if use_color { Some(Color::Green) } else { None };
 
     // Add total row
-    if breakdown {
+    if compact {
+        table.add_row(vec![
+            styled_cell("TOTAL", cyan, true),
+            styled_cell(&format_compact(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_compact(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
+        ]);
+    } else if breakdown {
         table.add_row(vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
@@ -170,6 +215,7 @@ pub fn print_monthly_table(
     pricing_db: &PricingDb,
     order: SortOrder,
     use_color: bool,
+    compact: bool,
 ) {
     // Aggregate by month
     let mut month_stats: HashMap<String, DayStats> = HashMap::new();
@@ -196,7 +242,15 @@ pub fn print_monthly_table(
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
-    if breakdown {
+    if compact {
+        table.set_header(vec![
+            Cell::new("Month").add_attribute(Attribute::Bold),
+            Cell::new("In").add_attribute(Attribute::Bold),
+            Cell::new("Out").add_attribute(Attribute::Bold),
+            Cell::new("Total").add_attribute(Attribute::Bold),
+            Cell::new("Cost").add_attribute(Attribute::Bold),
+        ]);
+    } else if breakdown {
         table.set_header(vec![
             Cell::new("Month").add_attribute(Attribute::Bold),
             Cell::new("Model").add_attribute(Attribute::Bold),
@@ -225,7 +279,21 @@ pub fn print_monthly_table(
     for month in &months {
         let month_data = &month_stats[*month];
 
-        if breakdown {
+        if compact {
+            let mut month_cost = 0.0;
+            for (model, stats) in &month_data.models {
+                month_cost += calculate_cost(stats, model, pricing_db);
+            }
+            total_cost += month_cost;
+
+            table.add_row(vec![
+                Cell::new(*month),
+                Cell::new(format_compact(month_data.stats.input_tokens)),
+                Cell::new(format_compact(month_data.stats.output_tokens)),
+                Cell::new(format_compact(month_data.stats.total_tokens())),
+                Cell::new(format!("${:.2}", month_cost)),
+            ]);
+        } else if breakdown {
             let mut models: Vec<_> = month_data.models.keys().collect();
             models.sort();
 
@@ -273,7 +341,15 @@ pub fn print_monthly_table(
     let green = if use_color { Some(Color::Green) } else { None };
 
     // Add total row
-    if breakdown {
+    if compact {
+        table.add_row(vec![
+            styled_cell("TOTAL", cyan, true),
+            styled_cell(&format_compact(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_compact(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
+        ]);
+    } else if breakdown {
         table.add_row(vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
@@ -325,6 +401,7 @@ pub fn print_weekly_table(
     pricing_db: &PricingDb,
     order: SortOrder,
     use_color: bool,
+    compact: bool,
 ) {
     // Aggregate by week (Monday start)
     let mut week_stats: HashMap<String, DayStats> = HashMap::new();
@@ -351,7 +428,15 @@ pub fn print_weekly_table(
         .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);
 
-    if breakdown {
+    if compact {
+        table.set_header(vec![
+            Cell::new("Week").add_attribute(Attribute::Bold),
+            Cell::new("In").add_attribute(Attribute::Bold),
+            Cell::new("Out").add_attribute(Attribute::Bold),
+            Cell::new("Total").add_attribute(Attribute::Bold),
+            Cell::new("Cost").add_attribute(Attribute::Bold),
+        ]);
+    } else if breakdown {
         table.set_header(vec![
             Cell::new("Week").add_attribute(Attribute::Bold),
             Cell::new("Model").add_attribute(Attribute::Bold),
@@ -380,7 +465,21 @@ pub fn print_weekly_table(
     for week in &weeks {
         let week_data = &week_stats[*week];
 
-        if breakdown {
+        if compact {
+            let mut week_cost = 0.0;
+            for (model, stats) in &week_data.models {
+                week_cost += calculate_cost(stats, model, pricing_db);
+            }
+            total_cost += week_cost;
+
+            table.add_row(vec![
+                Cell::new(*week),
+                Cell::new(format_compact(week_data.stats.input_tokens)),
+                Cell::new(format_compact(week_data.stats.output_tokens)),
+                Cell::new(format_compact(week_data.stats.total_tokens())),
+                Cell::new(format!("${:.2}", week_cost)),
+            ]);
+        } else if breakdown {
             let mut models: Vec<_> = week_data.models.keys().collect();
             models.sort();
 
@@ -428,7 +527,15 @@ pub fn print_weekly_table(
     let green = if use_color { Some(Color::Green) } else { None };
 
     // Add total row
-    if breakdown {
+    if compact {
+        table.add_row(vec![
+            styled_cell("TOTAL", cyan, true),
+            styled_cell(&format_compact(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_compact(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
+        ]);
+    } else if breakdown {
         table.add_row(vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
