@@ -1,11 +1,11 @@
-use chrono::{DateTime, Local, NaiveDate, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, Timelike, Utc};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use super::types::{DayStats, ParsedEntry, ProjectStats, SessionStats, Stats, Usage, UsageEntry};
+use super::types::{BlockStats, DayStats, ParsedEntry, ProjectStats, SessionStats, Stats, Usage, UsageEntry};
 
 pub fn normalize_model_name(model: &str) -> String {
     model
@@ -474,4 +474,162 @@ pub fn load_project_data(
     }
 
     projects
+}
+
+/// Calculate the 5-hour block start time for a given timestamp
+fn get_block_start(dt: DateTime<Local>) -> DateTime<Local> {
+    let hour = dt.hour() as i64;
+    let block_hour = (hour / 5) * 5;
+    dt.date_naive()
+        .and_hms_opt(block_hour as u32, 0, 0)
+        .unwrap()
+        .and_local_timezone(Local)
+        .unwrap()
+}
+
+/// Process a single file and return entries with timestamps for block grouping
+fn process_file_for_blocks(
+    path: &PathBuf,
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+) -> Vec<(DateTime<Local>, String, Stats)> {
+    let mut results = Vec::new();
+
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return results,
+    };
+
+    let reader = BufReader::new(file);
+    let mut message_entries: HashMap<String, (DateTime<Local>, String, Usage)> = HashMap::new();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: UsageEntry = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let ts = match &entry.timestamp {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let utc_dt = match ts.parse::<DateTime<Utc>>() {
+            Ok(dt) => dt,
+            Err(_) => continue,
+        };
+
+        let local_dt: DateTime<Local> = utc_dt.into();
+        let date = local_dt.date_naive();
+
+        // Apply date filters
+        if let Some(s) = since {
+            if date < s {
+                continue;
+            }
+        }
+        if let Some(u) = until {
+            if date > u {
+                continue;
+            }
+        }
+
+        let msg = match &entry.message {
+            Some(m) => m,
+            None => continue,
+        };
+
+        let usage = match &msg.usage {
+            Some(u) => u.clone(),
+            None => continue,
+        };
+
+        let model = msg
+            .model
+            .as_ref()
+            .map(|m| normalize_model_name(m))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if model == "<synthetic>" || model.is_empty() {
+            continue;
+        }
+
+        // Group by message ID, keep last entry
+        if let Some(id) = &msg.id {
+            message_entries.insert(id.clone(), (local_dt, model, usage));
+        }
+    }
+
+    for (_id, (dt, model, usage)) in message_entries {
+        let stats = Stats {
+            input_tokens: usage.input_tokens.unwrap_or(0),
+            output_tokens: usage.output_tokens.unwrap_or(0),
+            cache_creation: usage.cache_creation_input_tokens.unwrap_or(0),
+            cache_read: usage.cache_read_input_tokens.unwrap_or(0),
+            count: 1,
+            skipped_chunks: 0,
+        };
+        results.push((dt, model, stats));
+    }
+
+    results
+}
+
+pub fn load_block_data(
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+    quiet: bool,
+) -> Vec<BlockStats> {
+    if !quiet {
+        eprintln!("Scanning JSONL files...");
+    }
+
+    let files = find_jsonl_files();
+
+    if !quiet {
+        eprintln!("Found {} files", files.len());
+        eprintln!("Processing for 5-hour blocks...");
+    }
+
+    // Collect all entries with timestamps
+    let all_entries: Vec<(DateTime<Local>, String, Stats)> = files
+        .par_iter()
+        .flat_map(|f| process_file_for_blocks(f, since, until))
+        .collect();
+
+    // Group by 5-hour blocks
+    let mut block_map: HashMap<DateTime<Local>, BlockStats> = HashMap::new();
+
+    for (dt, model, stats) in all_entries {
+        let block_start = get_block_start(dt);
+        let block_end = block_start + Duration::hours(5);
+
+        let block = block_map.entry(block_start).or_insert_with(|| BlockStats {
+            block_start: block_start.format("%Y-%m-%d %H:%M").to_string(),
+            block_end: block_end.format("%H:%M").to_string(),
+            stats: Stats::default(),
+            models: HashMap::new(),
+        });
+
+        block.stats.add(&stats);
+        block.models.entry(model).or_default().add(&stats);
+    }
+
+    let mut blocks: Vec<BlockStats> = block_map.into_values().collect();
+    blocks.sort_by(|a, b| a.block_start.cmp(&b.block_start));
+
+    if !quiet {
+        eprintln!("Found {} billing blocks", blocks.len());
+    }
+
+    blocks
 }
