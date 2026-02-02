@@ -62,3 +62,14 @@ pub struct ParsedEntry {
     pub model: String,
     pub usage: Usage,
 }
+
+/// Session statistics
+#[derive(Debug, Default)]
+pub struct SessionStats {
+    pub session_id: String,
+    pub project_path: String,
+    pub first_timestamp: String,
+    pub last_timestamp: String,
+    pub stats: Stats,
+    pub models: HashMap<String, Stats>,
+}
