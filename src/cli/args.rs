@@ -32,6 +32,8 @@ pub struct Cli {
 pub enum Commands {
     /// Show daily usage (default)
     Daily,
+    /// Show weekly usage
+    Weekly,
     /// Show monthly usage
     Monthly,
     /// Show today's usage
