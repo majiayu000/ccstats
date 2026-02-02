@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use super::types::{DayStats, ParsedEntry, SessionStats, Stats, Usage, UsageEntry};
+use super::types::{DayStats, ParsedEntry, ProjectStats, SessionStats, Stats, Usage, UsageEntry};
 
 pub fn normalize_model_name(model: &str) -> String {
     model
@@ -429,4 +429,49 @@ pub fn load_session_data(
     }
 
     sessions
+}
+
+/// Extract readable project name from path
+fn format_project_name(path: &str) -> String {
+    path.split('-').last().unwrap_or(path).to_string()
+}
+
+pub fn load_project_data(
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+    quiet: bool,
+) -> Vec<ProjectStats> {
+    // First load all sessions
+    let sessions = load_session_data(since, until, quiet);
+
+    // Aggregate by project
+    let mut project_map: HashMap<String, ProjectStats> = HashMap::new();
+
+    for session in sessions {
+        let project = project_map.entry(session.project_path.clone()).or_insert_with(|| {
+            ProjectStats {
+                project_path: session.project_path.clone(),
+                project_name: format_project_name(&session.project_path),
+                session_count: 0,
+                stats: Stats::default(),
+                models: HashMap::new(),
+            }
+        });
+
+        project.session_count += 1;
+        project.stats.add(&session.stats);
+
+        for (model, model_stats) in session.models {
+            project.models.entry(model).or_default().add(&model_stats);
+        }
+    }
+
+    let mut projects: Vec<ProjectStats> = project_map.into_values().collect();
+    projects.sort_by(|a, b| b.stats.total_tokens().cmp(&a.stats.total_tokens()));
+
+    if !quiet {
+        eprintln!("Aggregated into {} projects", projects.len());
+    }
+
+    projects
 }

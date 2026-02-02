@@ -93,6 +93,8 @@ pub enum Commands {
     Today,
     /// Show usage by session
     Session,
+    /// Show usage by project
+    Project,
     /// Output single line for statusline/tmux integration
     Statusline,
 }
