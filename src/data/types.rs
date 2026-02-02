@@ -73,3 +73,13 @@ pub struct SessionStats {
     pub stats: Stats,
     pub models: HashMap<String, Stats>,
 }
+
+/// Project statistics
+#[derive(Debug, Default)]
+pub struct ProjectStats {
+    pub project_path: String,
+    pub project_name: String,
+    pub session_count: usize,
+    pub stats: Stats,
+    pub models: HashMap<String, Stats>,
+}

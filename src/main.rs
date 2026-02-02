@@ -8,11 +8,11 @@ use chrono::Local;
 use clap::Parser;
 
 use cli::{Cli, Commands};
-use data::{load_session_data, load_usage_data_quiet, load_usage_data_with_debug};
+use data::{load_project_data, load_session_data, load_usage_data_quiet, load_usage_data_with_debug};
 use output::{
-    output_daily_json, output_monthly_json, output_session_json, output_weekly_json,
-    print_daily_table, print_monthly_table, print_session_table, print_statusline,
-    print_statusline_json, print_weekly_table,
+    output_daily_json, output_monthly_json, output_project_json, output_session_json,
+    output_weekly_json, print_daily_table, print_monthly_table, print_project_table,
+    print_session_table, print_statusline, print_statusline_json, print_weekly_table,
 };
 use pricing::PricingDb;
 use utils::parse_date;
@@ -52,6 +52,22 @@ fn main() {
             output_session_json(&sessions, &pricing_db, cli.order);
         } else {
             print_session_table(&sessions, &pricing_db, cli.order, use_color, cli.compact);
+        }
+        return;
+    }
+
+    // Handle project command separately
+    if matches!(cli.command, Some(Commands::Project)) {
+        let projects = load_project_data(since, until, false);
+        if projects.is_empty() {
+            println!("No project data found for the specified date range.");
+            return;
+        }
+        let use_color = cli.use_color();
+        if cli.json {
+            output_project_json(&projects, &pricing_db, cli.order);
+        } else {
+            print_project_table(&projects, &pricing_db, cli.order, use_color, cli.compact);
         }
         return;
     }
