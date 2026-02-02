@@ -83,3 +83,12 @@ pub struct ProjectStats {
     pub stats: Stats,
     pub models: HashMap<String, Stats>,
 }
+
+/// 5-hour billing block statistics
+#[derive(Debug, Default)]
+pub struct BlockStats {
+    pub block_start: String,
+    pub block_end: String,
+    pub stats: Stats,
+    pub models: HashMap<String, Stats>,
+}

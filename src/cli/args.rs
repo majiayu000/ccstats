@@ -95,6 +95,8 @@ pub enum Commands {
     Session,
     /// Show usage by project
     Project,
+    /// Show usage by 5-hour billing blocks
+    Blocks,
     /// Output single line for statusline/tmux integration
     Statusline,
 }
