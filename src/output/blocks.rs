@@ -35,6 +35,7 @@ pub fn print_block_table(
     order: SortOrder,
     use_color: bool,
     compact: bool,
+    show_cost: bool,
 ) {
     let mut sorted_blocks: Vec<_> = blocks.iter().collect();
 
@@ -49,21 +50,27 @@ pub fn print_block_table(
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     if compact {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Block").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Block").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
             Cell::new("Output").add_attribute(Attribute::Bold),
             Cell::new("Cache Create").add_attribute(Attribute::Bold),
             Cell::new("Cache Read").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     }
 
     let mut total_stats = Stats::default();
@@ -80,21 +87,27 @@ pub fn print_block_table(
         let block_label = format!("{} - {}", block.block_start, block.block_end);
 
         if compact {
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(&block_label),
                 Cell::new(format_compact(block.stats.total_tokens())),
-                Cell::new(format!("${:.2}", block_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", block_cost)));
+            }
+            table.add_row(row);
         } else {
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(&block_label),
                 Cell::new(format_number(block.stats.input_tokens)),
                 Cell::new(format_number(block.stats.output_tokens)),
                 Cell::new(format_number(block.stats.cache_creation)),
                 Cell::new(format_number(block.stats.cache_read)),
                 Cell::new(format_number(block.stats.total_tokens())),
-                Cell::new(format!("${:.2}", block_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", block_cost)));
+            }
+            table.add_row(row);
         }
     }
 
@@ -103,21 +116,27 @@ pub fn print_block_table(
 
     // Add total row
     if compact {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
             styled_cell(&format_number(total_stats.output_tokens), cyan, false),
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
             styled_cell(&format_number(total_stats.cache_read), cyan, false),
             styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     }
 
     println!("\n  Claude Code 5-Hour Billing Blocks\n");
@@ -129,7 +148,8 @@ pub fn output_block_json(
     blocks: &[BlockStats],
     pricing_db: &PricingDb,
     order: SortOrder,
-) {
+    show_cost: bool,
+) -> String {
     let mut sorted_blocks: Vec<_> = blocks.iter().collect();
 
     match order {
@@ -145,7 +165,7 @@ pub fn output_block_json(
                 block_cost += calculate_cost(stats, model, pricing_db);
             }
 
-            serde_json::json!({
+            let mut obj = serde_json::json!({
                 "block_start": block.block_start,
                 "block_end": block.block_end,
                 "input_tokens": block.stats.input_tokens,
@@ -153,11 +173,14 @@ pub fn output_block_json(
                 "cache_creation_tokens": block.stats.cache_creation,
                 "cache_read_tokens": block.stats.cache_read,
                 "total_tokens": block.stats.total_tokens(),
-                "cost": block_cost,
                 "models": block.models.keys().collect::<Vec<_>>(),
-            })
+            });
+            if show_cost {
+                obj["cost"] = serde_json::json!(block_cost);
+            }
+            obj
         })
         .collect();
 
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    serde_json::to_string_pretty(&output).unwrap()
 }

@@ -1,4 +1,5 @@
 mod cli;
+mod config;
 mod data;
 mod output;
 mod pricing;
@@ -8,6 +9,7 @@ use chrono::Local;
 use clap::Parser;
 
 use cli::{Cli, Commands};
+use config::Config;
 use data::{load_block_data, load_project_data, load_session_data, load_usage_data_quiet, load_usage_data_with_debug};
 use output::{
     output_block_json, output_daily_json, output_monthly_json, output_project_json,
@@ -16,10 +18,39 @@ use output::{
     print_statusline_json, print_weekly_table,
 };
 use pricing::PricingDb;
-use utils::parse_date;
+use utils::{filter_json, parse_date};
+
+/// Print JSON output, optionally filtering through jq
+fn print_json(json: &str, jq_filter: Option<&str>) {
+    match jq_filter {
+        Some(filter) => {
+            match filter_json(json, filter) {
+                Ok(filtered) => print!("{}", filtered),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        None => println!("{}", json),
+    }
+}
 
 fn main() {
-    let cli = Cli::parse();
+    // Load config file (quiet for statusline)
+    let raw_cli = Cli::parse();
+    let is_statusline = matches!(raw_cli.command, Some(Commands::Statusline));
+
+    let config = if is_statusline {
+        Config::load_quiet()
+    } else {
+        Config::load()
+    };
+
+    // Merge config with CLI (CLI takes precedence)
+    let cli = raw_cli.with_config(&config);
+
+    let jq_filter = cli.jq.as_deref();
 
     let since = cli.since.as_ref().and_then(|s| parse_date(s));
     let until = cli.until.as_ref().and_then(|s| parse_date(s));
@@ -49,10 +80,12 @@ fn main() {
             return;
         }
         let use_color = cli.use_color();
+        let show_cost = cli.show_cost();
         if cli.json {
-            output_session_json(&sessions, &pricing_db, cli.order);
+            let json = output_session_json(&sessions, &pricing_db, cli.order, show_cost);
+            print_json(&json, jq_filter);
         } else {
-            print_session_table(&sessions, &pricing_db, cli.order, use_color, cli.compact);
+            print_session_table(&sessions, &pricing_db, cli.order, use_color, cli.compact, show_cost);
         }
         return;
     }
@@ -65,10 +98,12 @@ fn main() {
             return;
         }
         let use_color = cli.use_color();
+        let show_cost = cli.show_cost();
         if cli.json {
-            output_project_json(&projects, &pricing_db, cli.order);
+            let json = output_project_json(&projects, &pricing_db, cli.order, show_cost);
+            print_json(&json, jq_filter);
         } else {
-            print_project_table(&projects, &pricing_db, cli.order, use_color, cli.compact);
+            print_project_table(&projects, &pricing_db, cli.order, use_color, cli.compact, show_cost);
         }
         return;
     }
@@ -81,10 +116,12 @@ fn main() {
             return;
         }
         let use_color = cli.use_color();
+        let show_cost = cli.show_cost();
         if cli.json {
-            output_block_json(&blocks, &pricing_db, cli.order);
+            let json = output_block_json(&blocks, &pricing_db, cli.order, show_cost);
+            print_json(&json, jq_filter);
         } else {
-            print_block_table(&blocks, &pricing_db, cli.order, use_color, cli.compact);
+            print_block_table(&blocks, &pricing_db, cli.order, use_color, cli.compact, show_cost);
         }
         return;
     }
@@ -99,7 +136,8 @@ fn main() {
     // For statusline, handle empty data gracefully
     if is_statusline {
         if cli.json {
-            print_statusline_json(&day_stats, &pricing_db);
+            let json = print_statusline_json(&day_stats, &pricing_db);
+            print_json(&json, jq_filter);
         } else {
             print_statusline(&day_stats, &pricing_db);
         }
@@ -112,29 +150,33 @@ fn main() {
     }
 
     let use_color = cli.use_color();
+    let show_cost = cli.show_cost();
 
     // Determine output format based on command
     match &cli.command {
         Some(Commands::Weekly) => {
             if cli.json {
-                output_weekly_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
+                let json = output_weekly_json(&day_stats, &pricing_db, cli.order, cli.breakdown, show_cost);
+                print_json(&json, jq_filter);
             } else {
-                print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact);
+                print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact, show_cost);
             }
         }
         Some(Commands::Monthly) => {
             if cli.json {
-                output_monthly_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
+                let json = output_monthly_json(&day_stats, &pricing_db, cli.order, cli.breakdown, show_cost);
+                print_json(&json, jq_filter);
             } else {
-                print_monthly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact);
+                print_monthly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact, show_cost);
             }
         }
         _ => {
             // Daily is default (including Today which just filters dates)
             if cli.json {
-                output_daily_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
+                let json = output_daily_json(&day_stats, &pricing_db, cli.order, cli.breakdown, show_cost);
+                print_json(&json, jq_filter);
             } else {
-                print_daily_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact);
+                print_daily_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color, cli.compact, show_cost);
             }
         }
     }
