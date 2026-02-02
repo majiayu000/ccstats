@@ -191,19 +191,59 @@ pub fn merge_results(
     (merged, total_skipped, total_valid)
 }
 
-pub fn load_usage_data(
+pub fn load_usage_data_with_debug(
     since: Option<NaiveDate>,
     until: Option<NaiveDate>,
+    debug: bool,
 ) -> (HashMap<String, DayStats>, i64, i64) {
-    eprintln!("Scanning JSONL files...");
-    let files = find_jsonl_files();
-    eprintln!("Found {} files", files.len());
+    if debug {
+        eprintln!("[DEBUG] Scanning JSONL files...");
+    } else {
+        eprintln!("Scanning JSONL files...");
+    }
 
-    eprintln!("Processing...");
+    let files = find_jsonl_files();
+
+    if debug {
+        eprintln!("[DEBUG] Found {} files", files.len());
+        eprintln!("[DEBUG] Date filter: since={:?}, until={:?}", since, until);
+    } else {
+        eprintln!("Found {} files", files.len());
+    }
+
+    if debug {
+        eprintln!("[DEBUG] Processing files in parallel...");
+    } else {
+        eprintln!("Processing...");
+    }
+
     let results: Vec<_> = files
         .par_iter()
         .map(|f| process_file(f, since, until))
         .collect();
 
-    merge_results(results)
+    let (merged, skipped, valid) = merge_results(results);
+
+    if debug {
+        eprintln!("[DEBUG] Processing complete:");
+        eprintln!("[DEBUG]   - Total unique API calls: {}", valid);
+        eprintln!("[DEBUG]   - Streaming entries deduplicated: {}", skipped);
+        eprintln!("[DEBUG]   - Days with data: {}", merged.len());
+
+        // Show model breakdown
+        let mut model_counts: HashMap<String, i64> = HashMap::new();
+        for (_date, day_stats) in &merged {
+            for (model, stats) in &day_stats.models {
+                *model_counts.entry(model.clone()).or_default() += stats.count;
+            }
+        }
+        eprintln!("[DEBUG]   - Models used:");
+        let mut models: Vec<_> = model_counts.iter().collect();
+        models.sort_by(|a, b| b.1.cmp(a.1));
+        for (model, count) in models {
+            eprintln!("[DEBUG]       {} ({} calls)", model, count);
+        }
+    }
+
+    (merged, skipped, valid)
 }

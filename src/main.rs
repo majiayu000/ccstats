@@ -8,7 +8,7 @@ use chrono::Local;
 use clap::Parser;
 
 use cli::{Cli, Commands};
-use data::load_usage_data;
+use data::load_usage_data_with_debug;
 use output::{
     output_daily_json, output_monthly_json, output_weekly_json, print_daily_table,
     print_monthly_table, print_weekly_table,
@@ -35,7 +35,7 @@ fn main() {
     let pricing_db = PricingDb::load(cli.offline);
 
     // Load usage data
-    let (day_stats, skipped, valid) = load_usage_data(since, until);
+    let (day_stats, skipped, valid) = load_usage_data_with_debug(since, until, cli.debug);
 
     if day_stats.is_empty() {
         println!("No data found for the specified date range.");
