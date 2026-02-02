@@ -2,6 +2,7 @@ use chrono::{Datelike, NaiveDate};
 use comfy_table::{presets::UTF8_FULL, Attribute, Cell, Color, ContentArrangement, Table};
 use std::collections::HashMap;
 
+use crate::cli::SortOrder;
 use crate::data::{DayStats, Stats};
 use crate::pricing::{calculate_cost, PricingDb};
 
@@ -17,15 +18,23 @@ pub fn format_number(n: i64) -> String {
     result.chars().rev().collect()
 }
 
+fn sort_keys<'a>(keys: &mut Vec<&'a String>, order: SortOrder) {
+    match order {
+        SortOrder::Asc => keys.sort(),
+        SortOrder::Desc => keys.sort_by(|a, b| b.cmp(a)),
+    }
+}
+
 pub fn print_daily_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
     skipped: i64,
     valid: i64,
     pricing_db: &PricingDb,
+    order: SortOrder,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
-    dates.sort();
+    sort_keys(&mut dates, order);
 
     let mut table = Table::new();
     table
@@ -152,6 +161,7 @@ pub fn print_monthly_table(
     skipped: i64,
     valid: i64,
     pricing_db: &PricingDb,
+    order: SortOrder,
 ) {
     // Aggregate by month
     let mut month_stats: HashMap<String, DayStats> = HashMap::new();
@@ -171,7 +181,7 @@ pub fn print_monthly_table(
     }
 
     let mut months: Vec<_> = month_stats.keys().collect();
-    months.sort();
+    sort_keys(&mut months, order);
 
     let mut table = Table::new();
     table
@@ -310,6 +320,7 @@ pub fn print_weekly_table(
     skipped: i64,
     valid: i64,
     pricing_db: &PricingDb,
+    order: SortOrder,
 ) {
     // Aggregate by week (Monday start)
     let mut week_stats: HashMap<String, DayStats> = HashMap::new();
@@ -329,7 +340,7 @@ pub fn print_weekly_table(
     }
 
     let mut weeks: Vec<_> = week_stats.keys().collect();
-    weeks.sort();
+    sort_keys(&mut weeks, order);
 
     let mut table = Table::new();
     table

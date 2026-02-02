@@ -1,4 +1,13 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum SortOrder {
+    /// Oldest first (default)
+    #[default]
+    Asc,
+    /// Newest first
+    Desc,
+}
 
 #[derive(Parser)]
 #[command(name = "ccstats")]
@@ -26,6 +35,10 @@ pub struct Cli {
     /// Use offline cached pricing (skip fetching from LiteLLM)
     #[arg(short = 'O', long, global = true)]
     pub offline: bool,
+
+    /// Sort order for results
+    #[arg(short, long, global = true, value_enum, default_value = "asc")]
+    pub order: SortOrder,
 }
 
 #[derive(Subcommand)]
