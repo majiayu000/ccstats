@@ -35,6 +35,7 @@ pub fn print_project_table(
     order: SortOrder,
     use_color: bool,
     compact: bool,
+    show_cost: bool,
 ) {
     let mut sorted_projects: Vec<_> = projects.iter().collect();
 
@@ -58,21 +59,27 @@ pub fn print_project_table(
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     if compact {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Project").add_attribute(Attribute::Bold),
             Cell::new("Sessions").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Project").add_attribute(Attribute::Bold),
             Cell::new("Sessions").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
             Cell::new("Output").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     }
 
     let mut total_stats = Stats::default();
@@ -89,21 +96,27 @@ pub fn print_project_table(
         total_sessions += project.session_count;
 
         if compact {
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(&project.project_name),
                 Cell::new(project.session_count.to_string()),
                 Cell::new(format_compact(project.stats.total_tokens())),
-                Cell::new(format!("${:.2}", project_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", project_cost)));
+            }
+            table.add_row(row);
         } else {
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(&project.project_name),
                 Cell::new(project.session_count.to_string()),
                 Cell::new(format_number(project.stats.input_tokens)),
                 Cell::new(format_number(project.stats.output_tokens)),
                 Cell::new(format_number(project.stats.total_tokens())),
-                Cell::new(format!("${:.2}", project_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", project_cost)));
+            }
+            table.add_row(row);
         }
     }
 
@@ -112,21 +125,27 @@ pub fn print_project_table(
 
     // Add total row
     if compact {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             styled_cell(&total_sessions.to_string(), cyan, false),
             styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             styled_cell(&total_sessions.to_string(), cyan, false),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
             styled_cell(&format_number(total_stats.output_tokens), cyan, false),
             styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     }
 
     println!("\n  Claude Code Project Usage\n");
@@ -138,7 +157,8 @@ pub fn output_project_json(
     projects: &[ProjectStats],
     pricing_db: &PricingDb,
     order: SortOrder,
-) {
+    show_cost: bool,
+) -> String {
     let mut sorted_projects: Vec<_> = projects.iter().collect();
 
     match order {
@@ -162,7 +182,7 @@ pub fn output_project_json(
                 project_cost += calculate_cost(stats, model, pricing_db);
             }
 
-            serde_json::json!({
+            let mut obj = serde_json::json!({
                 "project": project.project_name,
                 "project_path": project.project_path,
                 "session_count": project.session_count,
@@ -171,11 +191,14 @@ pub fn output_project_json(
                 "cache_creation_tokens": project.stats.cache_creation,
                 "cache_read_tokens": project.stats.cache_read,
                 "total_tokens": project.stats.total_tokens(),
-                "cost": project_cost,
                 "models": project.models.keys().collect::<Vec<_>>(),
-            })
+            });
+            if show_cost {
+                obj["cost"] = serde_json::json!(project_cost);
+            }
+            obj
         })
         .collect();
 
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    serde_json::to_string_pretty(&output).unwrap()
 }

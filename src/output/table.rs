@@ -58,6 +58,7 @@ pub fn print_daily_table(
     order: SortOrder,
     use_color: bool,
     compact: bool,
+    show_cost: bool,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
     sort_keys(&mut dates, order);
@@ -69,25 +70,31 @@ pub fn print_daily_table(
 
     if compact {
         // Compact mode: Date, In, Out, Total, Cost
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Date").add_attribute(Attribute::Bold),
             Cell::new("In").add_attribute(Attribute::Bold),
             Cell::new("Out").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else if breakdown {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Date").add_attribute(Attribute::Bold),
             Cell::new("Model").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
             Cell::new("Output").add_attribute(Attribute::Bold),
             Cell::new("Cache W").add_attribute(Attribute::Bold),
             Cell::new("Cache R").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Date").add_attribute(Attribute::Bold),
             Cell::new("Models").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
@@ -95,8 +102,11 @@ pub fn print_daily_table(
             Cell::new("Cache W").add_attribute(Attribute::Bold),
             Cell::new("Cache R").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     }
 
     let mut total_stats = Stats::default();
@@ -112,13 +122,16 @@ pub fn print_daily_table(
             }
             total_cost += day_cost;
 
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(*date),
                 Cell::new(format_compact(day.stats.input_tokens)),
                 Cell::new(format_compact(day.stats.output_tokens)),
                 Cell::new(format_compact(day.stats.total_tokens())),
-                Cell::new(format!("${:.2}", day_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", day_cost)));
+            }
+            table.add_row(row);
         } else if breakdown {
             let mut models: Vec<_> = day.models.keys().collect();
             models.sort();
@@ -128,15 +141,18 @@ pub fn print_daily_table(
                 let cost = calculate_cost(stats, model, pricing_db);
                 total_cost += cost;
 
-                table.add_row(vec![
+                let mut row = vec![
                     Cell::new(if i == 0 { *date } else { "" }),
                     Cell::new(*model),
                     Cell::new(format_number(stats.input_tokens)),
                     Cell::new(format_number(stats.output_tokens)),
                     Cell::new(format_number(stats.cache_creation)),
                     Cell::new(format_number(stats.cache_read)),
-                    Cell::new(format!("${:.2}", cost)),
-                ]);
+                ];
+                if show_cost {
+                    row.push(Cell::new(format!("${:.2}", cost)));
+                }
+                table.add_row(row);
             }
         } else {
             let models: Vec<_> = day.models.keys().map(|s| s.as_str()).collect();
@@ -148,7 +164,7 @@ pub fn print_daily_table(
             }
             total_cost += day_cost;
 
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(*date),
                 Cell::new(&models_str),
                 Cell::new(format_number(day.stats.input_tokens)),
@@ -156,8 +172,11 @@ pub fn print_daily_table(
                 Cell::new(format_number(day.stats.cache_creation)),
                 Cell::new(format_number(day.stats.cache_read)),
                 Cell::new(format_number(day.stats.total_tokens())),
-                Cell::new(format!("${:.2}", day_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", day_cost)));
+            }
+            table.add_row(row);
         }
 
         total_stats.add(&day.stats);
@@ -168,25 +187,31 @@ pub fn print_daily_table(
 
     // Add total row
     if compact {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             styled_cell(&format_compact(total_stats.input_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.output_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else if breakdown {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
             styled_cell(&format_number(total_stats.output_tokens), cyan, false),
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
             styled_cell(&format_number(total_stats.cache_read), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
@@ -194,8 +219,11 @@ pub fn print_daily_table(
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
             styled_cell(&format_number(total_stats.cache_read), cyan, false),
             styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     }
 
     println!("\n  Claude Code Token Usage\n");
@@ -216,6 +244,7 @@ pub fn print_monthly_table(
     order: SortOrder,
     use_color: bool,
     compact: bool,
+    show_cost: bool,
 ) {
     // Aggregate by month
     let mut month_stats: HashMap<String, DayStats> = HashMap::new();
@@ -243,25 +272,31 @@ pub fn print_monthly_table(
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     if compact {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Month").add_attribute(Attribute::Bold),
             Cell::new("In").add_attribute(Attribute::Bold),
             Cell::new("Out").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else if breakdown {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Month").add_attribute(Attribute::Bold),
             Cell::new("Model").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
             Cell::new("Output").add_attribute(Attribute::Bold),
             Cell::new("Cache W").add_attribute(Attribute::Bold),
             Cell::new("Cache R").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Month").add_attribute(Attribute::Bold),
             Cell::new("Models").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
@@ -269,8 +304,11 @@ pub fn print_monthly_table(
             Cell::new("Cache W").add_attribute(Attribute::Bold),
             Cell::new("Cache R").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     }
 
     let mut total_stats = Stats::default();
@@ -286,13 +324,16 @@ pub fn print_monthly_table(
             }
             total_cost += month_cost;
 
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(*month),
                 Cell::new(format_compact(month_data.stats.input_tokens)),
                 Cell::new(format_compact(month_data.stats.output_tokens)),
                 Cell::new(format_compact(month_data.stats.total_tokens())),
-                Cell::new(format!("${:.2}", month_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", month_cost)));
+            }
+            table.add_row(row);
         } else if breakdown {
             let mut models: Vec<_> = month_data.models.keys().collect();
             models.sort();
@@ -302,15 +343,18 @@ pub fn print_monthly_table(
                 let cost = calculate_cost(stats, model, pricing_db);
                 total_cost += cost;
 
-                table.add_row(vec![
+                let mut row = vec![
                     Cell::new(if i == 0 { *month } else { "" }),
                     Cell::new(*model),
                     Cell::new(format_number(stats.input_tokens)),
                     Cell::new(format_number(stats.output_tokens)),
                     Cell::new(format_number(stats.cache_creation)),
                     Cell::new(format_number(stats.cache_read)),
-                    Cell::new(format!("${:.2}", cost)),
-                ]);
+                ];
+                if show_cost {
+                    row.push(Cell::new(format!("${:.2}", cost)));
+                }
+                table.add_row(row);
             }
         } else {
             let models: Vec<_> = month_data.models.keys().map(|s| s.as_str()).collect();
@@ -322,7 +366,7 @@ pub fn print_monthly_table(
             }
             total_cost += month_cost;
 
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(*month),
                 Cell::new(&models_str),
                 Cell::new(format_number(month_data.stats.input_tokens)),
@@ -330,8 +374,11 @@ pub fn print_monthly_table(
                 Cell::new(format_number(month_data.stats.cache_creation)),
                 Cell::new(format_number(month_data.stats.cache_read)),
                 Cell::new(format_number(month_data.stats.total_tokens())),
-                Cell::new(format!("${:.2}", month_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", month_cost)));
+            }
+            table.add_row(row);
         }
 
         total_stats.add(&month_data.stats);
@@ -342,25 +389,31 @@ pub fn print_monthly_table(
 
     // Add total row
     if compact {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             styled_cell(&format_compact(total_stats.input_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.output_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else if breakdown {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
             styled_cell(&format_number(total_stats.output_tokens), cyan, false),
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
             styled_cell(&format_number(total_stats.cache_read), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
@@ -368,8 +421,11 @@ pub fn print_monthly_table(
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
             styled_cell(&format_number(total_stats.cache_read), cyan, false),
             styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     }
 
     println!("\n  Claude Code Monthly Token Usage\n");
@@ -402,6 +458,7 @@ pub fn print_weekly_table(
     order: SortOrder,
     use_color: bool,
     compact: bool,
+    show_cost: bool,
 ) {
     // Aggregate by week (Monday start)
     let mut week_stats: HashMap<String, DayStats> = HashMap::new();
@@ -429,25 +486,31 @@ pub fn print_weekly_table(
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     if compact {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Week").add_attribute(Attribute::Bold),
             Cell::new("In").add_attribute(Attribute::Bold),
             Cell::new("Out").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else if breakdown {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Week").add_attribute(Attribute::Bold),
             Cell::new("Model").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
             Cell::new("Output").add_attribute(Attribute::Bold),
             Cell::new("Cache W").add_attribute(Attribute::Bold),
             Cell::new("Cache R").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     } else {
-        table.set_header(vec![
+        let mut header = vec![
             Cell::new("Week").add_attribute(Attribute::Bold),
             Cell::new("Models").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
@@ -455,8 +518,11 @@ pub fn print_weekly_table(
             Cell::new("Cache W").add_attribute(Attribute::Bold),
             Cell::new("Cache R").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
-            Cell::new("Cost").add_attribute(Attribute::Bold),
-        ]);
+        ];
+        if show_cost {
+            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+        }
+        table.set_header(header);
     }
 
     let mut total_stats = Stats::default();
@@ -472,13 +538,16 @@ pub fn print_weekly_table(
             }
             total_cost += week_cost;
 
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(*week),
                 Cell::new(format_compact(week_data.stats.input_tokens)),
                 Cell::new(format_compact(week_data.stats.output_tokens)),
                 Cell::new(format_compact(week_data.stats.total_tokens())),
-                Cell::new(format!("${:.2}", week_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", week_cost)));
+            }
+            table.add_row(row);
         } else if breakdown {
             let mut models: Vec<_> = week_data.models.keys().collect();
             models.sort();
@@ -488,15 +557,18 @@ pub fn print_weekly_table(
                 let cost = calculate_cost(stats, model, pricing_db);
                 total_cost += cost;
 
-                table.add_row(vec![
+                let mut row = vec![
                     Cell::new(if i == 0 { *week } else { "" }),
                     Cell::new(*model),
                     Cell::new(format_number(stats.input_tokens)),
                     Cell::new(format_number(stats.output_tokens)),
                     Cell::new(format_number(stats.cache_creation)),
                     Cell::new(format_number(stats.cache_read)),
-                    Cell::new(format!("${:.2}", cost)),
-                ]);
+                ];
+                if show_cost {
+                    row.push(Cell::new(format!("${:.2}", cost)));
+                }
+                table.add_row(row);
             }
         } else {
             let models: Vec<_> = week_data.models.keys().map(|s| s.as_str()).collect();
@@ -508,7 +580,7 @@ pub fn print_weekly_table(
             }
             total_cost += week_cost;
 
-            table.add_row(vec![
+            let mut row = vec![
                 Cell::new(*week),
                 Cell::new(&models_str),
                 Cell::new(format_number(week_data.stats.input_tokens)),
@@ -516,8 +588,11 @@ pub fn print_weekly_table(
                 Cell::new(format_number(week_data.stats.cache_creation)),
                 Cell::new(format_number(week_data.stats.cache_read)),
                 Cell::new(format_number(week_data.stats.total_tokens())),
-                Cell::new(format!("${:.2}", week_cost)),
-            ]);
+            ];
+            if show_cost {
+                row.push(Cell::new(format!("${:.2}", week_cost)));
+            }
+            table.add_row(row);
         }
 
         total_stats.add(&week_data.stats);
@@ -528,25 +603,31 @@ pub fn print_weekly_table(
 
     // Add total row
     if compact {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             styled_cell(&format_compact(total_stats.input_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.output_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else if breakdown {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
             styled_cell(&format_number(total_stats.output_tokens), cyan, false),
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
             styled_cell(&format_number(total_stats.cache_read), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     } else {
-        table.add_row(vec![
+        let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
@@ -554,8 +635,11 @@ pub fn print_weekly_table(
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
             styled_cell(&format_number(total_stats.cache_read), cyan, false),
             styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
-            styled_cell(&format!("${:.2}", total_cost), green, true),
-        ]);
+        ];
+        if show_cost {
+            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+        }
+        table.add_row(row);
     }
 
     println!("\n  Claude Code Weekly Token Usage\n");

@@ -42,7 +42,7 @@ pub fn print_statusline(day_stats: &HashMap<String, DayStats>, pricing_db: &Pric
 }
 
 /// Output statusline as JSON for programmatic consumption
-pub fn print_statusline_json(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) {
+pub fn print_statusline_json(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) -> String {
     let mut total_input = 0i64;
     let mut total_output = 0i64;
     let mut total_cache_creation = 0i64;
@@ -74,5 +74,5 @@ pub fn print_statusline_json(day_stats: &HashMap<String, DayStats>, pricing_db: 
         }
     });
 
-    println!("{}", serde_json::to_string(&output).unwrap());
+    serde_json::to_string(&output).unwrap()
 }

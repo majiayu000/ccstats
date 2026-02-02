@@ -36,7 +36,8 @@ pub fn output_daily_json(
     pricing_db: &PricingDb,
     order: SortOrder,
     breakdown: bool,
-) {
+    show_cost: bool,
+) -> String {
     let mut output: Vec<serde_json::Value> = Vec::new();
 
     for (date, stats) in day_stats {
@@ -48,55 +49,66 @@ pub fn output_daily_json(
             for (model, model_stats) in &stats.models {
                 let cost = calculate_cost(model_stats, model, pricing_db);
                 day_cost += cost;
-                models_breakdown.push(serde_json::json!({
+                let mut model_obj = serde_json::json!({
                     "model": model,
                     "input_tokens": model_stats.input_tokens,
                     "output_tokens": model_stats.output_tokens,
                     "cache_creation_tokens": model_stats.cache_creation,
                     "cache_read_tokens": model_stats.cache_read,
                     "total_tokens": model_stats.total_tokens(),
-                    "cost": cost,
-                }));
+                });
+                if show_cost {
+                    model_obj["cost"] = serde_json::json!(cost);
+                }
+                models_breakdown.push(model_obj);
             }
 
             // Sort models by cost descending
-            models_breakdown.sort_by(|a, b| {
-                b.get("cost")
-                    .and_then(|v| v.as_f64())
-                    .partial_cmp(&a.get("cost").and_then(|v| v.as_f64()))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            if show_cost {
+                models_breakdown.sort_by(|a, b| {
+                    b.get("cost")
+                        .and_then(|v| v.as_f64())
+                        .partial_cmp(&a.get("cost").and_then(|v| v.as_f64()))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
 
-            output.push(serde_json::json!({
+            let mut day_obj = serde_json::json!({
                 "date": date,
                 "input_tokens": stats.stats.input_tokens,
                 "output_tokens": stats.stats.output_tokens,
                 "cache_creation_tokens": stats.stats.cache_creation,
                 "cache_read_tokens": stats.stats.cache_read,
                 "total_tokens": stats.stats.total_tokens(),
-                "cost": day_cost,
                 "breakdown": models_breakdown,
-            }));
+            });
+            if show_cost {
+                day_obj["cost"] = serde_json::json!(day_cost);
+            }
+            output.push(day_obj);
         } else {
             let mut day_cost = 0.0;
             for (model, model_stats) in &stats.models {
                 day_cost += calculate_cost(model_stats, model, pricing_db);
             }
-            output.push(serde_json::json!({
+            let mut day_obj = serde_json::json!({
                 "date": date,
                 "input_tokens": stats.stats.input_tokens,
                 "output_tokens": stats.stats.output_tokens,
                 "cache_creation_tokens": stats.stats.cache_creation,
                 "cache_read_tokens": stats.stats.cache_read,
                 "total_tokens": stats.stats.total_tokens(),
-                "cost": day_cost,
                 "models": stats.models.keys().collect::<Vec<_>>(),
-            }));
+            });
+            if show_cost {
+                day_obj["cost"] = serde_json::json!(day_cost);
+            }
+            output.push(day_obj);
         }
     }
 
     sort_output(&mut output, "date", order);
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    serde_json::to_string_pretty(&output).unwrap()
 }
 
 pub fn output_monthly_json(
@@ -104,7 +116,8 @@ pub fn output_monthly_json(
     pricing_db: &PricingDb,
     order: SortOrder,
     breakdown: bool,
-) {
+    show_cost: bool,
+) -> String {
     // Aggregate by month
     let mut month_stats: HashMap<String, DayStats> = HashMap::new();
 
@@ -132,54 +145,65 @@ pub fn output_monthly_json(
             for (model, model_stats) in &stats.models {
                 let cost = calculate_cost(model_stats, model, pricing_db);
                 month_cost += cost;
-                models_breakdown.push(serde_json::json!({
+                let mut model_obj = serde_json::json!({
                     "model": model,
                     "input_tokens": model_stats.input_tokens,
                     "output_tokens": model_stats.output_tokens,
                     "cache_creation_tokens": model_stats.cache_creation,
                     "cache_read_tokens": model_stats.cache_read,
                     "total_tokens": model_stats.total_tokens(),
-                    "cost": cost,
-                }));
+                });
+                if show_cost {
+                    model_obj["cost"] = serde_json::json!(cost);
+                }
+                models_breakdown.push(model_obj);
             }
 
-            models_breakdown.sort_by(|a, b| {
-                b.get("cost")
-                    .and_then(|v| v.as_f64())
-                    .partial_cmp(&a.get("cost").and_then(|v| v.as_f64()))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            if show_cost {
+                models_breakdown.sort_by(|a, b| {
+                    b.get("cost")
+                        .and_then(|v| v.as_f64())
+                        .partial_cmp(&a.get("cost").and_then(|v| v.as_f64()))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
 
-            output.push(serde_json::json!({
+            let mut month_obj = serde_json::json!({
                 "month": month,
                 "input_tokens": stats.stats.input_tokens,
                 "output_tokens": stats.stats.output_tokens,
                 "cache_creation_tokens": stats.stats.cache_creation,
                 "cache_read_tokens": stats.stats.cache_read,
                 "total_tokens": stats.stats.total_tokens(),
-                "cost": month_cost,
                 "breakdown": models_breakdown,
-            }));
+            });
+            if show_cost {
+                month_obj["cost"] = serde_json::json!(month_cost);
+            }
+            output.push(month_obj);
         } else {
             let mut month_cost = 0.0;
             for (model, model_stats) in &stats.models {
                 month_cost += calculate_cost(model_stats, model, pricing_db);
             }
-            output.push(serde_json::json!({
+            let mut month_obj = serde_json::json!({
                 "month": month,
                 "input_tokens": stats.stats.input_tokens,
                 "output_tokens": stats.stats.output_tokens,
                 "cache_creation_tokens": stats.stats.cache_creation,
                 "cache_read_tokens": stats.stats.cache_read,
                 "total_tokens": stats.stats.total_tokens(),
-                "cost": month_cost,
                 "models": stats.models.keys().collect::<Vec<_>>(),
-            }));
+            });
+            if show_cost {
+                month_obj["cost"] = serde_json::json!(month_cost);
+            }
+            output.push(month_obj);
         }
     }
 
     sort_output(&mut output, "month", order);
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    serde_json::to_string_pretty(&output).unwrap()
 }
 
 pub fn output_weekly_json(
@@ -187,7 +211,8 @@ pub fn output_weekly_json(
     pricing_db: &PricingDb,
     order: SortOrder,
     breakdown: bool,
-) {
+    show_cost: bool,
+) -> String {
     // Aggregate by week
     let mut week_stats: HashMap<String, DayStats> = HashMap::new();
 
@@ -215,52 +240,63 @@ pub fn output_weekly_json(
             for (model, model_stats) in &stats.models {
                 let cost = calculate_cost(model_stats, model, pricing_db);
                 week_cost += cost;
-                models_breakdown.push(serde_json::json!({
+                let mut model_obj = serde_json::json!({
                     "model": model,
                     "input_tokens": model_stats.input_tokens,
                     "output_tokens": model_stats.output_tokens,
                     "cache_creation_tokens": model_stats.cache_creation,
                     "cache_read_tokens": model_stats.cache_read,
                     "total_tokens": model_stats.total_tokens(),
-                    "cost": cost,
-                }));
+                });
+                if show_cost {
+                    model_obj["cost"] = serde_json::json!(cost);
+                }
+                models_breakdown.push(model_obj);
             }
 
-            models_breakdown.sort_by(|a, b| {
-                b.get("cost")
-                    .and_then(|v| v.as_f64())
-                    .partial_cmp(&a.get("cost").and_then(|v| v.as_f64()))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            if show_cost {
+                models_breakdown.sort_by(|a, b| {
+                    b.get("cost")
+                        .and_then(|v| v.as_f64())
+                        .partial_cmp(&a.get("cost").and_then(|v| v.as_f64()))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
 
-            output.push(serde_json::json!({
+            let mut week_obj = serde_json::json!({
                 "week": week,
                 "input_tokens": stats.stats.input_tokens,
                 "output_tokens": stats.stats.output_tokens,
                 "cache_creation_tokens": stats.stats.cache_creation,
                 "cache_read_tokens": stats.stats.cache_read,
                 "total_tokens": stats.stats.total_tokens(),
-                "cost": week_cost,
                 "breakdown": models_breakdown,
-            }));
+            });
+            if show_cost {
+                week_obj["cost"] = serde_json::json!(week_cost);
+            }
+            output.push(week_obj);
         } else {
             let mut week_cost = 0.0;
             for (model, model_stats) in &stats.models {
                 week_cost += calculate_cost(model_stats, model, pricing_db);
             }
-            output.push(serde_json::json!({
+            let mut week_obj = serde_json::json!({
                 "week": week,
                 "input_tokens": stats.stats.input_tokens,
                 "output_tokens": stats.stats.output_tokens,
                 "cache_creation_tokens": stats.stats.cache_creation,
                 "cache_read_tokens": stats.stats.cache_read,
                 "total_tokens": stats.stats.total_tokens(),
-                "cost": week_cost,
                 "models": stats.models.keys().collect::<Vec<_>>(),
-            }));
+            });
+            if show_cost {
+                week_obj["cost"] = serde_json::json!(week_cost);
+            }
+            output.push(week_obj);
         }
     }
 
     sort_output(&mut output, "week", order);
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    serde_json::to_string_pretty(&output).unwrap()
 }

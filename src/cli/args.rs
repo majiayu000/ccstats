@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 
+use crate::config::Config;
+
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum SortOrder {
     /// Oldest first (default)
@@ -18,6 +20,15 @@ pub enum ColorMode {
     Always,
     /// Never use colors
     Never,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq)]
+pub enum CostMode {
+    /// Show calculated costs (default)
+    #[default]
+    Show,
+    /// Hide cost column entirely
+    Hide,
 }
 
 #[derive(Parser)]
@@ -66,9 +77,77 @@ pub struct Cli {
     /// Compact output (fewer columns, shorter names)
     #[arg(short = 'c', long, global = true)]
     pub compact: bool,
+
+    /// Cost display mode
+    #[arg(long, global = true, value_enum, default_value = "show")]
+    pub cost: CostMode,
+
+    /// Hide cost column (shorthand for --cost=hide)
+    #[arg(long, global = true)]
+    pub no_cost: bool,
+
+    /// Filter JSON output with jq expression (requires jq installed)
+    #[arg(long, global = true, value_name = "FILTER")]
+    pub jq: Option<String>,
 }
 
 impl Cli {
+    /// Merge config file values into CLI (CLI args take precedence)
+    pub fn with_config(mut self, config: &Config) -> Self {
+        // Only apply config values if CLI didn't explicitly set them
+        // For boolean flags, config only applies if CLI is false (default)
+        if !self.offline && config.offline {
+            self.offline = true;
+        }
+        if !self.compact && config.compact {
+            self.compact = true;
+        }
+        if !self.no_cost && config.no_cost {
+            self.no_cost = true;
+        }
+        if !self.no_color && config.no_color {
+            self.no_color = true;
+        }
+        if !self.breakdown && config.breakdown {
+            self.breakdown = true;
+        }
+        if !self.debug && config.debug {
+            self.debug = true;
+        }
+
+        // For enum values, apply config if it's set
+        if let Some(ref order) = config.order {
+            if matches!(self.order, SortOrder::Asc) {
+                // Only override if CLI is at default
+                match order.to_lowercase().as_str() {
+                    "desc" => self.order = SortOrder::Desc,
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some(ref color) = config.color {
+            if matches!(self.color, ColorMode::Auto) {
+                match color.to_lowercase().as_str() {
+                    "always" => self.color = ColorMode::Always,
+                    "never" => self.color = ColorMode::Never,
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some(ref cost) = config.cost {
+            if matches!(self.cost, CostMode::Show) {
+                match cost.to_lowercase().as_str() {
+                    "hide" => self.cost = CostMode::Hide,
+                    _ => {}
+                }
+            }
+        }
+
+        self
+    }
+
     pub fn use_color(&self) -> bool {
         if self.no_color {
             return false;
@@ -78,6 +157,13 @@ impl Cli {
             ColorMode::Never => false,
             ColorMode::Auto => atty::is(atty::Stream::Stdout),
         }
+    }
+
+    pub fn show_cost(&self) -> bool {
+        if self.no_cost {
+            return false;
+        }
+        self.cost == CostMode::Show
     }
 }
 
