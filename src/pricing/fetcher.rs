@@ -89,28 +89,48 @@ impl PricingDb {
     }
 
     pub fn load(offline: bool) -> Self {
+        Self::load_internal(offline, false)
+    }
+
+    pub fn load_quiet(offline: bool) -> Self {
+        Self::load_internal(offline, true)
+    }
+
+    fn load_internal(offline: bool, quiet: bool) -> Self {
         if offline {
             if let Some(db) = Self::load_from_cache() {
-                eprintln!("Using cached pricing data");
+                if !quiet {
+                    eprintln!("Using cached pricing data");
+                }
                 return db;
             }
-            eprintln!("No cached pricing, using built-in defaults");
+            if !quiet {
+                eprintln!("No cached pricing, using built-in defaults");
+            }
             return Self::default();
         }
 
-        eprintln!("Fetching pricing from LiteLLM...");
+        if !quiet {
+            eprintln!("Fetching pricing from LiteLLM...");
+        }
         if let Some((db, raw_data)) = Self::fetch_from_litellm() {
             db.save_to_cache(&raw_data);
-            eprintln!("Loaded pricing for {} Claude models", db.models.len());
+            if !quiet {
+                eprintln!("Loaded pricing for {} Claude models", db.models.len());
+            }
             return db;
         }
 
-        eprintln!("Failed to fetch pricing, trying cache...");
+        if !quiet {
+            eprintln!("Failed to fetch pricing, trying cache...");
+        }
         if let Some(db) = Self::load_from_cache() {
             return db;
         }
 
-        eprintln!("Using built-in defaults");
+        if !quiet {
+            eprintln!("Using built-in defaults");
+        }
         Self::default()
     }
 

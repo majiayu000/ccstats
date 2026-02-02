@@ -196,25 +196,47 @@ pub fn load_usage_data_with_debug(
     until: Option<NaiveDate>,
     debug: bool,
 ) -> (HashMap<String, DayStats>, i64, i64) {
-    if debug {
-        eprintln!("[DEBUG] Scanning JSONL files...");
-    } else {
-        eprintln!("Scanning JSONL files...");
+    load_usage_data_internal(since, until, debug, false)
+}
+
+pub fn load_usage_data_quiet(
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+) -> (HashMap<String, DayStats>, i64, i64) {
+    load_usage_data_internal(since, until, false, true)
+}
+
+fn load_usage_data_internal(
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+    debug: bool,
+    quiet: bool,
+) -> (HashMap<String, DayStats>, i64, i64) {
+    if !quiet {
+        if debug {
+            eprintln!("[DEBUG] Scanning JSONL files...");
+        } else {
+            eprintln!("Scanning JSONL files...");
+        }
     }
 
     let files = find_jsonl_files();
 
-    if debug {
-        eprintln!("[DEBUG] Found {} files", files.len());
-        eprintln!("[DEBUG] Date filter: since={:?}, until={:?}", since, until);
-    } else {
-        eprintln!("Found {} files", files.len());
+    if !quiet {
+        if debug {
+            eprintln!("[DEBUG] Found {} files", files.len());
+            eprintln!("[DEBUG] Date filter: since={:?}, until={:?}", since, until);
+        } else {
+            eprintln!("Found {} files", files.len());
+        }
     }
 
-    if debug {
-        eprintln!("[DEBUG] Processing files in parallel...");
-    } else {
-        eprintln!("Processing...");
+    if !quiet {
+        if debug {
+            eprintln!("[DEBUG] Processing files in parallel...");
+        } else {
+            eprintln!("Processing...");
+        }
     }
 
     let results: Vec<_> = files
@@ -224,7 +246,7 @@ pub fn load_usage_data_with_debug(
 
     let (merged, skipped, valid) = merge_results(results);
 
-    if debug {
+    if debug && !quiet {
         eprintln!("[DEBUG] Processing complete:");
         eprintln!("[DEBUG]   - Total unique API calls: {}", valid);
         eprintln!("[DEBUG]   - Streaming entries deduplicated: {}", skipped);

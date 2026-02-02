@@ -91,4 +91,6 @@ pub enum Commands {
     Monthly,
     /// Show today's usage
     Today,
+    /// Output single line for statusline/tmux integration
+    Statusline,
 }
