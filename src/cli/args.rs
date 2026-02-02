@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::config::Config;
@@ -171,7 +173,7 @@ impl Cli {
         match self.color {
             ColorMode::Always => true,
             ColorMode::Never => false,
-            ColorMode::Auto => atty::is(atty::Stream::Stdout),
+            ColorMode::Auto => std::io::stdout().is_terminal(),
         }
     }
 

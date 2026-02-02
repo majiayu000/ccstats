@@ -45,7 +45,8 @@ impl PricingDb {
     pub fn fetch_from_litellm() -> Option<(Self, HashMap<String, serde_json::Value>)> {
         let url = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
         let response = ureq::get(url).call().ok()?;
-        let data: HashMap<String, serde_json::Value> = response.into_json().ok()?;
+        let mut body = response.into_body();
+        let data: HashMap<String, serde_json::Value> = serde_json::from_reader(body.as_reader()).ok()?;
         let db = Self::parse_litellm_data(data.clone());
         Some((db, data))
     }
