@@ -48,14 +48,14 @@ fn main() {
     match &cli.command {
         Some(Commands::Weekly) => {
             if cli.json {
-                output_weekly_json(&day_stats, &pricing_db, cli.order);
+                output_weekly_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
             } else {
                 print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
             }
         }
         Some(Commands::Monthly) => {
             if cli.json {
-                output_monthly_json(&day_stats, &pricing_db, cli.order);
+                output_monthly_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
             } else {
                 print_monthly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
             }
@@ -63,7 +63,7 @@ fn main() {
         _ => {
             // Daily is default (including Today which just filters dates)
             if cli.json {
-                output_daily_json(&day_stats, &pricing_db, cli.order);
+                output_daily_json(&day_stats, &pricing_db, cli.order, cli.breakdown);
             } else {
                 print_daily_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
             }
