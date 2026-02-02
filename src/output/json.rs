@@ -1,6 +1,7 @@
 use chrono::{Datelike, NaiveDate};
 use std::collections::HashMap;
 
+use crate::cli::SortOrder;
 use crate::data::DayStats;
 use crate::pricing::{calculate_cost, PricingDb};
 
@@ -15,7 +16,11 @@ fn get_week_start(date_str: &str) -> String {
     }
 }
 
-pub fn output_daily_json(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) {
+pub fn output_daily_json(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    order: SortOrder,
+) {
     let mut output: Vec<serde_json::Value> = Vec::new();
     for (date, stats) in day_stats {
         let mut day_cost = 0.0;
@@ -34,15 +39,26 @@ pub fn output_daily_json(day_stats: &HashMap<String, DayStats>, pricing_db: &Pri
         }));
     }
     // Sort by date
-    output.sort_by(|a, b| {
-        a.get("date")
-            .and_then(|v| v.as_str())
-            .cmp(&b.get("date").and_then(|v| v.as_str()))
-    });
+    match order {
+        SortOrder::Asc => output.sort_by(|a, b| {
+            a.get("date")
+                .and_then(|v| v.as_str())
+                .cmp(&b.get("date").and_then(|v| v.as_str()))
+        }),
+        SortOrder::Desc => output.sort_by(|a, b| {
+            b.get("date")
+                .and_then(|v| v.as_str())
+                .cmp(&a.get("date").and_then(|v| v.as_str()))
+        }),
+    }
     println!("{}", serde_json::to_string_pretty(&output).unwrap());
 }
 
-pub fn output_monthly_json(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) {
+pub fn output_monthly_json(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    order: SortOrder,
+) {
     // Aggregate by month
     let mut month_data: HashMap<String, (i64, i64, i64, i64, f64, Vec<String>)> = HashMap::new();
 
@@ -77,15 +93,26 @@ pub fn output_monthly_json(day_stats: &HashMap<String, DayStats>, pricing_db: &P
         }));
     }
     // Sort by month
-    output.sort_by(|a, b| {
-        a.get("month")
-            .and_then(|v| v.as_str())
-            .cmp(&b.get("month").and_then(|v| v.as_str()))
-    });
+    match order {
+        SortOrder::Asc => output.sort_by(|a, b| {
+            a.get("month")
+                .and_then(|v| v.as_str())
+                .cmp(&b.get("month").and_then(|v| v.as_str()))
+        }),
+        SortOrder::Desc => output.sort_by(|a, b| {
+            b.get("month")
+                .and_then(|v| v.as_str())
+                .cmp(&a.get("month").and_then(|v| v.as_str()))
+        }),
+    }
     println!("{}", serde_json::to_string_pretty(&output).unwrap());
 }
 
-pub fn output_weekly_json(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) {
+pub fn output_weekly_json(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    order: SortOrder,
+) {
     // Aggregate by week
     let mut week_data: HashMap<String, (i64, i64, i64, i64, f64, Vec<String>)> = HashMap::new();
 
@@ -120,10 +147,17 @@ pub fn output_weekly_json(day_stats: &HashMap<String, DayStats>, pricing_db: &Pr
         }));
     }
     // Sort by week
-    output.sort_by(|a, b| {
-        a.get("week")
-            .and_then(|v| v.as_str())
-            .cmp(&b.get("week").and_then(|v| v.as_str()))
-    });
+    match order {
+        SortOrder::Asc => output.sort_by(|a, b| {
+            a.get("week")
+                .and_then(|v| v.as_str())
+                .cmp(&b.get("week").and_then(|v| v.as_str()))
+        }),
+        SortOrder::Desc => output.sort_by(|a, b| {
+            b.get("week")
+                .and_then(|v| v.as_str())
+                .cmp(&a.get("week").and_then(|v| v.as_str()))
+        }),
+    }
     println!("{}", serde_json::to_string_pretty(&output).unwrap());
 }
