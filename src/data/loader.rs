@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use super::types::{DayStats, ParsedEntry, Stats, UsageEntry};
+use super::types::{DayStats, ParsedEntry, SessionStats, Stats, Usage, UsageEntry};
 
 pub fn normalize_model_name(model: &str) -> String {
     model
@@ -268,4 +268,165 @@ fn load_usage_data_internal(
     }
 
     (merged, skipped, valid)
+}
+
+/// Process a single file and return session stats
+fn process_file_for_session(
+    path: &PathBuf,
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+) -> Option<SessionStats> {
+    // Extract session ID from filename
+    let session_id = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Extract project path from parent directory
+    let project_path = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+
+    let mut message_entries: HashMap<String, (String, String, Usage)> = HashMap::new();
+    let mut first_ts: Option<String> = None;
+    let mut last_ts: Option<String> = None;
+    let mut has_data = false;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: UsageEntry = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let ts = match &entry.timestamp {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let utc_dt = match ts.parse::<DateTime<Utc>>() {
+            Ok(dt) => dt,
+            Err(_) => continue,
+        };
+
+        let local_dt: DateTime<Local> = utc_dt.into();
+        let date = local_dt.date_naive();
+
+        // Apply date filters
+        if let Some(s) = since {
+            if date < s {
+                continue;
+            }
+        }
+        if let Some(u) = until {
+            if date > u {
+                continue;
+            }
+        }
+
+        // Track timestamps
+        if first_ts.is_none() {
+            first_ts = Some(ts.clone());
+        }
+        last_ts = Some(ts.clone());
+
+        let msg = match &entry.message {
+            Some(m) => m,
+            None => continue,
+        };
+
+        let usage = match &msg.usage {
+            Some(u) => u.clone(),
+            None => continue,
+        };
+
+        let model = msg
+            .model
+            .as_ref()
+            .map(|m| normalize_model_name(m))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        if model == "<synthetic>" || model.is_empty() {
+            continue;
+        }
+
+        has_data = true;
+
+        // Group by message ID, keep last entry
+        if let Some(id) = &msg.id {
+            message_entries.insert(id.clone(), (ts.clone(), model, usage));
+        }
+    }
+
+    if !has_data {
+        return None;
+    }
+
+    let mut session = SessionStats {
+        session_id,
+        project_path,
+        first_timestamp: first_ts.unwrap_or_default(),
+        last_timestamp: last_ts.unwrap_or_default(),
+        stats: Stats::default(),
+        models: HashMap::new(),
+    };
+
+    for (_id, (_ts, model, usage)) in message_entries {
+        let stats = Stats {
+            input_tokens: usage.input_tokens.unwrap_or(0),
+            output_tokens: usage.output_tokens.unwrap_or(0),
+            cache_creation: usage.cache_creation_input_tokens.unwrap_or(0),
+            cache_read: usage.cache_read_input_tokens.unwrap_or(0),
+            count: 1,
+            skipped_chunks: 0,
+        };
+
+        session.stats.add(&stats);
+        session.models.entry(model).or_default().add(&stats);
+    }
+
+    Some(session)
+}
+
+pub fn load_session_data(
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+    quiet: bool,
+) -> Vec<SessionStats> {
+    if !quiet {
+        eprintln!("Scanning JSONL files...");
+    }
+
+    let files = find_jsonl_files();
+
+    if !quiet {
+        eprintln!("Found {} files", files.len());
+        eprintln!("Processing sessions...");
+    }
+
+    let sessions: Vec<SessionStats> = files
+        .par_iter()
+        .filter_map(|f| process_file_for_session(f, since, until))
+        .collect();
+
+    if !quiet {
+        eprintln!("Found {} sessions with data", sessions.len());
+    }
+
+    sessions
 }
