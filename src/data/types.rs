@@ -61,6 +61,7 @@ pub struct ParsedEntry {
     pub date_str: String,
     pub model: String,
     pub usage: Usage,
+    pub stop_reason: Option<String>,
 }
 
 /// Session statistics
