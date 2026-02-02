@@ -42,20 +42,22 @@ fn main() {
         return;
     }
 
+    let use_color = cli.use_color();
+
     // Determine output format based on command
     match &cli.command {
         Some(Commands::Weekly) => {
             if cli.json {
                 output_weekly_json(&day_stats, &pricing_db, cli.order);
             } else {
-                print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order);
+                print_weekly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
             }
         }
         Some(Commands::Monthly) => {
             if cli.json {
                 output_monthly_json(&day_stats, &pricing_db, cli.order);
             } else {
-                print_monthly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order);
+                print_monthly_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
             }
         }
         _ => {
@@ -63,7 +65,7 @@ fn main() {
             if cli.json {
                 output_daily_json(&day_stats, &pricing_db, cli.order);
             } else {
-                print_daily_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order);
+                print_daily_table(&day_stats, cli.breakdown, skipped, valid, &pricing_db, cli.order, use_color);
             }
         }
     }

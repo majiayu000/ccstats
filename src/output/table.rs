@@ -25,6 +25,17 @@ fn sort_keys<'a>(keys: &mut Vec<&'a String>, order: SortOrder) {
     }
 }
 
+fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
+    let mut cell = Cell::new(text);
+    if let Some(c) = color {
+        cell = cell.fg(c);
+    }
+    if bold {
+        cell = cell.add_attribute(Attribute::Bold);
+    }
+    cell
+}
+
 pub fn print_daily_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
@@ -32,6 +43,7 @@ pub fn print_daily_table(
     valid: i64,
     pricing_db: &PricingDb,
     order: SortOrder,
+    use_color: bool,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
     sort_keys(&mut dates, order);
@@ -114,35 +126,30 @@ pub fn print_daily_table(
         total_stats.add(&day.stats);
     }
 
+    let cyan = if use_color { Some(Color::Cyan) } else { None };
+    let green = if use_color { Some(Color::Green) } else { None };
+
     // Add total row
     if breakdown {
         table.add_row(vec![
-            Cell::new("TOTAL")
-                .fg(Color::Cyan)
-                .add_attribute(Attribute::Bold),
+            styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            Cell::new(format_number(total_stats.input_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.output_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_creation)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_read)).fg(Color::Cyan),
-            Cell::new(format!("${:.2}", total_cost))
-                .fg(Color::Green)
-                .add_attribute(Attribute::Bold),
+            styled_cell(&format_number(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.cache_creation), cyan, false),
+            styled_cell(&format_number(total_stats.cache_read), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
         ]);
     } else {
         table.add_row(vec![
-            Cell::new("TOTAL")
-                .fg(Color::Cyan)
-                .add_attribute(Attribute::Bold),
+            styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            Cell::new(format_number(total_stats.input_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.output_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_creation)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_read)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.total_tokens())).fg(Color::Cyan),
-            Cell::new(format!("${:.2}", total_cost))
-                .fg(Color::Green)
-                .add_attribute(Attribute::Bold),
+            styled_cell(&format_number(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.cache_creation), cyan, false),
+            styled_cell(&format_number(total_stats.cache_read), cyan, false),
+            styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
         ]);
     }
 
@@ -162,6 +169,7 @@ pub fn print_monthly_table(
     valid: i64,
     pricing_db: &PricingDb,
     order: SortOrder,
+    use_color: bool,
 ) {
     // Aggregate by month
     let mut month_stats: HashMap<String, DayStats> = HashMap::new();
@@ -261,35 +269,30 @@ pub fn print_monthly_table(
         total_stats.add(&month_data.stats);
     }
 
+    let cyan = if use_color { Some(Color::Cyan) } else { None };
+    let green = if use_color { Some(Color::Green) } else { None };
+
     // Add total row
     if breakdown {
         table.add_row(vec![
-            Cell::new("TOTAL")
-                .fg(Color::Cyan)
-                .add_attribute(Attribute::Bold),
+            styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            Cell::new(format_number(total_stats.input_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.output_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_creation)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_read)).fg(Color::Cyan),
-            Cell::new(format!("${:.2}", total_cost))
-                .fg(Color::Green)
-                .add_attribute(Attribute::Bold),
+            styled_cell(&format_number(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.cache_creation), cyan, false),
+            styled_cell(&format_number(total_stats.cache_read), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
         ]);
     } else {
         table.add_row(vec![
-            Cell::new("TOTAL")
-                .fg(Color::Cyan)
-                .add_attribute(Attribute::Bold),
+            styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            Cell::new(format_number(total_stats.input_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.output_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_creation)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_read)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.total_tokens())).fg(Color::Cyan),
-            Cell::new(format!("${:.2}", total_cost))
-                .fg(Color::Green)
-                .add_attribute(Attribute::Bold),
+            styled_cell(&format_number(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.cache_creation), cyan, false),
+            styled_cell(&format_number(total_stats.cache_read), cyan, false),
+            styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
         ]);
     }
 
@@ -321,6 +324,7 @@ pub fn print_weekly_table(
     valid: i64,
     pricing_db: &PricingDb,
     order: SortOrder,
+    use_color: bool,
 ) {
     // Aggregate by week (Monday start)
     let mut week_stats: HashMap<String, DayStats> = HashMap::new();
@@ -420,35 +424,30 @@ pub fn print_weekly_table(
         total_stats.add(&week_data.stats);
     }
 
+    let cyan = if use_color { Some(Color::Cyan) } else { None };
+    let green = if use_color { Some(Color::Green) } else { None };
+
     // Add total row
     if breakdown {
         table.add_row(vec![
-            Cell::new("TOTAL")
-                .fg(Color::Cyan)
-                .add_attribute(Attribute::Bold),
+            styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            Cell::new(format_number(total_stats.input_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.output_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_creation)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_read)).fg(Color::Cyan),
-            Cell::new(format!("${:.2}", total_cost))
-                .fg(Color::Green)
-                .add_attribute(Attribute::Bold),
+            styled_cell(&format_number(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.cache_creation), cyan, false),
+            styled_cell(&format_number(total_stats.cache_read), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
         ]);
     } else {
         table.add_row(vec![
-            Cell::new("TOTAL")
-                .fg(Color::Cyan)
-                .add_attribute(Attribute::Bold),
+            styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            Cell::new(format_number(total_stats.input_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.output_tokens)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_creation)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.cache_read)).fg(Color::Cyan),
-            Cell::new(format_number(total_stats.total_tokens())).fg(Color::Cyan),
-            Cell::new(format!("${:.2}", total_cost))
-                .fg(Color::Green)
-                .add_attribute(Attribute::Bold),
+            styled_cell(&format_number(total_stats.input_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.output_tokens), cyan, false),
+            styled_cell(&format_number(total_stats.cache_creation), cyan, false),
+            styled_cell(&format_number(total_stats.cache_read), cyan, false),
+            styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
+            styled_cell(&format!("${:.2}", total_cost), green, true),
         ]);
     }
 
