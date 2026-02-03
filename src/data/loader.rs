@@ -7,6 +7,109 @@ use std::path::PathBuf;
 
 use super::types::{BlockStats, DayStats, ParsedEntry, ProjectStats, SessionStats, Stats, Usage, UsageEntry};
 
+#[derive(Debug)]
+struct RawEntry {
+    message_id: Option<String>,
+    parsed: ParsedEntry,
+}
+
+fn collect_entries_from_file(
+    path: &PathBuf,
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+) -> (Vec<RawEntry>, i64) {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return (Vec::new(), 0),
+    };
+    let reader = BufReader::new(file);
+
+    let mut total_entries = 0i64;
+    let mut entries: Vec<RawEntry> = Vec::new();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: UsageEntry = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // Get timestamp and convert to local date
+        let ts = match &entry.timestamp {
+            Some(t) => t,
+            None => continue,
+        };
+
+        let utc_dt = match ts.parse::<DateTime<Utc>>() {
+            Ok(dt) => dt,
+            Err(_) => continue,
+        };
+
+        let local_dt: DateTime<Local> = utc_dt.into();
+        let date = local_dt.date_naive();
+
+        // Apply date filters
+        if let Some(s) = since {
+            if date < s {
+                continue;
+            }
+        }
+        if let Some(u) = until {
+            if date > u {
+                continue;
+            }
+        }
+
+        total_entries += 1;
+
+        let msg = match &entry.message {
+            Some(m) => m,
+            None => continue,
+        };
+
+        let usage = match &msg.usage {
+            Some(u) => u.clone(),
+            None => continue,
+        };
+
+        let model = msg
+            .model
+            .as_ref()
+            .map(|m| normalize_model_name(m))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Skip synthetic/empty entries
+        if model == "<synthetic>" || model.is_empty() {
+            continue;
+        }
+
+        let date_str = date.format("%Y-%m-%d").to_string();
+        let stop_reason = msg.stop_reason.clone();
+        let parsed = ParsedEntry {
+            date_str,
+            timestamp: ts.clone(),
+            model,
+            usage,
+            stop_reason,
+        };
+
+        entries.push(RawEntry {
+            message_id: msg.id.clone(),
+            parsed,
+        });
+    }
+
+    (entries, total_entries)
+}
+
 pub fn normalize_model_name(model: &str) -> String {
     // Remove "claude-" prefix
     let name = model.replace("claude-", "");
@@ -36,6 +139,7 @@ pub fn find_jsonl_files() -> Vec<PathBuf> {
     files
 }
 
+#[allow(dead_code)]
 pub fn process_file(
     path: &PathBuf,
     since: Option<NaiveDate>,
@@ -124,6 +228,7 @@ pub fn process_file(
         let stop_reason = msg.stop_reason.clone();
         let parsed = ParsedEntry {
             date_str,
+            timestamp: ts.clone(),
             model,
             usage,
             stop_reason,
@@ -140,8 +245,12 @@ pub fn process_file(
     // Second pass: for each message ID, take the entry with stop_reason (completed message)
     for (_id, entries) in message_entries {
         // Find the entry with stop_reason set (completed message)
-        let completed = entries.iter().find(|e| e.stop_reason.is_some());
-        if let Some(entry) = completed.or(entries.last()) {
+        let completed = entries
+            .iter()
+            .filter(|e| e.stop_reason.is_some())
+            .min_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        let last = entries.iter().max_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        if let Some(entry) = completed.or(last) {
             valid_messages += 1;
             let stats = Stats {
                 input_tokens: entry.usage.input_tokens.unwrap_or(0),
@@ -183,6 +292,7 @@ pub fn process_file(
     (day_stats, skipped, valid_messages)
 }
 
+#[allow(dead_code)]
 pub fn merge_results(
     results: Vec<(HashMap<String, DayStats>, i64, i64)>,
 ) -> (HashMap<String, DayStats>, i64, i64) {
@@ -257,10 +367,74 @@ fn load_usage_data_internal(
 
     let results: Vec<_> = files
         .par_iter()
-        .map(|f| process_file(f, since, until))
+        .map(|f| collect_entries_from_file(f, since, until))
         .collect();
 
-    let (merged, skipped, valid) = merge_results(results);
+    let mut total_entries = 0i64;
+    let mut message_entries: HashMap<String, Vec<ParsedEntry>> = HashMap::new();
+    let mut no_id_entries: Vec<ParsedEntry> = Vec::new();
+
+    for (entries, file_total) in results {
+        total_entries += file_total;
+        for raw in entries {
+            if let Some(id) = raw.message_id {
+                message_entries.entry(id).or_default().push(raw.parsed);
+            } else {
+                no_id_entries.push(raw.parsed);
+            }
+        }
+    }
+
+    let mut day_stats: HashMap<String, DayStats> = HashMap::new();
+    let mut valid_messages = 0i64;
+
+    // Global dedupe by message ID (across all files)
+    for (_id, entries) in message_entries {
+        let completed = entries
+            .iter()
+            .filter(|e| e.stop_reason.is_some())
+            .min_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        let last = entries.iter().max_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        if let Some(entry) = completed.or(last) {
+            valid_messages += 1;
+            let stats = Stats {
+                input_tokens: entry.usage.input_tokens.unwrap_or(0),
+                output_tokens: entry.usage.output_tokens.unwrap_or(0),
+                cache_creation: entry.usage.cache_creation_input_tokens.unwrap_or(0),
+                cache_read: entry.usage.cache_read_input_tokens.unwrap_or(0),
+                count: 1,
+                skipped_chunks: 0,
+            };
+
+            let day = day_stats.entry(entry.date_str.clone()).or_default();
+            day.stats.add(&stats);
+            day.models.entry(entry.model.clone()).or_default().add(&stats);
+        }
+    }
+
+    // Entries without message ID: count only if completed
+    for entry in no_id_entries {
+        if entry.stop_reason.is_none() {
+            continue;
+        }
+        valid_messages += 1;
+        let stats = Stats {
+            input_tokens: entry.usage.input_tokens.unwrap_or(0),
+            output_tokens: entry.usage.output_tokens.unwrap_or(0),
+            cache_creation: entry.usage.cache_creation_input_tokens.unwrap_or(0),
+            cache_read: entry.usage.cache_read_input_tokens.unwrap_or(0),
+            count: 1,
+            skipped_chunks: 0,
+        };
+
+        let day = day_stats.entry(entry.date_str.clone()).or_default();
+        day.stats.add(&stats);
+        day.models.entry(entry.model.clone()).or_default().add(&stats);
+    }
+
+    let skipped = total_entries - valid_messages;
+    let merged = day_stats;
+    let valid = valid_messages;
 
     if debug && !quiet {
         eprintln!("[DEBUG] Processing complete:");

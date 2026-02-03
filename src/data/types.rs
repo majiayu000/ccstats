@@ -59,6 +59,7 @@ pub struct DayStats {
 #[derive(Debug, Clone)]
 pub struct ParsedEntry {
     pub date_str: String,
+    pub timestamp: String,
     pub model: String,
     pub usage: Usage,
     pub stop_reason: Option<String>,
