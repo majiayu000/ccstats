@@ -205,3 +205,79 @@ pub fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb) -> f64
         + stats.cache_creation as f64 * pricing.cache_create
         + stats.cache_read as f64 * pricing.cache_read
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn calculate_cost_basic() {
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                cache_create: 3.75e-6,
+                cache_read: 0.3e-6,
+            },
+        );
+
+        let stats = Stats {
+            input_tokens: 1_000_000,
+            output_tokens: 100_000,
+            cache_creation: 0,
+            cache_read: 0,
+            count: 1,
+            skipped_chunks: 0,
+        };
+
+        let cost = calculate_cost(&stats, "sonnet-4", &db);
+        // 1M * $3/M + 100K * $15/M = $3 + $1.5 = $4.5
+        assert!((cost - 4.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn calculate_cost_with_cache() {
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                cache_create: 3.75e-6,
+                cache_read: 0.3e-6,
+            },
+        );
+
+        let stats = Stats {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation: 1_000_000,
+            cache_read: 1_000_000,
+            count: 1,
+            skipped_chunks: 0,
+        };
+
+        let cost = calculate_cost(&stats, "sonnet-4", &db);
+        // 1M * $3.75/M + 1M * $0.3/M = $3.75 + $0.3 = $4.05
+        assert!((cost - 4.05).abs() < 0.001);
+    }
+
+    #[test]
+    fn calculate_cost_zero_tokens() {
+        let db = PricingDb::default();
+        let stats = Stats::default();
+        let cost = calculate_cost(&stats, "unknown-model", &db);
+        assert_eq!(cost, 0.0);
+    }
+
+    #[test]
+    fn get_pricing_fallback_for_unknown_model() {
+        let db = PricingDb::default();
+        let pricing = db.get_pricing("sonnet-4");
+        // Should fallback to sonnet pricing
+        assert!(pricing.input > 0.0);
+        assert!(pricing.output > 0.0);
+    }
+}

@@ -1,33 +1,9 @@
 use comfy_table::{presets::UTF8_FULL, Attribute, Cell, Color, ContentArrangement, Table};
 
 use crate::cli::SortOrder;
-use crate::data::{SessionStats, Stats};
-use crate::output::table::format_number;
+use crate::data::{format_project_name, SessionStats, Stats};
+use crate::output::table::{format_compact, format_number, styled_cell};
 use crate::pricing::{calculate_cost, PricingDb};
-
-/// Format number in compact form (K, M, B suffixes)
-fn format_compact(n: i64) -> String {
-    if n >= 1_000_000_000 {
-        format!("{:.1}B", n as f64 / 1_000_000_000.0)
-    } else if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
-}
-
-fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
-    let mut cell = Cell::new(text);
-    if let Some(c) = color {
-        cell = cell.fg(c);
-    }
-    if bold {
-        cell = cell.add_attribute(Attribute::Bold);
-    }
-    cell
-}
 
 /// Truncate session ID for display
 fn truncate_session_id(id: &str, max_len: usize) -> String {
@@ -36,12 +12,6 @@ fn truncate_session_id(id: &str, max_len: usize) -> String {
     } else {
         format!("{}...", &id[..max_len - 3])
     }
-}
-
-/// Extract readable project name from path
-fn format_project_name(path: &str) -> String {
-    // Convert "-Users-apple-Desktop-code-AI-tool-ccstats" to "ccstats"
-    path.split('-').last().unwrap_or(path).to_string()
 }
 
 /// Extract date from timestamp
