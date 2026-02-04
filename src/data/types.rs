@@ -11,7 +11,6 @@ pub struct UsageEntry {
 pub struct Message {
     pub id: Option<String>,
     pub model: Option<String>,
-    #[allow(dead_code)]
     pub stop_reason: Option<String>,
     pub usage: Option<Usage>,
 }

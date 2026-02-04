@@ -1,20 +1,8 @@
 use std::collections::HashMap;
 
 use crate::data::DayStats;
+use crate::output::table::format_compact;
 use crate::pricing::{calculate_cost, PricingDb};
-
-/// Format number in compact form (K, M, B suffixes)
-fn format_compact(n: i64) -> String {
-    if n >= 1_000_000_000 {
-        format!("{:.1}B", n as f64 / 1_000_000_000.0)
-    } else if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
-}
 
 /// Output a single line suitable for statusline/tmux integration
 /// Format: "CC: $X.XX | In: XM Out: XK | Today"

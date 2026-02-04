@@ -19,7 +19,7 @@ pub fn format_number(n: i64) -> String {
 }
 
 /// Format number in compact form (K, M, B suffixes)
-fn format_compact(n: i64) -> String {
+pub fn format_compact(n: i64) -> String {
     if n >= 1_000_000_000 {
         format!("{:.1}B", n as f64 / 1_000_000_000.0)
     } else if n >= 1_000_000 {
@@ -38,7 +38,7 @@ fn sort_keys<'a>(keys: &mut Vec<&'a String>, order: SortOrder) {
     }
 }
 
-fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
+pub fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
     let mut cell = Cell::new(text);
     if let Some(c) = color {
         cell = cell.fg(c);
@@ -69,9 +69,10 @@ pub fn print_daily_table(
         .set_content_arrangement(ContentArrangement::Dynamic);
 
     if compact {
-        // Compact mode: Date, In, Out, Total, Cost
+        // Compact mode: Date, Calls, In, Out, Total, Cost
         let mut header = vec![
             Cell::new("Date").add_attribute(Attribute::Bold),
+            Cell::new("Calls").add_attribute(Attribute::Bold),
             Cell::new("In").add_attribute(Attribute::Bold),
             Cell::new("Out").add_attribute(Attribute::Bold),
             Cell::new("Total").add_attribute(Attribute::Bold),
@@ -84,6 +85,7 @@ pub fn print_daily_table(
         let mut header = vec![
             Cell::new("Date").add_attribute(Attribute::Bold),
             Cell::new("Model").add_attribute(Attribute::Bold),
+            Cell::new("Calls").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
             Cell::new("Output").add_attribute(Attribute::Bold),
             Cell::new("Cache W").add_attribute(Attribute::Bold),
@@ -97,6 +99,7 @@ pub fn print_daily_table(
         let mut header = vec![
             Cell::new("Date").add_attribute(Attribute::Bold),
             Cell::new("Models").add_attribute(Attribute::Bold),
+            Cell::new("Calls").add_attribute(Attribute::Bold),
             Cell::new("Input").add_attribute(Attribute::Bold),
             Cell::new("Output").add_attribute(Attribute::Bold),
             Cell::new("Cache W").add_attribute(Attribute::Bold),
@@ -124,6 +127,7 @@ pub fn print_daily_table(
 
             let mut row = vec![
                 Cell::new(*date),
+                Cell::new(format_compact(day.stats.count)),
                 Cell::new(format_compact(day.stats.input_tokens)),
                 Cell::new(format_compact(day.stats.output_tokens)),
                 Cell::new(format_compact(day.stats.total_tokens())),
@@ -144,6 +148,7 @@ pub fn print_daily_table(
                 let mut row = vec![
                     Cell::new(if i == 0 { *date } else { "" }),
                     Cell::new(*model),
+                    Cell::new(format_number(stats.count)),
                     Cell::new(format_number(stats.input_tokens)),
                     Cell::new(format_number(stats.output_tokens)),
                     Cell::new(format_number(stats.cache_creation)),
@@ -167,6 +172,7 @@ pub fn print_daily_table(
             let mut row = vec![
                 Cell::new(*date),
                 Cell::new(&models_str),
+                Cell::new(format_number(day.stats.count)),
                 Cell::new(format_number(day.stats.input_tokens)),
                 Cell::new(format_number(day.stats.output_tokens)),
                 Cell::new(format_number(day.stats.cache_creation)),
@@ -189,6 +195,7 @@ pub fn print_daily_table(
     if compact {
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
+            styled_cell(&format_compact(total_stats.count), cyan, false),
             styled_cell(&format_compact(total_stats.input_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.output_tokens), cyan, false),
             styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
@@ -201,6 +208,7 @@ pub fn print_daily_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
+            styled_cell(&format_number(total_stats.count), cyan, false),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
             styled_cell(&format_number(total_stats.output_tokens), cyan, false),
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
@@ -214,6 +222,7 @@ pub fn print_daily_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
+            styled_cell(&format_number(total_stats.count), cyan, false),
             styled_cell(&format_number(total_stats.input_tokens), cyan, false),
             styled_cell(&format_number(total_stats.output_tokens), cyan, false),
             styled_cell(&format_number(total_stats.cache_creation), cyan, false),
@@ -649,4 +658,28 @@ pub fn print_weekly_table(
         format_number(valid),
         format_number(skipped)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_number_with_commas() {
+        assert_eq!(format_number(0), "0");
+        assert_eq!(format_number(999), "999");
+        assert_eq!(format_number(1000), "1,000");
+        assert_eq!(format_number(1234567), "1,234,567");
+    }
+
+    #[test]
+    fn format_compact_units() {
+        assert_eq!(format_compact(0), "0");
+        assert_eq!(format_compact(999), "999");
+        assert_eq!(format_compact(1_000), "1.0K");
+        assert_eq!(format_compact(1_500), "1.5K");
+        assert_eq!(format_compact(1_000_000), "1.0M");
+        assert_eq!(format_compact(2_500_000), "2.5M");
+        assert_eq!(format_compact(1_000_000_000), "1.0B");
+    }
 }
