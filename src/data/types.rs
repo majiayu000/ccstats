@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
@@ -15,7 +15,7 @@ pub struct Message {
     pub usage: Option<Usage>,
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct Usage {
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -59,6 +59,7 @@ pub struct DayStats {
 pub struct ParsedEntry {
     pub date_str: String,
     pub timestamp: String,
+    pub timestamp_ms: i64,
     pub model: String,
     pub usage: Usage,
     pub stop_reason: Option<String>,
