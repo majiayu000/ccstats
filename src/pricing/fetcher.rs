@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
@@ -17,23 +18,26 @@ pub struct ModelPricing {
 #[derive(Debug, Default)]
 pub struct PricingDb {
     pub models: HashMap<String, ModelPricing>,
+    resolved: RefCell<HashMap<String, ModelPricing>>,
 }
 
 impl PricingDb {
-    pub fn get_cache_path() -> PathBuf {
-        let home = dirs::home_dir().expect("Cannot find home directory");
-        home.join(".cache").join("ccstats").join("pricing.json")
+    pub fn get_cache_path() -> Option<PathBuf> {
+        let home = dirs::home_dir()?;
+        Some(home.join(".cache").join("ccstats").join("pricing.json"))
     }
 
     pub fn load_from_cache() -> Option<Self> {
-        let path = Self::get_cache_path();
+        let path = Self::get_cache_path()?;
         let file = File::open(&path).ok()?;
         let data: HashMap<String, serde_json::Value> = serde_json::from_reader(file).ok()?;
         Some(Self::parse_litellm_data(data))
     }
 
     pub fn save_to_cache(&self, raw_data: &HashMap<String, serde_json::Value>) {
-        let path = Self::get_cache_path();
+        let Some(path) = Self::get_cache_path() else {
+            return;
+        };
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -86,7 +90,10 @@ impl PricingDb {
             models.insert(normalized, pricing);
         }
 
-        Self { models }
+        Self {
+            models,
+            resolved: RefCell::new(HashMap::new()),
+        }
     }
 
     pub fn load(offline: bool) -> Self {
@@ -136,65 +143,78 @@ impl PricingDb {
     }
 
     pub fn get_pricing(&self, model: &str) -> ModelPricing {
+        if let Some(cached) = self.resolved.borrow().get(model) {
+            return cached.clone();
+        }
+
         // Try exact match first
-        if let Some(p) = self.models.get(model) {
-            return p.clone();
-        }
-
-        // Try with claude- prefix
-        let with_prefix = format!("claude-{}", model);
-        if let Some(p) = self.models.get(&with_prefix) {
-            return p.clone();
-        }
-
-        // Try partial matching
-        let model_lower = model.to_lowercase();
-        for (name, pricing) in &self.models {
-            if name.to_lowercase().contains(&model_lower)
-                || model_lower.contains(&name.to_lowercase())
-            {
-                return pricing.clone();
-            }
-        }
-
-        // Fallback to hardcoded defaults based on model family
-        if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
-            ModelPricing {
-                input: 5e-6,         // $5/M
-                output: 25e-6,       // $25/M
-                cache_create: 6.25e-6, // $6.25/M
-                cache_read: 0.5e-6,  // $0.5/M
-            }
-        } else if model_lower.contains("opus") {
-            ModelPricing {
-                input: 15e-6,
-                output: 75e-6,
-                cache_create: 18.75e-6,
-                cache_read: 1.5e-6,
-            }
-        } else if model_lower.contains("sonnet") {
-            ModelPricing {
-                input: 3e-6,
-                output: 15e-6,
-                cache_create: 3.75e-6,
-                cache_read: 0.3e-6,
-            }
-        } else if model_lower.contains("haiku") {
-            ModelPricing {
-                input: 0.8e-6,
-                output: 4e-6,
-                cache_create: 1e-6,
-                cache_read: 0.08e-6,
-            }
+        let pricing = if let Some(p) = self.models.get(model) {
+            p.clone()
         } else {
-            // Default to sonnet pricing
-            ModelPricing {
-                input: 3e-6,
-                output: 15e-6,
-                cache_create: 3.75e-6,
-                cache_read: 0.3e-6,
+            // Try with claude- prefix
+            let with_prefix = format!("claude-{}", model);
+            if let Some(p) = self.models.get(&with_prefix) {
+                p.clone()
+            } else {
+                // Try partial matching
+                let model_lower = model.to_lowercase();
+                let mut matched: Option<ModelPricing> = None;
+                for (name, pricing) in &self.models {
+                    if name.to_lowercase().contains(&model_lower)
+                        || model_lower.contains(&name.to_lowercase())
+                    {
+                        matched = Some(pricing.clone());
+                        break;
+                    }
+                }
+
+                if let Some(p) = matched {
+                    p
+                } else if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
+                    ModelPricing {
+                        input: 5e-6,          // $5/M
+                        output: 25e-6,        // $25/M
+                        cache_create: 6.25e-6, // $6.25/M
+                        cache_read: 0.5e-6,   // $0.5/M
+                    }
+                } else if model_lower.contains("opus") {
+                    ModelPricing {
+                        input: 15e-6,
+                        output: 75e-6,
+                        cache_create: 18.75e-6,
+                        cache_read: 1.5e-6,
+                    }
+                } else if model_lower.contains("sonnet") {
+                    ModelPricing {
+                        input: 3e-6,
+                        output: 15e-6,
+                        cache_create: 3.75e-6,
+                        cache_read: 0.3e-6,
+                    }
+                } else if model_lower.contains("haiku") {
+                    ModelPricing {
+                        input: 0.8e-6,
+                        output: 4e-6,
+                        cache_create: 1e-6,
+                        cache_read: 0.08e-6,
+                    }
+                } else {
+                    // Default to sonnet pricing
+                    ModelPricing {
+                        input: 3e-6,
+                        output: 15e-6,
+                        cache_create: 3.75e-6,
+                        cache_read: 0.3e-6,
+                    }
+                }
             }
-        }
+        };
+
+        self.resolved
+            .borrow_mut()
+            .insert(model.to_string(), pricing.clone());
+
+        pricing
     }
 }
 

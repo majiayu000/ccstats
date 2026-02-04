@@ -57,6 +57,12 @@ ccstats today -b
 # JSON output
 ccstats today -j
 
+# Bucket by timezone
+ccstats daily --timezone UTC
+
+# Locale-aware number formatting
+ccstats monthly --locale de
+
 # Filter by date
 ccstats daily --since 20260101 --until 20260131
 ```

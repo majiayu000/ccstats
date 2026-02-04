@@ -1,4 +1,5 @@
 pub mod blocks;
+pub mod format;
 pub mod json;
 pub mod project;
 pub mod session;

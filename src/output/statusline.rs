@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 
 use crate::data::DayStats;
-use crate::output::table::format_compact;
+use crate::output::format::{format_compact, NumberFormat};
 use crate::pricing::{calculate_cost, PricingDb};
 
 /// Output a single line suitable for statusline/tmux integration
 /// Format: "CC: $X.XX | In: XM Out: XK | Today"
-pub fn print_statusline(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) {
+pub fn print_statusline(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    number_format: NumberFormat,
+) {
     let mut total_input = 0i64;
     let mut total_output = 0i64;
     let mut total_cost = 0.0;
@@ -24,13 +28,17 @@ pub fn print_statusline(day_stats: &HashMap<String, DayStats>, pricing_db: &Pric
     println!(
         "CC: ${:.2} | In: {} Out: {}",
         total_cost,
-        format_compact(total_input),
-        format_compact(total_output)
+        format_compact(total_input, number_format),
+        format_compact(total_output, number_format)
     );
 }
 
 /// Output statusline as JSON for programmatic consumption
-pub fn print_statusline_json(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) -> String {
+pub fn print_statusline_json(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    number_format: NumberFormat,
+) -> String {
     let mut total_input = 0i64;
     let mut total_output = 0i64;
     let mut total_cache_creation = 0i64;
@@ -57,10 +65,13 @@ pub fn print_statusline_json(day_stats: &HashMap<String, DayStats>, pricing_db: 
         "cost": total_cost,
         "formatted": {
             "cost": format!("${:.2}", total_cost),
-            "input": format_compact(total_input),
-            "output": format_compact(total_output),
+            "input": format_compact(total_input, number_format),
+            "output": format_compact(total_output, number_format),
         }
     });
 
-    serde_json::to_string(&output).unwrap()
+    serde_json::to_string(&output).unwrap_or_else(|e| {
+        eprintln!("Failed to serialize JSON output: {}", e);
+        "{}".to_string()
+    })
 }

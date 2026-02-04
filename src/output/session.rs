@@ -1,8 +1,13 @@
-use comfy_table::{presets::UTF8_FULL, Attribute, Cell, Color, ContentArrangement, Table};
+use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
+use chrono::{DateTime, Utc};
 
 use crate::cli::SortOrder;
 use crate::data::{format_project_name, SessionStats, Stats};
-use crate::output::table::{format_compact, format_number, styled_cell};
+use crate::output::format::{
+    format_compact, format_number, header_cell, normalize_header_separator, right_cell,
+    styled_cell, NumberFormat,
+};
+use crate::utils::Timezone;
 use crate::pricing::{calculate_cost, PricingDb};
 
 /// Truncate session ID for display
@@ -15,7 +20,11 @@ fn truncate_session_id(id: &str, max_len: usize) -> String {
 }
 
 /// Extract date from timestamp
-fn extract_date(ts: &str) -> String {
+fn extract_date(ts: &str, timezone: &Timezone) -> String {
+    if let Ok(utc_dt) = ts.parse::<DateTime<Utc>>() {
+        let local = timezone.to_fixed_offset(utc_dt);
+        return local.date_naive().format("%Y-%m-%d").to_string();
+    }
     ts.split('T').next().unwrap_or(ts).to_string()
 }
 
@@ -26,6 +35,8 @@ pub fn print_session_table(
     use_color: bool,
     compact: bool,
     show_cost: bool,
+    number_format: NumberFormat,
+    timezone: &Timezone,
 ) {
     let mut sorted_sessions: Vec<_> = sessions.iter().collect();
 
@@ -38,33 +49,38 @@ pub fn print_session_table(
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
         .set_content_arrangement(ContentArrangement::Dynamic);
+    normalize_header_separator(&mut table);
+
 
     if compact {
         let mut header = vec![
-            Cell::new("Session").add_attribute(Attribute::Bold),
-            Cell::new("Project").add_attribute(Attribute::Bold),
-            Cell::new("Date").add_attribute(Attribute::Bold),
-            Cell::new("Total").add_attribute(Attribute::Bold),
+            header_cell("Session", use_color),
+            header_cell("Project", use_color),
+            header_cell("Date", use_color),
+            header_cell("Total", use_color),
         ];
         if show_cost {
-            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+            header.push(header_cell("Cost", use_color));
         }
         table.set_header(header);
     } else {
         let mut header = vec![
-            Cell::new("Session").add_attribute(Attribute::Bold),
-            Cell::new("Project").add_attribute(Attribute::Bold),
-            Cell::new("Date").add_attribute(Attribute::Bold),
-            Cell::new("Input").add_attribute(Attribute::Bold),
-            Cell::new("Output").add_attribute(Attribute::Bold),
-            Cell::new("Total").add_attribute(Attribute::Bold),
+            header_cell("Session", use_color),
+            header_cell("Project", use_color),
+            header_cell("Date", use_color),
+            header_cell("Input", use_color),
+            header_cell("Output", use_color),
+            header_cell("Total", use_color),
         ];
         if show_cost {
-            header.push(Cell::new("Cost").add_attribute(Attribute::Bold));
+            header.push(header_cell("Cost", use_color));
         }
         table.set_header(header);
     }
+
+    let cost_color = if use_color { Some(Color::Green) } else { None };
 
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
@@ -79,17 +95,17 @@ pub fn print_session_table(
 
         let session_id = truncate_session_id(&session.session_id, 12);
         let project = format_project_name(&session.project_path);
-        let date = extract_date(&session.last_timestamp);
+        let date = extract_date(&session.last_timestamp, timezone);
 
         if compact {
             let mut row = vec![
                 Cell::new(&session_id),
                 Cell::new(&project),
                 Cell::new(&date),
-                Cell::new(format_compact(session.stats.total_tokens())),
+                right_cell(&format_compact(session.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(Cell::new(format!("${:.2}", session_cost)));
+                row.push(right_cell(&format!("${:.2}", session_cost), cost_color, false));
             }
             table.add_row(row);
         } else {
@@ -97,12 +113,12 @@ pub fn print_session_table(
                 Cell::new(&session_id),
                 Cell::new(&project),
                 Cell::new(&date),
-                Cell::new(format_number(session.stats.input_tokens)),
-                Cell::new(format_number(session.stats.output_tokens)),
-                Cell::new(format_number(session.stats.total_tokens())),
+                right_cell(&format_number(session.stats.input_tokens, number_format), None, false),
+                right_cell(&format_number(session.stats.output_tokens, number_format), None, false),
+                right_cell(&format_number(session.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(Cell::new(format!("${:.2}", session_cost)));
+                row.push(right_cell(&format!("${:.2}", session_cost), cost_color, false));
             }
             table.add_row(row);
         }
@@ -117,10 +133,10 @@ pub fn print_session_table(
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             Cell::new(""),
-            styled_cell(&format_compact(total_stats.total_tokens()), cyan, false),
+            right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
         table.add_row(row);
     } else {
@@ -128,19 +144,22 @@ pub fn print_session_table(
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             Cell::new(""),
-            styled_cell(&format_number(total_stats.input_tokens), cyan, false),
-            styled_cell(&format_number(total_stats.output_tokens), cyan, false),
-            styled_cell(&format_number(total_stats.total_tokens()), cyan, false),
+            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
+            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
+            right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(styled_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
         table.add_row(row);
     }
 
     println!("\n  Claude Code Session Usage\n");
     println!("{table}");
-    println!("\n  {} sessions\n", sorted_sessions.len());
+    println!(
+        "\n  {} sessions\n",
+        format_number(sorted_sessions.len() as i64, number_format)
+    );
 }
 
 pub fn output_session_json(
@@ -164,6 +183,8 @@ pub fn output_session_json(
                 session_cost += calculate_cost(stats, model, pricing_db);
             }
 
+            let mut models: Vec<_> = session.models.keys().cloned().collect();
+            models.sort();
             let mut obj = serde_json::json!({
                 "session_id": session.session_id,
                 "project": format_project_name(&session.project_path),
@@ -175,7 +196,7 @@ pub fn output_session_json(
                 "cache_creation_tokens": session.stats.cache_creation,
                 "cache_read_tokens": session.stats.cache_read,
                 "total_tokens": session.stats.total_tokens(),
-                "models": session.models.keys().collect::<Vec<_>>(),
+                "models": models,
             });
             if show_cost {
                 obj["cost"] = serde_json::json!(session_cost);
@@ -184,5 +205,8 @@ pub fn output_session_json(
         })
         .collect();
 
-    serde_json::to_string_pretty(&output).unwrap()
+    serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
+        eprintln!("Failed to serialize JSON output: {}", e);
+        "[]".to_string()
+    })
 }
