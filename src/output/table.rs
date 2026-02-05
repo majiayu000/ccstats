@@ -29,6 +29,7 @@ pub fn print_daily_table(
     compact: bool,
     show_cost: bool,
     number_format: NumberFormat,
+    show_reasoning: bool,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
     sort_keys(&mut dates, order);
@@ -61,9 +62,12 @@ pub fn print_daily_table(
             header_cell("Calls", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Cache W", use_color),
-            header_cell("Cache R", use_color),
         ];
+        if show_reasoning {
+            header.push(header_cell("Reason", use_color));
+        }
+        header.push(header_cell("Cache W", use_color));
+        header.push(header_cell("Cache R", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -75,10 +79,13 @@ pub fn print_daily_table(
             header_cell("Calls", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Cache W", use_color),
-            header_cell("Cache R", use_color),
-            header_cell("Total", use_color),
         ];
+        if show_reasoning {
+            header.push(header_cell("Reason", use_color));
+        }
+        header.push(header_cell("Cache W", use_color));
+        header.push(header_cell("Cache R", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -126,9 +133,12 @@ pub fn print_daily_table(
                     right_cell(&format_number(stats.count, number_format), None, false),
                     right_cell(&format_number(stats.input_tokens, number_format), None, false),
                     right_cell(&format_number(stats.output_tokens, number_format), None, false),
-                    right_cell(&format_number(stats.cache_creation, number_format), None, false),
-                    right_cell(&format_number(stats.cache_read, number_format), None, false),
                 ];
+                if show_reasoning {
+                    row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
+                }
+                row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
                     row.push(right_cell(&format!("${:.2}", cost), cost_color, false));
                 }
@@ -155,10 +165,13 @@ pub fn print_daily_table(
                 right_cell(&format_number(day.stats.count, number_format), None, false),
                 right_cell(&format_number(day.stats.input_tokens, number_format), None, false),
                 right_cell(&format_number(day.stats.output_tokens, number_format), None, false),
-                right_cell(&format_number(day.stats.cache_creation, number_format), None, false),
-                right_cell(&format_number(day.stats.cache_read, number_format), None, false),
-                right_cell(&format_number(day.stats.total_tokens(), number_format), None, false),
             ];
+            if show_reasoning {
+                row.push(right_cell(&format_number(day.stats.reasoning_tokens, number_format), None, false));
+            }
+            row.push(right_cell(&format_number(day.stats.cache_creation, number_format), None, false));
+            row.push(right_cell(&format_number(day.stats.cache_read, number_format), None, false));
+            row.push(right_cell(&format_number(day.stats.total_tokens(), number_format), None, false));
             if show_cost {
                 row.push(right_cell(&format!("${:.2}", day_cost), cost_color, false));
             }
@@ -191,9 +204,12 @@ pub fn print_daily_table(
             right_cell(&format_number(total_stats.count, number_format), cyan, true),
             right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
             right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_read, number_format), cyan, true),
         ];
+        if show_reasoning {
+            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        }
+        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
@@ -205,17 +221,20 @@ pub fn print_daily_table(
             right_cell(&format_number(total_stats.count, number_format), cyan, true),
             right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
             right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_read, number_format), cyan, true),
-            right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
         ];
+        if show_reasoning {
+            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        }
+        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
         table.add_row(row);
     }
 
-    println!("\n  Claude Code Token Usage\n");
+    println!("\n  Token Usage\n");
     println!("{table}");
     println!(
         "\n  {} unique API calls ({} streaming entries deduplicated)\n",
@@ -235,6 +254,7 @@ pub fn print_monthly_table(
     compact: bool,
     show_cost: bool,
     number_format: NumberFormat,
+    show_reasoning: bool,
 ) {
     // Aggregate by month
     let mut month_stats: HashMap<String, DayStats> = HashMap::new();
@@ -281,9 +301,12 @@ pub fn print_monthly_table(
             header_cell("Model", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Cache W", use_color),
-            header_cell("Cache R", use_color),
         ];
+        if show_reasoning {
+            header.push(header_cell("Reason", use_color));
+        }
+        header.push(header_cell("Cache W", use_color));
+        header.push(header_cell("Cache R", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -294,10 +317,13 @@ pub fn print_monthly_table(
             header_cell("Models", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Cache W", use_color),
-            header_cell("Cache R", use_color),
-            header_cell("Total", use_color),
         ];
+        if show_reasoning {
+            header.push(header_cell("Reason", use_color));
+        }
+        header.push(header_cell("Cache W", use_color));
+        header.push(header_cell("Cache R", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -343,9 +369,12 @@ pub fn print_monthly_table(
                     Cell::new(*model),
                     right_cell(&format_number(stats.input_tokens, number_format), None, false),
                     right_cell(&format_number(stats.output_tokens, number_format), None, false),
-                    right_cell(&format_number(stats.cache_creation, number_format), None, false),
-                    right_cell(&format_number(stats.cache_read, number_format), None, false),
                 ];
+                if show_reasoning {
+                    row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
+                }
+                row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
                     row.push(right_cell(&format!("${:.2}", cost), cost_color, false));
                 }
@@ -366,10 +395,13 @@ pub fn print_monthly_table(
                 Cell::new(&models_str),
                 right_cell(&format_number(month_data.stats.input_tokens, number_format), None, false),
                 right_cell(&format_number(month_data.stats.output_tokens, number_format), None, false),
-                right_cell(&format_number(month_data.stats.cache_creation, number_format), None, false),
-                right_cell(&format_number(month_data.stats.cache_read, number_format), None, false),
-                right_cell(&format_number(month_data.stats.total_tokens(), number_format), None, false),
             ];
+            if show_reasoning {
+                row.push(right_cell(&format_number(month_data.stats.reasoning_tokens, number_format), None, false));
+            }
+            row.push(right_cell(&format_number(month_data.stats.cache_creation, number_format), None, false));
+            row.push(right_cell(&format_number(month_data.stats.cache_read, number_format), None, false));
+            row.push(right_cell(&format_number(month_data.stats.total_tokens(), number_format), None, false));
             if show_cost {
                 row.push(right_cell(&format!("${:.2}", month_cost), cost_color, false));
             }
@@ -400,9 +432,12 @@ pub fn print_monthly_table(
             Cell::new(""),
             right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
             right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_read, number_format), cyan, true),
         ];
+        if show_reasoning {
+            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        }
+        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
@@ -413,17 +448,20 @@ pub fn print_monthly_table(
             Cell::new(""),
             right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
             right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_read, number_format), cyan, true),
-            right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
         ];
+        if show_reasoning {
+            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        }
+        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
         table.add_row(row);
     }
 
-    println!("\n  Claude Code Monthly Token Usage\n");
+    println!("\n  Monthly Token Usage\n");
     println!("{table}");
     println!(
         "\n  {} unique API calls ({} streaming entries deduplicated)\n",
@@ -455,6 +493,7 @@ pub fn print_weekly_table(
     compact: bool,
     show_cost: bool,
     number_format: NumberFormat,
+    show_reasoning: bool,
 ) {
     // Aggregate by week (Monday start)
     let mut week_stats: HashMap<String, DayStats> = HashMap::new();
@@ -501,9 +540,12 @@ pub fn print_weekly_table(
             header_cell("Model", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Cache W", use_color),
-            header_cell("Cache R", use_color),
         ];
+        if show_reasoning {
+            header.push(header_cell("Reason", use_color));
+        }
+        header.push(header_cell("Cache W", use_color));
+        header.push(header_cell("Cache R", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -514,10 +556,13 @@ pub fn print_weekly_table(
             header_cell("Models", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Cache W", use_color),
-            header_cell("Cache R", use_color),
-            header_cell("Total", use_color),
         ];
+        if show_reasoning {
+            header.push(header_cell("Reason", use_color));
+        }
+        header.push(header_cell("Cache W", use_color));
+        header.push(header_cell("Cache R", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -563,9 +608,12 @@ pub fn print_weekly_table(
                     Cell::new(*model),
                     right_cell(&format_number(stats.input_tokens, number_format), None, false),
                     right_cell(&format_number(stats.output_tokens, number_format), None, false),
-                    right_cell(&format_number(stats.cache_creation, number_format), None, false),
-                    right_cell(&format_number(stats.cache_read, number_format), None, false),
                 ];
+                if show_reasoning {
+                    row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
+                }
+                row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
                     row.push(right_cell(&format!("${:.2}", cost), cost_color, false));
                 }
@@ -586,10 +634,13 @@ pub fn print_weekly_table(
                 Cell::new(&models_str),
                 right_cell(&format_number(week_data.stats.input_tokens, number_format), None, false),
                 right_cell(&format_number(week_data.stats.output_tokens, number_format), None, false),
-                right_cell(&format_number(week_data.stats.cache_creation, number_format), None, false),
-                right_cell(&format_number(week_data.stats.cache_read, number_format), None, false),
-                right_cell(&format_number(week_data.stats.total_tokens(), number_format), None, false),
             ];
+            if show_reasoning {
+                row.push(right_cell(&format_number(week_data.stats.reasoning_tokens, number_format), None, false));
+            }
+            row.push(right_cell(&format_number(week_data.stats.cache_creation, number_format), None, false));
+            row.push(right_cell(&format_number(week_data.stats.cache_read, number_format), None, false));
+            row.push(right_cell(&format_number(week_data.stats.total_tokens(), number_format), None, false));
             if show_cost {
                 row.push(right_cell(&format!("${:.2}", week_cost), cost_color, false));
             }
@@ -620,9 +671,12 @@ pub fn print_weekly_table(
             Cell::new(""),
             right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
             right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_read, number_format), cyan, true),
         ];
+        if show_reasoning {
+            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        }
+        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
@@ -633,17 +687,20 @@ pub fn print_weekly_table(
             Cell::new(""),
             right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
             right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true),
-            right_cell(&format_number(total_stats.cache_read, number_format), cyan, true),
-            right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
         ];
+        if show_reasoning {
+            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        }
+        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
+        row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format!("${:.2}", total_cost), green, true));
         }
         table.add_row(row);
     }
 
-    println!("\n  Claude Code Weekly Token Usage\n");
+    println!("\n  Weekly Token Usage\n");
     println!("{table}");
     println!(
         "\n  {} unique API calls ({} streaming entries deduplicated)\n",
