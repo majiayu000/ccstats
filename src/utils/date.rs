@@ -1,15 +1,18 @@
 use chrono::NaiveDate;
 
-pub fn parse_date(s: &str) -> Option<NaiveDate> {
+pub fn parse_date(s: &str) -> Result<NaiveDate, String> {
     // Try YYYYMMDD
     if s.len() == 8 {
         if let Ok(d) = NaiveDate::parse_from_str(s, "%Y%m%d") {
-            return Some(d);
+            return Ok(d);
         }
     }
     // Try YYYY-MM-DD
     if let Ok(d) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        return Some(d);
+        return Ok(d);
     }
-    None
+    Err(format!(
+        "Invalid date \"{}\" (expected YYYYMMDD or YYYY-MM-DD)",
+        s
+    ))
 }
