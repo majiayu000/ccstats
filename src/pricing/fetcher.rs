@@ -11,6 +11,7 @@ use crate::core::Stats;
 pub struct ModelPricing {
     pub input: f64,
     pub output: f64,
+    pub reasoning_output: f64,
     pub cache_read: f64,
     pub cache_create: f64,
 }
@@ -83,15 +84,24 @@ impl PricingDb {
                 continue;
             }
 
+            let input = value
+                .get("input_cost_per_token")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let output = value
+                .get("output_cost_per_token")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let reasoning_output = value
+                .get("reasoning_output_cost_per_token")
+                .or_else(|| value.get("reasoning_cost_per_token"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(output);
+
             let pricing = ModelPricing {
-                input: value
-                    .get("input_cost_per_token")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0),
-                output: value
-                    .get("output_cost_per_token")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0),
+                input,
+                output,
+                reasoning_output,
                 cache_read: value
                     .get("cache_read_input_token_cost")
                     .and_then(|v| v.as_f64())
@@ -219,6 +229,7 @@ impl PricingDb {
                     ModelPricing {
                         input: 5e-6,          // $5/M
                         output: 25e-6,        // $25/M
+                        reasoning_output: 25e-6,
                         cache_create: 6.25e-6, // $6.25/M
                         cache_read: 0.5e-6,   // $0.5/M
                     }
@@ -226,6 +237,7 @@ impl PricingDb {
                     ModelPricing {
                         input: 15e-6,
                         output: 75e-6,
+                        reasoning_output: 75e-6,
                         cache_create: 18.75e-6,
                         cache_read: 1.5e-6,
                     }
@@ -233,6 +245,7 @@ impl PricingDb {
                     ModelPricing {
                         input: 3e-6,
                         output: 15e-6,
+                        reasoning_output: 15e-6,
                         cache_create: 3.75e-6,
                         cache_read: 0.3e-6,
                     }
@@ -240,6 +253,7 @@ impl PricingDb {
                     ModelPricing {
                         input: 0.8e-6,
                         output: 4e-6,
+                        reasoning_output: 4e-6,
                         cache_create: 1e-6,
                         cache_read: 0.08e-6,
                     }
@@ -248,6 +262,7 @@ impl PricingDb {
                     ModelPricing {
                         input: 1.25e-6,      // $1.25/M
                         output: 10e-6,       // $10/M
+                        reasoning_output: 10e-6,
                         cache_create: 0.0,
                         cache_read: 0.125e-6, // $0.125/M
                     }
@@ -255,6 +270,7 @@ impl PricingDb {
                     ModelPricing {
                         input: 2.5e-6,
                         output: 10e-6,
+                        reasoning_output: 10e-6,
                         cache_create: 0.0,
                         cache_read: 0.0,
                     }
@@ -263,6 +279,7 @@ impl PricingDb {
                     ModelPricing {
                         input: 3e-6,
                         output: 15e-6,
+                        reasoning_output: 15e-6,
                         cache_create: 3.75e-6,
                         cache_read: 0.3e-6,
                     }
@@ -282,6 +299,7 @@ pub fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb) -> f64
     let pricing = pricing_db.get_pricing(model);
     stats.input_tokens as f64 * pricing.input
         + stats.output_tokens as f64 * pricing.output
+        + stats.reasoning_tokens as f64 * pricing.reasoning_output
         + stats.cache_creation as f64 * pricing.cache_create
         + stats.cache_read as f64 * pricing.cache_read
 }
@@ -298,6 +316,7 @@ mod tests {
             ModelPricing {
                 input: 3e-6,
                 output: 15e-6,
+                reasoning_output: 15e-6,
                 cache_create: 3.75e-6,
                 cache_read: 0.3e-6,
             },
@@ -326,6 +345,7 @@ mod tests {
             ModelPricing {
                 input: 3e-6,
                 output: 15e-6,
+                reasoning_output: 15e-6,
                 cache_create: 3.75e-6,
                 cache_read: 0.3e-6,
             },
