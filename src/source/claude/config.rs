@@ -11,10 +11,10 @@ use crate::utils::Timezone;
 use super::parser::{find_claude_files, parse_claude_file};
 
 /// Claude data source
-pub struct ClaudeSource;
+pub(crate) struct ClaudeSource;
 
 impl ClaudeSource {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 }

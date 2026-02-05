@@ -41,7 +41,7 @@ struct Usage {
 // File discovery
 // ============================================================================
 
-pub fn find_claude_files() -> Vec<PathBuf> {
+pub(crate) fn find_claude_files() -> Vec<PathBuf> {
     let Some(home) = dirs::home_dir() else {
         return Vec::new();
     };
@@ -61,7 +61,7 @@ pub fn find_claude_files() -> Vec<PathBuf> {
 // ============================================================================
 
 /// Normalize model name by removing prefixes and date suffixes
-pub fn normalize_model_name(model: &str) -> String {
+pub(crate) fn normalize_model_name(model: &str) -> String {
     let name = model
         .strip_prefix("anthropic.")
         .unwrap_or(model)
@@ -79,7 +79,7 @@ pub fn normalize_model_name(model: &str) -> String {
     name
 }
 
-pub fn parse_claude_file(
+pub(crate) fn parse_claude_file(
     path: &PathBuf,
     _filter: &DateFilter,
     timezone: &Timezone,

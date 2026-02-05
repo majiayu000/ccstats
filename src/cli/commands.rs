@@ -6,7 +6,7 @@ use clap::Subcommand;
 
 /// Main CLI commands
 #[derive(Subcommand)]
-pub enum Commands {
+pub(crate) enum Commands {
     /// Show daily usage (default)
     Daily,
     /// Show weekly usage
@@ -32,7 +32,7 @@ pub enum Commands {
 
 /// Codex-specific subcommands
 #[derive(Subcommand)]
-pub enum CodexCommands {
+pub(crate) enum CodexCommands {
     /// Show daily Codex usage (default)
     Daily,
     /// Show weekly Codex usage
@@ -49,7 +49,7 @@ pub enum CodexCommands {
 
 /// Normalized command that works across all sources
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceCommand {
+pub(crate) enum SourceCommand {
     Daily,
     Weekly,
     Monthly,
@@ -62,12 +62,12 @@ pub enum SourceCommand {
 
 impl SourceCommand {
     /// Check if this is a statusline command (requires quiet mode)
-    pub fn is_statusline(&self) -> bool {
+    pub(crate) fn is_statusline(&self) -> bool {
         matches!(self, SourceCommand::Statusline)
     }
 
     /// Check if this command needs today's date filter
-    pub fn needs_today_filter(&self) -> bool {
+    pub(crate) fn needs_today_filter(&self) -> bool {
         matches!(self, SourceCommand::Today | SourceCommand::Statusline)
     }
 }
@@ -102,7 +102,7 @@ impl From<&Option<CodexCommands>> for SourceCommand {
 }
 
 /// Parse CLI command into (is_codex, SourceCommand)
-pub fn parse_command(cmd: &Option<Commands>) -> (bool, SourceCommand) {
+pub(crate) fn parse_command(cmd: &Option<Commands>) -> (bool, SourceCommand) {
     match cmd {
         Some(Commands::Codex { command }) => (true, SourceCommand::from(command)),
         Some(cmd) => (false, SourceCommand::from(cmd)),

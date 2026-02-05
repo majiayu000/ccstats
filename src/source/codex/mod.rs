@@ -6,4 +6,4 @@
 mod config;
 mod parser;
 
-pub use config::CodexSource;
+pub(crate) use config::CodexSource;

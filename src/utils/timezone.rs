@@ -4,13 +4,13 @@ use chrono_tz::Tz;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy)]
-pub enum Timezone {
+pub(crate) enum Timezone {
     Local,
     Named(Tz),
 }
 
 impl Timezone {
-    pub fn parse(value: Option<&str>) -> Result<Self, String> {
+    pub(crate) fn parse(value: Option<&str>) -> Result<Self, String> {
         let Some(raw) = value else {
             return Ok(Timezone::Local);
         };
@@ -26,7 +26,7 @@ impl Timezone {
             .map_err(|_| format!("Invalid timezone: {}", trimmed))
     }
 
-    pub fn to_fixed_offset(&self, utc: DateTime<Utc>) -> DateTime<FixedOffset> {
+    pub(crate) fn to_fixed_offset(&self, utc: DateTime<Utc>) -> DateTime<FixedOffset> {
         match self {
             Timezone::Local => {
                 let local = utc.with_timezone(&Local);

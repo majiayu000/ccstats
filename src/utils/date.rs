@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 
-pub fn parse_date(s: &str) -> Result<NaiveDate, String> {
+pub(crate) fn parse_date(s: &str) -> Result<NaiveDate, String> {
     // Try YYYYMMDD
     if s.len() == 8 {
         if let Ok(d) = NaiveDate::parse_from_str(s, "%Y%m%d") {

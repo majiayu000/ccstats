@@ -21,7 +21,7 @@ fn compare_cost(a: f64, b: f64) -> Ordering {
     }
 }
 
-pub fn print_project_table(
+pub(crate) fn print_project_table(
     projects: &[ProjectStats],
     pricing_db: &PricingDb,
     order: SortOrder,
@@ -167,7 +167,7 @@ pub fn print_project_table(
     );
 }
 
-pub fn output_project_json(
+pub(crate) fn output_project_json(
     projects: &[ProjectStats],
     pricing_db: &PricingDb,
     order: SortOrder,

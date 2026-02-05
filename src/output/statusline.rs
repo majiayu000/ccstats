@@ -6,7 +6,7 @@ use crate::pricing::{calculate_cost, PricingDb};
 
 /// Output a single line suitable for statusline/tmux integration
 /// Format: "CC: $X.XX | In: XM Out: XK | Today"
-pub fn print_statusline(
+pub(crate) fn print_statusline(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
     number_format: NumberFormat,
@@ -34,7 +34,7 @@ pub fn print_statusline(
 }
 
 /// Output statusline as JSON for programmatic consumption
-pub fn print_statusline_json(
+pub(crate) fn print_statusline_json(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
     number_format: NumberFormat,

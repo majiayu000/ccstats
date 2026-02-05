@@ -8,7 +8,7 @@ use crate::output::format::{
 };
 use crate::pricing::{calculate_cost, PricingDb};
 
-pub fn print_block_table(
+pub(crate) fn print_block_table(
     blocks: &[BlockStats],
     pricing_db: &PricingDb,
     order: SortOrder,
@@ -132,7 +132,7 @@ pub fn print_block_table(
     );
 }
 
-pub fn output_block_json(
+pub(crate) fn output_block_json(
     blocks: &[BlockStats],
     pricing_db: &PricingDb,
     order: SortOrder,

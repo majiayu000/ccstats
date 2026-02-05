@@ -121,7 +121,7 @@ fn get_codex_sessions_dir() -> Option<PathBuf> {
     }
 }
 
-pub fn find_codex_files() -> Vec<PathBuf> {
+pub(crate) fn find_codex_files() -> Vec<PathBuf> {
     let Some(sessions_dir) = get_codex_sessions_dir() else {
         return Vec::new();
     };
@@ -169,7 +169,7 @@ fn extract_model(payload: &Payload) -> Option<String> {
     None
 }
 
-pub fn parse_codex_file(
+pub(crate) fn parse_codex_file(
     path: &PathBuf,
     _filter: &DateFilter,
     timezone: &Timezone,

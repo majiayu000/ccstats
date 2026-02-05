@@ -6,7 +6,7 @@
 use crate::core::types::RawEntry;
 
 /// Trait for entries that can be deduplicated
-pub trait Deduplicatable {
+pub(crate) trait Deduplicatable {
     fn timestamp_ms(&self) -> i64;
     fn has_stop_reason(&self) -> bool;
     fn message_id(&self) -> Option<&str>;
@@ -28,7 +28,7 @@ impl Deduplicatable for RawEntry {
 
 /// State machine for tracking best candidate entry for a message ID
 #[derive(Debug, Clone)]
-pub struct CandidateState<T: Deduplicatable + Clone> {
+pub(crate) struct CandidateState<T: Deduplicatable + Clone> {
     /// Entry with stop_reason (preferred)
     completed: Option<T>,
     /// Latest entry by timestamp (fallback)
@@ -36,7 +36,7 @@ pub struct CandidateState<T: Deduplicatable + Clone> {
 }
 
 impl<T: Deduplicatable + Clone> CandidateState<T> {
-    pub fn new(entry: T) -> Self {
+    pub(crate) fn new(entry: T) -> Self {
         let completed = if entry.has_stop_reason() {
             Some(entry.clone())
         } else {
@@ -48,7 +48,7 @@ impl<T: Deduplicatable + Clone> CandidateState<T> {
         }
     }
 
-    pub fn update(&mut self, entry: T) {
+    pub(crate) fn update(&mut self, entry: T) {
         if entry.has_stop_reason() {
             match &self.completed {
                 Some(existing) => {
@@ -66,14 +66,14 @@ impl<T: Deduplicatable + Clone> CandidateState<T> {
     }
 
     /// Get the best entry: completed if available, otherwise latest
-    pub fn finalize(self) -> T {
+    pub(crate) fn finalize(self) -> T {
         self.completed.unwrap_or(self.latest)
     }
 }
 
 /// Deduplicate entries by message ID
 /// Returns (deduplicated entries, skipped count)
-pub fn deduplicate<T, I>(entries: I) -> (Vec<T>, i64)
+pub(crate) fn deduplicate<T, I>(entries: I) -> (Vec<T>, i64)
 where
     T: Deduplicatable + Clone,
     I: IntoIterator<Item = T>,

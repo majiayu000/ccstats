@@ -20,7 +20,7 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
 });
 
 /// Get a source by name or alias
-pub fn get_source(name: &str) -> Option<&'static dyn Source> {
+pub(crate) fn get_source(name: &str) -> Option<&'static dyn Source> {
     let name_lower = name.to_lowercase();
     SOURCES.iter().find_map(|s: &BoxedSource| {
         if s.name() == name_lower || s.aliases().contains(&name_lower.as_str()) {

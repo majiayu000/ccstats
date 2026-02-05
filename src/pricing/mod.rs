@@ -1,3 +1,3 @@
-pub mod fetcher;
+pub(crate) mod fetcher;
 
-pub use fetcher::{calculate_cost, PricingDb};
+pub(crate) use fetcher::{calculate_cost, PricingDb};
