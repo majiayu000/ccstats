@@ -266,6 +266,7 @@ fn main() {
                     cli.compact,
                     show_cost,
                     number_format,
+                    false, // Claude doesn't have reasoning tokens
                 );
             }
         }
@@ -291,6 +292,7 @@ fn main() {
                     cli.compact,
                     show_cost,
                     number_format,
+                    false, // Claude doesn't have reasoning tokens
                 );
             }
         }
@@ -312,6 +314,7 @@ fn main() {
                     cli.compact,
                     show_cost,
                     number_format,
+                    false, // Claude doesn't have reasoning tokens
                 );
             }
         }
@@ -404,6 +407,7 @@ fn handle_codex_command(
                     cli.compact,
                     show_cost,
                     number_format,
+                    true, // Codex has reasoning tokens
                 );
             }
         }
@@ -429,6 +433,7 @@ fn handle_codex_command(
                     cli.compact,
                     show_cost,
                     number_format,
+                    true, // Codex has reasoning tokens
                 );
             }
         }
@@ -455,6 +460,7 @@ fn handle_codex_command(
                     cli.compact,
                     show_cost,
                     number_format,
+                    true, // Codex has reasoning tokens
                 );
             }
         }
