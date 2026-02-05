@@ -278,24 +278,31 @@ fn parse_codex_file(
             None => continue,
         };
 
-        // Get delta usage
-        let delta = if let Some(last) = &info.last_token_usage {
-            last.clone()
-        } else if let Some(total) = &info.total_token_usage {
-            let delta = match &previous_totals {
-                Some(prev) => total.subtract(prev),
-                None => total.clone(),
-            };
-            previous_totals = Some(total.clone());
-            delta
-        } else {
-            continue;
+        // Get delta usage - must check if total changed to avoid duplicates
+        // Codex emits multiple events with same total_token_usage, we only count when total changes
+        let total = match &info.total_token_usage {
+            Some(t) => t,
+            None => continue,
         };
 
-        // Update totals if we have them
-        if let Some(total) = &info.total_token_usage {
-            previous_totals = Some(total.clone());
+        // Skip if total hasn't changed (duplicate event)
+        if let Some(prev) = &previous_totals {
+            if total.total_tokens == prev.total_tokens {
+                continue;
+            }
         }
+
+        // Use last_token_usage if available, otherwise compute delta from totals
+        let delta = if let Some(last) = &info.last_token_usage {
+            last.clone()
+        } else {
+            match &previous_totals {
+                Some(prev) => total.subtract(prev),
+                None => total.clone(),
+            }
+        };
+
+        previous_totals = Some(total.clone());
 
         // Skip empty events
         if delta.is_empty() {
