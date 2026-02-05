@@ -2,8 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
+use std::time::{Duration, Instant, SystemTime};
 
-use crate::data::Stats;
+use crate::core::Stats;
 
 /// Model pricing info (per token, not per million)
 #[derive(Debug, Clone, Default)]
@@ -21,6 +22,8 @@ pub struct PricingDb {
     resolved: RefCell<HashMap<String, ModelPricing>>,
 }
 
+const PRICING_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
 impl PricingDb {
     pub fn get_cache_path() -> Option<PathBuf> {
         let home = dirs::home_dir()?;
@@ -32,6 +35,19 @@ impl PricingDb {
         let file = File::open(&path).ok()?;
         let data: HashMap<String, serde_json::Value> = serde_json::from_reader(file).ok()?;
         Some(Self::parse_litellm_data(data))
+    }
+
+    fn load_from_cache_if_fresh(ttl: Duration) -> Option<(Self, Duration)> {
+        let path = Self::get_cache_path()?;
+        let meta = std::fs::metadata(&path).ok()?;
+        let modified = meta.modified().ok()?;
+        let age = SystemTime::now().duration_since(modified).ok()?;
+        if age > ttl {
+            return None;
+        }
+        let file = File::open(&path).ok()?;
+        let data: HashMap<String, serde_json::Value> = serde_json::from_reader(file).ok()?;
+        Some((Self::parse_litellm_data(data), age))
     }
 
     pub fn save_to_cache(&self, raw_data: &HashMap<String, serde_json::Value>) {
@@ -116,39 +132,55 @@ impl PricingDb {
     }
 
     fn load_internal(offline: bool, quiet: bool) -> Self {
+        let start = Instant::now();
+
         if offline {
             if let Some(db) = Self::load_from_cache() {
                 if !quiet {
-                    eprintln!("Using cached pricing data");
+                    eprintln!("Using cached pricing ({:.2}ms)", start.elapsed().as_secs_f64() * 1000.0);
                 }
                 return db;
             }
             if !quiet {
-                eprintln!("No cached pricing, using built-in defaults");
+                eprintln!("No cached pricing, using defaults ({:.2}ms)", start.elapsed().as_secs_f64() * 1000.0);
             }
             return Self::default();
         }
 
-        if !quiet {
-            eprintln!("Fetching pricing from LiteLLM...");
-        }
-        if let Some((db, raw_data)) = Self::fetch_from_litellm() {
-            db.save_to_cache(&raw_data);
+        if let Some((db, age)) = Self::load_from_cache_if_fresh(PRICING_CACHE_TTL) {
             if !quiet {
-                eprintln!("Loaded pricing for {} models", db.models.len());
+                eprintln!(
+                    "Using cached pricing ({:.1}h old)",
+                    age.as_secs_f64() / 3600.0
+                );
             }
             return db;
         }
 
         if !quiet {
-            eprintln!("Failed to fetch pricing, trying cache...");
+            eprint!("Fetching pricing from LiteLLM...");
         }
-        if let Some(db) = Self::load_from_cache() {
+        if let Some((db, raw_data)) = Self::fetch_from_litellm() {
+            let fetch_time = start.elapsed();
+            db.save_to_cache(&raw_data);
+            if !quiet {
+                eprintln!(" {} models ({:.2}ms)", db.models.len(), fetch_time.as_secs_f64() * 1000.0);
+            }
             return db;
         }
 
         if !quiet {
-            eprintln!("Using built-in defaults");
+            eprintln!(" failed, trying cache...");
+        }
+        if let Some(db) = Self::load_from_cache() {
+            if !quiet {
+                eprintln!("Using cached pricing ({:.2}ms)", start.elapsed().as_secs_f64() * 1000.0);
+            }
+            return db;
+        }
+
+        if !quiet {
+            eprintln!("Using defaults ({:.2}ms)", start.elapsed().as_secs_f64() * 1000.0);
         }
         Self::default()
     }
