@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::data::DayStats;
+use crate::core::DayStats;
 use crate::output::format::{format_compact, NumberFormat};
 use crate::pricing::{calculate_cost, PricingDb};
 

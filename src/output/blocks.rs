@@ -1,7 +1,7 @@
 use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
 
 use crate::cli::SortOrder;
-use crate::data::{BlockStats, Stats};
+use crate::core::{BlockStats, Stats};
 use crate::output::format::{
     format_compact, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
