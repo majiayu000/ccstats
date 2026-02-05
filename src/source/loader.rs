@@ -38,18 +38,34 @@ impl<'a> DataLoader<'a> {
         }
     }
 
-    fn filter_entries(entries: Vec<RawEntry>, filter: &DateFilter) -> Vec<RawEntry> {
-        entries
-            .into_iter()
-            .filter(|entry| {
-                if let Ok(date) = chrono::NaiveDate::parse_from_str(&entry.date_str, "%Y-%m-%d")
-                {
-                    filter.contains(date)
-                } else {
-                    false
+    fn filter_entries(
+        entries: Vec<RawEntry>,
+        filter: &DateFilter,
+        timezone: &Timezone,
+    ) -> Vec<RawEntry> {
+        let mut filtered = Vec::new();
+        for mut entry in entries {
+            let date = if let Ok(utc_dt) = entry.timestamp.parse::<DateTime<Utc>>() {
+                let local_dt = timezone.to_fixed_offset(utc_dt);
+                let date = local_dt.date_naive();
+                entry.date_str = date.format("%Y-%m-%d").to_string();
+                entry.timestamp_ms = utc_dt.timestamp_millis();
+                Some(date)
+            } else if let Ok(date) =
+                chrono::NaiveDate::parse_from_str(&entry.date_str, "%Y-%m-%d")
+            {
+                Some(date)
+            } else {
+                None
+            };
+
+            if let Some(date) = date {
+                if filter.contains(date) {
+                    filtered.push(entry);
                 }
-            })
-            .collect()
+            }
+        }
+        filtered
     }
 
     /// Load raw entries from files with caching
@@ -153,7 +169,7 @@ impl<'a> DataLoader<'a> {
     ) -> LoadResult {
         let load_start = Instant::now();
         let (entries, file_results) = self.load_raw_entries(filter, timezone);
-        let entries = Self::filter_entries(entries, filter);
+        let entries = Self::filter_entries(entries, filter, timezone);
 
         if entries.is_empty() {
             return LoadResult::default();
@@ -218,7 +234,7 @@ impl<'a> DataLoader<'a> {
         timezone: &Timezone,
     ) -> Vec<SessionStats> {
         let (entries, file_results) = self.load_raw_entries(filter, timezone);
-        let entries = Self::filter_entries(entries, filter);
+        let entries = Self::filter_entries(entries, filter, timezone);
 
         if entries.is_empty() {
             return Vec::new();
@@ -278,7 +294,7 @@ impl<'a> DataLoader<'a> {
         }
 
         let (entries, file_results) = self.load_raw_entries(filter, timezone);
-        let entries = Self::filter_entries(entries, filter);
+        let entries = Self::filter_entries(entries, filter, timezone);
 
         if entries.is_empty() {
             return Vec::new();
