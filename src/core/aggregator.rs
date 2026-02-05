@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::core::types::{BlockStats, DayStats, ProjectStats, RawEntry, SessionStats, Stats};
 
 /// Aggregate entries by day
-pub fn aggregate_daily(entries: &[RawEntry]) -> HashMap<String, DayStats> {
+pub(crate) fn aggregate_daily(entries: &[RawEntry]) -> HashMap<String, DayStats> {
     let mut day_stats: HashMap<String, DayStats> = HashMap::new();
 
     for entry in entries {
@@ -83,7 +83,7 @@ impl From<SessionAccumulator> for SessionStats {
 }
 
 /// Aggregate entries by session
-pub fn aggregate_sessions(entries: &[RawEntry]) -> Vec<SessionStats> {
+pub(crate) fn aggregate_sessions(entries: &[RawEntry]) -> Vec<SessionStats> {
     let mut sessions: HashMap<String, SessionAccumulator> = HashMap::new();
 
     for entry in entries {
@@ -104,7 +104,7 @@ pub fn aggregate_sessions(entries: &[RawEntry]) -> Vec<SessionStats> {
 }
 
 /// Aggregate sessions by project
-pub fn aggregate_projects(sessions: &[SessionStats]) -> Vec<ProjectStats> {
+pub(crate) fn aggregate_projects(sessions: &[SessionStats]) -> Vec<ProjectStats> {
     let mut project_map: HashMap<String, ProjectStats> = HashMap::new();
 
     for session in sessions {
@@ -132,7 +132,7 @@ pub fn aggregate_projects(sessions: &[SessionStats]) -> Vec<ProjectStats> {
 }
 
 /// Extract readable project name from encoded path
-pub fn format_project_name(path: &str) -> String {
+pub(crate) fn format_project_name(path: &str) -> String {
     if path.contains('/') || path.contains('\\') {
         return std::path::Path::new(path)
             .file_name()
@@ -145,7 +145,7 @@ pub fn format_project_name(path: &str) -> String {
 }
 
 /// Aggregate entries by 5-hour billing blocks
-pub fn aggregate_blocks(
+pub(crate) fn aggregate_blocks(
     entries: &[RawEntry],
     local_times: &HashMap<String, DateTime<FixedOffset>>,
 ) -> Vec<BlockStats> {

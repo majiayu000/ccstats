@@ -3,37 +3,37 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     #[serde(default)]
-    pub offline: bool,
+    pub(crate) offline: bool,
     #[serde(default)]
-    pub compact: bool,
+    pub(crate) compact: bool,
     #[serde(default)]
-    pub no_cost: bool,
+    pub(crate) no_cost: bool,
     #[serde(default)]
-    pub no_color: bool,
+    pub(crate) no_color: bool,
     #[serde(default)]
-    pub breakdown: bool,
+    pub(crate) breakdown: bool,
     #[serde(default)]
-    pub debug: bool,
+    pub(crate) debug: bool,
     #[serde(default)]
-    pub order: Option<String>,
+    pub(crate) order: Option<String>,
     #[serde(default)]
-    pub color: Option<String>,
+    pub(crate) color: Option<String>,
     #[serde(default)]
-    pub cost: Option<String>,
+    pub(crate) cost: Option<String>,
     #[serde(default)]
-    pub timezone: Option<String>,
+    pub(crate) timezone: Option<String>,
     #[serde(default)]
-    pub locale: Option<String>,
+    pub(crate) locale: Option<String>,
 }
 
 impl Config {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         Self::load_internal(false)
     }
 
-    pub fn load_quiet() -> Self {
+    pub(crate) fn load_quiet() -> Self {
         Self::load_internal(true)
     }
 

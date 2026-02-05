@@ -28,7 +28,7 @@ fn extract_date(ts: &str, timezone: &Timezone) -> String {
     ts.split('T').next().unwrap_or(ts).to_string()
 }
 
-pub fn print_session_table(
+pub(crate) fn print_session_table(
     sessions: &[SessionStats],
     pricing_db: &PricingDb,
     order: SortOrder,
@@ -162,7 +162,7 @@ pub fn print_session_table(
     );
 }
 
-pub fn output_session_json(
+pub(crate) fn output_session_json(
     sessions: &[SessionStats],
     pricing_db: &PricingDb,
     order: SortOrder,

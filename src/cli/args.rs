@@ -11,7 +11,7 @@ use crate::config::Config;
 use super::commands::Commands;
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
-pub enum SortOrder {
+pub(crate) enum SortOrder {
     /// Oldest first (default)
     #[default]
     Asc,
@@ -20,7 +20,7 @@ pub enum SortOrder {
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq)]
-pub enum ColorMode {
+pub(crate) enum ColorMode {
     /// Auto-detect based on terminal (default)
     #[default]
     Auto,
@@ -31,7 +31,7 @@ pub enum ColorMode {
 }
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq)]
-pub enum CostMode {
+pub(crate) enum CostMode {
     /// Show calculated costs (default)
     #[default]
     Show,
@@ -42,74 +42,74 @@ pub enum CostMode {
 #[derive(Parser)]
 #[command(name = "ccstats")]
 #[command(about = "Fast Claude Code token usage statistics", version)]
-pub struct Cli {
+pub(crate) struct Cli {
     #[command(subcommand)]
-    pub command: Option<Commands>,
+    pub(crate) command: Option<Commands>,
 
     /// Filter from date (YYYYMMDD or YYYY-MM-DD)
     #[arg(short, long, global = true)]
-    pub since: Option<String>,
+    pub(crate) since: Option<String>,
 
     /// Filter until date (YYYYMMDD or YYYY-MM-DD)
     #[arg(short, long, global = true)]
-    pub until: Option<String>,
+    pub(crate) until: Option<String>,
 
     /// Show per-model breakdown
     #[arg(short, long, global = true)]
-    pub breakdown: bool,
+    pub(crate) breakdown: bool,
 
     /// Output as JSON
     #[arg(short, long, global = true)]
-    pub json: bool,
+    pub(crate) json: bool,
 
     /// Use offline cached pricing (skip fetching from LiteLLM)
     #[arg(short = 'O', long, global = true)]
-    pub offline: bool,
+    pub(crate) offline: bool,
 
     /// Sort order for results
     #[arg(short, long, global = true, value_enum, default_value = "asc")]
-    pub order: SortOrder,
+    pub(crate) order: SortOrder,
 
     /// Color output mode
     #[arg(long, global = true, value_enum, default_value = "auto")]
-    pub color: ColorMode,
+    pub(crate) color: ColorMode,
 
     /// Disable colored output (shorthand for --color=never)
     #[arg(long, global = true)]
-    pub no_color: bool,
+    pub(crate) no_color: bool,
 
     /// Enable debug output (show processing details)
     #[arg(long, global = true)]
-    pub debug: bool,
+    pub(crate) debug: bool,
 
     /// Compact output (fewer columns, shorter names)
     #[arg(short = 'c', long, global = true)]
-    pub compact: bool,
+    pub(crate) compact: bool,
 
     /// Cost display mode
     #[arg(long, global = true, value_enum, default_value = "show")]
-    pub cost: CostMode,
+    pub(crate) cost: CostMode,
 
     /// Hide cost column (shorthand for --cost=hide)
     #[arg(long, global = true)]
-    pub no_cost: bool,
+    pub(crate) no_cost: bool,
 
     /// Filter JSON output with jq expression (requires jq installed)
     #[arg(long, global = true, value_name = "FILTER")]
-    pub jq: Option<String>,
+    pub(crate) jq: Option<String>,
 
     /// Timezone for date display (e.g., "Asia/Shanghai", "UTC", "America/New_York")
     #[arg(long, global = true, value_name = "TZ")]
-    pub timezone: Option<String>,
+    pub(crate) timezone: Option<String>,
 
     /// Locale for number formatting (e.g., "en", "zh", "de")
     #[arg(long, global = true, value_name = "LOCALE")]
-    pub locale: Option<String>,
+    pub(crate) locale: Option<String>,
 }
 
 impl Cli {
     /// Merge config file values into CLI (CLI args take precedence)
-    pub fn with_config(mut self, config: &Config) -> Self {
+    pub(crate) fn with_config(mut self, config: &Config) -> Self {
         // Only apply config values if CLI didn't explicitly set them
         // For boolean flags, config only applies if CLI is false (default)
         if !self.offline && config.offline {
@@ -172,7 +172,7 @@ impl Cli {
         self
     }
 
-    pub fn use_color(&self) -> bool {
+    pub(crate) fn use_color(&self) -> bool {
         if self.no_color {
             return false;
         }
@@ -183,7 +183,7 @@ impl Cli {
         }
     }
 
-    pub fn show_cost(&self) -> bool {
+    pub(crate) fn show_cost(&self) -> bool {
         if self.no_cost {
             return false;
         }

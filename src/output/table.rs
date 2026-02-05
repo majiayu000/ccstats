@@ -11,7 +11,7 @@ use crate::output::format::{
 use crate::pricing::{calculate_cost, PricingDb};
 
 /// Print the summary line with optional timing
-pub fn print_summary_line(valid: i64, skipped: i64, number_format: NumberFormat, elapsed_ms: Option<f64>, use_color: bool) {
+pub(crate) fn print_summary_line(valid: i64, skipped: i64, number_format: NumberFormat, elapsed_ms: Option<f64>, use_color: bool) {
     let stats_text = format!(
         "{} unique API calls ({} streaming entries deduplicated)",
         format_number(valid, number_format),
@@ -37,7 +37,7 @@ fn sort_keys<'a>(keys: &mut Vec<&'a String>, order: SortOrder) {
 }
 
 
-pub fn print_daily_table(
+pub(crate) fn print_daily_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
     skipped: i64,
@@ -259,7 +259,7 @@ pub fn print_daily_table(
     print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
 }
 
-pub fn print_monthly_table(
+pub(crate) fn print_monthly_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
     skipped: i64,
@@ -495,7 +495,7 @@ fn get_week_start(date_str: &str) -> String {
     }
 }
 
-pub fn print_weekly_table(
+pub(crate) fn print_weekly_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
     skipped: i64,

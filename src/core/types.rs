@@ -7,19 +7,19 @@ use std::collections::HashMap;
 
 /// Token usage statistics
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct Stats {
-    pub input_tokens: i64,
-    pub output_tokens: i64,
-    pub cache_creation: i64,
-    pub cache_read: i64,
+pub(crate) struct Stats {
+    pub(crate) input_tokens: i64,
+    pub(crate) output_tokens: i64,
+    pub(crate) cache_creation: i64,
+    pub(crate) cache_read: i64,
     /// Reasoning tokens (e.g., Codex o1 models)
-    pub reasoning_tokens: i64,
-    pub count: i64,
-    pub skipped_chunks: i64,
+    pub(crate) reasoning_tokens: i64,
+    pub(crate) count: i64,
+    pub(crate) skipped_chunks: i64,
 }
 
 impl Stats {
-    pub fn add(&mut self, other: &Stats) {
+    pub(crate) fn add(&mut self, other: &Stats) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
         self.cache_creation += other.cache_creation;
@@ -30,7 +30,7 @@ impl Stats {
     }
 
     /// Total tokens for display purposes
-    pub fn total_tokens(&self) -> i64 {
+    pub(crate) fn total_tokens(&self) -> i64 {
         self.input_tokens
             + self.output_tokens
             + self.reasoning_tokens
@@ -41,13 +41,13 @@ impl Stats {
 
 /// Day-level aggregated statistics
 #[derive(Debug, Default, Clone)]
-pub struct DayStats {
-    pub stats: Stats,
-    pub models: HashMap<String, Stats>,
+pub(crate) struct DayStats {
+    pub(crate) stats: Stats,
+    pub(crate) models: HashMap<String, Stats>,
 }
 
 impl DayStats {
-    pub fn add_stats(&mut self, model: &str, stats: &Stats) {
+    pub(crate) fn add_stats(&mut self, model: &str, stats: &Stats) {
         self.stats.add(stats);
         self.models.entry(model.to_string()).or_default().add(stats);
     }
@@ -55,64 +55,64 @@ impl DayStats {
 
 /// Session statistics
 #[derive(Debug, Default, Clone)]
-pub struct SessionStats {
-    pub session_id: String,
-    pub project_path: String,
-    pub first_timestamp: String,
-    pub last_timestamp: String,
-    pub stats: Stats,
-    pub models: HashMap<String, Stats>,
+pub(crate) struct SessionStats {
+    pub(crate) session_id: String,
+    pub(crate) project_path: String,
+    pub(crate) first_timestamp: String,
+    pub(crate) last_timestamp: String,
+    pub(crate) stats: Stats,
+    pub(crate) models: HashMap<String, Stats>,
 }
 
 /// Project statistics
 #[derive(Debug, Default, Clone)]
-pub struct ProjectStats {
-    pub project_path: String,
-    pub project_name: String,
-    pub session_count: usize,
-    pub stats: Stats,
-    pub models: HashMap<String, Stats>,
+pub(crate) struct ProjectStats {
+    pub(crate) project_path: String,
+    pub(crate) project_name: String,
+    pub(crate) session_count: usize,
+    pub(crate) stats: Stats,
+    pub(crate) models: HashMap<String, Stats>,
 }
 
 /// 5-hour billing block statistics
 #[derive(Debug, Default, Clone)]
-pub struct BlockStats {
-    pub block_start: String,
-    pub block_end: String,
-    pub stats: Stats,
-    pub models: HashMap<String, Stats>,
+pub(crate) struct BlockStats {
+    pub(crate) block_start: String,
+    pub(crate) block_end: String,
+    pub(crate) stats: Stats,
+    pub(crate) models: HashMap<String, Stats>,
 }
 
 /// Raw entry parsed from source files
 /// All sources convert their native format to this unified structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RawEntry {
+pub(crate) struct RawEntry {
     /// UTC timestamp string
-    pub timestamp: String,
+    pub(crate) timestamp: String,
     /// Timestamp in milliseconds for ordering
-    pub timestamp_ms: i64,
+    pub(crate) timestamp_ms: i64,
     /// Local date string (YYYY-MM-DD)
-    pub date_str: String,
+    pub(crate) date_str: String,
     /// Message ID for deduplication (optional)
-    pub message_id: Option<String>,
+    pub(crate) message_id: Option<String>,
     /// Session ID
-    pub session_id: String,
+    pub(crate) session_id: String,
     /// Project path (may be empty for some sources)
-    pub project_path: String,
+    pub(crate) project_path: String,
     /// Model name
-    pub model: String,
+    pub(crate) model: String,
     /// Token counts
-    pub input_tokens: i64,
-    pub output_tokens: i64,
-    pub cache_creation: i64,
-    pub cache_read: i64,
-    pub reasoning_tokens: i64,
+    pub(crate) input_tokens: i64,
+    pub(crate) output_tokens: i64,
+    pub(crate) cache_creation: i64,
+    pub(crate) cache_read: i64,
+    pub(crate) reasoning_tokens: i64,
     /// Stop reason for completion detection
-    pub stop_reason: Option<String>,
+    pub(crate) stop_reason: Option<String>,
 }
 
 impl RawEntry {
-    pub fn to_stats(&self) -> Stats {
+    pub(crate) fn to_stats(&self) -> Stats {
         Stats {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
@@ -127,17 +127,17 @@ impl RawEntry {
 
 /// Date filter for queries
 #[derive(Debug, Clone, Default)]
-pub struct DateFilter {
-    pub since: Option<chrono::NaiveDate>,
-    pub until: Option<chrono::NaiveDate>,
+pub(crate) struct DateFilter {
+    pub(crate) since: Option<chrono::NaiveDate>,
+    pub(crate) until: Option<chrono::NaiveDate>,
 }
 
 impl DateFilter {
-    pub fn new(since: Option<chrono::NaiveDate>, until: Option<chrono::NaiveDate>) -> Self {
+    pub(crate) fn new(since: Option<chrono::NaiveDate>, until: Option<chrono::NaiveDate>) -> Self {
         Self { since, until }
     }
 
-    pub fn contains(&self, date: chrono::NaiveDate) -> bool {
+    pub(crate) fn contains(&self, date: chrono::NaiveDate) -> bool {
         if let Some(s) = self.since {
             if date < s {
                 return false;
@@ -154,10 +154,10 @@ impl DateFilter {
 
 /// Loading result with statistics
 #[derive(Debug, Default)]
-pub struct LoadResult {
-    pub day_stats: HashMap<String, DayStats>,
-    pub skipped: i64,
-    pub valid: i64,
+pub(crate) struct LoadResult {
+    pub(crate) day_stats: HashMap<String, DayStats>,
+    pub(crate) skipped: i64,
+    pub(crate) valid: i64,
     /// Processing time in milliseconds (excluding cache save)
-    pub elapsed_ms: f64,
+    pub(crate) elapsed_ms: f64,
 }

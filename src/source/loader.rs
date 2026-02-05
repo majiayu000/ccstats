@@ -13,14 +13,14 @@ use crate::utils::Timezone;
 use chrono::{DateTime, FixedOffset, Utc};
 
 /// Load data from a source
-pub struct DataLoader<'a> {
+pub(crate) struct DataLoader<'a> {
     source: &'a dyn Source,
     quiet: bool,
     debug: bool,
 }
 
 impl<'a> DataLoader<'a> {
-    pub fn new(source: &'a dyn Source, quiet: bool, debug: bool) -> Self {
+    pub(crate) fn new(source: &'a dyn Source, quiet: bool, debug: bool) -> Self {
         Self {
             source,
             quiet,
@@ -96,7 +96,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load and aggregate daily stats
-    pub fn load_daily(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
+    pub(crate) fn load_daily(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
         let load_start = Instant::now();
         let entries = self.load_raw_entries(filter, timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
@@ -145,7 +145,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load session stats
-    pub fn load_sessions(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<SessionStats> {
+    pub(crate) fn load_sessions(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<SessionStats> {
         let entries = self.load_raw_entries(filter, timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
 
@@ -169,7 +169,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load project stats (only for sources that support it)
-    pub fn load_projects(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<ProjectStats> {
+    pub(crate) fn load_projects(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<ProjectStats> {
         if !self.source.capabilities().has_projects {
             return Vec::new();
         }
@@ -185,7 +185,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load block stats (only for sources that support it)
-    pub fn load_blocks(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<BlockStats> {
+    pub(crate) fn load_blocks(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<BlockStats> {
         if !self.source.capabilities().has_billing_blocks {
             return Vec::new();
         }
@@ -224,7 +224,7 @@ impl<'a> DataLoader<'a> {
 }
 
 /// Convenience function to load daily stats for a source
-pub fn load_daily(
+pub(crate) fn load_daily(
     source: &dyn Source,
     filter: &DateFilter,
     timezone: &Timezone,
@@ -236,7 +236,7 @@ pub fn load_daily(
 }
 
 /// Convenience function to load sessions for a source
-pub fn load_sessions(
+pub(crate) fn load_sessions(
     source: &dyn Source,
     filter: &DateFilter,
     timezone: &Timezone,
@@ -247,7 +247,7 @@ pub fn load_sessions(
 }
 
 /// Convenience function to load projects for a source
-pub fn load_projects(
+pub(crate) fn load_projects(
     source: &dyn Source,
     filter: &DateFilter,
     timezone: &Timezone,
@@ -258,7 +258,7 @@ pub fn load_projects(
 }
 
 /// Convenience function to load blocks for a source
-pub fn load_blocks(
+pub(crate) fn load_blocks(
     source: &dyn Source,
     filter: &DateFilter,
     timezone: &Timezone,

@@ -32,7 +32,7 @@ fn sort_output(output: &mut Vec<serde_json::Value>, key: &str, order: SortOrder)
     }
 }
 
-pub fn output_daily_json(
+pub(crate) fn output_daily_json(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
     order: SortOrder,
@@ -131,7 +131,7 @@ pub fn output_daily_json(
     })
 }
 
-pub fn output_monthly_json(
+pub(crate) fn output_monthly_json(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
     order: SortOrder,
@@ -245,7 +245,7 @@ pub fn output_monthly_json(
     })
 }
 
-pub fn output_weekly_json(
+pub(crate) fn output_weekly_json(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
     order: SortOrder,

@@ -1,5 +1,5 @@
-pub mod args;
-pub mod commands;
+pub(crate) mod args;
+pub(crate) mod commands;
 
-pub use args::{Cli, SortOrder};
-pub use commands::{parse_command, SourceCommand};
+pub(crate) use args::{Cli, SortOrder};
+pub(crate) use commands::{parse_command, SourceCommand};

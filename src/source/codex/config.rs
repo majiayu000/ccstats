@@ -11,10 +11,10 @@ use crate::utils::Timezone;
 use super::parser::{find_codex_files, parse_codex_file};
 
 /// Codex data source
-pub struct CodexSource;
+pub(crate) struct CodexSource;
 
 impl CodexSource {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 }

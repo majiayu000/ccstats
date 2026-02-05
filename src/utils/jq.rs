@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 /// Pipe JSON through jq with the given filter expression
-pub fn filter_json(json: &str, filter: &str) -> Result<String, String> {
+pub(crate) fn filter_json(json: &str, filter: &str) -> Result<String, String> {
     let mut child = Command::new("jq")
         .arg(filter)
         .stdin(Stdio::piped())

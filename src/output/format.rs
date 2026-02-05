@@ -1,7 +1,7 @@
 use comfy_table::{Attribute, Cell, CellAlignment, Color, Table, TableComponent};
 
 #[derive(Debug, Clone, Copy)]
-pub struct NumberFormat {
+pub(crate) struct NumberFormat {
     group_sep: char,
     decimal_sep: char,
 }
@@ -16,7 +16,7 @@ impl Default for NumberFormat {
 }
 
 impl NumberFormat {
-    pub fn from_locale(locale: Option<&str>) -> Result<Self, String> {
+    pub(crate) fn from_locale(locale: Option<&str>) -> Result<Self, String> {
         let Some(raw) = locale else {
             return Ok(NumberFormat::default());
         };
@@ -49,7 +49,7 @@ impl NumberFormat {
     }
 }
 
-pub fn format_number(n: i64, format: NumberFormat) -> String {
+pub(crate) fn format_number(n: i64, format: NumberFormat) -> String {
     let (sign, digits) = if n < 0 {
         ("-", (-n).to_string())
     } else {
@@ -67,7 +67,7 @@ pub fn format_number(n: i64, format: NumberFormat) -> String {
 }
 
 /// Format number in compact form (K, M, B suffixes)
-pub fn format_compact(n: i64, format: NumberFormat) -> String {
+pub(crate) fn format_compact(n: i64, format: NumberFormat) -> String {
     let (sign, value) = if n < 0 { ("-", -n) } else { ("", n) };
     let (scaled, suffix) = if value >= 1_000_000_000 {
         (value as f64 / 1_000_000_000.0, "B")
@@ -85,7 +85,7 @@ pub fn format_compact(n: i64, format: NumberFormat) -> String {
     format!("{}{}{}", sign, s, suffix)
 }
 
-pub fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
+pub(crate) fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
     let mut cell = Cell::new(text);
     if let Some(c) = color {
         cell = cell.fg(c);
@@ -96,7 +96,7 @@ pub fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
     cell
 }
 
-pub fn header_cell(text: &str, use_color: bool) -> Cell {
+pub(crate) fn header_cell(text: &str, use_color: bool) -> Cell {
     let mut cell = Cell::new(text).add_attribute(Attribute::Bold);
     if use_color {
         cell = cell.fg(Color::Cyan);
@@ -105,14 +105,14 @@ pub fn header_cell(text: &str, use_color: bool) -> Cell {
 }
 
 /// Replace the double-line header separator (╞═╪═╡) with single-line (├─┼─┤)
-pub fn normalize_header_separator(table: &mut Table) {
+pub(crate) fn normalize_header_separator(table: &mut Table) {
     table.set_style(TableComponent::HeaderLines, '─');
     table.set_style(TableComponent::LeftHeaderIntersection, '├');
     table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
     table.set_style(TableComponent::RightHeaderIntersection, '┤');
 }
 
-pub fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
+pub(crate) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
     let mut cell = Cell::new(text).set_alignment(CellAlignment::Right);
     if let Some(c) = color {
         cell = cell.fg(c);

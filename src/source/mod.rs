@@ -3,10 +3,10 @@
 //! Each CLI tool (Claude, Codex, etc.) implements the Source trait
 //! to provide a unified interface for loading and processing usage data.
 
-pub mod claude;
-pub mod codex;
-pub mod loader;
-pub mod registry;
+pub(crate) mod claude;
+pub(crate) mod codex;
+pub(crate) mod loader;
+pub(crate) mod registry;
 
 use std::path::PathBuf;
 
@@ -15,19 +15,19 @@ use crate::utils::Timezone;
 
 /// Capabilities that a data source may support
 #[derive(Debug, Clone, Default)]
-pub struct Capabilities {
+pub(crate) struct Capabilities {
     /// Supports project-level aggregation
-    pub has_projects: bool,
+    pub(crate) has_projects: bool,
     /// Supports 5-hour billing block aggregation
-    pub has_billing_blocks: bool,
+    pub(crate) has_billing_blocks: bool,
     /// Has reasoning tokens (e.g., o1 models)
-    pub has_reasoning_tokens: bool,
+    pub(crate) has_reasoning_tokens: bool,
     /// Requires deduplication (streaming creates duplicate entries)
-    pub needs_dedup: bool,
+    pub(crate) needs_dedup: bool,
 }
 
 /// Data source trait - implemented by each CLI tool
-pub trait Source: Send + Sync {
+pub(crate) trait Source: Send + Sync {
     /// Unique name for this source (used in CLI subcommands)
     fn name(&self) -> &'static str;
 
@@ -57,10 +57,10 @@ pub trait Source: Send + Sync {
 }
 
 /// Box type for dynamic dispatch
-pub type BoxedSource = Box<dyn Source>;
+pub(crate) type BoxedSource = Box<dyn Source>;
 
 // Re-export registry functions
-pub use registry::get_source;
+pub(crate) use registry::get_source;
 
 // Re-export loader functions
-pub use loader::{load_blocks, load_daily, load_projects, load_sessions};
+pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions};
