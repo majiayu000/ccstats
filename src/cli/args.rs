@@ -203,4 +203,25 @@ pub enum Commands {
     Blocks,
     /// Output single line for statusline/tmux integration
     Statusline,
+    /// OpenAI Codex CLI usage statistics
+    Codex {
+        #[command(subcommand)]
+        command: Option<CodexCommands>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CodexCommands {
+    /// Show daily Codex usage (default)
+    Daily,
+    /// Show weekly Codex usage
+    Weekly,
+    /// Show monthly Codex usage
+    Monthly,
+    /// Show today's Codex usage
+    Today,
+    /// Show Codex usage by session
+    Session,
+    /// Output single line for statusline/tmux integration
+    Statusline,
 }

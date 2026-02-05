@@ -29,6 +29,8 @@ pub struct Stats {
     pub output_tokens: i64,
     pub cache_creation: i64,
     pub cache_read: i64,
+    /// Reasoning tokens (Codex only, included in output_tokens for billing)
+    pub reasoning_tokens: i64,
     pub count: i64,
     pub skipped_chunks: i64,
 }
@@ -39,13 +41,17 @@ impl Stats {
         self.output_tokens += other.output_tokens;
         self.cache_creation += other.cache_creation;
         self.cache_read += other.cache_read;
+        self.reasoning_tokens += other.reasoning_tokens;
         self.count += other.count;
         self.skipped_chunks += other.skipped_chunks;
     }
 
+    /// Total tokens for display purposes.
+    /// Note: reasoning_tokens is already included in output_tokens for billing.
     pub fn total_tokens(&self) -> i64 {
         self.input_tokens + self.output_tokens + self.cache_creation + self.cache_read
     }
+
 }
 
 #[derive(Debug, Default)]

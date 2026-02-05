@@ -59,7 +59,11 @@ impl PricingDb {
         let mut models = HashMap::new();
 
         for (name, value) in data {
-            if !name.contains("claude") {
+            // Load Claude models and OpenAI GPT models
+            let is_claude = name.contains("claude");
+            let is_openai = name.starts_with("openai/") || name.starts_with("gpt-");
+
+            if !is_claude && !is_openai {
                 continue;
             }
 
@@ -86,8 +90,15 @@ impl PricingDb {
             models.insert(name.clone(), pricing.clone());
 
             // Also store normalized versions
-            let normalized = name.replace("claude-", "").replace("anthropic.", "");
-            models.insert(normalized, pricing);
+            if is_claude {
+                let normalized = name.replace("claude-", "").replace("anthropic.", "");
+                models.insert(normalized, pricing);
+            } else if is_openai {
+                // Store without openai/ prefix
+                if let Some(stripped) = name.strip_prefix("openai/") {
+                    models.insert(stripped.to_string(), pricing);
+                }
+            }
         }
 
         Self {
@@ -124,7 +135,7 @@ impl PricingDb {
         if let Some((db, raw_data)) = Self::fetch_from_litellm() {
             db.save_to_cache(&raw_data);
             if !quiet {
-                eprintln!("Loaded pricing for {} Claude models", db.models.len());
+                eprintln!("Loaded pricing for {} models", db.models.len());
             }
             return db;
         }
@@ -198,8 +209,23 @@ impl PricingDb {
                         cache_create: 1e-6,
                         cache_read: 0.08e-6,
                     }
+                } else if model_lower.contains("gpt-5") || model_lower.contains("codex") {
+                    // GPT-5 / Codex pricing (approximate)
+                    ModelPricing {
+                        input: 1.25e-6,      // $1.25/M
+                        output: 10e-6,       // $10/M
+                        cache_create: 0.0,
+                        cache_read: 0.125e-6, // $0.125/M
+                    }
+                } else if model_lower.contains("gpt-4") {
+                    ModelPricing {
+                        input: 2.5e-6,
+                        output: 10e-6,
+                        cache_create: 0.0,
+                        cache_read: 0.0,
+                    }
                 } else {
-                    // Default to sonnet pricing
+                    // Default to sonnet pricing for unknown models
                     ModelPricing {
                         input: 3e-6,
                         output: 15e-6,
@@ -248,6 +274,7 @@ mod tests {
             output_tokens: 100_000,
             cache_creation: 0,
             cache_read: 0,
+            reasoning_tokens: 0,
             count: 1,
             skipped_chunks: 0,
         };
@@ -275,6 +302,7 @@ mod tests {
             output_tokens: 0,
             cache_creation: 1_000_000,
             cache_read: 1_000_000,
+            reasoning_tokens: 0,
             count: 1,
             skipped_chunks: 0,
         };
