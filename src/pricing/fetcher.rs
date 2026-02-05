@@ -201,18 +201,20 @@ impl PricingDb {
             } else {
                 // Try partial matching
                 let model_lower = model.to_lowercase();
-                let mut matched: Option<ModelPricing> = None;
-                for (name, pricing) in &self.models {
-                    if name.to_lowercase().contains(&model_lower)
-                        || model_lower.contains(&name.to_lowercase())
-                    {
-                        matched = Some(pricing.clone());
-                        break;
-                    }
-                }
+                let mut candidates: Vec<(&String, &ModelPricing)> = self
+                    .models
+                    .iter()
+                    .filter(|(name, _)| {
+                        let name_lower = name.to_lowercase();
+                        name_lower.contains(&model_lower) || model_lower.contains(&name_lower)
+                    })
+                    .collect();
+                candidates.sort_by(|(a, _), (b, _)| {
+                    b.len().cmp(&a.len()).then_with(|| a.cmp(b))
+                });
 
-                if let Some(p) = matched {
-                    p
+                if let Some((_, p)) = candidates.first() {
+                    (*p).clone()
                 } else if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
                     ModelPricing {
                         input: 5e-6,          // $5/M
