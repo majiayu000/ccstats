@@ -10,7 +10,7 @@ use std::time::UNIX_EPOCH;
 
 use crate::utils::Timezone;
 
-use super::types::{BlockStats, DayStats, ParsedEntry, ProjectStats, SessionStats, Stats, Usage, UsageEntry};
+use crate::data::types::{BlockStats, DayStats, ParsedEntry, ProjectStats, SessionStats, Stats, Usage, UsageEntry};
 
 #[derive(Debug)]
 struct ParsedEntryWithLocal {
@@ -132,6 +132,7 @@ fn stats_from_usage(usage: &Usage) -> Stats {
         output_tokens: usage.output_tokens.unwrap_or(0),
         cache_creation: usage.cache_creation_input_tokens.unwrap_or(0),
         cache_read: usage.cache_read_input_tokens.unwrap_or(0),
+        reasoning_tokens: 0, // Claude doesn't have reasoning tokens
         count: 1,
         skipped_chunks: 0,
     }
