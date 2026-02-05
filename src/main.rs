@@ -21,7 +21,7 @@ use output::{
 };
 use pricing::PricingDb;
 use source::{get_source, load_blocks, load_daily, load_projects, load_sessions, Source};
-use utils::{filter_json, parse_date, Timezone};
+use utils::{filter_json, parse_date, set_parse_debug, Timezone};
 
 /// Print JSON output, optionally filtering through jq
 fn print_json(json: &str, jq_filter: Option<&str>) {
@@ -262,6 +262,7 @@ fn main() {
 
     // Merge config with CLI (CLI takes precedence)
     let cli = raw_cli.with_config(&config);
+    set_parse_debug(cli.debug);
 
     enum TimezoneSource {
         Cli,

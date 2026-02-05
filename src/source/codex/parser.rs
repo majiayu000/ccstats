@@ -11,7 +11,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use crate::core::{DateFilter, RawEntry};
-use crate::utils::Timezone;
+use crate::utils::{parse_debug_enabled, Timezone};
 
 const DEFAULT_CODEX_DIR: &str = ".codex";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
@@ -182,7 +182,12 @@ pub fn parse_codex_file(
 
     let file = match File::open(path) {
         Ok(f) => f,
-        Err(_) => return Vec::new(),
+        Err(err) => {
+            if parse_debug_enabled() {
+                eprintln!("Failed to open {}: {}", path.display(), err);
+            }
+            return Vec::new();
+        }
     };
     let reader = BufReader::new(file);
 
@@ -190,7 +195,22 @@ pub fn parse_codex_file(
     let mut previous_totals: Option<TokenUsage> = None;
     let mut current_model: Option<String> = None;
 
-    for line in reader.lines().flatten() {
+    for (line_no, line) in reader.lines().enumerate() {
+        let line = match line {
+            Ok(line) => line,
+            Err(err) => {
+                if parse_debug_enabled() {
+                    eprintln!(
+                        "Failed to read line {} in {}: {}",
+                        line_no + 1,
+                        path.display(),
+                        err
+                    );
+                }
+                continue;
+            }
+        };
+
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -198,7 +218,17 @@ pub fn parse_codex_file(
 
         let raw_entry: RawJsonEntry = match serde_json::from_str(trimmed) {
             Ok(e) => e,
-            Err(_) => continue,
+            Err(err) => {
+                if parse_debug_enabled() {
+                    eprintln!(
+                        "Invalid JSON at {}:{}: {}",
+                        path.display(),
+                        line_no + 1,
+                        err
+                    );
+                }
+                continue;
+            }
         };
 
         let entry_type = match &raw_entry.entry_type {
@@ -277,7 +307,18 @@ pub fn parse_codex_file(
         // Parse timestamp
         let utc_dt = match timestamp.parse::<DateTime<Utc>>() {
             Ok(dt) => dt,
-            Err(_) => continue,
+            Err(err) => {
+                if parse_debug_enabled() {
+                    eprintln!(
+                        "Invalid timestamp at {}:{}: {} ({})",
+                        path.display(),
+                        line_no + 1,
+                        timestamp,
+                        err
+                    );
+                }
+                continue;
+            }
         };
         let local_dt = timezone.to_fixed_offset(utc_dt);
         let date = local_dt.date_naive();
