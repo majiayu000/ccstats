@@ -3,10 +3,10 @@
 //! Each CLI tool (Claude, Codex, etc.) implements the Source trait
 //! to provide a unified interface for loading and processing usage data.
 
-pub(crate) mod claude;
-pub(crate) mod codex;
-pub(crate) mod loader;
-pub(crate) mod registry;
+mod claude;
+mod codex;
+mod loader;
+mod registry;
 
 use std::path::PathBuf;
 

@@ -28,7 +28,7 @@ impl Deduplicatable for RawEntry {
 
 /// State machine for tracking best candidate entry for a message ID
 #[derive(Debug, Clone)]
-pub(crate) struct CandidateState<T: Deduplicatable + Clone> {
+struct CandidateState<T: Deduplicatable + Clone> {
     /// Entry with stop_reason (preferred)
     completed: Option<T>,
     /// Latest entry by timestamp (fallback)
@@ -36,7 +36,7 @@ pub(crate) struct CandidateState<T: Deduplicatable + Clone> {
 }
 
 impl<T: Deduplicatable + Clone> CandidateState<T> {
-    pub(crate) fn new(entry: T) -> Self {
+    fn new(entry: T) -> Self {
         let completed = if entry.has_stop_reason() {
             Some(entry.clone())
         } else {
@@ -48,7 +48,7 @@ impl<T: Deduplicatable + Clone> CandidateState<T> {
         }
     }
 
-    pub(crate) fn update(&mut self, entry: T) {
+    fn update(&mut self, entry: T) {
         if entry.has_stop_reason() {
             match &self.completed {
                 Some(existing) => {
@@ -66,7 +66,7 @@ impl<T: Deduplicatable + Clone> CandidateState<T> {
     }
 
     /// Get the best entry: completed if available, otherwise latest
-    pub(crate) fn finalize(self) -> T {
+    fn finalize(self) -> T {
         self.completed.unwrap_or(self.latest)
     }
 }

@@ -1,8 +1,8 @@
 //! Core module - shared types and logic for all data sources
 
-pub(crate) mod aggregator;
-pub(crate) mod dedup;
-pub(crate) mod types;
+mod aggregator;
+mod dedup;
+mod types;
 
 pub(crate) use aggregator::{aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions, format_project_name};
 pub(crate) use dedup::deduplicate;

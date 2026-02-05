@@ -52,7 +52,7 @@ struct Metadata {
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
-pub(super) struct TokenUsage {
+struct TokenUsage {
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
     #[serde(alias = "cache_read_input_tokens")]
@@ -69,7 +69,7 @@ impl TokenUsage {
             .unwrap_or(0)
     }
 
-    pub(super) fn subtract(&self, prev: &TokenUsage) -> TokenUsage {
+    fn subtract(&self, prev: &TokenUsage) -> TokenUsage {
         TokenUsage {
             input_tokens: Some(
                 (self.input_tokens.unwrap_or(0) - prev.input_tokens.unwrap_or(0)).max(0),
@@ -90,7 +90,7 @@ impl TokenUsage {
         }
     }
 
-    pub(super) fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.input_tokens.unwrap_or(0) == 0
             && self.cached_input() == 0
             && self.output_tokens.unwrap_or(0) == 0
@@ -121,7 +121,7 @@ fn get_codex_sessions_dir() -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn find_codex_files() -> Vec<PathBuf> {
+pub(super) fn find_codex_files() -> Vec<PathBuf> {
     let Some(sessions_dir) = get_codex_sessions_dir() else {
         return Vec::new();
     };
@@ -169,7 +169,7 @@ fn extract_model(payload: &Payload) -> Option<String> {
     None
 }
 
-pub(crate) fn parse_codex_file(
+pub(super) fn parse_codex_file(
     path: &PathBuf,
     _filter: &DateFilter,
     timezone: &Timezone,

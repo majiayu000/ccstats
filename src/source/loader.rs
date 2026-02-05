@@ -13,14 +13,14 @@ use crate::utils::Timezone;
 use chrono::{DateTime, FixedOffset, Utc};
 
 /// Load data from a source
-pub(crate) struct DataLoader<'a> {
+struct DataLoader<'a> {
     source: &'a dyn Source,
     quiet: bool,
     debug: bool,
 }
 
 impl<'a> DataLoader<'a> {
-    pub(crate) fn new(source: &'a dyn Source, quiet: bool, debug: bool) -> Self {
+    fn new(source: &'a dyn Source, quiet: bool, debug: bool) -> Self {
         Self {
             source,
             quiet,
@@ -96,7 +96,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load and aggregate daily stats
-    pub(crate) fn load_daily(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
+    fn load_daily(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
         let load_start = Instant::now();
         let entries = self.load_raw_entries(filter, timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
@@ -145,7 +145,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load session stats
-    pub(crate) fn load_sessions(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<SessionStats> {
+    fn load_sessions(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<SessionStats> {
         let entries = self.load_raw_entries(filter, timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
 
@@ -169,7 +169,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load project stats (only for sources that support it)
-    pub(crate) fn load_projects(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<ProjectStats> {
+    fn load_projects(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<ProjectStats> {
         if !self.source.capabilities().has_projects {
             return Vec::new();
         }
@@ -185,7 +185,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load block stats (only for sources that support it)
-    pub(crate) fn load_blocks(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<BlockStats> {
+    fn load_blocks(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<BlockStats> {
         if !self.source.capabilities().has_billing_blocks {
             return Vec::new();
         }
