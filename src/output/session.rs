@@ -2,7 +2,7 @@ use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell,
 use chrono::{DateTime, Utc};
 
 use crate::cli::SortOrder;
-use crate::data::{format_project_name, SessionStats, Stats};
+use crate::core::{format_project_name, SessionStats, Stats};
 use crate::output::format::{
     format_compact, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,

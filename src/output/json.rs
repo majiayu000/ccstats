@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::cli::SortOrder;
-use crate::data::DayStats;
+use crate::core::DayStats;
 use crate::pricing::{calculate_cost, PricingDb};
 
 /// Get the Monday of the week for a given date (ISO week)

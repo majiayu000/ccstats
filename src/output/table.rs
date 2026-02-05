@@ -3,12 +3,31 @@ use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell,
 use std::collections::HashMap;
 
 use crate::cli::SortOrder;
-use crate::data::{DayStats, Stats};
+use crate::core::{DayStats, Stats};
 use crate::output::format::{
     format_compact, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
 };
 use crate::pricing::{calculate_cost, PricingDb};
+
+/// Print the summary line with optional timing
+pub fn print_summary_line(valid: i64, skipped: i64, number_format: NumberFormat, elapsed_ms: Option<f64>, use_color: bool) {
+    let stats_text = format!(
+        "{} unique API calls ({} streaming entries deduplicated)",
+        format_number(valid, number_format),
+        format_number(skipped, number_format)
+    );
+
+    if let Some(ms) = elapsed_ms {
+        if use_color {
+            println!("\n  {} | \x1b[36m{:.0}ms\x1b[0m\n", stats_text, ms);
+        } else {
+            println!("\n  {} | {:.0}ms\n", stats_text, ms);
+        }
+    } else {
+        println!("\n  {}\n", stats_text);
+    }
+}
 
 fn sort_keys<'a>(keys: &mut Vec<&'a String>, order: SortOrder) {
     match order {
@@ -30,6 +49,7 @@ pub fn print_daily_table(
     show_cost: bool,
     number_format: NumberFormat,
     show_reasoning: bool,
+    elapsed_ms: Option<f64>,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
     sort_keys(&mut dates, order);
@@ -236,11 +256,7 @@ pub fn print_daily_table(
 
     println!("\n  Token Usage\n");
     println!("{table}");
-    println!(
-        "\n  {} unique API calls ({} streaming entries deduplicated)\n",
-        format_number(valid, number_format),
-        format_number(skipped, number_format)
-    );
+    print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
 }
 
 pub fn print_monthly_table(
@@ -255,6 +271,7 @@ pub fn print_monthly_table(
     show_cost: bool,
     number_format: NumberFormat,
     show_reasoning: bool,
+    elapsed_ms: Option<f64>,
 ) {
     // Aggregate by month
     let mut month_stats: HashMap<String, DayStats> = HashMap::new();
@@ -463,11 +480,7 @@ pub fn print_monthly_table(
 
     println!("\n  Monthly Token Usage\n");
     println!("{table}");
-    println!(
-        "\n  {} unique API calls ({} streaming entries deduplicated)\n",
-        format_number(valid, number_format),
-        format_number(skipped, number_format)
-    );
+    print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
 }
 
 /// Get the Monday of the week for a given date (ISO week)
@@ -494,6 +507,7 @@ pub fn print_weekly_table(
     show_cost: bool,
     number_format: NumberFormat,
     show_reasoning: bool,
+    elapsed_ms: Option<f64>,
 ) {
     // Aggregate by week (Monday start)
     let mut week_stats: HashMap<String, DayStats> = HashMap::new();
@@ -702,9 +716,5 @@ pub fn print_weekly_table(
 
     println!("\n  Weekly Token Usage\n");
     println!("{table}");
-    println!(
-        "\n  {} unique API calls ({} streaming entries deduplicated)\n",
-        format_number(valid, number_format),
-        format_number(skipped, number_format)
-    );
+    print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
 }
