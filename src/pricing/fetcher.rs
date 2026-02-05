@@ -8,30 +8,30 @@ use crate::core::Stats;
 
 /// Model pricing info (per token, not per million)
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ModelPricing {
-    pub(crate) input: f64,
-    pub(crate) output: f64,
-    pub(crate) reasoning_output: f64,
-    pub(crate) cache_read: f64,
-    pub(crate) cache_create: f64,
+struct ModelPricing {
+    input: f64,
+    output: f64,
+    reasoning_output: f64,
+    cache_read: f64,
+    cache_create: f64,
 }
 
 /// Pricing database loaded from LiteLLM or cache
 #[derive(Debug, Default)]
 pub(crate) struct PricingDb {
-    pub(crate) models: HashMap<String, ModelPricing>,
+    models: HashMap<String, ModelPricing>,
     resolved: RefCell<HashMap<String, ModelPricing>>,
 }
 
 const PRICING_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl PricingDb {
-    pub(crate) fn get_cache_path() -> Option<PathBuf> {
+    fn get_cache_path() -> Option<PathBuf> {
         let home = dirs::home_dir()?;
         Some(home.join(".cache").join("ccstats").join("pricing.json"))
     }
 
-    pub(crate) fn load_from_cache() -> Option<Self> {
+    fn load_from_cache() -> Option<Self> {
         let path = Self::get_cache_path()?;
         let file = File::open(&path).ok()?;
         let data: HashMap<String, serde_json::Value> = serde_json::from_reader(file).ok()?;
@@ -51,7 +51,7 @@ impl PricingDb {
         Some((Self::parse_litellm_data(data), age))
     }
 
-    pub(crate) fn save_to_cache(&self, raw_data: &HashMap<String, serde_json::Value>) {
+    fn save_to_cache(&self, raw_data: &HashMap<String, serde_json::Value>) {
         let Some(path) = Self::get_cache_path() else {
             return;
         };
@@ -63,7 +63,7 @@ impl PricingDb {
         }
     }
 
-    pub(crate) fn fetch_from_litellm() -> Option<(Self, HashMap<String, serde_json::Value>)> {
+    fn fetch_from_litellm() -> Option<(Self, HashMap<String, serde_json::Value>)> {
         let url = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
         let response = ureq::get(url).call().ok()?;
         let mut body = response.into_body();
@@ -72,7 +72,7 @@ impl PricingDb {
         Some((db, data))
     }
 
-    pub(crate) fn parse_litellm_data(data: HashMap<String, serde_json::Value>) -> Self {
+    fn parse_litellm_data(data: HashMap<String, serde_json::Value>) -> Self {
         let mut models = HashMap::new();
 
         for (name, value) in data {
@@ -195,7 +195,7 @@ impl PricingDb {
         Self::default()
     }
 
-    pub(crate) fn get_pricing(&self, model: &str) -> ModelPricing {
+    fn get_pricing(&self, model: &str) -> ModelPricing {
         if let Some(cached) = self.resolved.borrow().get(model) {
             return cached.clone();
         }

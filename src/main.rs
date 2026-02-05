@@ -12,7 +12,7 @@ use clap::Parser;
 use cli::{parse_command, Cli, SourceCommand};
 use config::Config;
 use core::DateFilter;
-use output::format::NumberFormat;
+use output::NumberFormat;
 use output::{
     output_block_json, output_daily_json, output_monthly_json, output_project_json,
     output_session_json, output_weekly_json, print_block_table, print_daily_table,
