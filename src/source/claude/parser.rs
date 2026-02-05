@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use crate::core::{DateFilter, RawEntry};
-use crate::utils::Timezone;
+use crate::utils::{parse_debug_enabled, Timezone};
 
 // ============================================================================
 // Internal types for JSONL parsing
@@ -99,30 +99,68 @@ pub fn parse_claude_file(
 
     let file = match File::open(path) {
         Ok(f) => f,
-        Err(_) => return Vec::new(),
+        Err(err) => {
+            if parse_debug_enabled() {
+                eprintln!("Failed to open {}: {}", path.display(), err);
+            }
+            return Vec::new();
+        }
     };
     let reader = BufReader::new(file);
 
     let mut entries = Vec::new();
-    for line in reader.lines().flatten() {
-        if let Some(entry) = parse_line(&line, &session_id, &project_path, timezone) {
+    for (line_no, line) in reader.lines().enumerate() {
+        let line = match line {
+            Ok(line) => line,
+            Err(err) => {
+                if parse_debug_enabled() {
+                    eprintln!(
+                        "Failed to read line {} in {}: {}",
+                        line_no + 1,
+                        path.display(),
+                        err
+                    );
+                }
+                continue;
+            }
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: UsageEntry = match serde_json::from_str(&line) {
+            Ok(entry) => entry,
+            Err(err) => {
+                if parse_debug_enabled() {
+                    eprintln!(
+                        "Invalid JSON at {}:{}: {}",
+                        path.display(),
+                        line_no + 1,
+                        err
+                    );
+                }
+                continue;
+            }
+        };
+
+        if let Some(entry) =
+            parse_entry(entry, path, &session_id, &project_path, timezone, line_no + 1)
+        {
             entries.push(entry);
         }
     }
     entries
 }
 
-fn parse_line(
-    line: &str,
+fn parse_entry(
+    entry: UsageEntry,
+    path: &PathBuf,
     session_id: &str,
     project_path: &str,
     timezone: &Timezone,
+    line_no: usize,
 ) -> Option<RawEntry> {
-    if line.trim().is_empty() {
-        return None;
-    }
-
-    let entry: UsageEntry = serde_json::from_str(line).ok()?;
     let ts = entry.timestamp?;
     let msg = entry.message?;
     let usage = msg.usage?;
@@ -138,7 +176,21 @@ fn parse_line(
     }
 
     // Parse timestamp
-    let utc_dt = ts.parse::<DateTime<Utc>>().ok()?;
+    let utc_dt = match ts.parse::<DateTime<Utc>>() {
+        Ok(dt) => dt,
+        Err(err) => {
+            if parse_debug_enabled() {
+                eprintln!(
+                    "Invalid timestamp at {}:{}: {} ({})",
+                    path.display(),
+                    line_no,
+                    ts,
+                    err
+                );
+            }
+            return None;
+        }
+    };
     let local_dt = timezone.to_fixed_offset(utc_dt);
     let date = local_dt.date_naive();
 
