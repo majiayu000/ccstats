@@ -6,7 +6,7 @@ use crate::output::format::{
     format_compact, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
 };
-use crate::pricing::{calculate_cost, PricingDb};
+use crate::pricing::{attach_costs, PricingDb};
 use std::cmp::Ordering;
 
 fn compare_cost(a: f64, b: f64) -> Ordering {
@@ -31,20 +31,12 @@ pub(crate) fn print_project_table(
     source_label: &str,
     number_format: NumberFormat,
 ) {
-    let mut sorted_projects: Vec<_> = projects.iter().collect();
+    let mut sorted_projects = attach_costs(projects, |p| &p.models, pricing_db);
 
     // Sort by cost (default) or name
     match order {
-        SortOrder::Asc => sorted_projects.sort_by(|a, b| {
-            let cost_a: f64 = a.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            let cost_b: f64 = b.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            compare_cost(cost_a, cost_b)
-        }),
-        SortOrder::Desc => sorted_projects.sort_by(|a, b| {
-            let cost_a: f64 = a.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            let cost_b: f64 = b.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            compare_cost(cost_b, cost_a)
-        }),
+        SortOrder::Asc => sorted_projects.sort_by(|a, b| compare_cost(a.cost, b.cost)),
+        SortOrder::Desc => sorted_projects.sort_by(|a, b| compare_cost(b.cost, a.cost)),
     }
 
     let mut table = Table::new();
@@ -85,11 +77,9 @@ pub(crate) fn print_project_table(
     let mut total_cost = 0.0;
     let mut total_sessions = 0usize;
 
-    for project in &sorted_projects {
-        let mut project_cost = 0.0;
-        for (model, stats) in &project.models {
-            project_cost += calculate_cost(stats, model, pricing_db);
-        }
+    for costed in &sorted_projects {
+        let project = costed.item;
+        let project_cost = costed.cost;
         total_cost += project_cost;
         total_stats.add(&project.stats);
         total_sessions += project.session_count;
@@ -174,28 +164,18 @@ pub(crate) fn output_project_json(
     order: SortOrder,
     show_cost: bool,
 ) -> String {
-    let mut sorted_projects: Vec<_> = projects.iter().collect();
+    let mut sorted_projects = attach_costs(projects, |p| &p.models, pricing_db);
 
     match order {
-        SortOrder::Asc => sorted_projects.sort_by(|a, b| {
-            let cost_a: f64 = a.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            let cost_b: f64 = b.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            compare_cost(cost_a, cost_b)
-        }),
-        SortOrder::Desc => sorted_projects.sort_by(|a, b| {
-            let cost_a: f64 = a.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            let cost_b: f64 = b.models.iter().map(|(m, s)| calculate_cost(s, m, pricing_db)).sum();
-            compare_cost(cost_b, cost_a)
-        }),
+        SortOrder::Asc => sorted_projects.sort_by(|a, b| compare_cost(a.cost, b.cost)),
+        SortOrder::Desc => sorted_projects.sort_by(|a, b| compare_cost(b.cost, a.cost)),
     }
 
     let output: Vec<serde_json::Value> = sorted_projects
         .iter()
-        .map(|project| {
-            let mut project_cost = 0.0;
-            for (model, stats) in &project.models {
-                project_cost += calculate_cost(stats, model, pricing_db);
-            }
+        .map(|costed| {
+            let project = costed.item;
+            let project_cost = costed.cost;
 
             let mut models: Vec<_> = project.models.keys().cloned().collect();
             models.sort();

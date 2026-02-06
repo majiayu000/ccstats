@@ -304,6 +304,42 @@ pub(crate) fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb)
         + stats.cache_read as f64 * pricing.cache_read
 }
 
+/// Sum total cost across model breakdown map.
+pub(crate) fn sum_model_costs(
+    models: &HashMap<String, Stats>,
+    pricing_db: &PricingDb,
+) -> f64 {
+    models
+        .iter()
+        .map(|(model, stats)| calculate_cost(stats, model, pricing_db))
+        .sum()
+}
+
+/// Borrowed item with precomputed total cost.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CostedRef<'a, T> {
+    pub(crate) item: &'a T,
+    pub(crate) cost: f64,
+}
+
+/// Attach precomputed costs to a slice of items.
+pub(crate) fn attach_costs<'a, T, F>(
+    items: &'a [T],
+    mut models_of: F,
+    pricing_db: &PricingDb,
+) -> Vec<CostedRef<'a, T>>
+where
+    F: FnMut(&T) -> &HashMap<String, Stats>,
+{
+    items
+        .iter()
+        .map(|item| CostedRef {
+            item,
+            cost: sum_model_costs(models_of(item), pricing_db),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -8,7 +8,7 @@ use crate::output::format::{
     styled_cell, NumberFormat,
 };
 use crate::utils::Timezone;
-use crate::pricing::{calculate_cost, PricingDb};
+use crate::pricing::{sum_model_costs, PricingDb};
 
 /// Truncate session ID for display
 fn truncate_session_id(id: &str, max_len: usize) -> String {
@@ -87,10 +87,7 @@ pub(crate) fn print_session_table(
     let mut total_cost = 0.0;
 
     for session in &sorted_sessions {
-        let mut session_cost = 0.0;
-        for (model, stats) in &session.models {
-            session_cost += calculate_cost(stats, model, pricing_db);
-        }
+        let session_cost = sum_model_costs(&session.models, pricing_db);
         total_cost += session_cost;
         total_stats.add(&session.stats);
 
@@ -179,10 +176,7 @@ pub(crate) fn output_session_json(
     let output: Vec<serde_json::Value> = sorted_sessions
         .iter()
         .map(|session| {
-            let mut session_cost = 0.0;
-            for (model, stats) in &session.models {
-                session_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let session_cost = sum_model_costs(&session.models, pricing_db);
 
             let mut models: Vec<_> = session.models.keys().cloned().collect();
             models.sort();
