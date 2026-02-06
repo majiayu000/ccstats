@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use crate::core::{DateFilter, RawEntry};
+use crate::core::RawEntry;
 use crate::source::{Capabilities, Source};
 use crate::utils::Timezone;
 
@@ -51,12 +51,7 @@ impl Source for CodexSource {
         find_codex_files()
     }
 
-    fn parse_file(
-        &self,
-        path: &PathBuf,
-        filter: &DateFilter,
-        timezone: &Timezone,
-    ) -> Vec<RawEntry> {
-        parse_codex_file(path, filter, timezone)
+    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
+        parse_codex_file(path, timezone)
     }
 }
