@@ -28,6 +28,7 @@ pub(crate) fn print_project_table(
     use_color: bool,
     compact: bool,
     show_cost: bool,
+    source_label: &str,
     number_format: NumberFormat,
 ) {
     let mut sorted_projects: Vec<_> = projects.iter().collect();
@@ -158,7 +159,7 @@ pub(crate) fn print_project_table(
         table.add_row(row);
     }
 
-    println!("\n  Claude Code Project Usage\n");
+    println!("\n  {} Project Usage\n", source_label);
     println!("{table}");
     println!(
         "\n  {} projects, {} sessions\n",
