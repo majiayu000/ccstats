@@ -1,4 +1,3 @@
-use chrono::{Datelike, NaiveDate};
 use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
 use std::collections::HashMap;
 
@@ -8,6 +7,7 @@ use crate::output::format::{
     format_compact, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
 };
+use crate::output::period::{aggregate_day_stats_by_period, Period};
 use crate::pricing::{calculate_cost, PricingDb};
 
 /// Print the summary line with optional timing
@@ -273,22 +273,7 @@ pub(crate) fn print_monthly_table(
     show_reasoning: bool,
     elapsed_ms: Option<f64>,
 ) {
-    // Aggregate by month
-    let mut month_stats: HashMap<String, DayStats> = HashMap::new();
-
-    for (date, stats) in day_stats {
-        let month = &date[..7]; // YYYY-MM
-        let month_entry = month_stats.entry(month.to_string()).or_default();
-
-        for (model, model_stats) in &stats.models {
-            month_entry.stats.add(model_stats);
-            month_entry
-                .models
-                .entry(model.clone())
-                .or_default()
-                .add(model_stats);
-        }
-    }
+    let month_stats = aggregate_day_stats_by_period(day_stats, Period::Month);
 
     let mut months: Vec<_> = month_stats.keys().collect();
     sort_keys(&mut months, order);
@@ -483,18 +468,6 @@ pub(crate) fn print_monthly_table(
     print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
 }
 
-/// Get the Monday of the week for a given date (ISO week)
-fn get_week_start(date_str: &str) -> String {
-    if let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-        // Get the weekday (Mon=0, Sun=6 in chrono)
-        let weekday = date.weekday().num_days_from_monday();
-        let monday = date - chrono::Duration::days(weekday as i64);
-        monday.format("%Y-%m-%d").to_string()
-    } else {
-        date_str.to_string()
-    }
-}
-
 pub(crate) fn print_weekly_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
@@ -509,22 +482,7 @@ pub(crate) fn print_weekly_table(
     show_reasoning: bool,
     elapsed_ms: Option<f64>,
 ) {
-    // Aggregate by week (Monday start)
-    let mut week_stats: HashMap<String, DayStats> = HashMap::new();
-
-    for (date, stats) in day_stats {
-        let week_start = get_week_start(date);
-        let week_entry = week_stats.entry(week_start).or_default();
-
-        for (model, model_stats) in &stats.models {
-            week_entry.stats.add(model_stats);
-            week_entry
-                .models
-                .entry(model.clone())
-                .or_default()
-                .add(model_stats);
-        }
-    }
+    let week_stats = aggregate_day_stats_by_period(day_stats, Period::Week);
 
     let mut weeks: Vec<_> = week_stats.keys().collect();
     sort_keys(&mut weeks, order);

@@ -1,21 +1,10 @@
-use chrono::{Datelike, NaiveDate};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::cli::SortOrder;
 use crate::core::DayStats;
+use crate::output::period::{aggregate_day_stats_by_period, Period};
 use crate::pricing::{calculate_cost, PricingDb};
-
-/// Get the Monday of the week for a given date (ISO week)
-fn get_week_start(date_str: &str) -> String {
-    if let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-        let weekday = date.weekday().num_days_from_monday();
-        let monday = date - chrono::Duration::days(weekday as i64);
-        monday.format("%Y-%m-%d").to_string()
-    } else {
-        date_str.to_string()
-    }
-}
 
 fn sort_output(output: &mut Vec<serde_json::Value>, key: &str, order: SortOrder) {
     match order {
@@ -138,22 +127,7 @@ pub(crate) fn output_monthly_json(
     breakdown: bool,
     show_cost: bool,
 ) -> String {
-    // Aggregate by month
-    let mut month_stats: HashMap<String, DayStats> = HashMap::new();
-
-    for (date, stats) in day_stats {
-        let month = &date[..7];
-        let month_entry = month_stats.entry(month.to_string()).or_default();
-
-        for (model, model_stats) in &stats.models {
-            month_entry.stats.add(model_stats);
-            month_entry
-                .models
-                .entry(model.clone())
-                .or_default()
-                .add(model_stats);
-        }
-    }
+    let month_stats = aggregate_day_stats_by_period(day_stats, Period::Month);
 
     let mut output: Vec<serde_json::Value> = Vec::new();
 
@@ -252,22 +226,7 @@ pub(crate) fn output_weekly_json(
     breakdown: bool,
     show_cost: bool,
 ) -> String {
-    // Aggregate by week
-    let mut week_stats: HashMap<String, DayStats> = HashMap::new();
-
-    for (date, stats) in day_stats {
-        let week = get_week_start(date);
-        let week_entry = week_stats.entry(week).or_default();
-
-        for (model, model_stats) in &stats.models {
-            week_entry.stats.add(model_stats);
-            week_entry
-                .models
-                .entry(model.clone())
-                .or_default()
-                .add(model_stats);
-        }
-    }
+    let week_stats = aggregate_day_stats_by_period(day_stats, Period::Week);
 
     let mut output: Vec<serde_json::Value> = Vec::new();
 
