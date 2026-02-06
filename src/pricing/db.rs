@@ -39,10 +39,7 @@ impl PricingDb {
         Some(Self::from_raw_data(raw_data, strict_unknown))
     }
 
-    fn load_from_cache_if_fresh(
-        ttl: Duration,
-        strict_unknown: bool,
-    ) -> Option<(Self, Duration)> {
+    fn load_from_cache_if_fresh(ttl: Duration, strict_unknown: bool) -> Option<(Self, Duration)> {
         let (raw_data, age) = load_raw_cache_if_fresh(ttl)?;
         Some((Self::from_raw_data(raw_data, strict_unknown), age))
     }
@@ -81,11 +78,12 @@ impl PricingDb {
             };
         }
 
-        if let Some((db, age)) =
-            Self::load_from_cache_if_fresh(PRICING_CACHE_TTL, strict_unknown)
-        {
+        if let Some((db, age)) = Self::load_from_cache_if_fresh(PRICING_CACHE_TTL, strict_unknown) {
             if !quiet {
-                eprintln!("Using cached pricing ({:.1}h old)", age.as_secs_f64() / 3600.0);
+                eprintln!(
+                    "Using cached pricing ({:.1}h old)",
+                    age.as_secs_f64() / 3600.0
+                );
             }
             return db;
         }
@@ -121,7 +119,10 @@ impl PricingDb {
         }
 
         if !quiet {
-            eprintln!("Using defaults ({:.2}ms)", start.elapsed().as_secs_f64() * 1000.0);
+            eprintln!(
+                "Using defaults ({:.2}ms)",
+                start.elapsed().as_secs_f64() * 1000.0
+            );
         }
         Self {
             models: HashMap::new(),

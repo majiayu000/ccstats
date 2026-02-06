@@ -25,7 +25,7 @@ impl NumberFormat {
             return Ok(NumberFormat::default());
         }
         let base = trimmed
-            .split(|c| c == '-' || c == '_')
+            .split(['-', '_'])
             .next()
             .unwrap_or(trimmed)
             .to_ascii_lowercase();
@@ -139,10 +139,9 @@ pub(super) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
     cell
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::{format_compact, format_cost, format_number, NumberFormat};
+    use super::{NumberFormat, format_compact, format_cost, format_number};
 
     #[test]
     fn format_number_with_commas() {

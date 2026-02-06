@@ -17,13 +17,11 @@ use crate::utils::Timezone;
 fn truncate_session_id(id: &str, max_len: usize) -> String {
     if id.chars().count() <= max_len {
         id.to_string()
+    } else if max_len <= 3 {
+        ".".repeat(max_len)
     } else {
-        if max_len <= 3 {
-            ".".repeat(max_len)
-        } else {
-            let prefix: String = id.chars().take(max_len - 3).collect();
-            format!("{}...", prefix)
-        }
+        let prefix: String = id.chars().take(max_len - 3).collect();
+        format!("{}...", prefix)
     }
 }
 
@@ -56,17 +54,30 @@ fn compare_session_last_timestamp(a: &SessionStats, b: &SessionStats) -> Orderin
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SessionTableOptions<'a> {
+    pub(crate) order: SortOrder,
+    pub(crate) use_color: bool,
+    pub(crate) compact: bool,
+    pub(crate) show_cost: bool,
+    pub(crate) number_format: NumberFormat,
+    pub(crate) source_label: &'a str,
+    pub(crate) timezone: Timezone,
+}
+
 pub(crate) fn print_session_table(
     sessions: &[SessionStats],
     pricing_db: &PricingDb,
-    order: SortOrder,
-    use_color: bool,
-    compact: bool,
-    show_cost: bool,
-    number_format: NumberFormat,
-    source_label: &str,
-    timezone: &Timezone,
+    options: SessionTableOptions<'_>,
 ) {
+    let order = options.order;
+    let use_color = options.use_color;
+    let compact = options.compact;
+    let show_cost = options.show_cost;
+    let number_format = options.number_format;
+    let source_label = options.source_label;
+    let timezone = options.timezone;
+
     let mut sorted_sessions: Vec<_> = sessions.iter().collect();
 
     // Sort by last timestamp
@@ -120,7 +131,7 @@ pub(crate) fn print_session_table(
 
         let session_id = truncate_session_id(&session.session_id, 12);
         let project = format_project_name(&session.project_path);
-        let date = extract_date(&session.last_timestamp, timezone);
+        let date = extract_date(&session.last_timestamp, &timezone);
 
         if compact {
             let mut row = vec![

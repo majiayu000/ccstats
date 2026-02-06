@@ -2,7 +2,7 @@
 //!
 //! Defines the CodexSource implementation of the Source trait.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::core::RawEntry;
 use crate::source::{Capabilities, Source};
@@ -40,7 +40,7 @@ impl Source for CodexSource {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            has_projects: false, // Codex doesn't track projects
+            has_projects: false,       // Codex doesn't track projects
             has_billing_blocks: false, // Different billing model
             has_reasoning_tokens: true,
             has_cache_creation: false,
@@ -52,7 +52,7 @@ impl Source for CodexSource {
         find_codex_files()
     }
 
-    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
+    fn parse_file(&self, path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
         parse_codex_file(path, timezone)
     }
 }

@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use crate::cli::SortOrder;
 use crate::core::DayStats;
 use crate::output::format::cost_json_value;
-use crate::output::period::{aggregate_day_stats_by_period, Period};
-use crate::pricing::{calculate_cost, sum_model_costs, PricingDb};
+use crate::output::period::{Period, aggregate_day_stats_by_period};
+use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
 
-fn sort_output(output: &mut Vec<serde_json::Value>, key: &str, order: SortOrder) {
+fn sort_output(output: &mut [serde_json::Value], key: &str, order: SortOrder) {
     match order {
         SortOrder::Asc => output.sort_by(|a, b| {
             a.get(key)

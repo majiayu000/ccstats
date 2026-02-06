@@ -1,13 +1,25 @@
-use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
+use comfy_table::{
+    Cell, Color, ContentArrangement, Table, modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
+};
 
 use crate::cli::SortOrder;
 use crate::core::{ProjectStats, Stats};
 use crate::output::format::{
-    cost_json_value, format_compact, format_cost, format_number, header_cell, normalize_header_separator, right_cell,
-    styled_cell, NumberFormat,
+    NumberFormat, cost_json_value, format_compact, format_cost, format_number, header_cell,
+    normalize_header_separator, right_cell, styled_cell,
 };
-use crate::pricing::{attach_costs, PricingDb};
+use crate::pricing::{PricingDb, attach_costs};
 use std::cmp::Ordering;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ProjectTableOptions<'a> {
+    pub(crate) order: SortOrder,
+    pub(crate) use_color: bool,
+    pub(crate) compact: bool,
+    pub(crate) show_cost: bool,
+    pub(crate) source_label: &'a str,
+    pub(crate) number_format: NumberFormat,
+}
 
 fn compare_cost(a: f64, b: f64) -> Ordering {
     if a.is_nan() && b.is_nan() {
@@ -24,13 +36,15 @@ fn compare_cost(a: f64, b: f64) -> Ordering {
 pub(crate) fn print_project_table(
     projects: &[ProjectStats],
     pricing_db: &PricingDb,
-    order: SortOrder,
-    use_color: bool,
-    compact: bool,
-    show_cost: bool,
-    source_label: &str,
-    number_format: NumberFormat,
+    options: ProjectTableOptions<'_>,
 ) {
+    let order = options.order;
+    let use_color = options.use_color;
+    let compact = options.compact;
+    let show_cost = options.show_cost;
+    let source_label = options.source_label;
+    let number_format = options.number_format;
+
     let mut sorted_projects = attach_costs(projects, |p| &p.models, pricing_db);
 
     // Sort by cost (default) or name
@@ -45,7 +59,6 @@ pub(crate) fn print_project_table(
         .apply_modifier(UTF8_SOLID_INNER_BORDERS)
         .set_content_arrangement(ContentArrangement::Dynamic);
     normalize_header_separator(&mut table);
-
 
     if compact {
         let mut header = vec![
@@ -110,9 +123,21 @@ pub(crate) fn print_project_table(
                     None,
                     false,
                 ),
-                right_cell(&format_number(project.stats.input_tokens, number_format), None, false),
-                right_cell(&format_number(project.stats.output_tokens, number_format), None, false),
-                right_cell(&format_number(project.stats.total_tokens(), number_format), None, false),
+                right_cell(
+                    &format_number(project.stats.input_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(project.stats.output_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(project.stats.total_tokens(), number_format),
+                    None,
+                    false,
+                ),
             ];
             if show_cost {
                 row.push(right_cell(&format_cost(project_cost), cost_color, false));
@@ -128,8 +153,16 @@ pub(crate) fn print_project_table(
     if compact {
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
-            right_cell(&format_number(total_sessions as i64, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
+            right_cell(
+                &format_number(total_sessions as i64, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.total_tokens(), number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -138,10 +171,26 @@ pub(crate) fn print_project_table(
     } else {
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
-            right_cell(&format_number(total_sessions as i64, number_format), cyan, true),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
+            right_cell(
+                &format_number(total_sessions as i64, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.total_tokens(), number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));

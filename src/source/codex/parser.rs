@@ -8,10 +8,10 @@ use serde::Deserialize;
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::core::RawEntry;
-use crate::utils::{parse_debug_enabled, Timezone};
+use crate::utils::{Timezone, parse_debug_enabled};
 
 const DEFAULT_CODEX_DIR: &str = ".codex";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
@@ -114,11 +114,7 @@ fn get_codex_sessions_dir() -> Option<PathBuf> {
     // Fall back to ~/.codex/sessions
     let home = dirs::home_dir()?;
     let path = home.join(DEFAULT_CODEX_DIR).join(SESSION_SUBDIR);
-    if path.is_dir() {
-        Some(path)
-    } else {
-        None
-    }
+    if path.is_dir() { Some(path) } else { None }
 }
 
 pub(super) fn find_codex_files() -> Vec<PathBuf> {
@@ -140,36 +136,24 @@ pub(super) fn find_codex_files() -> Vec<PathBuf> {
 // ============================================================================
 
 fn extract_model(payload: &Payload) -> Option<String> {
-    if let Some(info) = &payload.info {
-        if let Some(model) = &info.model {
-            if !model.trim().is_empty() {
-                return Some(model.clone());
-            }
-        }
-        if let Some(model) = &info.model_name {
-            if !model.trim().is_empty() {
-                return Some(model.clone());
-            }
-        }
-        if let Some(metadata) = &info.metadata {
-            if let Some(model) = &metadata.model {
-                if !model.trim().is_empty() {
-                    return Some(model.clone());
-                }
-            }
-        }
+    let non_empty = |model: Option<&String>| {
+        model
+            .filter(|m| !m.trim().is_empty())
+            .map(std::string::ToString::to_string)
+    };
+
+    if let Some(info) = &payload.info
+        && let Some(model) = non_empty(info.model.as_ref())
+            .or_else(|| non_empty(info.model_name.as_ref()))
+            .or_else(|| non_empty(info.metadata.as_ref().and_then(|m| m.model.as_ref())))
+    {
+        return Some(model);
     }
 
-    if let Some(model) = &payload.model {
-        if !model.trim().is_empty() {
-            return Some(model.clone());
-        }
-    }
-
-    None
+    non_empty(payload.model.as_ref())
 }
 
-pub(super) fn parse_codex_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
+pub(super) fn parse_codex_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -234,10 +218,10 @@ pub(super) fn parse_codex_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEn
 
         // Handle turn_context to get model info
         if entry_type == "turn_context" {
-            if let Some(payload) = &raw_entry.payload {
-                if let Some(model) = extract_model(payload) {
-                    current_model = Some(model);
-                }
+            if let Some(payload) = &raw_entry.payload
+                && let Some(model) = extract_model(payload)
+            {
+                current_model = Some(model);
             }
             continue;
         }
@@ -278,10 +262,10 @@ pub(super) fn parse_codex_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEn
         };
 
         // Skip if total hasn't changed (duplicate event)
-        if let Some(prev) = &previous_totals {
-            if total.total_tokens == prev.total_tokens {
-                continue;
-            }
+        if let Some(prev) = &previous_totals
+            && total.total_tokens == prev.total_tokens
+        {
+            continue;
         }
 
         // Use last_token_usage if available, otherwise compute delta

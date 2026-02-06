@@ -99,8 +99,8 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
     let model_lower = model.to_lowercase();
     if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
         ModelPricing {
-            input: 5e-6,           // $5/M
-            output: 25e-6,         // $25/M
+            input: 5e-6,   // $5/M
+            output: 25e-6, // $25/M
             reasoning_output: 25e-6,
             cache_create: 6.25e-6, // $6.25/M
             cache_read: 0.5e-6,    // $0.5/M
@@ -132,8 +132,8 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
     } else if model_lower.contains("gpt-5") || model_lower.contains("codex") {
         // GPT-5 / Codex pricing (approximate)
         ModelPricing {
-            input: 1.25e-6,       // $1.25/M
-            output: 10e-6,        // $10/M
+            input: 1.25e-6, // $1.25/M
+            output: 10e-6,  // $10/M
             reasoning_output: 10e-6,
             cache_create: 0.0,
             cache_read: 0.125e-6, // $0.125/M

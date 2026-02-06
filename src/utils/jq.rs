@@ -28,8 +28,7 @@ pub(crate) fn filter_json(json: &str, filter: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to wait for jq: {}", e))?;
 
     if output.status.success() {
-        String::from_utf8(output.stdout)
-            .map_err(|e| format!("Invalid UTF-8 from jq: {}", e))
+        String::from_utf8(output.stdout).map_err(|e| format!("Invalid UTF-8 from jq: {}", e))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("jq error: {}", stderr.trim()))

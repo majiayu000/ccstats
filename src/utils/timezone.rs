@@ -26,7 +26,7 @@ impl Timezone {
             .map_err(|_| format!("Invalid timezone: {}", trimmed))
     }
 
-    pub(crate) fn to_fixed_offset(&self, utc: DateTime<Utc>) -> DateTime<FixedOffset> {
+    pub(crate) fn to_fixed_offset(self, utc: DateTime<Utc>) -> DateTime<FixedOffset> {
         match self {
             Timezone::Local => {
                 let local = utc.with_timezone(&Local);
@@ -34,7 +34,7 @@ impl Timezone {
                 local.with_timezone(&offset)
             }
             Timezone::Named(tz) => {
-                let local = utc.with_timezone(tz);
+                let local = utc.with_timezone(&tz);
                 let offset = local.offset().fix();
                 local.with_timezone(&offset)
             }
