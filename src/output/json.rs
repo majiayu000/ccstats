@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::cli::SortOrder;
 use crate::core::DayStats;
+use crate::output::format::cost_json_value;
 use crate::output::period::{aggregate_day_stats_by_period, Period};
 use crate::pricing::{calculate_cost, sum_model_costs, PricingDb};
 
@@ -49,7 +50,7 @@ pub(crate) fn output_daily_json(
                     "total_tokens": model_stats.total_tokens(),
                 });
                 if show_cost {
-                    model_obj["cost"] = serde_json::json!(cost);
+                    model_obj["cost"] = cost_json_value(cost);
                 }
                 models_breakdown.push(model_obj);
             }
@@ -86,7 +87,7 @@ pub(crate) fn output_daily_json(
                 "breakdown": models_breakdown,
             });
             if show_cost {
-                day_obj["cost"] = serde_json::json!(day_cost);
+                day_obj["cost"] = cost_json_value(day_cost);
             }
             output.push(day_obj);
         } else {
@@ -104,7 +105,7 @@ pub(crate) fn output_daily_json(
                 "models": models,
             });
             if show_cost {
-                day_obj["cost"] = serde_json::json!(day_cost);
+                day_obj["cost"] = cost_json_value(day_cost);
             }
             output.push(day_obj);
         }
@@ -146,7 +147,7 @@ pub(crate) fn output_monthly_json(
                     "total_tokens": model_stats.total_tokens(),
                 });
                 if show_cost {
-                    model_obj["cost"] = serde_json::json!(cost);
+                    model_obj["cost"] = cost_json_value(cost);
                 }
                 models_breakdown.push(model_obj);
             }
@@ -182,7 +183,7 @@ pub(crate) fn output_monthly_json(
                 "breakdown": models_breakdown,
             });
             if show_cost {
-                month_obj["cost"] = serde_json::json!(month_cost);
+                month_obj["cost"] = cost_json_value(month_cost);
             }
             output.push(month_obj);
         } else {
@@ -200,7 +201,7 @@ pub(crate) fn output_monthly_json(
                 "models": models,
             });
             if show_cost {
-                month_obj["cost"] = serde_json::json!(month_cost);
+                month_obj["cost"] = cost_json_value(month_cost);
             }
             output.push(month_obj);
         }
@@ -242,7 +243,7 @@ pub(crate) fn output_weekly_json(
                     "total_tokens": model_stats.total_tokens(),
                 });
                 if show_cost {
-                    model_obj["cost"] = serde_json::json!(cost);
+                    model_obj["cost"] = cost_json_value(cost);
                 }
                 models_breakdown.push(model_obj);
             }
@@ -278,7 +279,7 @@ pub(crate) fn output_weekly_json(
                 "breakdown": models_breakdown,
             });
             if show_cost {
-                week_obj["cost"] = serde_json::json!(week_cost);
+                week_obj["cost"] = cost_json_value(week_cost);
             }
             output.push(week_obj);
         } else {
@@ -296,7 +297,7 @@ pub(crate) fn output_weekly_json(
                 "models": models,
             });
             if show_cost {
-                week_obj["cost"] = serde_json::json!(week_cost);
+                week_obj["cost"] = cost_json_value(week_cost);
             }
             output.push(week_obj);
         }

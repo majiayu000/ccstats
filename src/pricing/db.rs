@@ -6,49 +6,60 @@ use crate::core::Stats;
 
 use super::cache::{load_raw_cache, load_raw_cache_if_fresh, save_raw_cache};
 use super::provider::fetch_litellm_raw;
-use super::resolver::{parse_litellm_data, resolve_pricing};
+use super::resolver::{fallback_pricing, parse_litellm_data, resolve_pricing_known};
 use super::types::ModelPricing;
 
+#[derive(Debug, Clone)]
+enum ResolvedPricing {
+    Known(ModelPricing),
+    Unknown,
+}
+
 /// Pricing database loaded from LiteLLM or cache
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct PricingDb {
     models: HashMap<String, ModelPricing>,
-    resolved: RefCell<HashMap<String, ModelPricing>>,
+    resolved: RefCell<HashMap<String, ResolvedPricing>>,
+    strict_unknown: bool,
 }
 
 const PRICING_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl PricingDb {
-    fn from_raw_data(data: HashMap<String, serde_json::Value>) -> Self {
+    fn from_raw_data(data: HashMap<String, serde_json::Value>, strict_unknown: bool) -> Self {
         Self {
             models: parse_litellm_data(data),
             resolved: RefCell::new(HashMap::new()),
+            strict_unknown,
         }
     }
 
-    fn load_from_cache() -> Option<Self> {
+    fn load_from_cache(strict_unknown: bool) -> Option<Self> {
         let raw_data = load_raw_cache()?;
-        Some(Self::from_raw_data(raw_data))
+        Some(Self::from_raw_data(raw_data, strict_unknown))
     }
 
-    fn load_from_cache_if_fresh(ttl: Duration) -> Option<(Self, Duration)> {
+    fn load_from_cache_if_fresh(
+        ttl: Duration,
+        strict_unknown: bool,
+    ) -> Option<(Self, Duration)> {
         let (raw_data, age) = load_raw_cache_if_fresh(ttl)?;
-        Some((Self::from_raw_data(raw_data), age))
+        Some((Self::from_raw_data(raw_data, strict_unknown), age))
     }
 
-    pub(crate) fn load(offline: bool) -> Self {
-        Self::load_internal(offline, false)
+    pub(crate) fn load(offline: bool, strict_unknown: bool) -> Self {
+        Self::load_internal(offline, strict_unknown, false)
     }
 
-    pub(crate) fn load_quiet(offline: bool) -> Self {
-        Self::load_internal(offline, true)
+    pub(crate) fn load_quiet(offline: bool, strict_unknown: bool) -> Self {
+        Self::load_internal(offline, strict_unknown, true)
     }
 
-    fn load_internal(offline: bool, quiet: bool) -> Self {
+    fn load_internal(offline: bool, strict_unknown: bool, quiet: bool) -> Self {
         let start = Instant::now();
 
         if offline {
-            if let Some(db) = Self::load_from_cache() {
+            if let Some(db) = Self::load_from_cache(strict_unknown) {
                 if !quiet {
                     eprintln!(
                         "Using cached pricing ({:.2}ms)",
@@ -63,10 +74,16 @@ impl PricingDb {
                     start.elapsed().as_secs_f64() * 1000.0
                 );
             }
-            return Self::default();
+            return Self {
+                models: HashMap::new(),
+                resolved: RefCell::new(HashMap::new()),
+                strict_unknown,
+            };
         }
 
-        if let Some((db, age)) = Self::load_from_cache_if_fresh(PRICING_CACHE_TTL) {
+        if let Some((db, age)) =
+            Self::load_from_cache_if_fresh(PRICING_CACHE_TTL, strict_unknown)
+        {
             if !quiet {
                 eprintln!("Using cached pricing ({:.1}h old)", age.as_secs_f64() / 3600.0);
             }
@@ -78,7 +95,7 @@ impl PricingDb {
         }
         if let Some(raw_data) = fetch_litellm_raw() {
             let fetch_time = start.elapsed();
-            let db = Self::from_raw_data(raw_data.clone());
+            let db = Self::from_raw_data(raw_data.clone(), strict_unknown);
             save_raw_cache(&raw_data);
             if !quiet {
                 eprintln!(
@@ -93,7 +110,7 @@ impl PricingDb {
         if !quiet {
             eprintln!(" failed, trying cache...");
         }
-        if let Some(db) = Self::load_from_cache() {
+        if let Some(db) = Self::load_from_cache(strict_unknown) {
             if !quiet {
                 eprintln!(
                     "Using cached pricing ({:.2}ms)",
@@ -106,37 +123,72 @@ impl PricingDb {
         if !quiet {
             eprintln!("Using defaults ({:.2}ms)", start.elapsed().as_secs_f64() * 1000.0);
         }
-        Self::default()
+        Self {
+            models: HashMap::new(),
+            resolved: RefCell::new(HashMap::new()),
+            strict_unknown,
+        }
     }
 
-    fn get_pricing(&self, model: &str) -> ModelPricing {
+    fn get_pricing(&self, model: &str) -> Option<ModelPricing> {
         if let Some(cached) = self.resolved.borrow().get(model) {
-            return cached.clone();
+            return match cached {
+                ResolvedPricing::Known(pricing) => Some(pricing.clone()),
+                ResolvedPricing::Unknown => None,
+            };
         }
 
-        let pricing = resolve_pricing(model, &self.models);
-        self.resolved
-            .borrow_mut()
-            .insert(model.to_string(), pricing.clone());
+        let pricing = resolve_pricing_known(model, &self.models).or_else(|| {
+            if self.strict_unknown {
+                None
+            } else {
+                Some(fallback_pricing(model))
+            }
+        });
+
+        let cached = match &pricing {
+            Some(pricing) => ResolvedPricing::Known(pricing.clone()),
+            None => ResolvedPricing::Unknown,
+        };
+        self.resolved.borrow_mut().insert(model.to_string(), cached);
         pricing
     }
 }
 
+impl Default for PricingDb {
+    fn default() -> Self {
+        Self {
+            models: HashMap::new(),
+            resolved: RefCell::new(HashMap::new()),
+            strict_unknown: false,
+        }
+    }
+}
+
 pub(crate) fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb) -> f64 {
-    let pricing = pricing_db.get_pricing(model);
-    stats.input_tokens as f64 * pricing.input
-        + stats.output_tokens as f64 * pricing.output
-        + stats.reasoning_tokens as f64 * pricing.reasoning_output
-        + stats.cache_creation as f64 * pricing.cache_create
-        + stats.cache_read as f64 * pricing.cache_read
+    match pricing_db.get_pricing(model) {
+        Some(pricing) => {
+            stats.input_tokens as f64 * pricing.input
+                + stats.output_tokens as f64 * pricing.output
+                + stats.reasoning_tokens as f64 * pricing.reasoning_output
+                + stats.cache_creation as f64 * pricing.cache_create
+                + stats.cache_read as f64 * pricing.cache_read
+        }
+        None => f64::NAN,
+    }
 }
 
 /// Sum total cost across model breakdown map.
 pub(crate) fn sum_model_costs(models: &HashMap<String, Stats>, pricing_db: &PricingDb) -> f64 {
-    models
-        .iter()
-        .map(|(model, stats)| calculate_cost(stats, model, pricing_db))
-        .sum()
+    let mut total = 0.0;
+    for (model, stats) in models {
+        let cost = calculate_cost(stats, model, pricing_db);
+        if cost.is_nan() {
+            return f64::NAN;
+        }
+        total += cost;
+    }
+    total
 }
 
 /// Borrowed item with precomputed total cost.
@@ -239,7 +291,21 @@ mod tests {
         let db = PricingDb::default();
         let pricing = db.get_pricing("sonnet-4");
         // Should fallback to sonnet pricing
-        assert!(pricing.input > 0.0);
-        assert!(pricing.output > 0.0);
+        assert!(pricing.as_ref().is_some_and(|p| p.input > 0.0));
+        assert!(pricing.as_ref().is_some_and(|p| p.output > 0.0));
+    }
+
+    #[test]
+    fn strict_mode_marks_unknown_model_as_nan_cost() {
+        let db = PricingDb {
+            strict_unknown: true,
+            ..PricingDb::default()
+        };
+        let stats = Stats {
+            input_tokens: 10,
+            ..Default::default()
+        };
+        let cost = calculate_cost(&stats, "totally-unknown-model", &db);
+        assert!(cost.is_nan());
     }
 }

@@ -85,6 +85,22 @@ pub(super) fn format_compact(n: i64, format: NumberFormat) -> String {
     format!("{}{}{}", sign, s, suffix)
 }
 
+pub(super) fn format_cost(cost: f64) -> String {
+    if cost.is_nan() {
+        "N/A".to_string()
+    } else {
+        format!("${:.2}", cost)
+    }
+}
+
+pub(super) fn cost_json_value(cost: f64) -> serde_json::Value {
+    if cost.is_nan() {
+        serde_json::Value::Null
+    } else {
+        serde_json::json!(cost)
+    }
+}
+
 pub(super) fn styled_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
     let mut cell = Cell::new(text);
     if let Some(c) = color {
@@ -126,7 +142,7 @@ pub(super) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_compact, format_number, NumberFormat};
+    use super::{format_compact, format_cost, format_number, NumberFormat};
 
     #[test]
     fn format_number_with_commas() {
@@ -147,5 +163,11 @@ mod tests {
         assert_eq!(format_compact(1_000_000, fmt), "1.0M");
         assert_eq!(format_compact(2_500_000, fmt), "2.5M");
         assert_eq!(format_compact(1_000_000_000, fmt), "1.0B");
+    }
+
+    #[test]
+    fn format_cost_handles_nan() {
+        assert_eq!(format_cost(f64::NAN), "N/A");
+        assert_eq!(format_cost(1.234), "$1.23");
     }
 }

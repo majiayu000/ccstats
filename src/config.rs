@@ -17,6 +17,8 @@ pub(crate) struct Config {
     #[serde(default)]
     pub(crate) debug: bool,
     #[serde(default)]
+    pub(crate) strict_pricing: bool,
+    #[serde(default)]
     pub(crate) order: Option<String>,
     #[serde(default)]
     pub(crate) color: Option<String>,

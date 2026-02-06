@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use crate::cli::SortOrder;
 use crate::core::{format_project_name, SessionStats, Stats};
 use crate::output::format::{
-    format_compact, format_number, header_cell, normalize_header_separator, right_cell,
+    cost_json_value, format_compact, format_cost, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
 };
 use crate::utils::Timezone;
@@ -103,7 +103,7 @@ pub(crate) fn print_session_table(
                 right_cell(&format_compact(session.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", session_cost), cost_color, false));
+                row.push(right_cell(&format_cost(session_cost), cost_color, false));
             }
             table.add_row(row);
         } else {
@@ -116,7 +116,7 @@ pub(crate) fn print_session_table(
                 right_cell(&format_number(session.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", session_cost), cost_color, false));
+                row.push(right_cell(&format_cost(session_cost), cost_color, false));
             }
             table.add_row(row);
         }
@@ -134,7 +134,7 @@ pub(crate) fn print_session_table(
             right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else {
@@ -147,7 +147,7 @@ pub(crate) fn print_session_table(
             right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     }
@@ -194,7 +194,7 @@ pub(crate) fn output_session_json(
                 "models": models,
             });
             if show_cost {
-                obj["cost"] = serde_json::json!(session_cost);
+                obj["cost"] = cost_json_value(session_cost);
             }
             obj
         })

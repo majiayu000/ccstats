@@ -82,6 +82,10 @@ pub(crate) struct Cli {
     #[arg(long, global = true)]
     pub(crate) debug: bool,
 
+    /// Treat unknown model pricing as unavailable (show N/A instead of fallback estimate)
+    #[arg(long, global = true)]
+    pub(crate) strict_pricing: bool,
+
     /// Compact output (fewer columns, shorter names)
     #[arg(short = 'c', long, global = true)]
     pub(crate) compact: bool,
@@ -166,6 +170,9 @@ impl Cli {
         }
         if !self.debug && config.debug {
             self.debug = true;
+        }
+        if !self.strict_pricing && config.strict_pricing {
+            self.strict_pricing = true;
         }
 
         // For enum values, only apply config when CLI did not set them

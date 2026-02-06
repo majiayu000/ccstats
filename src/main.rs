@@ -105,9 +105,9 @@ fn main() {
 
     // Load pricing database (quiet mode for statusline)
     let pricing_db = if is_statusline {
-        PricingDb::load_quiet(cli.offline)
+        PricingDb::load_quiet(cli.offline, cli.strict_pricing)
     } else {
-        PricingDb::load(cli.offline)
+        PricingDb::load(cli.offline, cli.strict_pricing)
     };
 
     // Get the appropriate data source
