@@ -136,10 +136,20 @@ fn handle_source_command(
         SourceCommand::Statusline => {
             let result = load_daily(source, filter, timezone, true, false);
             if cli.json {
-                let json = print_statusline_json(&result.day_stats, pricing_db, number_format);
+                let json = print_statusline_json(
+                    &result.day_stats,
+                    pricing_db,
+                    source.display_name(),
+                    number_format,
+                );
                 print_json(&json, jq_filter);
             } else {
-                print_statusline(&result.day_stats, pricing_db, number_format);
+                print_statusline(
+                    &result.day_stats,
+                    pricing_db,
+                    source.display_name(),
+                    number_format,
+                );
             }
         }
         SourceCommand::Daily | SourceCommand::Today => {
