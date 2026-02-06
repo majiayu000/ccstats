@@ -43,6 +43,7 @@ impl Source for ClaudeSource {
             has_projects: true,
             has_billing_blocks: true,
             has_reasoning_tokens: false,
+            has_cache_creation: true,
             needs_dedup: true,
         }
     }
