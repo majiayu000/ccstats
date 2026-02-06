@@ -6,7 +6,7 @@ use std::io::IsTerminal;
 
 use clap::{Parser, ValueEnum};
 
-use crate::config::Config;
+use crate::config::{Config, ConfigColorMode, ConfigCostMode, ConfigSortOrder};
 
 use super::commands::Commands;
 
@@ -112,31 +112,6 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
-    fn parse_sort_order(value: Option<&str>) -> Option<SortOrder> {
-        match value?.trim().to_ascii_lowercase().as_str() {
-            "asc" => Some(SortOrder::Asc),
-            "desc" => Some(SortOrder::Desc),
-            _ => None,
-        }
-    }
-
-    fn parse_color_mode(value: Option<&str>) -> Option<ColorMode> {
-        match value?.trim().to_ascii_lowercase().as_str() {
-            "auto" => Some(ColorMode::Auto),
-            "always" => Some(ColorMode::Always),
-            "never" => Some(ColorMode::Never),
-            _ => None,
-        }
-    }
-
-    fn parse_cost_mode(value: Option<&str>) -> Option<CostMode> {
-        match value?.trim().to_ascii_lowercase().as_str() {
-            "show" => Some(CostMode::Show),
-            "hide" => Some(CostMode::Hide),
-            _ => None,
-        }
-    }
-
     pub(crate) fn sort_order(&self) -> SortOrder {
         self.order.unwrap_or_default()
     }
@@ -177,15 +152,25 @@ impl Cli {
 
         // For enum values, only apply config when CLI did not set them
         if self.order.is_none() {
-            self.order = Self::parse_sort_order(config.order.as_deref());
+            self.order = config.order.map(|order| match order {
+                ConfigSortOrder::Asc => SortOrder::Asc,
+                ConfigSortOrder::Desc => SortOrder::Desc,
+            });
         }
 
         if self.color.is_none() {
-            self.color = Self::parse_color_mode(config.color.as_deref());
+            self.color = config.color.map(|color| match color {
+                ConfigColorMode::Auto => ColorMode::Auto,
+                ConfigColorMode::Always => ColorMode::Always,
+                ConfigColorMode::Never => ColorMode::Never,
+            });
         }
 
         if self.cost.is_none() {
-            self.cost = Self::parse_cost_mode(config.cost.as_deref());
+            self.cost = config.cost.map(|cost| match cost {
+                ConfigCostMode::Show => CostMode::Show,
+                ConfigCostMode::Hide => CostMode::Hide,
+            });
         }
 
         // String options: only apply if CLI didn't set them
@@ -228,7 +213,7 @@ mod tests {
     fn cli_explicit_order_wins_over_config() {
         let cli = Cli::parse_from(["ccstats", "daily", "--order", "asc"]);
         let config = Config {
-            order: Some("desc".to_string()),
+            order: Some(ConfigSortOrder::Desc),
             ..Default::default()
         };
         let merged = cli.with_config(&config);
@@ -239,7 +224,7 @@ mod tests {
     fn config_order_applies_when_cli_not_set() {
         let cli = Cli::parse_from(["ccstats", "daily"]);
         let config = Config {
-            order: Some("desc".to_string()),
+            order: Some(ConfigSortOrder::Desc),
             ..Default::default()
         };
         let merged = cli.with_config(&config);
