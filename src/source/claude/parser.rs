@@ -6,10 +6,10 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::core::RawEntry;
-use crate::utils::{parse_debug_enabled, Timezone};
+use crate::utils::{Timezone, parse_debug_enabled};
 
 // ============================================================================
 // Internal types for JSONL parsing
@@ -79,7 +79,7 @@ fn normalize_model_name(model: &str) -> String {
     name
 }
 
-pub(super) fn parse_claude_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
+pub(super) fn parse_claude_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -140,9 +140,14 @@ pub(super) fn parse_claude_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawE
             }
         };
 
-        if let Some(entry) =
-            parse_entry(entry, path, &session_id, &project_path, timezone, line_no + 1)
-        {
+        if let Some(entry) = parse_entry(
+            entry,
+            path,
+            &session_id,
+            &project_path,
+            timezone,
+            line_no + 1,
+        ) {
             entries.push(entry);
         }
     }
@@ -151,7 +156,7 @@ pub(super) fn parse_claude_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawE
 
 fn parse_entry(
     entry: UsageEntry,
-    path: &PathBuf,
+    path: &Path,
     session_id: &str,
     project_path: &str,
     timezone: &Timezone,

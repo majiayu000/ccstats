@@ -1,17 +1,43 @@
-use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
+use comfy_table::{
+    Cell, Color, ContentArrangement, Table, modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
+};
 use std::collections::HashMap;
 
 use crate::cli::SortOrder;
 use crate::core::{DayStats, Stats};
 use crate::output::format::{
-    format_compact, format_cost, format_number, header_cell, normalize_header_separator, right_cell,
-    styled_cell, NumberFormat,
+    NumberFormat, format_compact, format_cost, format_number, header_cell,
+    normalize_header_separator, right_cell, styled_cell,
 };
-use crate::output::period::{aggregate_day_stats_by_period, Period};
-use crate::pricing::{calculate_cost, sum_model_costs, PricingDb};
+use crate::output::period::{Period, aggregate_day_stats_by_period};
+use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TokenTableOptions {
+    pub(crate) order: SortOrder,
+    pub(crate) use_color: bool,
+    pub(crate) compact: bool,
+    pub(crate) show_cost: bool,
+    pub(crate) number_format: NumberFormat,
+    pub(crate) show_reasoning: bool,
+    pub(crate) show_cache_creation: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SummaryOptions {
+    pub(crate) skipped: i64,
+    pub(crate) valid: i64,
+    pub(crate) elapsed_ms: Option<f64>,
+}
 
 /// Print the summary line with optional timing
-pub(crate) fn print_summary_line(valid: i64, skipped: i64, number_format: NumberFormat, elapsed_ms: Option<f64>, use_color: bool) {
+pub(crate) fn print_summary_line(
+    valid: i64,
+    skipped: i64,
+    number_format: NumberFormat,
+    elapsed_ms: Option<f64>,
+    use_color: bool,
+) {
     let stats_text = format!(
         "{} unique API calls ({} streaming entries deduplicated)",
         format_number(valid, number_format),
@@ -29,31 +55,22 @@ pub(crate) fn print_summary_line(valid: i64, skipped: i64, number_format: Number
     }
 }
 
-fn sort_keys<'a>(keys: &mut Vec<&'a String>, order: SortOrder) {
+fn sort_keys(keys: &mut Vec<&String>, order: SortOrder) {
     match order {
         SortOrder::Asc => keys.sort(),
         SortOrder::Desc => keys.sort_by(|a, b| b.cmp(a)),
     }
 }
 
-
 pub(crate) fn print_daily_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
-    skipped: i64,
-    valid: i64,
+    summary: SummaryOptions,
     pricing_db: &PricingDb,
-    order: SortOrder,
-    use_color: bool,
-    compact: bool,
-    show_cost: bool,
-    number_format: NumberFormat,
-    show_reasoning: bool,
-    show_cache_creation: bool,
-    elapsed_ms: Option<f64>,
+    options: TokenTableOptions,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
-    sort_keys(&mut dates, order);
+    sort_keys(&mut dates, options.order);
 
     let mut table = Table::new();
     table
@@ -62,62 +79,65 @@ pub(crate) fn print_daily_table(
         .set_content_arrangement(ContentArrangement::Dynamic);
     normalize_header_separator(&mut table);
 
-
-    if compact {
+    if options.compact {
         // Compact mode: Date, Calls, In, Out, Total, Cost
         let mut header = vec![
-            header_cell("Date", use_color),
-            header_cell("Calls", use_color),
-            header_cell("In", use_color),
-            header_cell("Out", use_color),
-            header_cell("Total", use_color),
+            header_cell("Date", options.use_color),
+            header_cell("Calls", options.use_color),
+            header_cell("In", options.use_color),
+            header_cell("Out", options.use_color),
+            header_cell("Total", options.use_color),
         ];
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
+        if options.show_cost {
+            header.push(header_cell("Cost", options.use_color));
         }
         table.set_header(header);
     } else if breakdown {
         let mut header = vec![
-            header_cell("Date", use_color),
-            header_cell("Model", use_color),
-            header_cell("Calls", use_color),
-            header_cell("Input", use_color),
-            header_cell("Output", use_color),
+            header_cell("Date", options.use_color),
+            header_cell("Model", options.use_color),
+            header_cell("Calls", options.use_color),
+            header_cell("Input", options.use_color),
+            header_cell("Output", options.use_color),
         ];
-        if show_reasoning {
-            header.push(header_cell("Reason", use_color));
+        if options.show_reasoning {
+            header.push(header_cell("Reason", options.use_color));
         }
-        if show_cache_creation {
-            header.push(header_cell("Cache W", use_color));
+        if options.show_cache_creation {
+            header.push(header_cell("Cache W", options.use_color));
         }
-        header.push(header_cell("Cache R", use_color));
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
+        header.push(header_cell("Cache R", options.use_color));
+        if options.show_cost {
+            header.push(header_cell("Cost", options.use_color));
         }
         table.set_header(header);
     } else {
         let mut header = vec![
-            header_cell("Date", use_color),
-            header_cell("Models", use_color),
-            header_cell("Calls", use_color),
-            header_cell("Input", use_color),
-            header_cell("Output", use_color),
+            header_cell("Date", options.use_color),
+            header_cell("Models", options.use_color),
+            header_cell("Calls", options.use_color),
+            header_cell("Input", options.use_color),
+            header_cell("Output", options.use_color),
         ];
-        if show_reasoning {
-            header.push(header_cell("Reason", use_color));
+        if options.show_reasoning {
+            header.push(header_cell("Reason", options.use_color));
         }
-        if show_cache_creation {
-            header.push(header_cell("Cache W", use_color));
+        if options.show_cache_creation {
+            header.push(header_cell("Cache W", options.use_color));
         }
-        header.push(header_cell("Cache R", use_color));
-        header.push(header_cell("Total", use_color));
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
+        header.push(header_cell("Cache R", options.use_color));
+        header.push(header_cell("Total", options.use_color));
+        if options.show_cost {
+            header.push(header_cell("Cost", options.use_color));
         }
         table.set_header(header);
     }
 
-    let cost_color = if use_color { Some(Color::Green) } else { None };
+    let cost_color = if options.use_color {
+        Some(Color::Green)
+    } else {
+        None
+    };
 
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
@@ -125,18 +145,34 @@ pub(crate) fn print_daily_table(
     for date in &dates {
         let day = &day_stats[*date];
 
-        if compact {
+        if options.compact {
             let day_cost = sum_model_costs(&day.models, pricing_db);
             total_cost += day_cost;
 
             let mut row = vec![
                 Cell::new(*date),
-                right_cell(&format_compact(day.stats.count, number_format), None, false),
-                right_cell(&format_compact(day.stats.input_tokens, number_format), None, false),
-                right_cell(&format_compact(day.stats.output_tokens, number_format), None, false),
-                right_cell(&format_compact(day.stats.total_tokens(), number_format), None, false),
+                right_cell(
+                    &format_compact(day.stats.count, options.number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_compact(day.stats.input_tokens, options.number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_compact(day.stats.output_tokens, options.number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_compact(day.stats.total_tokens(), options.number_format),
+                    None,
+                    false,
+                ),
             ];
-            if show_cost {
+            if options.show_cost {
                 row.push(right_cell(&format_cost(day_cost), cost_color, false));
             }
             table.add_row(row);
@@ -152,18 +188,42 @@ pub(crate) fn print_daily_table(
                 let mut row = vec![
                     Cell::new(if i == 0 { *date } else { "" }),
                     Cell::new(*model),
-                    right_cell(&format_number(stats.count, number_format), None, false),
-                    right_cell(&format_number(stats.input_tokens, number_format), None, false),
-                    right_cell(&format_number(stats.output_tokens, number_format), None, false),
+                    right_cell(
+                        &format_number(stats.count, options.number_format),
+                        None,
+                        false,
+                    ),
+                    right_cell(
+                        &format_number(stats.input_tokens, options.number_format),
+                        None,
+                        false,
+                    ),
+                    right_cell(
+                        &format_number(stats.output_tokens, options.number_format),
+                        None,
+                        false,
+                    ),
                 ];
-                if show_reasoning {
-                    row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
+                if options.show_reasoning {
+                    row.push(right_cell(
+                        &format_number(stats.reasoning_tokens, options.number_format),
+                        None,
+                        false,
+                    ));
                 }
-                if show_cache_creation {
-                    row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                if options.show_cache_creation {
+                    row.push(right_cell(
+                        &format_number(stats.cache_creation, options.number_format),
+                        None,
+                        false,
+                    ));
                 }
-                row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
-                if show_cost {
+                row.push(right_cell(
+                    &format_number(stats.cache_read, options.number_format),
+                    None,
+                    false,
+                ));
+                if options.show_cost {
                     row.push(right_cell(&format_cost(cost), cost_color, false));
                 }
                 table.add_row(row);
@@ -183,19 +243,47 @@ pub(crate) fn print_daily_table(
             let mut row = vec![
                 Cell::new(*date),
                 Cell::new(&models_str),
-                right_cell(&format_number(day.stats.count, number_format), None, false),
-                right_cell(&format_number(day.stats.input_tokens, number_format), None, false),
-                right_cell(&format_number(day.stats.output_tokens, number_format), None, false),
+                right_cell(
+                    &format_number(day.stats.count, options.number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(day.stats.input_tokens, options.number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(day.stats.output_tokens, options.number_format),
+                    None,
+                    false,
+                ),
             ];
-            if show_reasoning {
-                row.push(right_cell(&format_number(day.stats.reasoning_tokens, number_format), None, false));
+            if options.show_reasoning {
+                row.push(right_cell(
+                    &format_number(day.stats.reasoning_tokens, options.number_format),
+                    None,
+                    false,
+                ));
             }
-            if show_cache_creation {
-                row.push(right_cell(&format_number(day.stats.cache_creation, number_format), None, false));
+            if options.show_cache_creation {
+                row.push(right_cell(
+                    &format_number(day.stats.cache_creation, options.number_format),
+                    None,
+                    false,
+                ));
             }
-            row.push(right_cell(&format_number(day.stats.cache_read, number_format), None, false));
-            row.push(right_cell(&format_number(day.stats.total_tokens(), number_format), None, false));
-            if show_cost {
+            row.push(right_cell(
+                &format_number(day.stats.cache_read, options.number_format),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_number(day.stats.total_tokens(), options.number_format),
+                None,
+                false,
+            ));
+            if options.show_cost {
                 row.push(right_cell(&format_cost(day_cost), cost_color, false));
             }
             table.add_row(row);
@@ -204,19 +292,43 @@ pub(crate) fn print_daily_table(
         total_stats.add(&day.stats);
     }
 
-    let cyan = if use_color { Some(Color::Cyan) } else { None };
-    let green = if use_color { Some(Color::Green) } else { None };
+    let cyan = if options.use_color {
+        Some(Color::Cyan)
+    } else {
+        None
+    };
+    let green = if options.use_color {
+        Some(Color::Green)
+    } else {
+        None
+    };
 
     // Add total row
-    if compact {
+    if options.compact {
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
-            right_cell(&format_compact(total_stats.count, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
+            right_cell(
+                &format_compact(total_stats.count, options.number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.input_tokens, options.number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.output_tokens, options.number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.total_tokens(), options.number_format),
+                cyan,
+                true,
+            ),
         ];
-        if show_cost {
+        if options.show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
@@ -224,18 +336,42 @@ pub(crate) fn print_daily_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            right_cell(&format_number(total_stats.count, number_format), cyan, true),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
+            right_cell(
+                &format_number(total_stats.count, options.number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.input_tokens, options.number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, options.number_format),
+                cyan,
+                true,
+            ),
         ];
-        if show_reasoning {
-            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        if options.show_reasoning {
+            row.push(right_cell(
+                &format_number(total_stats.reasoning_tokens, options.number_format),
+                cyan,
+                true,
+            ));
         }
-        if show_cache_creation {
-            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if options.show_cache_creation {
+            row.push(right_cell(
+                &format_number(total_stats.cache_creation, options.number_format),
+                cyan,
+                true,
+            ));
         }
-        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
-        if show_cost {
+        row.push(right_cell(
+            &format_number(total_stats.cache_read, options.number_format),
+            cyan,
+            true,
+        ));
+        if options.show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
@@ -243,19 +379,47 @@ pub(crate) fn print_daily_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            right_cell(&format_number(total_stats.count, number_format), cyan, true),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
+            right_cell(
+                &format_number(total_stats.count, options.number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.input_tokens, options.number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, options.number_format),
+                cyan,
+                true,
+            ),
         ];
-        if show_reasoning {
-            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+        if options.show_reasoning {
+            row.push(right_cell(
+                &format_number(total_stats.reasoning_tokens, options.number_format),
+                cyan,
+                true,
+            ));
         }
-        if show_cache_creation {
-            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if options.show_cache_creation {
+            row.push(right_cell(
+                &format_number(total_stats.cache_creation, options.number_format),
+                cyan,
+                true,
+            ));
         }
-        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
-        row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
-        if show_cost {
+        row.push(right_cell(
+            &format_number(total_stats.cache_read, options.number_format),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_number(total_stats.total_tokens(), options.number_format),
+            cyan,
+            true,
+        ));
+        if options.show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
@@ -263,24 +427,33 @@ pub(crate) fn print_daily_table(
 
     println!("\n  Token Usage\n");
     println!("{table}");
-    print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
+    print_summary_line(
+        summary.valid,
+        summary.skipped,
+        options.number_format,
+        summary.elapsed_ms,
+        options.use_color,
+    );
 }
 
 pub(crate) fn print_monthly_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
-    skipped: i64,
-    valid: i64,
+    summary: SummaryOptions,
     pricing_db: &PricingDb,
-    order: SortOrder,
-    use_color: bool,
-    compact: bool,
-    show_cost: bool,
-    number_format: NumberFormat,
-    show_reasoning: bool,
-    show_cache_creation: bool,
-    elapsed_ms: Option<f64>,
+    options: TokenTableOptions,
 ) {
+    let skipped = summary.skipped;
+    let valid = summary.valid;
+    let elapsed_ms = summary.elapsed_ms;
+    let order = options.order;
+    let use_color = options.use_color;
+    let compact = options.compact;
+    let show_cost = options.show_cost;
+    let number_format = options.number_format;
+    let show_reasoning = options.show_reasoning;
+    let show_cache_creation = options.show_cache_creation;
+
     let month_stats = aggregate_day_stats_by_period(day_stats, Period::Month);
 
     let mut months: Vec<_> = month_stats.keys().collect();
@@ -292,7 +465,6 @@ pub(crate) fn print_monthly_table(
         .apply_modifier(UTF8_SOLID_INNER_BORDERS)
         .set_content_arrangement(ContentArrangement::Dynamic);
     normalize_header_separator(&mut table);
-
 
     if compact {
         let mut header = vec![
@@ -358,9 +530,21 @@ pub(crate) fn print_monthly_table(
 
             let mut row = vec![
                 Cell::new(*month),
-                right_cell(&format_compact(month_data.stats.input_tokens, number_format), None, false),
-                right_cell(&format_compact(month_data.stats.output_tokens, number_format), None, false),
-                right_cell(&format_compact(month_data.stats.total_tokens(), number_format), None, false),
+                right_cell(
+                    &format_compact(month_data.stats.input_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_compact(month_data.stats.output_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_compact(month_data.stats.total_tokens(), number_format),
+                    None,
+                    false,
+                ),
             ];
             if show_cost {
                 row.push(right_cell(&format_cost(month_cost), cost_color, false));
@@ -378,16 +562,36 @@ pub(crate) fn print_monthly_table(
                 let mut row = vec![
                     Cell::new(if i == 0 { *month } else { "" }),
                     Cell::new(*model),
-                    right_cell(&format_number(stats.input_tokens, number_format), None, false),
-                    right_cell(&format_number(stats.output_tokens, number_format), None, false),
+                    right_cell(
+                        &format_number(stats.input_tokens, number_format),
+                        None,
+                        false,
+                    ),
+                    right_cell(
+                        &format_number(stats.output_tokens, number_format),
+                        None,
+                        false,
+                    ),
                 ];
                 if show_reasoning {
-                    row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
+                    row.push(right_cell(
+                        &format_number(stats.reasoning_tokens, number_format),
+                        None,
+                        false,
+                    ));
                 }
                 if show_cache_creation {
-                    row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                    row.push(right_cell(
+                        &format_number(stats.cache_creation, number_format),
+                        None,
+                        false,
+                    ));
                 }
-                row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
+                row.push(right_cell(
+                    &format_number(stats.cache_read, number_format),
+                    None,
+                    false,
+                ));
                 if show_cost {
                     row.push(right_cell(&format_cost(cost), cost_color, false));
                 }
@@ -403,17 +607,41 @@ pub(crate) fn print_monthly_table(
             let mut row = vec![
                 Cell::new(*month),
                 Cell::new(&models_str),
-                right_cell(&format_number(month_data.stats.input_tokens, number_format), None, false),
-                right_cell(&format_number(month_data.stats.output_tokens, number_format), None, false),
+                right_cell(
+                    &format_number(month_data.stats.input_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(month_data.stats.output_tokens, number_format),
+                    None,
+                    false,
+                ),
             ];
             if show_reasoning {
-                row.push(right_cell(&format_number(month_data.stats.reasoning_tokens, number_format), None, false));
+                row.push(right_cell(
+                    &format_number(month_data.stats.reasoning_tokens, number_format),
+                    None,
+                    false,
+                ));
             }
             if show_cache_creation {
-                row.push(right_cell(&format_number(month_data.stats.cache_creation, number_format), None, false));
+                row.push(right_cell(
+                    &format_number(month_data.stats.cache_creation, number_format),
+                    None,
+                    false,
+                ));
             }
-            row.push(right_cell(&format_number(month_data.stats.cache_read, number_format), None, false));
-            row.push(right_cell(&format_number(month_data.stats.total_tokens(), number_format), None, false));
+            row.push(right_cell(
+                &format_number(month_data.stats.cache_read, number_format),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_number(month_data.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(&format_cost(month_cost), cost_color, false));
             }
@@ -430,9 +658,21 @@ pub(crate) fn print_monthly_table(
     if compact {
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
-            right_cell(&format_compact(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
+            right_cell(
+                &format_compact(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.total_tokens(), number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -442,16 +682,36 @@ pub(crate) fn print_monthly_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
+            right_cell(
+                &format_number(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_reasoning {
-            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.reasoning_tokens, number_format),
+                cyan,
+                true,
+            ));
         }
         if show_cache_creation {
-            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.cache_creation, number_format),
+                cyan,
+                true,
+            ));
         }
-        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
+        row.push(right_cell(
+            &format_number(total_stats.cache_read, number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
         }
@@ -460,17 +720,41 @@ pub(crate) fn print_monthly_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
+            right_cell(
+                &format_number(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_reasoning {
-            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.reasoning_tokens, number_format),
+                cyan,
+                true,
+            ));
         }
         if show_cache_creation {
-            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.cache_creation, number_format),
+                cyan,
+                true,
+            ));
         }
-        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
-        row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
+        row.push(right_cell(
+            &format_number(total_stats.cache_read, number_format),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_number(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
         }
@@ -485,18 +769,21 @@ pub(crate) fn print_monthly_table(
 pub(crate) fn print_weekly_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
-    skipped: i64,
-    valid: i64,
+    summary: SummaryOptions,
     pricing_db: &PricingDb,
-    order: SortOrder,
-    use_color: bool,
-    compact: bool,
-    show_cost: bool,
-    number_format: NumberFormat,
-    show_reasoning: bool,
-    show_cache_creation: bool,
-    elapsed_ms: Option<f64>,
+    options: TokenTableOptions,
 ) {
+    let skipped = summary.skipped;
+    let valid = summary.valid;
+    let elapsed_ms = summary.elapsed_ms;
+    let order = options.order;
+    let use_color = options.use_color;
+    let compact = options.compact;
+    let show_cost = options.show_cost;
+    let number_format = options.number_format;
+    let show_reasoning = options.show_reasoning;
+    let show_cache_creation = options.show_cache_creation;
+
     let week_stats = aggregate_day_stats_by_period(day_stats, Period::Week);
 
     let mut weeks: Vec<_> = week_stats.keys().collect();
@@ -508,7 +795,6 @@ pub(crate) fn print_weekly_table(
         .apply_modifier(UTF8_SOLID_INNER_BORDERS)
         .set_content_arrangement(ContentArrangement::Dynamic);
     normalize_header_separator(&mut table);
-
 
     if compact {
         let mut header = vec![
@@ -574,9 +860,21 @@ pub(crate) fn print_weekly_table(
 
             let mut row = vec![
                 Cell::new(*week),
-                right_cell(&format_compact(week_data.stats.input_tokens, number_format), None, false),
-                right_cell(&format_compact(week_data.stats.output_tokens, number_format), None, false),
-                right_cell(&format_compact(week_data.stats.total_tokens(), number_format), None, false),
+                right_cell(
+                    &format_compact(week_data.stats.input_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_compact(week_data.stats.output_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_compact(week_data.stats.total_tokens(), number_format),
+                    None,
+                    false,
+                ),
             ];
             if show_cost {
                 row.push(right_cell(&format_cost(week_cost), cost_color, false));
@@ -594,16 +892,36 @@ pub(crate) fn print_weekly_table(
                 let mut row = vec![
                     Cell::new(if i == 0 { *week } else { "" }),
                     Cell::new(*model),
-                    right_cell(&format_number(stats.input_tokens, number_format), None, false),
-                    right_cell(&format_number(stats.output_tokens, number_format), None, false),
+                    right_cell(
+                        &format_number(stats.input_tokens, number_format),
+                        None,
+                        false,
+                    ),
+                    right_cell(
+                        &format_number(stats.output_tokens, number_format),
+                        None,
+                        false,
+                    ),
                 ];
                 if show_reasoning {
-                    row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
+                    row.push(right_cell(
+                        &format_number(stats.reasoning_tokens, number_format),
+                        None,
+                        false,
+                    ));
                 }
                 if show_cache_creation {
-                    row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                    row.push(right_cell(
+                        &format_number(stats.cache_creation, number_format),
+                        None,
+                        false,
+                    ));
                 }
-                row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
+                row.push(right_cell(
+                    &format_number(stats.cache_read, number_format),
+                    None,
+                    false,
+                ));
                 if show_cost {
                     row.push(right_cell(&format_cost(cost), cost_color, false));
                 }
@@ -619,17 +937,41 @@ pub(crate) fn print_weekly_table(
             let mut row = vec![
                 Cell::new(*week),
                 Cell::new(&models_str),
-                right_cell(&format_number(week_data.stats.input_tokens, number_format), None, false),
-                right_cell(&format_number(week_data.stats.output_tokens, number_format), None, false),
+                right_cell(
+                    &format_number(week_data.stats.input_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(week_data.stats.output_tokens, number_format),
+                    None,
+                    false,
+                ),
             ];
             if show_reasoning {
-                row.push(right_cell(&format_number(week_data.stats.reasoning_tokens, number_format), None, false));
+                row.push(right_cell(
+                    &format_number(week_data.stats.reasoning_tokens, number_format),
+                    None,
+                    false,
+                ));
             }
             if show_cache_creation {
-                row.push(right_cell(&format_number(week_data.stats.cache_creation, number_format), None, false));
+                row.push(right_cell(
+                    &format_number(week_data.stats.cache_creation, number_format),
+                    None,
+                    false,
+                ));
             }
-            row.push(right_cell(&format_number(week_data.stats.cache_read, number_format), None, false));
-            row.push(right_cell(&format_number(week_data.stats.total_tokens(), number_format), None, false));
+            row.push(right_cell(
+                &format_number(week_data.stats.cache_read, number_format),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_number(week_data.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(&format_cost(week_cost), cost_color, false));
             }
@@ -646,9 +988,21 @@ pub(crate) fn print_weekly_table(
     if compact {
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
-            right_cell(&format_compact(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
+            right_cell(
+                &format_compact(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_compact(total_stats.total_tokens(), number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -658,16 +1012,36 @@ pub(crate) fn print_weekly_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
+            right_cell(
+                &format_number(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_reasoning {
-            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.reasoning_tokens, number_format),
+                cyan,
+                true,
+            ));
         }
         if show_cache_creation {
-            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.cache_creation, number_format),
+                cyan,
+                true,
+            ));
         }
-        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
+        row.push(right_cell(
+            &format_number(total_stats.cache_read, number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
         }
@@ -676,17 +1050,41 @@ pub(crate) fn print_weekly_table(
         let mut row = vec![
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
+            right_cell(
+                &format_number(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_reasoning {
-            row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.reasoning_tokens, number_format),
+                cyan,
+                true,
+            ));
         }
         if show_cache_creation {
-            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.cache_creation, number_format),
+                cyan,
+                true,
+            ));
         }
-        row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
-        row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
+        row.push(right_cell(
+            &format_number(total_stats.cache_read, number_format),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_number(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
         }

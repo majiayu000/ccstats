@@ -10,14 +10,14 @@ mod utils;
 use chrono::Utc;
 use clap::Parser;
 
-use app::handle_source_command;
-use cli::{parse_command, Cli};
+use app::{CommandContext, handle_source_command};
+use cli::{Cli, parse_command};
 use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
 use pricing::PricingDb;
 use source::get_source;
-use utils::{parse_date, set_parse_debug, Timezone};
+use utils::{Timezone, parse_date, set_parse_debug};
 
 fn main() {
     // Parse CLI and extract source command
@@ -112,16 +112,19 @@ fn main() {
 
     // Get the appropriate data source
     let source_name = if is_codex { "codex" } else { "claude" };
-    let source = get_source(source_name).expect(&format!("{} source not found", source_name));
+    let source =
+        get_source(source_name).unwrap_or_else(|| panic!("{} source not found", source_name));
 
     handle_source_command(
         source,
         &source_cmd,
-        &filter,
-        &cli,
-        &pricing_db,
-        &timezone,
-        number_format,
-        jq_filter,
+        CommandContext {
+            filter: &filter,
+            cli: &cli,
+            pricing_db: &pricing_db,
+            timezone,
+            number_format,
+            jq_filter,
+        },
     );
 }

@@ -138,15 +138,15 @@ impl DateFilter {
     }
 
     pub(crate) fn contains(&self, date: chrono::NaiveDate) -> bool {
-        if let Some(s) = self.since {
-            if date < s {
-                return false;
-            }
+        if let Some(s) = self.since
+            && date < s
+        {
+            return false;
         }
-        if let Some(u) = self.until {
-            if date > u {
-                return false;
-            }
+        if let Some(u) = self.until
+            && date > u
+        {
+            return false;
         }
         true
     }

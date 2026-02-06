@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::core::DayStats;
-use crate::output::format::{cost_json_value, format_compact, format_cost, NumberFormat};
-use crate::pricing::{sum_model_costs, PricingDb};
+use crate::output::format::{NumberFormat, cost_json_value, format_compact, format_cost};
+use crate::pricing::{PricingDb, sum_model_costs};
 
 /// Output a single line suitable for statusline/tmux integration
 /// Format: "CC: $X.XX | In: XM Out: XK | Today"
@@ -17,7 +17,7 @@ pub(crate) fn print_statusline(
     let mut total_reasoning = 0i64;
     let mut total_cost = 0.0;
 
-    for (_date, stats) in day_stats {
+    for stats in day_stats.values() {
         total_input += stats.stats.input_tokens;
         total_output += stats.stats.output_tokens;
         total_reasoning += stats.stats.reasoning_tokens;
@@ -55,7 +55,7 @@ pub(crate) fn print_statusline_json(
     let mut total_cache_read = 0i64;
     let mut total_cost = 0.0;
 
-    for (_date, stats) in day_stats {
+    for stats in day_stats.values() {
         total_input += stats.stats.input_tokens;
         total_output += stats.stats.output_tokens;
         total_reasoning += stats.stats.reasoning_tokens;
@@ -95,15 +95,17 @@ mod tests {
     #[test]
     fn statusline_json_total_includes_reasoning_tokens() {
         let mut day_stats = HashMap::new();
-        let mut day = DayStats::default();
-        day.stats = Stats {
-            input_tokens: 100,
-            output_tokens: 200,
-            reasoning_tokens: 50,
-            cache_creation: 10,
-            cache_read: 20,
-            count: 1,
-            skipped_chunks: 0,
+        let mut day = DayStats {
+            stats: Stats {
+                input_tokens: 100,
+                output_tokens: 200,
+                reasoning_tokens: 50,
+                cache_creation: 10,
+                cache_read: 20,
+                count: 1,
+                skipped_chunks: 0,
+            },
+            ..Default::default()
         };
         day.models.insert("gpt-5".to_string(), day.stats.clone());
         day_stats.insert("2026-02-06".to_string(), day);

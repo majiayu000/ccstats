@@ -2,7 +2,7 @@
 //!
 //! Defines the ClaudeSource implementation of the Source trait.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::core::RawEntry;
 use crate::source::{Capabilities, Source};
@@ -52,7 +52,7 @@ impl Source for ClaudeSource {
         find_claude_files()
     }
 
-    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
+    fn parse_file(&self, path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
         parse_claude_file(path, timezone)
     }
 }

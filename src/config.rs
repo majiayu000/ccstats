@@ -66,19 +66,19 @@ impl Config {
         let config_paths = Self::get_config_paths();
 
         for path in config_paths {
-            if path.exists() {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    match toml::from_str::<Config>(&content) {
-                        Ok(config) => {
-                            if !quiet {
-                                eprintln!("Loaded config from {}", path.display());
-                            }
-                            return config;
+            if path.exists()
+                && let Ok(content) = fs::read_to_string(&path)
+            {
+                match toml::from_str::<Config>(&content) {
+                    Ok(config) => {
+                        if !quiet {
+                            eprintln!("Loaded config from {}", path.display());
                         }
-                        Err(e) => {
-                            if !quiet {
-                                eprintln!("Warning: Failed to parse {}: {}", path.display(), e);
-                            }
+                        return config;
+                    }
+                    Err(e) => {
+                        if !quiet {
+                            eprintln!("Warning: Failed to parse {}: {}", path.display(), e);
                         }
                     }
                 }

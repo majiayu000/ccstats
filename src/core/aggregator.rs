@@ -87,16 +87,14 @@ pub(crate) fn aggregate_sessions(entries: &[RawEntry]) -> Vec<SessionStats> {
     let mut sessions: HashMap<String, SessionAccumulator> = HashMap::new();
 
     for entry in entries {
-        let session = sessions
-            .entry(entry.session_id.clone())
-            .or_insert_with(|| {
-                SessionAccumulator::new(
-                    entry.session_id.clone(),
-                    entry.project_path.clone(),
-                    &entry.timestamp,
-                    entry.timestamp_ms,
-                )
-            });
+        let session = sessions.entry(entry.session_id.clone()).or_insert_with(|| {
+            SessionAccumulator::new(
+                entry.session_id.clone(),
+                entry.project_path.clone(),
+                &entry.timestamp,
+                entry.timestamp_ms,
+            )
+        });
         session.add_entry(entry);
     }
 
@@ -122,7 +120,11 @@ pub(crate) fn aggregate_projects(sessions: &[SessionStats]) -> Vec<ProjectStats>
         project.stats.add(&session.stats);
 
         for (model, model_stats) in &session.models {
-            project.models.entry(model.clone()).or_default().add(model_stats);
+            project
+                .models
+                .entry(model.clone())
+                .or_default()
+                .add(model_stats);
         }
     }
 
@@ -169,7 +171,11 @@ pub(crate) fn aggregate_blocks(
         });
 
         block.stats.add(&stats);
-        block.models.entry(entry.model.clone()).or_default().add(&stats);
+        block
+            .models
+            .entry(entry.model.clone())
+            .or_default()
+            .add(&stats);
     }
 
     let mut blocks: Vec<BlockStats> = block_map.into_values().collect();
