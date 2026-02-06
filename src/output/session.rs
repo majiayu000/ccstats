@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use comfy_table::{
     Cell, Color, ContentArrangement, Table, modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
 };
+use std::cmp::Ordering;
 
 use crate::cli::SortOrder;
 use crate::core::{SessionStats, Stats, format_project_name};
@@ -35,6 +36,26 @@ fn extract_date(ts: &str, timezone: &Timezone) -> String {
     ts.split('T').next().unwrap_or(ts).to_string()
 }
 
+fn parse_timestamp_millis(ts: &str) -> Option<i64> {
+    DateTime::parse_from_rfc3339(ts)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
+}
+
+fn compare_session_last_timestamp(a: &SessionStats, b: &SessionStats) -> Ordering {
+    match (
+        parse_timestamp_millis(&a.last_timestamp),
+        parse_timestamp_millis(&b.last_timestamp),
+    ) {
+        (Some(a_ms), Some(b_ms)) => a_ms
+            .cmp(&b_ms)
+            .then_with(|| a.last_timestamp.cmp(&b.last_timestamp)),
+        (Some(_), None) => Ordering::Greater,
+        (None, Some(_)) => Ordering::Less,
+        (None, None) => a.last_timestamp.cmp(&b.last_timestamp),
+    }
+}
+
 pub(crate) fn print_session_table(
     sessions: &[SessionStats],
     pricing_db: &PricingDb,
@@ -50,8 +71,8 @@ pub(crate) fn print_session_table(
 
     // Sort by last timestamp
     match order {
-        SortOrder::Asc => sorted_sessions.sort_by(|a, b| a.last_timestamp.cmp(&b.last_timestamp)),
-        SortOrder::Desc => sorted_sessions.sort_by(|a, b| b.last_timestamp.cmp(&a.last_timestamp)),
+        SortOrder::Asc => sorted_sessions.sort_by(|a, b| compare_session_last_timestamp(a, b)),
+        SortOrder::Desc => sorted_sessions.sort_by(|a, b| compare_session_last_timestamp(b, a)),
     }
 
     let mut table = Table::new();
@@ -207,8 +228,8 @@ pub(crate) fn output_session_json(
     let mut sorted_sessions: Vec<_> = sessions.iter().collect();
 
     match order {
-        SortOrder::Asc => sorted_sessions.sort_by(|a, b| a.last_timestamp.cmp(&b.last_timestamp)),
-        SortOrder::Desc => sorted_sessions.sort_by(|a, b| b.last_timestamp.cmp(&a.last_timestamp)),
+        SortOrder::Asc => sorted_sessions.sort_by(|a, b| compare_session_last_timestamp(a, b)),
+        SortOrder::Desc => sorted_sessions.sort_by(|a, b| compare_session_last_timestamp(b, a)),
     }
 
     let output: Vec<serde_json::Value> = sorted_sessions
@@ -226,6 +247,7 @@ pub(crate) fn output_session_json(
                 "last_timestamp": session.last_timestamp,
                 "input_tokens": session.stats.input_tokens,
                 "output_tokens": session.stats.output_tokens,
+                "reasoning_tokens": session.stats.reasoning_tokens,
                 "cache_creation_tokens": session.stats.cache_creation,
                 "cache_read_tokens": session.stats.cache_read,
                 "total_tokens": session.stats.total_tokens(),
@@ -246,7 +268,9 @@ pub(crate) fn output_session_json(
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_session_id;
+    use super::{compare_session_last_timestamp, truncate_session_id};
+    use crate::core::SessionStats;
+    use std::cmp::Ordering;
 
     #[test]
     fn truncate_session_id_ascii() {
@@ -259,5 +283,20 @@ mod tests {
     fn truncate_session_id_utf8_boundary_safe() {
         assert_eq!(truncate_session_id("ééééééé", 12), "ééééééé");
         assert_eq!(truncate_session_id("ééééééé", 6), "ééé...");
+    }
+
+    #[test]
+    fn compare_session_last_timestamp_uses_absolute_time() {
+        let a = SessionStats {
+            last_timestamp: "2026-02-06T23:00:00+08:00".to_string(), // 15:00Z
+            ..Default::default()
+        };
+        let b = SessionStats {
+            last_timestamp: "2026-02-06T16:00:00Z".to_string(), // 16:00Z
+            ..Default::default()
+        };
+
+        assert_eq!(compare_session_last_timestamp(&a, &b), Ordering::Less);
+        assert_eq!(compare_session_last_timestamp(&b, &a), Ordering::Greater);
     }
 }

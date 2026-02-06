@@ -128,6 +128,90 @@ fn codex_reasoning_tokens_not_double_counted() {
 }
 
 #[test]
+fn codex_session_json_orders_by_actual_timestamp() {
+    let root = unique_temp_dir("codex-session-order");
+    let codex_home = root.join("codex-home");
+    let session_a = codex_home.join("sessions").join("a.jsonl");
+    let session_b = codex_home.join("sessions").join("b.jsonl");
+
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T23:00:00+08:00","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"last_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"model":"gpt-5"}}}
+"#,
+    );
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T16:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"last_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"model":"gpt-5"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "session",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+            "--order",
+            "desc",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0]["session_id"].as_str(), Some("b")); // 16:00Z, newer
+    assert_eq!(arr[1]["session_id"].as_str(), Some("a")); // 15:00Z, older
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_session_json_includes_reasoning_tokens() {
+    let root = unique_temp_dir("codex-session-reasoning");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("reasoning-session.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":500,"reasoning_output_tokens":200,"total_tokens":1500},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":500,"reasoning_output_tokens":200,"total_tokens":1500},"model":"gpt-5.2-codex"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "session",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["reasoning_tokens"].as_i64(), Some(200));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn strict_pricing_sets_unknown_cost_to_null() {
     let root = unique_temp_dir("strict-pricing");
     let codex_home = root.join("codex-home");
