@@ -197,12 +197,11 @@ impl<'a> DataLoader<'a> {
         };
 
         // Build local time map for block calculation
-        let mut local_times: HashMap<String, DateTime<FixedOffset>> = HashMap::new();
+        let mut local_times: HashMap<i64, DateTime<FixedOffset>> = HashMap::new();
         for entry in &final_entries {
-            if let Ok(utc_dt) = entry.timestamp.parse::<DateTime<Utc>>() {
+            if let Some(utc_dt) = DateTime::<Utc>::from_timestamp_millis(entry.timestamp_ms) {
                 let local_dt = timezone.to_fixed_offset(utc_dt);
-                let key = format!("{}:{}", entry.session_id, entry.timestamp);
-                local_times.insert(key, local_dt);
+                local_times.insert(entry.timestamp_ms, local_dt);
             }
         }
 
