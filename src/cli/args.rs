@@ -134,10 +134,10 @@ impl Cli {
         if !self.compact && config.compact {
             self.compact = true;
         }
-        if !self.no_cost && config.no_cost {
+        if !self.no_cost && self.cost.is_none() && config.no_cost {
             self.no_cost = true;
         }
-        if !self.no_color && config.no_color {
+        if !self.no_color && self.color.is_none() && config.no_color {
             self.no_color = true;
         }
         if !self.breakdown && config.breakdown {
@@ -229,5 +229,27 @@ mod tests {
         };
         let merged = cli.with_config(&config);
         assert_eq!(merged.sort_order(), SortOrder::Desc);
+    }
+
+    #[test]
+    fn cli_explicit_cost_show_wins_over_config_no_cost() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--cost", "show"]);
+        let config = Config {
+            no_cost: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(merged.show_cost());
+    }
+
+    #[test]
+    fn cli_explicit_color_always_wins_over_config_no_color() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--color", "always"]);
+        let config = Config {
+            no_color: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(merged.use_color());
     }
 }
