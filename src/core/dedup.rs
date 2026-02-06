@@ -4,6 +4,7 @@
 //! We keep the entry with stop_reason (completed message) to get accurate token counts.
 
 use crate::core::types::RawEntry;
+use std::collections::HashMap;
 
 /// Trait for entries that can be deduplicated
 pub(crate) trait Deduplicatable {
@@ -65,46 +66,107 @@ impl<T: Deduplicatable + Clone> CandidateState<T> {
         }
     }
 
+    fn merge(&mut self, other: CandidateState<T>) {
+        let CandidateState { completed, latest } = other;
+        if let Some(entry) = completed {
+            self.update(entry);
+        }
+        self.update(latest);
+    }
+
     /// Get the best entry: completed if available, otherwise latest
     fn finalize(self) -> T {
         self.completed.unwrap_or(self.latest)
     }
 }
 
+/// Incremental dedup accumulator for chunked/parallel loading.
+#[derive(Debug, Clone)]
+pub(crate) struct DedupAccumulator<T: Deduplicatable + Clone> {
+    message_map: HashMap<String, CandidateState<T>>,
+    no_id_entries: Vec<T>,
+    total_with_id: i64,
+}
+
+impl<T: Deduplicatable + Clone> Default for DedupAccumulator<T> {
+    fn default() -> Self {
+        Self {
+            message_map: HashMap::new(),
+            no_id_entries: Vec::new(),
+            total_with_id: 0,
+        }
+    }
+}
+
+impl<T: Deduplicatable + Clone> DedupAccumulator<T> {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn push(&mut self, entry: T) {
+        if let Some(id) = entry.message_id() {
+            self.total_with_id += 1;
+            match self.message_map.get_mut(id) {
+                Some(state) => state.update(entry),
+                None => {
+                    self.message_map
+                        .insert(id.to_string(), CandidateState::new(entry));
+                }
+            }
+        } else if entry.has_stop_reason() {
+            self.no_id_entries.push(entry);
+        }
+    }
+
+    pub(crate) fn extend<I>(&mut self, entries: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        for entry in entries {
+            self.push(entry);
+        }
+    }
+
+    pub(crate) fn merge(&mut self, other: DedupAccumulator<T>) {
+        self.total_with_id += other.total_with_id;
+        self.no_id_entries.extend(other.no_id_entries);
+
+        for (id, state) in other.message_map {
+            match self.message_map.get_mut(&id) {
+                Some(existing) => existing.merge(state),
+                None => {
+                    self.message_map.insert(id, state);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn finalize(self) -> (Vec<T>, i64) {
+        let unique_count = self.message_map.len() as i64;
+        let skipped = (self.total_with_id - unique_count).max(0);
+
+        let mut result: Vec<T> = self
+            .message_map
+            .into_values()
+            .map(|s| s.finalize())
+            .collect();
+        result.extend(self.no_id_entries);
+
+        (result, skipped)
+    }
+}
+
 /// Deduplicate entries by message ID
 /// Returns (deduplicated entries, skipped count)
+#[cfg(test)]
 pub(crate) fn deduplicate<T, I>(entries: I) -> (Vec<T>, i64)
 where
     T: Deduplicatable + Clone,
     I: IntoIterator<Item = T>,
 {
-    use std::collections::HashMap;
-
-    let mut message_map: HashMap<String, CandidateState<T>> = HashMap::new();
-    let mut no_id_entries: Vec<T> = Vec::new();
-    let mut total_with_id = 0i64;
-
-    for entry in entries {
-        if let Some(id) = entry.message_id() {
-            total_with_id += 1;
-            match message_map.get_mut(id) {
-                Some(state) => state.update(entry),
-                None => {
-                    message_map.insert(id.to_string(), CandidateState::new(entry));
-                }
-            }
-        } else if entry.has_stop_reason() {
-            no_id_entries.push(entry);
-        }
-    }
-
-    let unique_count = message_map.len() as i64;
-    let skipped = (total_with_id - unique_count).max(0);
-
-    let mut result: Vec<T> = message_map.into_values().map(|s| s.finalize()).collect();
-    result.extend(no_id_entries);
-
-    (result, skipped)
+    let mut accumulator = DedupAccumulator::new();
+    accumulator.extend(entries);
+    accumulator.finalize()
 }
 
 #[cfg(test)]
@@ -204,5 +266,49 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].value, 1);
         assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_dedup_accumulator_merge() {
+        let mut left = DedupAccumulator::new();
+        left.extend(vec![
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 100,
+                stop: false,
+                value: 1,
+            },
+            TestEntry {
+                id: Some("msg2".to_string()),
+                ts: 100,
+                stop: true,
+                value: 10,
+            },
+        ]);
+
+        let mut right = DedupAccumulator::new();
+        right.extend(vec![
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 200,
+                stop: true,
+                value: 2,
+            },
+            TestEntry {
+                id: Some("msg2".to_string()),
+                ts: 120,
+                stop: false,
+                value: 11,
+            },
+        ]);
+
+        left.merge(right);
+        let (mut result, skipped) = left.finalize();
+        result.sort_by_key(|entry| entry.value);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].value, 2); // msg1 chooses completed entry from right chunk
+        assert_eq!(result[1].value, 10); // msg2 keeps completed entry from left chunk
+        assert_eq!(skipped, 2);
     }
 }
