@@ -1,21 +1,28 @@
-use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
 use chrono::{DateTime, Utc};
+use comfy_table::{
+    Cell, Color, ContentArrangement, Table, modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
+};
 
 use crate::cli::SortOrder;
-use crate::core::{format_project_name, SessionStats, Stats};
+use crate::core::{SessionStats, Stats, format_project_name};
 use crate::output::format::{
-    cost_json_value, format_compact, format_cost, format_number, header_cell, normalize_header_separator, right_cell,
-    styled_cell, NumberFormat,
+    NumberFormat, cost_json_value, format_compact, format_cost, format_number, header_cell,
+    normalize_header_separator, right_cell, styled_cell,
 };
+use crate::pricing::{PricingDb, sum_model_costs};
 use crate::utils::Timezone;
-use crate::pricing::{sum_model_costs, PricingDb};
 
 /// Truncate session ID for display
 fn truncate_session_id(id: &str, max_len: usize) -> String {
-    if id.len() <= max_len {
+    if id.chars().count() <= max_len {
         id.to_string()
     } else {
-        format!("{}...", &id[..max_len - 3])
+        if max_len <= 3 {
+            ".".repeat(max_len)
+        } else {
+            let prefix: String = id.chars().take(max_len - 3).collect();
+            format!("{}...", prefix)
+        }
     }
 }
 
@@ -53,7 +60,6 @@ pub(crate) fn print_session_table(
         .apply_modifier(UTF8_SOLID_INNER_BORDERS)
         .set_content_arrangement(ContentArrangement::Dynamic);
     normalize_header_separator(&mut table);
-
 
     if compact {
         let mut header = vec![
@@ -100,7 +106,11 @@ pub(crate) fn print_session_table(
                 Cell::new(&session_id),
                 Cell::new(&project),
                 Cell::new(&date),
-                right_cell(&format_compact(session.stats.total_tokens(), number_format), None, false),
+                right_cell(
+                    &format_compact(session.stats.total_tokens(), number_format),
+                    None,
+                    false,
+                ),
             ];
             if show_cost {
                 row.push(right_cell(&format_cost(session_cost), cost_color, false));
@@ -111,9 +121,21 @@ pub(crate) fn print_session_table(
                 Cell::new(&session_id),
                 Cell::new(&project),
                 Cell::new(&date),
-                right_cell(&format_number(session.stats.input_tokens, number_format), None, false),
-                right_cell(&format_number(session.stats.output_tokens, number_format), None, false),
-                right_cell(&format_number(session.stats.total_tokens(), number_format), None, false),
+                right_cell(
+                    &format_number(session.stats.input_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(session.stats.output_tokens, number_format),
+                    None,
+                    false,
+                ),
+                right_cell(
+                    &format_number(session.stats.total_tokens(), number_format),
+                    None,
+                    false,
+                ),
             ];
             if show_cost {
                 row.push(right_cell(&format_cost(session_cost), cost_color, false));
@@ -131,7 +153,11 @@ pub(crate) fn print_session_table(
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             Cell::new(""),
-            right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
+            right_cell(
+                &format_compact(total_stats.total_tokens(), number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -142,9 +168,21 @@ pub(crate) fn print_session_table(
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             Cell::new(""),
-            right_cell(&format_number(total_stats.input_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.output_tokens, number_format), cyan, true),
-            right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
+            right_cell(
+                &format_number(total_stats.input_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.output_tokens, number_format),
+                cyan,
+                true,
+            ),
+            right_cell(
+                &format_number(total_stats.total_tokens(), number_format),
+                cyan,
+                true,
+            ),
         ];
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -204,4 +242,22 @@ pub(crate) fn output_session_json(
         eprintln!("Failed to serialize JSON output: {}", e);
         "[]".to_string()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_session_id;
+
+    #[test]
+    fn truncate_session_id_ascii() {
+        assert_eq!(truncate_session_id("abcdefghijk", 12), "abcdefghijk");
+        assert_eq!(truncate_session_id("abcdefghijkl", 12), "abcdefghijkl");
+        assert_eq!(truncate_session_id("abcdefghijklmnop", 12), "abcdefghi...");
+    }
+
+    #[test]
+    fn truncate_session_id_utf8_boundary_safe() {
+        assert_eq!(truncate_session_id("ééééééé", 12), "ééééééé");
+        assert_eq!(truncate_session_id("ééééééé", 6), "ééé...");
+    }
 }
