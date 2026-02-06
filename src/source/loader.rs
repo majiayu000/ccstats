@@ -35,19 +35,16 @@ impl<'a> DataLoader<'a> {
     ) -> Vec<RawEntry> {
         let mut filtered = Vec::new();
         for mut entry in entries {
-            let date = if let Ok(utc_dt) = entry.timestamp.parse::<DateTime<Utc>>() {
-                let local_dt = timezone.to_fixed_offset(utc_dt);
-                let date = local_dt.date_naive();
-                entry.date_str = date.format("%Y-%m-%d").to_string();
-                entry.timestamp_ms = utc_dt.timestamp_millis();
-                Some(date)
-            } else if let Ok(date) =
-                chrono::NaiveDate::parse_from_str(&entry.date_str, "%Y-%m-%d")
-            {
-                Some(date)
-            } else {
-                None
-            };
+            let date = chrono::NaiveDate::parse_from_str(&entry.date_str, "%Y-%m-%d")
+                .ok()
+                .or_else(|| {
+                    let utc_dt = entry.timestamp.parse::<DateTime<Utc>>().ok()?;
+                    let local_dt = timezone.to_fixed_offset(utc_dt);
+                    let date = local_dt.date_naive();
+                    entry.date_str = date.format("%Y-%m-%d").to_string();
+                    entry.timestamp_ms = utc_dt.timestamp_millis();
+                    Some(date)
+                });
 
             if let Some(date) = date {
                 if filter.contains(date) {
@@ -59,11 +56,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load raw entries from files
-    fn load_raw_entries(
-        &self,
-        filter: &DateFilter,
-        timezone: &Timezone,
-    ) -> Vec<RawEntry> {
+    fn load_raw_entries(&self, timezone: &Timezone) -> Vec<RawEntry> {
         let discovery_start = Instant::now();
         let files = self.source.find_files();
         let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
@@ -84,7 +77,7 @@ impl<'a> DataLoader<'a> {
         let parse_start = Instant::now();
         let entries: Vec<RawEntry> = files
             .par_iter()
-            .flat_map(|path| self.source.parse_file(path, filter, timezone))
+            .flat_map(|path| self.source.parse_file(path, timezone))
             .collect();
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
@@ -98,7 +91,7 @@ impl<'a> DataLoader<'a> {
     /// Load and aggregate daily stats
     fn load_daily(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
         let load_start = Instant::now();
-        let entries = self.load_raw_entries(filter, timezone);
+        let entries = self.load_raw_entries(timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
 
         if entries.is_empty() {
@@ -146,7 +139,7 @@ impl<'a> DataLoader<'a> {
 
     /// Load session stats
     fn load_sessions(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<SessionStats> {
-        let entries = self.load_raw_entries(filter, timezone);
+        let entries = self.load_raw_entries(timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
 
         if entries.is_empty() {
@@ -190,7 +183,7 @@ impl<'a> DataLoader<'a> {
             return Vec::new();
         }
 
-        let entries = self.load_raw_entries(filter, timezone);
+        let entries = self.load_raw_entries(timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
 
         if entries.is_empty() {

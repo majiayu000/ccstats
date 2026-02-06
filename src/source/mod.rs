@@ -10,7 +10,7 @@ mod registry;
 
 use std::path::PathBuf;
 
-use crate::core::{DateFilter, RawEntry};
+use crate::core::RawEntry;
 use crate::utils::Timezone;
 
 /// Capabilities that a data source may support
@@ -48,12 +48,7 @@ pub(crate) trait Source: Send + Sync {
     fn find_files(&self) -> Vec<PathBuf>;
 
     /// Parse a single file into raw entries
-    fn parse_file(
-        &self,
-        path: &PathBuf,
-        filter: &DateFilter,
-        timezone: &Timezone,
-    ) -> Vec<RawEntry>;
+    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry>;
 }
 
 /// Box type for dynamic dispatch

@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use crate::core::{DateFilter, RawEntry};
+use crate::core::RawEntry;
 use crate::utils::{parse_debug_enabled, Timezone};
 
 const DEFAULT_CODEX_DIR: &str = ".codex";
@@ -169,11 +169,7 @@ fn extract_model(payload: &Payload) -> Option<String> {
     None
 }
 
-pub(super) fn parse_codex_file(
-    path: &PathBuf,
-    _filter: &DateFilter,
-    timezone: &Timezone,
-) -> Vec<RawEntry> {
+pub(super) fn parse_codex_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())

@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use crate::core::{DateFilter, RawEntry};
+use crate::core::RawEntry;
 use crate::utils::{parse_debug_enabled, Timezone};
 
 // ============================================================================
@@ -79,11 +79,7 @@ fn normalize_model_name(model: &str) -> String {
     name
 }
 
-pub(super) fn parse_claude_file(
-    path: &PathBuf,
-    _filter: &DateFilter,
-    timezone: &Timezone,
-) -> Vec<RawEntry> {
+pub(super) fn parse_claude_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
