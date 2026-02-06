@@ -36,6 +36,7 @@ pub(crate) fn print_session_table(
     compact: bool,
     show_cost: bool,
     number_format: NumberFormat,
+    source_label: &str,
     timezone: &Timezone,
 ) {
     let mut sorted_sessions: Vec<_> = sessions.iter().collect();
@@ -154,7 +155,7 @@ pub(crate) fn print_session_table(
         table.add_row(row);
     }
 
-    println!("\n  Claude Code Session Usage\n");
+    println!("\n  {} Session Usage\n", source_label);
     println!("{table}");
     println!(
         "\n  {} sessions\n",

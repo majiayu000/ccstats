@@ -75,6 +75,7 @@ fn handle_source_command(
                     cli.compact,
                     show_cost,
                     number_format,
+                    source.display_name(),
                     timezone,
                 );
             }
@@ -102,6 +103,7 @@ fn handle_source_command(
                     use_color,
                     cli.compact,
                     show_cost,
+                    source.display_name(),
                     number_format,
                 );
             }
@@ -129,6 +131,7 @@ fn handle_source_command(
                     use_color,
                     cli.compact,
                     show_cost,
+                    source.display_name(),
                     number_format,
                 );
             }

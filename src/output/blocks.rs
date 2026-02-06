@@ -15,6 +15,7 @@ pub(crate) fn print_block_table(
     use_color: bool,
     compact: bool,
     show_cost: bool,
+    source_label: &str,
     number_format: NumberFormat,
 ) {
     let mut sorted_blocks: Vec<_> = blocks.iter().collect();
@@ -124,7 +125,7 @@ pub(crate) fn print_block_table(
         table.add_row(row);
     }
 
-    println!("\n  Claude Code 5-Hour Billing Blocks\n");
+    println!("\n  {} 5-Hour Billing Blocks\n", source_label);
     println!("{table}");
     println!(
         "\n  {} blocks\n",
