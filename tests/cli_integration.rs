@@ -76,7 +76,53 @@ fn codex_daily_json_reads_session_data() {
     let arr = json.as_array().expect("array output");
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
-    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(140));
+    // OpenAI output_tokens(30) includes reasoning_output_tokens(10).
+    // After separating: non_cached_input=80, output=20, reasoning=10, cache_read=20 → total=130
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(130));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_reasoning_tokens_not_double_counted() {
+    let root = unique_temp_dir("codex-reasoning");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("reasoning-session.jsonl");
+    // OpenAI's output_tokens INCLUDES reasoning_output_tokens as a subset.
+    // output_tokens=500 with reasoning_output_tokens=200 means 300 non-reasoning + 200 reasoning.
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":500,"reasoning_output_tokens":200,"total_tokens":1500},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":500,"reasoning_output_tokens":200,"total_tokens":1500},"model":"gpt-5.2-codex"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    // output_tokens should be non-reasoning only: 500 - 200 = 300
+    assert_eq!(arr[0]["output_tokens"].as_i64(), Some(300));
+    // reasoning_tokens should be the separated reasoning portion
+    assert_eq!(arr[0]["reasoning_tokens"].as_i64(), Some(200));
+    // total = input(1000) + output(300) + reasoning(200) + cache(0) = 1500, no double-counting
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1500));
 
     let _ = fs::remove_dir_all(root);
 }
