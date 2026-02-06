@@ -10,7 +10,7 @@ use crate::config::Config;
 
 use super::commands::Commands;
 
-#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
 pub(crate) enum SortOrder {
     /// Oldest first (default)
     #[default]
@@ -67,12 +67,12 @@ pub(crate) struct Cli {
     pub(crate) offline: bool,
 
     /// Sort order for results
-    #[arg(short, long, global = true, value_enum, default_value = "asc")]
-    pub(crate) order: SortOrder,
+    #[arg(short, long, global = true, value_enum)]
+    pub(crate) order: Option<SortOrder>,
 
     /// Color output mode
-    #[arg(long, global = true, value_enum, default_value = "auto")]
-    pub(crate) color: ColorMode,
+    #[arg(long, global = true, value_enum)]
+    pub(crate) color: Option<ColorMode>,
 
     /// Disable colored output (shorthand for --color=never)
     #[arg(long, global = true)]
@@ -87,8 +87,8 @@ pub(crate) struct Cli {
     pub(crate) compact: bool,
 
     /// Cost display mode
-    #[arg(long, global = true, value_enum, default_value = "show")]
-    pub(crate) cost: CostMode,
+    #[arg(long, global = true, value_enum)]
+    pub(crate) cost: Option<CostMode>,
 
     /// Hide cost column (shorthand for --cost=hide)
     #[arg(long, global = true)]
@@ -108,6 +108,43 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
+    fn parse_sort_order(value: Option<&str>) -> Option<SortOrder> {
+        match value?.trim().to_ascii_lowercase().as_str() {
+            "asc" => Some(SortOrder::Asc),
+            "desc" => Some(SortOrder::Desc),
+            _ => None,
+        }
+    }
+
+    fn parse_color_mode(value: Option<&str>) -> Option<ColorMode> {
+        match value?.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(ColorMode::Auto),
+            "always" => Some(ColorMode::Always),
+            "never" => Some(ColorMode::Never),
+            _ => None,
+        }
+    }
+
+    fn parse_cost_mode(value: Option<&str>) -> Option<CostMode> {
+        match value?.trim().to_ascii_lowercase().as_str() {
+            "show" => Some(CostMode::Show),
+            "hide" => Some(CostMode::Hide),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn sort_order(&self) -> SortOrder {
+        self.order.unwrap_or_default()
+    }
+
+    fn color_mode(&self) -> ColorMode {
+        self.color.unwrap_or_default()
+    }
+
+    fn cost_mode(&self) -> CostMode {
+        self.cost.unwrap_or_default()
+    }
+
     /// Merge config file values into CLI (CLI args take precedence)
     pub(crate) fn with_config(mut self, config: &Config) -> Self {
         // Only apply config values if CLI didn't explicitly set them
@@ -131,34 +168,17 @@ impl Cli {
             self.debug = true;
         }
 
-        // For enum values, apply config if it's set
-        if let Some(ref order) = config.order {
-            if matches!(self.order, SortOrder::Asc) {
-                // Only override if CLI is at default
-                match order.to_lowercase().as_str() {
-                    "desc" => self.order = SortOrder::Desc,
-                    _ => {}
-                }
-            }
+        // For enum values, only apply config when CLI did not set them
+        if self.order.is_none() {
+            self.order = Self::parse_sort_order(config.order.as_deref());
         }
 
-        if let Some(ref color) = config.color {
-            if matches!(self.color, ColorMode::Auto) {
-                match color.to_lowercase().as_str() {
-                    "always" => self.color = ColorMode::Always,
-                    "never" => self.color = ColorMode::Never,
-                    _ => {}
-                }
-            }
+        if self.color.is_none() {
+            self.color = Self::parse_color_mode(config.color.as_deref());
         }
 
-        if let Some(ref cost) = config.cost {
-            if matches!(self.cost, CostMode::Show) {
-                match cost.to_lowercase().as_str() {
-                    "hide" => self.cost = CostMode::Hide,
-                    _ => {}
-                }
-            }
+        if self.cost.is_none() {
+            self.cost = Self::parse_cost_mode(config.cost.as_deref());
         }
 
         // String options: only apply if CLI didn't set them
@@ -176,7 +196,7 @@ impl Cli {
         if self.no_color {
             return false;
         }
-        match self.color {
+        match self.color_mode() {
             ColorMode::Always => true,
             ColorMode::Never => false,
             ColorMode::Auto => std::io::stdout().is_terminal(),
@@ -187,6 +207,35 @@ impl Cli {
         if self.no_cost {
             return false;
         }
-        self.cost == CostMode::Show
+        self.cost_mode() == CostMode::Show
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn cli_explicit_order_wins_over_config() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--order", "asc"]);
+        let config = Config {
+            order: Some("desc".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.sort_order(), SortOrder::Asc);
+    }
+
+    #[test]
+    fn config_order_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            order: Some("desc".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.sort_order(), SortOrder::Desc);
     }
 }
