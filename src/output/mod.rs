@@ -1,6 +1,7 @@
 mod blocks;
 mod format;
 mod json;
+mod period;
 mod project;
 mod session;
 mod statusline;
