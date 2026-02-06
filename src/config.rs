@@ -2,6 +2,28 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ConfigSortOrder {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ConfigColorMode {
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ConfigCostMode {
+    Show,
+    Hide,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct Config {
     #[serde(default)]
@@ -19,11 +41,11 @@ pub(crate) struct Config {
     #[serde(default)]
     pub(crate) strict_pricing: bool,
     #[serde(default)]
-    pub(crate) order: Option<String>,
+    pub(crate) order: Option<ConfigSortOrder>,
     #[serde(default)]
-    pub(crate) color: Option<String>,
+    pub(crate) color: Option<ConfigColorMode>,
     #[serde(default)]
-    pub(crate) cost: Option<String>,
+    pub(crate) cost: Option<ConfigCostMode>,
     #[serde(default)]
     pub(crate) timezone: Option<String>,
     #[serde(default)]
