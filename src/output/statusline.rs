@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::core::DayStats;
 use crate::output::format::{format_compact, NumberFormat};
-use crate::pricing::{calculate_cost, PricingDb};
+use crate::pricing::{sum_model_costs, PricingDb};
 
 /// Output a single line suitable for statusline/tmux integration
 /// Format: "CC: $X.XX | In: XM Out: XK | Today"
@@ -21,10 +21,7 @@ pub(crate) fn print_statusline(
         total_input += stats.stats.input_tokens;
         total_output += stats.stats.output_tokens;
         total_reasoning += stats.stats.reasoning_tokens;
-
-        for (model, model_stats) in &stats.models {
-            total_cost += calculate_cost(model_stats, model, pricing_db);
-        }
+        total_cost += sum_model_costs(&stats.models, pricing_db);
     }
 
     let mut parts = vec![
@@ -64,10 +61,7 @@ pub(crate) fn print_statusline_json(
         total_reasoning += stats.stats.reasoning_tokens;
         total_cache_creation += stats.stats.cache_creation;
         total_cache_read += stats.stats.cache_read;
-
-        for (model, model_stats) in &stats.models {
-            total_cost += calculate_cost(model_stats, model, pricing_db);
-        }
+        total_cost += sum_model_costs(&stats.models, pricing_db);
     }
 
     let output = serde_json::json!({

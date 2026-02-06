@@ -8,7 +8,7 @@ use crate::output::format::{
     styled_cell, NumberFormat,
 };
 use crate::output::period::{aggregate_day_stats_by_period, Period};
-use crate::pricing::{calculate_cost, PricingDb};
+use crate::pricing::{calculate_cost, sum_model_costs, PricingDb};
 
 /// Print the summary line with optional timing
 pub(crate) fn print_summary_line(valid: i64, skipped: i64, number_format: NumberFormat, elapsed_ms: Option<f64>, use_color: bool) {
@@ -121,10 +121,7 @@ pub(crate) fn print_daily_table(
         let day = &day_stats[*date];
 
         if compact {
-            let mut day_cost = 0.0;
-            for (model, stats) in &day.models {
-                day_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let day_cost = sum_model_costs(&day.models, pricing_db);
             total_cost += day_cost;
 
             let mut row = vec![
@@ -173,10 +170,7 @@ pub(crate) fn print_daily_table(
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            let mut day_cost = 0.0;
-            for (model, stats) in &day.models {
-                day_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let day_cost = sum_model_costs(&day.models, pricing_db);
             total_cost += day_cost;
 
             let mut row = vec![
@@ -341,10 +335,7 @@ pub(crate) fn print_monthly_table(
         let month_data = &month_stats[*month];
 
         if compact {
-            let mut month_cost = 0.0;
-            for (model, stats) in &month_data.models {
-                month_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let month_cost = sum_model_costs(&month_data.models, pricing_db);
             total_cost += month_cost;
 
             let mut row = vec![
@@ -386,10 +377,7 @@ pub(crate) fn print_monthly_table(
             let models: Vec<_> = month_data.models.keys().map(|s| s.as_str()).collect();
             let models_str = models.join(", ");
 
-            let mut month_cost = 0.0;
-            for (model, stats) in &month_data.models {
-                month_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let month_cost = sum_model_costs(&month_data.models, pricing_db);
             total_cost += month_cost;
 
             let mut row = vec![
@@ -550,10 +538,7 @@ pub(crate) fn print_weekly_table(
         let week_data = &week_stats[*week];
 
         if compact {
-            let mut week_cost = 0.0;
-            for (model, stats) in &week_data.models {
-                week_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let week_cost = sum_model_costs(&week_data.models, pricing_db);
             total_cost += week_cost;
 
             let mut row = vec![
@@ -595,10 +580,7 @@ pub(crate) fn print_weekly_table(
             let models: Vec<_> = week_data.models.keys().map(|s| s.as_str()).collect();
             let models_str = models.join(", ");
 
-            let mut week_cost = 0.0;
-            for (model, stats) in &week_data.models {
-                week_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let week_cost = sum_model_costs(&week_data.models, pricing_db);
             total_cost += week_cost;
 
             let mut row = vec![

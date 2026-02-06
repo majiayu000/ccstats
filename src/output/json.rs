@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::cli::SortOrder;
 use crate::core::DayStats;
 use crate::output::period::{aggregate_day_stats_by_period, Period};
-use crate::pricing::{calculate_cost, PricingDb};
+use crate::pricing::{calculate_cost, sum_model_costs, PricingDb};
 
 fn sort_output(output: &mut Vec<serde_json::Value>, key: &str, order: SortOrder) {
     match order {
@@ -90,10 +90,7 @@ pub(crate) fn output_daily_json(
             }
             output.push(day_obj);
         } else {
-            let mut day_cost = 0.0;
-            for (model, model_stats) in &stats.models {
-                day_cost += calculate_cost(model_stats, model, pricing_db);
-            }
+            let day_cost = sum_model_costs(&stats.models, pricing_db);
             let mut models: Vec<_> = stats.models.keys().cloned().collect();
             models.sort();
             let mut day_obj = serde_json::json!({
@@ -189,10 +186,7 @@ pub(crate) fn output_monthly_json(
             }
             output.push(month_obj);
         } else {
-            let mut month_cost = 0.0;
-            for (model, model_stats) in &stats.models {
-                month_cost += calculate_cost(model_stats, model, pricing_db);
-            }
+            let month_cost = sum_model_costs(&stats.models, pricing_db);
             let mut models: Vec<_> = stats.models.keys().cloned().collect();
             models.sort();
             let mut month_obj = serde_json::json!({
@@ -288,10 +282,7 @@ pub(crate) fn output_weekly_json(
             }
             output.push(week_obj);
         } else {
-            let mut week_cost = 0.0;
-            for (model, model_stats) in &stats.models {
-                week_cost += calculate_cost(model_stats, model, pricing_db);
-            }
+            let week_cost = sum_model_costs(&stats.models, pricing_db);
             let mut models: Vec<_> = stats.models.keys().cloned().collect();
             models.sort();
             let mut week_obj = serde_json::json!({

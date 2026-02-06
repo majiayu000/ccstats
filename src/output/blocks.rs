@@ -6,7 +6,7 @@ use crate::output::format::{
     format_compact, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
 };
-use crate::pricing::{calculate_cost, PricingDb};
+use crate::pricing::{sum_model_costs, PricingDb};
 
 pub(crate) fn print_block_table(
     blocks: &[BlockStats],
@@ -63,10 +63,7 @@ pub(crate) fn print_block_table(
     let mut total_cost = 0.0;
 
     for block in &sorted_blocks {
-        let mut block_cost = 0.0;
-        for (model, stats) in &block.models {
-            block_cost += calculate_cost(stats, model, pricing_db);
-        }
+        let block_cost = sum_model_costs(&block.models, pricing_db);
         total_cost += block_cost;
         total_stats.add(&block.stats);
 
@@ -149,10 +146,7 @@ pub(crate) fn output_block_json(
     let output: Vec<serde_json::Value> = sorted_blocks
         .iter()
         .map(|block| {
-            let mut block_cost = 0.0;
-            for (model, stats) in &block.models {
-                block_cost += calculate_cost(stats, model, pricing_db);
-            }
+            let block_cost = sum_model_costs(&block.models, pricing_db);
 
             let mut models: Vec<_> = block.models.keys().cloned().collect();
             models.sort();
