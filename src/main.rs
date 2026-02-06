@@ -52,6 +52,7 @@ fn handle_source_command(
     let show_reasoning = caps.has_reasoning_tokens;
     let is_statusline = matches!(command, SourceCommand::Statusline);
     let quiet = is_statusline;
+    let order = cli.sort_order();
 
     match command {
         SourceCommand::Session => {
@@ -63,13 +64,13 @@ fn handle_source_command(
             let use_color = cli.use_color();
             let show_cost = cli.show_cost();
             if cli.json {
-                let json = output_session_json(&sessions, pricing_db, cli.order, show_cost);
+                let json = output_session_json(&sessions, pricing_db, order, show_cost);
                 print_json(&json, jq_filter);
             } else {
                 print_session_table(
                     &sessions,
                     pricing_db,
-                    cli.order,
+                    order,
                     use_color,
                     cli.compact,
                     show_cost,
@@ -91,13 +92,13 @@ fn handle_source_command(
             let use_color = cli.use_color();
             let show_cost = cli.show_cost();
             if cli.json {
-                let json = output_project_json(&projects, pricing_db, cli.order, show_cost);
+                let json = output_project_json(&projects, pricing_db, order, show_cost);
                 print_json(&json, jq_filter);
             } else {
                 print_project_table(
                     &projects,
                     pricing_db,
-                    cli.order,
+                    order,
                     use_color,
                     cli.compact,
                     show_cost,
@@ -118,13 +119,13 @@ fn handle_source_command(
             let use_color = cli.use_color();
             let show_cost = cli.show_cost();
             if cli.json {
-                let json = output_block_json(&blocks, pricing_db, cli.order, show_cost);
+                let json = output_block_json(&blocks, pricing_db, order, show_cost);
                 print_json(&json, jq_filter);
             } else {
                 print_block_table(
                     &blocks,
                     pricing_db,
-                    cli.order,
+                    order,
                     use_color,
                     cli.compact,
                     show_cost,
@@ -153,7 +154,7 @@ fn handle_source_command(
                 let json = output_daily_json(
                     &result.day_stats,
                     pricing_db,
-                    cli.order,
+                    order,
                     cli.breakdown,
                     show_cost,
                 );
@@ -165,7 +166,7 @@ fn handle_source_command(
                     result.skipped,
                     result.valid,
                     pricing_db,
-                    cli.order,
+                    order,
                     use_color,
                     cli.compact,
                     show_cost,
@@ -187,7 +188,7 @@ fn handle_source_command(
                 let json = output_weekly_json(
                     &result.day_stats,
                     pricing_db,
-                    cli.order,
+                    order,
                     cli.breakdown,
                     show_cost,
                 );
@@ -199,7 +200,7 @@ fn handle_source_command(
                     result.skipped,
                     result.valid,
                     pricing_db,
-                    cli.order,
+                    order,
                     use_color,
                     cli.compact,
                     show_cost,
@@ -221,7 +222,7 @@ fn handle_source_command(
                 let json = output_monthly_json(
                     &result.day_stats,
                     pricing_db,
-                    cli.order,
+                    order,
                     cli.breakdown,
                     show_cost,
                 );
@@ -233,7 +234,7 @@ fn handle_source_command(
                     result.skipped,
                     result.valid,
                     pricing_db,
-                    cli.order,
+                    order,
                     use_color,
                     cli.compact,
                     show_cost,
