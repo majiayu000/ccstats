@@ -15,7 +15,6 @@ src/
 ├── core/                   # 核心共享逻辑
 │   ├── types.rs           # 统一数据类型
 │   ├── dedup.rs           # 去重算法
-│   ├── cache.rs           # 文件缓存管理
 │   ├── aggregator.rs      # 聚合函数
 │   └── mod.rs
 ├── source/                 # 数据源插件
@@ -60,15 +59,7 @@ pub trait Source: Send + Sync {
     fn find_files(&self) -> Vec<PathBuf>;
 
     /// 解析单个文件，返回统一的 RawEntry 列表
-    fn parse_file(
-        &self,
-        path: &PathBuf,
-        filter: &DateFilter,
-        timezone: &Timezone,
-    ) -> Vec<RawEntry>;
-
-    /// 缓存文件名
-    fn cache_name(&self) -> &'static str;
+    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry>;
 }
 ```
 
@@ -129,8 +120,8 @@ pub struct RawEntry {
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        DataLoader                                    │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │ File Discovery│  │   Parsing    │  │    Cache     │              │
-│  │  find_files() │  │ parse_file() │  │  get/save    │              │
+│  │ File Discovery│  │   Parsing    │  │ Date Filter  │              │
+│  │  find_files() │  │ parse_file() │  │  + timezone  │              │
 │  └──────────────┘  └──────────────┘  └──────────────┘              │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
@@ -168,7 +159,7 @@ touch src/source/newcli/{mod.rs,config.rs,parser.rs}
 ```rust
 //! NewCLI JSONL parser
 
-use crate::core::{DateFilter, RawEntry};
+use crate::core::RawEntry;
 use crate::utils::Timezone;
 use std::path::PathBuf;
 
@@ -192,7 +183,6 @@ pub fn find_files() -> Vec<PathBuf> {
 /// 解析单个文件
 pub fn parse_file(
     path: &PathBuf,
-    filter: &DateFilter,
     timezone: &Timezone,
 ) -> Vec<RawEntry> {
     // 实现解析逻辑
@@ -207,7 +197,7 @@ pub fn parse_file(
 //! NewCLI data source configuration
 
 use std::path::PathBuf;
-use crate::core::{DateFilter, RawEntry};
+use crate::core::RawEntry;
 use crate::source::{Capabilities, Source};
 use crate::utils::Timezone;
 use super::parser::{find_files, parse_file};
@@ -238,16 +228,9 @@ impl Source for NewCliSource {
 
     fn find_files(&self) -> Vec<PathBuf> { find_files() }
 
-    fn parse_file(
-        &self,
-        path: &PathBuf,
-        filter: &DateFilter,
-        timezone: &Timezone,
-    ) -> Vec<RawEntry> {
-        parse_file(path, filter, timezone)
+    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
+        parse_file(path, timezone)
     }
-
-    fn cache_name(&self) -> &'static str { "newcli" }
 }
 ```
 
@@ -348,32 +331,22 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
 8. 无需去重 (Codex 内部已处理)
 ```
 
-## 缓存机制
+## 定价缓存机制
 
 ```
-缓存位置: ~/.cache/ccstats/{source}.json
+缓存位置: ~/.cache/ccstats/pricing.json
 
-缓存结构:
-{
-  "files": {
-    "/path/to/file.jsonl": {
-      "mtime": 1707123456,
-      "size": 12345,
-      "entries": [RawEntry, ...]
-    }
-  }
-}
-
-缓存策略:
-1. 检查文件 mtime + size
-2. 匹配则使用缓存 (仍需按日期过滤)
-3. 不匹配则重新解析
-4. 处理完成后保存更新的缓存
+策略:
+1. 默认优先使用 24 小时内的本地定价缓存
+2. 缓存过期后尝试从 LiteLLM 拉取最新定价并回写缓存
+3. 拉取失败时回退到旧缓存
+4. 无缓存时使用内置兜底价格
 ```
 
 ## 性能优化
 
 - 并行文件解析 (rayon)
-- 文件级缓存 (mtime + size 验证)
+- 统一解析后过滤 (按日期与时区过滤入口)
 - 延迟加载定价数据
+- 定价缓存 (24h TTL)
 - 流式 JSONL 解析
