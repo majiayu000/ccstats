@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::core::{
-    aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions, deduplicate,
-    BlockStats, DateFilter, DayStats, LoadResult, ProjectStats, RawEntry, SessionStats,
+    BlockStats, DateFilter, DayStats, DedupAccumulator, LoadResult, ProjectStats, RawEntry,
+    SessionStats, aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
 };
 use crate::source::Source;
 use crate::utils::Timezone;
@@ -46,23 +46,27 @@ impl<'a> DataLoader<'a> {
                     Some(date)
                 });
 
-            if let Some(date) = date {
-                if filter.contains(date) {
-                    filtered.push(entry);
-                }
+            if let Some(date) = date
+                && filter.contains(date)
+            {
+                filtered.push(entry);
             }
         }
         filtered
     }
 
-    /// Load raw entries from files
-    fn load_raw_entries(&self, timezone: &Timezone) -> Vec<RawEntry> {
+    /// Load and deduplicate entries incrementally to avoid buffering all raw records in memory.
+    fn load_deduped_entries_incremental(
+        &self,
+        filter: &DateFilter,
+        timezone: &Timezone,
+    ) -> (Vec<RawEntry>, i64) {
         let discovery_start = Instant::now();
         let files = self.source.find_files();
         let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
 
         if files.is_empty() {
-            return Vec::new();
+            return (Vec::new(), 0);
         }
 
         if !self.quiet {
@@ -75,23 +79,34 @@ impl<'a> DataLoader<'a> {
         }
 
         let parse_start = Instant::now();
-        let entries: Vec<RawEntry> = files
+        let accumulator = files
             .par_iter()
-            .flat_map(|path| self.source.parse_file(path, timezone))
-            .collect();
+            .map(|path| {
+                let entries = self.source.parse_file(path, timezone);
+                let filtered = Self::filter_entries(entries, filter, timezone);
+                let mut partial = DedupAccumulator::new();
+                partial.extend(filtered);
+                partial
+            })
+            .reduce(DedupAccumulator::new, |mut acc, partial| {
+                acc.merge(partial);
+                acc
+            });
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
+        let (entries, skipped) = accumulator.finalize();
 
         if !self.quiet {
-            eprintln!("Parsed {} files ({:.2}ms)", files.len(), parse_ms);
+            eprintln!(
+                "Parsed {} files and deduplicated incrementally ({:.2}ms)",
+                files.len(),
+                parse_ms
+            );
         }
 
-        entries
+        (entries, skipped)
     }
 
-    fn merge_day_stats(
-        target: &mut HashMap<String, DayStats>,
-        source: HashMap<String, DayStats>,
-    ) {
+    fn merge_day_stats(target: &mut HashMap<String, DayStats>, source: HashMap<String, DayStats>) {
         for (date, stats) in source {
             let day = target.entry(date).or_default();
             day.stats.add(&stats.stats);
@@ -101,11 +116,7 @@ impl<'a> DataLoader<'a> {
         }
     }
 
-    fn load_daily_incremental(
-        &self,
-        filter: &DateFilter,
-        timezone: &Timezone,
-    ) -> LoadResult {
+    fn load_daily_incremental(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
         let load_start = Instant::now();
         let discovery_start = Instant::now();
         let files = self.source.find_files();
@@ -255,20 +266,10 @@ impl<'a> DataLoader<'a> {
         }
 
         let load_start = Instant::now();
-        let entries = self.load_raw_entries(timezone);
-        let entries = Self::filter_entries(entries, filter, timezone);
-
-        if entries.is_empty() {
+        let (final_entries, skipped) = self.load_deduped_entries_incremental(filter, timezone);
+        if final_entries.is_empty() {
             return LoadResult::default();
         }
-
-        let dedup_start = Instant::now();
-        let (final_entries, skipped) = if self.source.capabilities().needs_dedup {
-            deduplicate(entries)
-        } else {
-            (entries, 0)
-        };
-        let dedup_ms = dedup_start.elapsed().as_secs_f64() * 1000.0;
 
         let agg_start = Instant::now();
         let valid = final_entries.len() as i64;
@@ -278,8 +279,8 @@ impl<'a> DataLoader<'a> {
         if !self.quiet {
             if skipped > 0 {
                 eprintln!(
-                    "Deduplicated {} entries ({:.2}ms), aggregated ({:.2}ms)",
-                    skipped, dedup_ms, agg_ms
+                    "Deduplicated {} entries, aggregated ({:.2}ms)",
+                    skipped, agg_ms
                 );
             } else {
                 eprintln!("Aggregated ({:.2}ms)", agg_ms);
@@ -307,23 +308,23 @@ impl<'a> DataLoader<'a> {
             return self.load_sessions_incremental(filter, timezone);
         }
 
-        let entries = self.load_raw_entries(timezone);
-        let entries = Self::filter_entries(entries, filter, timezone);
-
-        if entries.is_empty() {
+        let (final_entries, skipped) = self.load_deduped_entries_incremental(filter, timezone);
+        if final_entries.is_empty() {
             return Vec::new();
         }
-
-        let (final_entries, _) = if self.source.capabilities().needs_dedup {
-            deduplicate(entries)
-        } else {
-            (entries, 0)
-        };
 
         let sessions = aggregate_sessions(&final_entries);
 
         if !self.quiet {
-            eprintln!("Found {} sessions", sessions.len());
+            if skipped > 0 {
+                eprintln!(
+                    "Found {} sessions after deduplicating {} entries",
+                    sessions.len(),
+                    skipped
+                );
+            } else {
+                eprintln!("Found {} sessions", sessions.len());
+            }
         }
 
         sessions
@@ -351,18 +352,21 @@ impl<'a> DataLoader<'a> {
             return Vec::new();
         }
 
-        let entries = self.load_raw_entries(timezone);
-        let entries = Self::filter_entries(entries, filter, timezone);
-
-        if entries.is_empty() {
-            return Vec::new();
-        }
-
-        let (final_entries, _) = if self.source.capabilities().needs_dedup {
-            deduplicate(entries)
+        let (final_entries, skipped) = if self.source.capabilities().needs_dedup {
+            self.load_deduped_entries_incremental(filter, timezone)
         } else {
+            let entries: Vec<RawEntry> = self
+                .source
+                .find_files()
+                .par_iter()
+                .flat_map(|path| self.source.parse_file(path, timezone))
+                .collect();
+            let entries = Self::filter_entries(entries, filter, timezone);
             (entries, 0)
         };
+        if final_entries.is_empty() {
+            return Vec::new();
+        }
 
         // Build local time map for block calculation
         let mut local_times: HashMap<i64, DateTime<FixedOffset>> = HashMap::new();
@@ -376,7 +380,15 @@ impl<'a> DataLoader<'a> {
         let blocks = aggregate_blocks(&final_entries, &local_times);
 
         if !self.quiet {
-            eprintln!("Found {} billing blocks", blocks.len());
+            if skipped > 0 {
+                eprintln!(
+                    "Found {} billing blocks after deduplicating {} entries",
+                    blocks.len(),
+                    skipped
+                );
+            } else {
+                eprintln!("Found {} billing blocks", blocks.len());
+            }
         }
 
         blocks
