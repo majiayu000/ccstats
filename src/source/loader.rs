@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::core::{
     aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions, deduplicate,
-    BlockStats, DateFilter, LoadResult, ProjectStats, RawEntry, SessionStats,
+    BlockStats, DateFilter, DayStats, LoadResult, ProjectStats, RawEntry, SessionStats,
 };
 use crate::source::Source;
 use crate::utils::Timezone;
@@ -88,8 +88,172 @@ impl<'a> DataLoader<'a> {
         entries
     }
 
+    fn merge_day_stats(
+        target: &mut HashMap<String, DayStats>,
+        source: HashMap<String, DayStats>,
+    ) {
+        for (date, stats) in source {
+            let day = target.entry(date).or_default();
+            day.stats.add(&stats.stats);
+            for (model, model_stats) in stats.models {
+                day.models.entry(model).or_default().add(&model_stats);
+            }
+        }
+    }
+
+    fn load_daily_incremental(
+        &self,
+        filter: &DateFilter,
+        timezone: &Timezone,
+    ) -> LoadResult {
+        let load_start = Instant::now();
+        let discovery_start = Instant::now();
+        let files = self.source.find_files();
+        let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
+
+        if files.is_empty() {
+            return LoadResult::default();
+        }
+
+        if !self.quiet {
+            eprintln!(
+                "Scanning {} {} files... ({:.2}ms)",
+                files.len(),
+                self.source.display_name(),
+                discovery_ms
+            );
+        }
+
+        let parse_start = Instant::now();
+        let day_stats = files
+            .par_iter()
+            .map(|path| {
+                let entries = self.source.parse_file(path, timezone);
+                let filtered = Self::filter_entries(entries, filter, timezone);
+                aggregate_daily(&filtered)
+            })
+            .reduce(HashMap::new, |mut acc, partial| {
+                Self::merge_day_stats(&mut acc, partial);
+                acc
+            });
+        let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
+
+        if !self.quiet {
+            eprintln!(
+                "Parsed {} files and aggregated incrementally ({:.2}ms)",
+                files.len(),
+                parse_ms
+            );
+        }
+
+        let valid: i64 = day_stats.values().map(|day| day.stats.count).sum();
+        if self.debug && !self.quiet {
+            eprintln!("[DEBUG] Processed {} entries, {} skipped", valid, 0);
+            eprintln!("[DEBUG] Days with data: {}", day_stats.len());
+        }
+
+        let elapsed_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+        LoadResult {
+            day_stats,
+            skipped: 0,
+            valid,
+            elapsed_ms,
+        }
+    }
+
+    fn merge_session_stats(into: &mut SessionStats, incoming: SessionStats) {
+        let SessionStats {
+            project_path,
+            first_timestamp,
+            last_timestamp,
+            stats,
+            models,
+            ..
+        } = incoming;
+
+        if first_timestamp < into.first_timestamp {
+            into.first_timestamp = first_timestamp;
+        }
+        if last_timestamp > into.last_timestamp {
+            into.last_timestamp = last_timestamp;
+        }
+        into.stats.add(&stats);
+        for (model, stats) in models {
+            into.models.entry(model).or_default().add(&stats);
+        }
+        if into.project_path.is_empty() && !project_path.is_empty() {
+            into.project_path = project_path;
+        }
+    }
+
+    fn load_sessions_incremental(
+        &self,
+        filter: &DateFilter,
+        timezone: &Timezone,
+    ) -> Vec<SessionStats> {
+        let discovery_start = Instant::now();
+        let files = self.source.find_files();
+        let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
+
+        if files.is_empty() {
+            return Vec::new();
+        }
+
+        if !self.quiet {
+            eprintln!(
+                "Scanning {} {} files... ({:.2}ms)",
+                files.len(),
+                self.source.display_name(),
+                discovery_ms
+            );
+        }
+
+        let parse_start = Instant::now();
+        let merged = files
+            .par_iter()
+            .map(|path| {
+                let entries = self.source.parse_file(path, timezone);
+                let filtered = Self::filter_entries(entries, filter, timezone);
+                aggregate_sessions(&filtered)
+            })
+            .map(|sessions| {
+                let mut map = HashMap::<String, SessionStats>::new();
+                for session in sessions {
+                    map.insert(session.session_id.clone(), session);
+                }
+                map
+            })
+            .reduce(HashMap::<String, SessionStats>::new, |mut acc, partial| {
+                for session in partial.into_values() {
+                    match acc.get_mut(&session.session_id) {
+                        Some(existing) => Self::merge_session_stats(existing, session),
+                        None => {
+                            acc.insert(session.session_id.clone(), session);
+                        }
+                    }
+                }
+                acc
+            });
+        let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
+
+        let sessions: Vec<SessionStats> = merged.into_values().collect();
+        if !self.quiet {
+            eprintln!(
+                "Parsed {} files and aggregated {} sessions incrementally ({:.2}ms)",
+                files.len(),
+                sessions.len(),
+                parse_ms
+            );
+        }
+        sessions
+    }
+
     /// Load and aggregate daily stats
     fn load_daily(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
+        if !self.source.capabilities().needs_dedup {
+            return self.load_daily_incremental(filter, timezone);
+        }
+
         let load_start = Instant::now();
         let entries = self.load_raw_entries(timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
@@ -139,6 +303,10 @@ impl<'a> DataLoader<'a> {
 
     /// Load session stats
     fn load_sessions(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<SessionStats> {
+        if !self.source.capabilities().needs_dedup {
+            return self.load_sessions_incremental(filter, timezone);
+        }
+
         let entries = self.load_raw_entries(timezone);
         let entries = Self::filter_entries(entries, filter, timezone);
 
