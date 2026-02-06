@@ -333,6 +333,12 @@ pub(super) fn parse_codex_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEn
         let cached = delta.cached_input();
         let non_cached_input = (raw_input - cached).max(0);
 
+        // OpenAI's output_tokens INCLUDES reasoning_output_tokens as a subset.
+        // Separate them so total_tokens() and calculate_cost() don't double-count.
+        let raw_output = delta.output_tokens.unwrap_or(0);
+        let reasoning = delta.reasoning_output_tokens.unwrap_or(0);
+        let non_reasoning_output = (raw_output - reasoning).max(0);
+
         entries.push(RawEntry {
             timestamp,
             timestamp_ms: utc_dt.timestamp_millis(),
@@ -342,10 +348,10 @@ pub(super) fn parse_codex_file(path: &PathBuf, timezone: &Timezone) -> Vec<RawEn
             project_path: String::new(), // Codex doesn't track projects
             model,
             input_tokens: non_cached_input,
-            output_tokens: delta.output_tokens.unwrap_or(0),
+            output_tokens: non_reasoning_output,
             cache_creation: 0, // Codex doesn't have cache creation
             cache_read: cached,
-            reasoning_tokens: delta.reasoning_output_tokens.unwrap_or(0),
+            reasoning_tokens: reasoning,
             stop_reason: Some("complete".to_string()), // Codex events are always complete
         });
     }
