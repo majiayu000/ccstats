@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::cli::SortOrder;
 use crate::core::{DayStats, Stats};
 use crate::output::format::{
-    format_compact, format_number, header_cell, normalize_header_separator, right_cell,
+    format_compact, format_cost, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
 };
 use crate::output::period::{aggregate_day_stats_by_period, Period};
@@ -132,7 +132,7 @@ pub(crate) fn print_daily_table(
                 right_cell(&format_compact(day.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", day_cost), cost_color, false));
+                row.push(right_cell(&format_cost(day_cost), cost_color, false));
             }
             table.add_row(row);
         } else if breakdown {
@@ -157,7 +157,7 @@ pub(crate) fn print_daily_table(
                 row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
                 row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
-                    row.push(right_cell(&format!("${:.2}", cost), cost_color, false));
+                    row.push(right_cell(&format_cost(cost), cost_color, false));
                 }
                 table.add_row(row);
             }
@@ -187,7 +187,7 @@ pub(crate) fn print_daily_table(
             row.push(right_cell(&format_number(day.stats.cache_read, number_format), None, false));
             row.push(right_cell(&format_number(day.stats.total_tokens(), number_format), None, false));
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", day_cost), cost_color, false));
+                row.push(right_cell(&format_cost(day_cost), cost_color, false));
             }
             table.add_row(row);
         }
@@ -208,7 +208,7 @@ pub(crate) fn print_daily_table(
             right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else if breakdown {
@@ -225,7 +225,7 @@ pub(crate) fn print_daily_table(
         row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else {
@@ -243,7 +243,7 @@ pub(crate) fn print_daily_table(
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     }
@@ -345,7 +345,7 @@ pub(crate) fn print_monthly_table(
                 right_cell(&format_compact(month_data.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", month_cost), cost_color, false));
+                row.push(right_cell(&format_cost(month_cost), cost_color, false));
             }
             table.add_row(row);
         } else if breakdown {
@@ -369,7 +369,7 @@ pub(crate) fn print_monthly_table(
                 row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
                 row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
-                    row.push(right_cell(&format!("${:.2}", cost), cost_color, false));
+                    row.push(right_cell(&format_cost(cost), cost_color, false));
                 }
                 table.add_row(row);
             }
@@ -393,7 +393,7 @@ pub(crate) fn print_monthly_table(
             row.push(right_cell(&format_number(month_data.stats.cache_read, number_format), None, false));
             row.push(right_cell(&format_number(month_data.stats.total_tokens(), number_format), None, false));
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", month_cost), cost_color, false));
+                row.push(right_cell(&format_cost(month_cost), cost_color, false));
             }
             table.add_row(row);
         }
@@ -413,7 +413,7 @@ pub(crate) fn print_monthly_table(
             right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else if breakdown {
@@ -429,7 +429,7 @@ pub(crate) fn print_monthly_table(
         row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else {
@@ -446,7 +446,7 @@ pub(crate) fn print_monthly_table(
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     }
@@ -548,7 +548,7 @@ pub(crate) fn print_weekly_table(
                 right_cell(&format_compact(week_data.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", week_cost), cost_color, false));
+                row.push(right_cell(&format_cost(week_cost), cost_color, false));
             }
             table.add_row(row);
         } else if breakdown {
@@ -572,7 +572,7 @@ pub(crate) fn print_weekly_table(
                 row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
                 row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
-                    row.push(right_cell(&format!("${:.2}", cost), cost_color, false));
+                    row.push(right_cell(&format_cost(cost), cost_color, false));
                 }
                 table.add_row(row);
             }
@@ -596,7 +596,7 @@ pub(crate) fn print_weekly_table(
             row.push(right_cell(&format_number(week_data.stats.cache_read, number_format), None, false));
             row.push(right_cell(&format_number(week_data.stats.total_tokens(), number_format), None, false));
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", week_cost), cost_color, false));
+                row.push(right_cell(&format_cost(week_cost), cost_color, false));
             }
             table.add_row(row);
         }
@@ -616,7 +616,7 @@ pub(crate) fn print_weekly_table(
             right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else if breakdown {
@@ -632,7 +632,7 @@ pub(crate) fn print_weekly_table(
         row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else {
@@ -649,7 +649,7 @@ pub(crate) fn print_weekly_table(
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     }

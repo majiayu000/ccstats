@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::core::DayStats;
-use crate::output::format::{format_compact, NumberFormat};
+use crate::output::format::{cost_json_value, format_compact, format_cost, NumberFormat};
 use crate::pricing::{sum_model_costs, PricingDb};
 
 /// Output a single line suitable for statusline/tmux integration
@@ -25,7 +25,7 @@ pub(crate) fn print_statusline(
     }
 
     let mut parts = vec![
-        format!("{}: ${:.2}", source_label, total_cost),
+        format!("{}: {}", source_label, format_cost(total_cost)),
         format!(
             "In: {} Out: {}",
             format_compact(total_input, number_format),
@@ -72,9 +72,9 @@ pub(crate) fn print_statusline_json(
         "cache_creation_tokens": total_cache_creation,
         "cache_read_tokens": total_cache_read,
         "total_tokens": total_input + total_output + total_reasoning + total_cache_creation + total_cache_read,
-        "cost": total_cost,
+        "cost": cost_json_value(total_cost),
         "formatted": {
-            "cost": format!("${:.2}", total_cost),
+            "cost": format_cost(total_cost),
             "input": format_compact(total_input, number_format),
             "output": format_compact(total_output, number_format),
             "reasoning": format_compact(total_reasoning, number_format),

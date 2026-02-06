@@ -62,19 +62,19 @@ pub(super) fn parse_litellm_data(
     models
 }
 
-pub(super) fn resolve_pricing(
+pub(super) fn resolve_pricing_known(
     model: &str,
     models: &HashMap<String, ModelPricing>,
-) -> ModelPricing {
+) -> Option<ModelPricing> {
     // Try exact match first
     if let Some(pricing) = models.get(model) {
-        return pricing.clone();
+        return Some(pricing.clone());
     }
 
     // Try with claude- prefix
     let with_prefix = format!("claude-{}", model);
     if let Some(pricing) = models.get(&with_prefix) {
-        return pricing.clone();
+        return Some(pricing.clone());
     }
 
     // Try partial matching
@@ -89,10 +89,14 @@ pub(super) fn resolve_pricing(
     candidates.sort_by(|(a, _), (b, _)| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
 
     if let Some((_, pricing)) = candidates.first() {
-        return (*pricing).clone();
+        return Some((*pricing).clone());
     }
 
-    // Fallback heuristics
+    None
+}
+
+pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
+    let model_lower = model.to_lowercase();
     if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
         ModelPricing {
             input: 5e-6,           // $5/M

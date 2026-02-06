@@ -3,7 +3,7 @@ use comfy_table::{modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL, Cell,
 use crate::cli::SortOrder;
 use crate::core::{ProjectStats, Stats};
 use crate::output::format::{
-    format_compact, format_number, header_cell, normalize_header_separator, right_cell,
+    cost_json_value, format_compact, format_cost, format_number, header_cell, normalize_header_separator, right_cell,
     styled_cell, NumberFormat,
 };
 use crate::pricing::{attach_costs, PricingDb};
@@ -99,7 +99,7 @@ pub(crate) fn print_project_table(
                 ),
             ];
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", project_cost), cost_color, false));
+                row.push(right_cell(&format_cost(project_cost), cost_color, false));
             }
             table.add_row(row);
         } else {
@@ -115,7 +115,7 @@ pub(crate) fn print_project_table(
                 right_cell(&format_number(project.stats.total_tokens(), number_format), None, false),
             ];
             if show_cost {
-                row.push(right_cell(&format!("${:.2}", project_cost), cost_color, false));
+                row.push(right_cell(&format_cost(project_cost), cost_color, false));
             }
             table.add_row(row);
         }
@@ -132,7 +132,7 @@ pub(crate) fn print_project_table(
             right_cell(&format_compact(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     } else {
@@ -144,7 +144,7 @@ pub(crate) fn print_project_table(
             right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true),
         ];
         if show_cost {
-            row.push(right_cell(&format!("${:.2}", total_cost), green, true));
+            row.push(right_cell(&format_cost(total_cost), green, true));
         }
         table.add_row(row);
     }
@@ -191,7 +191,7 @@ pub(crate) fn output_project_json(
                 "models": models,
             });
             if show_cost {
-                obj["cost"] = serde_json::json!(project_cost);
+                obj["cost"] = cost_json_value(project_cost);
             }
             obj
         })
