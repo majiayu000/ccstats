@@ -147,12 +147,12 @@ pub(crate) fn format_project_name(path: &str) -> String {
 /// Aggregate entries by 5-hour billing blocks
 pub(crate) fn aggregate_blocks(
     entries: &[RawEntry],
-    local_times: &HashMap<String, DateTime<FixedOffset>>,
+    local_times: &HashMap<i64, DateTime<FixedOffset>>,
 ) -> Vec<BlockStats> {
     let mut block_map: HashMap<DateTime<FixedOffset>, BlockStats> = HashMap::new();
 
     for entry in entries {
-        let local_dt = match local_times.get(&format!("{}:{}", entry.session_id, entry.timestamp)) {
+        let local_dt = match local_times.get(&entry.timestamp_ms) {
             Some(dt) => *dt,
             None => continue,
         };
