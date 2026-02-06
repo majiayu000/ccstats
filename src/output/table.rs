@@ -49,6 +49,7 @@ pub(crate) fn print_daily_table(
     show_cost: bool,
     number_format: NumberFormat,
     show_reasoning: bool,
+    show_cache_creation: bool,
     elapsed_ms: Option<f64>,
 ) {
     let mut dates: Vec<_> = day_stats.keys().collect();
@@ -86,7 +87,9 @@ pub(crate) fn print_daily_table(
         if show_reasoning {
             header.push(header_cell("Reason", use_color));
         }
-        header.push(header_cell("Cache W", use_color));
+        if show_cache_creation {
+            header.push(header_cell("Cache W", use_color));
+        }
         header.push(header_cell("Cache R", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
@@ -103,7 +106,9 @@ pub(crate) fn print_daily_table(
         if show_reasoning {
             header.push(header_cell("Reason", use_color));
         }
-        header.push(header_cell("Cache W", use_color));
+        if show_cache_creation {
+            header.push(header_cell("Cache W", use_color));
+        }
         header.push(header_cell("Cache R", use_color));
         header.push(header_cell("Total", use_color));
         if show_cost {
@@ -154,7 +159,9 @@ pub(crate) fn print_daily_table(
                 if show_reasoning {
                     row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
                 }
-                row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                if show_cache_creation {
+                    row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                }
                 row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
                     row.push(right_cell(&format_cost(cost), cost_color, false));
@@ -183,7 +190,9 @@ pub(crate) fn print_daily_table(
             if show_reasoning {
                 row.push(right_cell(&format_number(day.stats.reasoning_tokens, number_format), None, false));
             }
-            row.push(right_cell(&format_number(day.stats.cache_creation, number_format), None, false));
+            if show_cache_creation {
+                row.push(right_cell(&format_number(day.stats.cache_creation, number_format), None, false));
+            }
             row.push(right_cell(&format_number(day.stats.cache_read, number_format), None, false));
             row.push(right_cell(&format_number(day.stats.total_tokens(), number_format), None, false));
             if show_cost {
@@ -222,7 +231,9 @@ pub(crate) fn print_daily_table(
         if show_reasoning {
             row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
         }
-        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if show_cache_creation {
+            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        }
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -239,7 +250,9 @@ pub(crate) fn print_daily_table(
         if show_reasoning {
             row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
         }
-        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if show_cache_creation {
+            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        }
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
@@ -265,6 +278,7 @@ pub(crate) fn print_monthly_table(
     show_cost: bool,
     number_format: NumberFormat,
     show_reasoning: bool,
+    show_cache_creation: bool,
     elapsed_ms: Option<f64>,
 ) {
     let month_stats = aggregate_day_stats_by_period(day_stats, Period::Month);
@@ -301,7 +315,9 @@ pub(crate) fn print_monthly_table(
         if show_reasoning {
             header.push(header_cell("Reason", use_color));
         }
-        header.push(header_cell("Cache W", use_color));
+        if show_cache_creation {
+            header.push(header_cell("Cache W", use_color));
+        }
         header.push(header_cell("Cache R", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
@@ -317,7 +333,9 @@ pub(crate) fn print_monthly_table(
         if show_reasoning {
             header.push(header_cell("Reason", use_color));
         }
-        header.push(header_cell("Cache W", use_color));
+        if show_cache_creation {
+            header.push(header_cell("Cache W", use_color));
+        }
         header.push(header_cell("Cache R", use_color));
         header.push(header_cell("Total", use_color));
         if show_cost {
@@ -366,7 +384,9 @@ pub(crate) fn print_monthly_table(
                 if show_reasoning {
                     row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
                 }
-                row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                if show_cache_creation {
+                    row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                }
                 row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
                     row.push(right_cell(&format_cost(cost), cost_color, false));
@@ -389,7 +409,9 @@ pub(crate) fn print_monthly_table(
             if show_reasoning {
                 row.push(right_cell(&format_number(month_data.stats.reasoning_tokens, number_format), None, false));
             }
-            row.push(right_cell(&format_number(month_data.stats.cache_creation, number_format), None, false));
+            if show_cache_creation {
+                row.push(right_cell(&format_number(month_data.stats.cache_creation, number_format), None, false));
+            }
             row.push(right_cell(&format_number(month_data.stats.cache_read, number_format), None, false));
             row.push(right_cell(&format_number(month_data.stats.total_tokens(), number_format), None, false));
             if show_cost {
@@ -426,7 +448,9 @@ pub(crate) fn print_monthly_table(
         if show_reasoning {
             row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
         }
-        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if show_cache_creation {
+            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        }
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -442,7 +466,9 @@ pub(crate) fn print_monthly_table(
         if show_reasoning {
             row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
         }
-        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if show_cache_creation {
+            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        }
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {
@@ -468,6 +494,7 @@ pub(crate) fn print_weekly_table(
     show_cost: bool,
     number_format: NumberFormat,
     show_reasoning: bool,
+    show_cache_creation: bool,
     elapsed_ms: Option<f64>,
 ) {
     let week_stats = aggregate_day_stats_by_period(day_stats, Period::Week);
@@ -504,7 +531,9 @@ pub(crate) fn print_weekly_table(
         if show_reasoning {
             header.push(header_cell("Reason", use_color));
         }
-        header.push(header_cell("Cache W", use_color));
+        if show_cache_creation {
+            header.push(header_cell("Cache W", use_color));
+        }
         header.push(header_cell("Cache R", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
@@ -520,7 +549,9 @@ pub(crate) fn print_weekly_table(
         if show_reasoning {
             header.push(header_cell("Reason", use_color));
         }
-        header.push(header_cell("Cache W", use_color));
+        if show_cache_creation {
+            header.push(header_cell("Cache W", use_color));
+        }
         header.push(header_cell("Cache R", use_color));
         header.push(header_cell("Total", use_color));
         if show_cost {
@@ -569,7 +600,9 @@ pub(crate) fn print_weekly_table(
                 if show_reasoning {
                     row.push(right_cell(&format_number(stats.reasoning_tokens, number_format), None, false));
                 }
-                row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                if show_cache_creation {
+                    row.push(right_cell(&format_number(stats.cache_creation, number_format), None, false));
+                }
                 row.push(right_cell(&format_number(stats.cache_read, number_format), None, false));
                 if show_cost {
                     row.push(right_cell(&format_cost(cost), cost_color, false));
@@ -592,7 +625,9 @@ pub(crate) fn print_weekly_table(
             if show_reasoning {
                 row.push(right_cell(&format_number(week_data.stats.reasoning_tokens, number_format), None, false));
             }
-            row.push(right_cell(&format_number(week_data.stats.cache_creation, number_format), None, false));
+            if show_cache_creation {
+                row.push(right_cell(&format_number(week_data.stats.cache_creation, number_format), None, false));
+            }
             row.push(right_cell(&format_number(week_data.stats.cache_read, number_format), None, false));
             row.push(right_cell(&format_number(week_data.stats.total_tokens(), number_format), None, false));
             if show_cost {
@@ -629,7 +664,9 @@ pub(crate) fn print_weekly_table(
         if show_reasoning {
             row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
         }
-        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if show_cache_creation {
+            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        }
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         if show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -645,7 +682,9 @@ pub(crate) fn print_weekly_table(
         if show_reasoning {
             row.push(right_cell(&format_number(total_stats.reasoning_tokens, number_format), cyan, true));
         }
-        row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        if show_cache_creation {
+            row.push(right_cell(&format_number(total_stats.cache_creation, number_format), cyan, true));
+        }
         row.push(right_cell(&format_number(total_stats.cache_read, number_format), cyan, true));
         row.push(right_cell(&format_number(total_stats.total_tokens(), number_format), cyan, true));
         if show_cost {

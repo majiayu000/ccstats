@@ -22,6 +22,8 @@ pub(crate) struct Capabilities {
     pub(crate) has_billing_blocks: bool,
     /// Has reasoning tokens (e.g., o1 models)
     pub(crate) has_reasoning_tokens: bool,
+    /// Has cache creation tokens
+    pub(crate) has_cache_creation: bool,
     /// Requires deduplication (streaming creates duplicate entries)
     pub(crate) needs_dedup: bool,
 }

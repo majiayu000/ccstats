@@ -38,6 +38,7 @@ pub(crate) fn handle_source_command(
 ) {
     let caps = source.capabilities();
     let show_reasoning = caps.has_reasoning_tokens;
+    let show_cache_creation = caps.has_cache_creation;
     let is_statusline = matches!(command, SourceCommand::Statusline);
     let quiet = is_statusline;
     let order = cli.sort_order();
@@ -173,6 +174,7 @@ pub(crate) fn handle_source_command(
                     show_cost,
                     number_format,
                     show_reasoning,
+                    show_cache_creation,
                     Some(result.elapsed_ms),
                 );
             }
@@ -207,6 +209,7 @@ pub(crate) fn handle_source_command(
                     show_cost,
                     number_format,
                     show_reasoning,
+                    show_cache_creation,
                     Some(result.elapsed_ms),
                 );
             }
@@ -241,6 +244,7 @@ pub(crate) fn handle_source_command(
                     show_cost,
                     number_format,
                     show_reasoning,
+                    show_cache_creation,
                     Some(result.elapsed_ms),
                 );
             }
