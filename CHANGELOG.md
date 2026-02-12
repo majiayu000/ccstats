@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.14] - 2026-02-12
+
+### Added
+- Unit tests for `core/dedup.rs`: empty input, single entry, all-completed duplicates, multiple distinct IDs, no-id-without-stop, mixed entries
+- Unit tests for `pricing/resolver.rs`: LiteLLM parsing, model name resolution (exact/prefix/partial/no-match), fallback pricing for all model families
+
 ## [0.2.13] - 2026-02-12
 
 ### Fixed

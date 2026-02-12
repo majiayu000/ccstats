@@ -269,6 +269,146 @@ mod tests {
     }
 
     #[test]
+    fn test_deduplicate_empty_input() {
+        let entries: Vec<TestEntry> = vec![];
+        let (result, skipped) = deduplicate(entries);
+        assert_eq!(result.len(), 0);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_deduplicate_single_entry() {
+        let entries = vec![TestEntry {
+            id: Some("msg1".to_string()),
+            ts: 100,
+            stop: true,
+            value: 1,
+        }];
+        let (result, skipped) = deduplicate(entries);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value, 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_deduplicate_all_duplicates_all_completed() {
+        // Multiple entries for same ID, all with stop_reason — keep latest completed
+        let entries = vec![
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 100,
+                stop: true,
+                value: 1,
+            },
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 300,
+                stop: true,
+                value: 3,
+            },
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 200,
+                stop: true,
+                value: 2,
+            },
+        ];
+        let (result, skipped) = deduplicate(entries);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value, 3); // Latest completed (ts=300)
+        assert_eq!(skipped, 2);
+    }
+
+    #[test]
+    fn test_deduplicate_multiple_distinct_ids() {
+        let entries = vec![
+            TestEntry {
+                id: Some("a".to_string()),
+                ts: 100,
+                stop: false,
+                value: 1,
+            },
+            TestEntry {
+                id: Some("b".to_string()),
+                ts: 200,
+                stop: true,
+                value: 2,
+            },
+            TestEntry {
+                id: Some("a".to_string()),
+                ts: 300,
+                stop: true,
+                value: 3,
+            },
+            TestEntry {
+                id: Some("c".to_string()),
+                ts: 400,
+                stop: false,
+                value: 4,
+            },
+        ];
+        let (mut result, skipped) = deduplicate(entries);
+        result.sort_by_key(|e| e.value);
+        assert_eq!(result.len(), 3); // a, b, c
+        assert_eq!(result[0].value, 2); // b: completed
+        assert_eq!(result[1].value, 3); // a: completed wins over non-completed
+        assert_eq!(result[2].value, 4); // c: only entry (fallback to latest)
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn test_deduplicate_no_id_without_stop_dropped() {
+        // Entries without message_id and without stop_reason are dropped
+        let entries = vec![
+            TestEntry {
+                id: None,
+                ts: 100,
+                stop: false,
+                value: 1,
+            },
+            TestEntry {
+                id: None,
+                ts: 200,
+                stop: false,
+                value: 2,
+            },
+        ];
+        let (result, skipped) = deduplicate(entries);
+        assert_eq!(result.len(), 0);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_deduplicate_mixed_id_and_no_id() {
+        let entries = vec![
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 100,
+                stop: true,
+                value: 1,
+            },
+            TestEntry {
+                id: None,
+                ts: 200,
+                stop: true,
+                value: 2,
+            },
+            TestEntry {
+                id: None,
+                ts: 300,
+                stop: false,
+                value: 3,
+            },
+        ];
+        let (mut result, skipped) = deduplicate(entries);
+        result.sort_by_key(|e| e.value);
+        assert_eq!(result.len(), 2); // msg1 + no-id-with-stop
+        assert_eq!(result[0].value, 1);
+        assert_eq!(result[1].value, 2);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
     fn test_dedup_accumulator_merge() {
         let mut left = DedupAccumulator::new();
         left.extend(vec![
