@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.2.35"
+version = "0.2.36"
 edition = "2024"
 description = "Fast Claude Code token usage statistics CLI"
 license = "MIT"
@@ -23,14 +23,14 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 glob = "0.3.3"
 chrono = { version = "0.4.43", features = ["serde"] }
-chrono-tz = "0.10.0"
-clap = { version = "4.5.56", features = ["derive"] }
+chrono-tz = "0.10.4"
+clap = { version = "4.5.58", features = ["derive"] }
 comfy-table = "7.2.2"
 rayon = "1.11.0"
 dirs = "6.0.0"
-ureq = { version = "3.1.4", features = ["json"] }
+ureq = { version = "3.2.0", features = ["json"] }
 thiserror = "2"
-toml = "0.9.11"
+toml = "1.0.0"
 
 [dev-dependencies]
 tempfile = "3"
