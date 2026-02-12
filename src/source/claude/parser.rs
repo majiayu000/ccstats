@@ -217,13 +217,225 @@ fn parse_entry(
 mod tests {
     use super::*;
 
+    // ========================================================================
+    // normalize_model_name
+    // ========================================================================
+
     #[test]
-    fn test_normalize_model_name() {
+    fn test_normalize_strips_anthropic_and_claude_prefix_and_date() {
         assert_eq!(
             normalize_model_name("anthropic.claude-3-5-sonnet-20241022"),
             "3-5-sonnet"
         );
+    }
+
+    #[test]
+    fn test_normalize_strips_claude_prefix_and_date() {
         assert_eq!(normalize_model_name("claude-3-opus-20240229"), "3-opus");
+    }
+
+    #[test]
+    fn test_normalize_no_prefix_no_date() {
         assert_eq!(normalize_model_name("gpt-4"), "gpt-4");
+    }
+
+    #[test]
+    fn test_normalize_only_anthropic_prefix() {
+        assert_eq!(
+            normalize_model_name("anthropic.some-model"),
+            "some-model"
+        );
+    }
+
+    #[test]
+    fn test_normalize_short_suffix_not_stripped() {
+        // Suffix "123" is only 3 chars, not 8 — should NOT be stripped
+        assert_eq!(normalize_model_name("claude-model-123"), "model-123");
+    }
+
+    #[test]
+    fn test_normalize_non_digit_suffix_not_stripped() {
+        assert_eq!(
+            normalize_model_name("claude-model-2024abcd"),
+            "model-2024abcd"
+        );
+    }
+
+    #[test]
+    fn test_normalize_no_dash() {
+        assert_eq!(normalize_model_name("singleword"), "singleword");
+    }
+
+    #[test]
+    fn test_normalize_anthropic_claude_no_date() {
+        assert_eq!(
+            normalize_model_name("anthropic.claude-4-sonnet"),
+            "4-sonnet"
+        );
+    }
+
+    // ========================================================================
+    // parse_entry
+    // ========================================================================
+
+    fn make_timezone() -> Timezone {
+        Timezone::Local
+    }
+
+    fn make_usage_entry(
+        timestamp: &str,
+        model: Option<&str>,
+        stop_reason: Option<&str>,
+        input: i64,
+        output: i64,
+    ) -> UsageEntry {
+        UsageEntry {
+            timestamp: Some(timestamp.to_string()),
+            message: Some(Message {
+                id: Some("msg_001".to_string()),
+                model: model.map(|s| s.to_string()),
+                stop_reason: stop_reason.map(|s| s.to_string()),
+                usage: Some(Usage {
+                    input_tokens: Some(input),
+                    output_tokens: Some(output),
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
+                }),
+            }),
+        }
+    }
+
+    #[test]
+    fn test_parse_entry_valid() {
+        let entry = make_usage_entry(
+            "2025-01-15T10:00:00Z",
+            Some("claude-3-5-sonnet-20241022"),
+            Some("end_turn"),
+            100,
+            50,
+        );
+        let tz = make_timezone();
+        let result = parse_entry(entry, Path::new("test.jsonl"), "sess1", "proj1", &tz, 1);
+        let raw = result.unwrap();
+        assert_eq!(raw.input_tokens, 100);
+        assert_eq!(raw.output_tokens, 50);
+        assert_eq!(raw.model, "3-5-sonnet");
+        assert_eq!(raw.session_id, "sess1");
+        assert_eq!(raw.project_path, "proj1");
+    }
+
+    #[test]
+    fn test_parse_entry_no_timestamp_returns_none() {
+        let entry = UsageEntry {
+            timestamp: None,
+            message: Some(Message {
+                id: Some("msg_001".to_string()),
+                model: Some("claude-3-5-sonnet-20241022".to_string()),
+                stop_reason: None,
+                usage: Some(Usage::default()),
+            }),
+        };
+        let tz = make_timezone();
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_no_message_returns_none() {
+        let entry = UsageEntry {
+            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
+            message: None,
+        };
+        let tz = make_timezone();
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_no_usage_returns_none() {
+        let entry = UsageEntry {
+            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
+            message: Some(Message {
+                id: Some("msg_001".to_string()),
+                model: Some("claude-3-5-sonnet-20241022".to_string()),
+                stop_reason: None,
+                usage: None,
+            }),
+        };
+        let tz = make_timezone();
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_synthetic_model_filtered() {
+        let entry = make_usage_entry("2025-01-15T10:00:00Z", Some("<synthetic>"), None, 10, 5);
+        let tz = make_timezone();
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_empty_model_filtered() {
+        let entry = make_usage_entry("2025-01-15T10:00:00Z", Some(""), None, 10, 5);
+        let tz = make_timezone();
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_no_model_uses_unknown() {
+        let entry = make_usage_entry("2025-01-15T10:00:00Z", None, None, 10, 5);
+        let tz = make_timezone();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).unwrap();
+        assert_eq!(raw.model, UNKNOWN);
+    }
+
+    #[test]
+    fn test_parse_entry_invalid_timestamp_returns_none() {
+        let entry = make_usage_entry("not-a-date", Some("claude-3-5-sonnet-20241022"), None, 10, 5);
+        let tz = make_timezone();
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_cache_tokens() {
+        let entry = UsageEntry {
+            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
+            message: Some(Message {
+                id: Some("msg_002".to_string()),
+                model: Some("claude-3-5-sonnet-20241022".to_string()),
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(Usage {
+                    input_tokens: Some(100),
+                    output_tokens: Some(50),
+                    cache_creation_input_tokens: Some(30),
+                    cache_read_input_tokens: Some(20),
+                }),
+            }),
+        };
+        let tz = make_timezone();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).unwrap();
+        assert_eq!(raw.cache_creation, 30);
+        assert_eq!(raw.cache_read, 20);
+    }
+
+    #[test]
+    fn test_parse_entry_none_tokens_default_to_zero() {
+        let entry = UsageEntry {
+            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
+            message: Some(Message {
+                id: Some("msg_003".to_string()),
+                model: Some("claude-3-5-sonnet-20241022".to_string()),
+                stop_reason: None,
+                usage: Some(Usage {
+                    input_tokens: None,
+                    output_tokens: None,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
+                }),
+            }),
+        };
+        let tz = make_timezone();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).unwrap();
+        assert_eq!(raw.input_tokens, 0);
+        assert_eq!(raw.output_tokens, 0);
+        assert_eq!(raw.cache_creation, 0);
+        assert_eq!(raw.cache_read, 0);
     }
 }
