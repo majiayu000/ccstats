@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.15] - 2026-02-12
+
+### Changed
+- Refactor `output/table.rs`: extract shared rendering logic into `print_period_table` with helpers, reducing 1097 lines to 404 (63% reduction)
+
 ## [0.2.14] - 2026-02-12
 
 ### Added

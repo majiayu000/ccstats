@@ -62,15 +62,278 @@ fn sort_keys(keys: &mut Vec<&String>, order: SortOrder) {
     }
 }
 
-pub(crate) fn print_daily_table(
+struct PeriodConfig {
+    label: &'static str,
+    title: &'static str,
+    show_calls: bool,
+}
+
+fn period_config(period: Period) -> PeriodConfig {
+    match period {
+        Period::Day => PeriodConfig {
+            label: "Date",
+            title: "Token Usage",
+            show_calls: true,
+        },
+        Period::Week => PeriodConfig {
+            label: "Week",
+            title: "Weekly Token Usage",
+            show_calls: false,
+        },
+        Period::Month => PeriodConfig {
+            label: "Month",
+            title: "Monthly Token Usage",
+            show_calls: false,
+        },
+    }
+}
+
+fn build_header(
+    cfg: &PeriodConfig,
+    breakdown: bool,
+    opts: &TokenTableOptions,
+) -> Vec<Cell> {
+    let c = opts.use_color;
+    if opts.compact {
+        let mut h = vec![header_cell(cfg.label, c)];
+        if cfg.show_calls {
+            h.push(header_cell("Calls", c));
+        }
+        h.extend([header_cell("In", c), header_cell("Out", c), header_cell("Total", c)]);
+        if opts.show_cost {
+            h.push(header_cell("Cost", c));
+        }
+        h
+    } else if breakdown {
+        let mut h = vec![
+            header_cell(cfg.label, c),
+            header_cell("Model", c),
+        ];
+        if cfg.show_calls {
+            h.push(header_cell("Calls", c));
+        }
+        h.extend([
+            header_cell("Input", c),
+            header_cell("Output", c),
+        ]);
+        if opts.show_reasoning {
+            h.push(header_cell("Reason", c));
+        }
+        if opts.show_cache_creation {
+            h.push(header_cell("Cache W", c));
+        }
+        h.push(header_cell("Cache R", c));
+        if opts.show_cost {
+            h.push(header_cell("Cost", c));
+        }
+        h
+    } else {
+        let mut h = vec![
+            header_cell(cfg.label, c),
+            header_cell("Models", c),
+        ];
+        if cfg.show_calls {
+            h.push(header_cell("Calls", c));
+        }
+        h.extend([
+            header_cell("Input", c),
+            header_cell("Output", c),
+        ]);
+        if opts.show_reasoning {
+            h.push(header_cell("Reason", c));
+        }
+        if opts.show_cache_creation {
+            h.push(header_cell("Cache W", c));
+        }
+        h.extend([header_cell("Cache R", c), header_cell("Total", c)]);
+        if opts.show_cost {
+            h.push(header_cell("Cost", c));
+        }
+        h
+    }
+}
+
+fn add_compact_rows(
+    table: &mut Table,
+    key: &str,
+    data: &DayStats,
+    cfg: &PeriodConfig,
+    opts: &TokenTableOptions,
+    cost_color: Option<Color>,
+    pricing_db: &PricingDb,
+) -> f64 {
+    let cost = sum_model_costs(&data.models, pricing_db);
+    let nf = opts.number_format;
+    let mut row = vec![Cell::new(key)];
+    if cfg.show_calls {
+        row.push(right_cell(&format_compact(data.stats.count, nf), None, false));
+    }
+    row.extend([
+        right_cell(&format_compact(data.stats.input_tokens, nf), None, false),
+        right_cell(&format_compact(data.stats.output_tokens, nf), None, false),
+        right_cell(&format_compact(data.stats.total_tokens(), nf), None, false),
+    ]);
+    if opts.show_cost {
+        row.push(right_cell(&format_cost(cost), cost_color, false));
+    }
+    table.add_row(row);
+    cost
+}
+
+fn add_breakdown_rows(
+    table: &mut Table,
+    key: &str,
+    data: &DayStats,
+    cfg: &PeriodConfig,
+    opts: &TokenTableOptions,
+    cost_color: Option<Color>,
+    pricing_db: &PricingDb,
+) -> f64 {
+    let mut models: Vec<_> = data.models.keys().collect();
+    models.sort();
+    let nf = opts.number_format;
+    let mut period_cost = 0.0;
+
+    for (i, model) in models.iter().enumerate() {
+        let stats = &data.models[*model];
+        let cost = calculate_cost(stats, model, pricing_db);
+        period_cost += cost;
+
+        let mut row = vec![
+            Cell::new(if i == 0 { key } else { "" }),
+            Cell::new(*model),
+        ];
+        if cfg.show_calls {
+            row.push(right_cell(&format_number(stats.count, nf), None, false));
+        }
+        row.extend([
+            right_cell(&format_number(stats.input_tokens, nf), None, false),
+            right_cell(&format_number(stats.output_tokens, nf), None, false),
+        ]);
+        if opts.show_reasoning {
+            row.push(right_cell(&format_number(stats.reasoning_tokens, nf), None, false));
+        }
+        if opts.show_cache_creation {
+            row.push(right_cell(&format_number(stats.cache_creation, nf), None, false));
+        }
+        row.push(right_cell(&format_number(stats.cache_read, nf), None, false));
+        if opts.show_cost {
+            row.push(right_cell(&format_cost(cost), cost_color, false));
+        }
+        table.add_row(row);
+    }
+    period_cost
+}
+
+fn add_standard_rows(
+    table: &mut Table,
+    key: &str,
+    data: &DayStats,
+    cfg: &PeriodConfig,
+    opts: &TokenTableOptions,
+    cost_color: Option<Color>,
+    pricing_db: &PricingDb,
+) -> f64 {
+    let mut models: Vec<_> = data.models.keys().collect();
+    models.sort();
+    let models_str = models.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+    let cost = sum_model_costs(&data.models, pricing_db);
+    let nf = opts.number_format;
+
+    let mut row = vec![
+        Cell::new(key),
+        Cell::new(&models_str),
+    ];
+    if cfg.show_calls {
+        row.push(right_cell(&format_number(data.stats.count, nf), None, false));
+    }
+    row.extend([
+        right_cell(&format_number(data.stats.input_tokens, nf), None, false),
+        right_cell(&format_number(data.stats.output_tokens, nf), None, false),
+    ]);
+    if opts.show_reasoning {
+        row.push(right_cell(&format_number(data.stats.reasoning_tokens, nf), None, false));
+    }
+    if opts.show_cache_creation {
+        row.push(right_cell(&format_number(data.stats.cache_creation, nf), None, false));
+    }
+    row.push(right_cell(&format_number(data.stats.cache_read, nf), None, false));
+    row.push(right_cell(&format_number(data.stats.total_tokens(), nf), None, false));
+    if opts.show_cost {
+        row.push(right_cell(&format_cost(cost), cost_color, false));
+    }
+    table.add_row(row);
+    cost
+}
+
+fn add_total_row(
+    table: &mut Table,
+    total_stats: &Stats,
+    total_cost: f64,
+    cfg: &PeriodConfig,
+    breakdown: bool,
+    opts: &TokenTableOptions,
+) {
+    let cyan = if opts.use_color { Some(Color::Cyan) } else { None };
+    let green = if opts.use_color { Some(Color::Green) } else { None };
+    let nf = opts.number_format;
+
+    if opts.compact {
+        let mut row = vec![styled_cell("TOTAL", cyan, true)];
+        if cfg.show_calls {
+            row.push(right_cell(&format_compact(total_stats.count, nf), cyan, true));
+        }
+        row.extend([
+            right_cell(&format_compact(total_stats.input_tokens, nf), cyan, true),
+            right_cell(&format_compact(total_stats.output_tokens, nf), cyan, true),
+            right_cell(&format_compact(total_stats.total_tokens(), nf), cyan, true),
+        ]);
+        if opts.show_cost {
+            row.push(right_cell(&format_cost(total_cost), green, true));
+        }
+        table.add_row(row);
+    } else {
+        let mut row = vec![
+            styled_cell("TOTAL", cyan, true),
+            Cell::new(""),
+        ];
+        if cfg.show_calls {
+            row.push(right_cell(&format_number(total_stats.count, nf), cyan, true));
+        }
+        row.extend([
+            right_cell(&format_number(total_stats.input_tokens, nf), cyan, true),
+            right_cell(&format_number(total_stats.output_tokens, nf), cyan, true),
+        ]);
+        if opts.show_reasoning {
+            row.push(right_cell(&format_number(total_stats.reasoning_tokens, nf), cyan, true));
+        }
+        if opts.show_cache_creation {
+            row.push(right_cell(&format_number(total_stats.cache_creation, nf), cyan, true));
+        }
+        row.push(right_cell(&format_number(total_stats.cache_read, nf), cyan, true));
+        if !breakdown {
+            row.push(right_cell(&format_number(total_stats.total_tokens(), nf), cyan, true));
+        }
+        if opts.show_cost {
+            row.push(right_cell(&format_cost(total_cost), green, true));
+        }
+        table.add_row(row);
+    }
+}
+
+fn print_period_table(
     day_stats: &HashMap<String, DayStats>,
+    period: Period,
     breakdown: bool,
     summary: SummaryOptions,
     pricing_db: &PricingDb,
     options: TokenTableOptions,
 ) {
-    let mut dates: Vec<_> = day_stats.keys().collect();
-    sort_keys(&mut dates, options.order);
+    let cfg = period_config(period);
+    let period_stats = aggregate_day_stats_by_period(day_stats, period);
+
+    let mut keys: Vec<_> = period_stats.keys().collect();
+    sort_keys(&mut keys, options.order);
 
     let mut table = Table::new();
     table
@@ -78,354 +341,28 @@ pub(crate) fn print_daily_table(
         .apply_modifier(UTF8_SOLID_INNER_BORDERS)
         .set_content_arrangement(ContentArrangement::Dynamic);
     normalize_header_separator(&mut table);
+    table.set_header(build_header(&cfg, breakdown, &options));
 
-    if options.compact {
-        // Compact mode: Date, Calls, In, Out, Total, Cost
-        let mut header = vec![
-            header_cell("Date", options.use_color),
-            header_cell("Calls", options.use_color),
-            header_cell("In", options.use_color),
-            header_cell("Out", options.use_color),
-            header_cell("Total", options.use_color),
-        ];
-        if options.show_cost {
-            header.push(header_cell("Cost", options.use_color));
-        }
-        table.set_header(header);
-    } else if breakdown {
-        let mut header = vec![
-            header_cell("Date", options.use_color),
-            header_cell("Model", options.use_color),
-            header_cell("Calls", options.use_color),
-            header_cell("Input", options.use_color),
-            header_cell("Output", options.use_color),
-        ];
-        if options.show_reasoning {
-            header.push(header_cell("Reason", options.use_color));
-        }
-        if options.show_cache_creation {
-            header.push(header_cell("Cache W", options.use_color));
-        }
-        header.push(header_cell("Cache R", options.use_color));
-        if options.show_cost {
-            header.push(header_cell("Cost", options.use_color));
-        }
-        table.set_header(header);
-    } else {
-        let mut header = vec![
-            header_cell("Date", options.use_color),
-            header_cell("Models", options.use_color),
-            header_cell("Calls", options.use_color),
-            header_cell("Input", options.use_color),
-            header_cell("Output", options.use_color),
-        ];
-        if options.show_reasoning {
-            header.push(header_cell("Reason", options.use_color));
-        }
-        if options.show_cache_creation {
-            header.push(header_cell("Cache W", options.use_color));
-        }
-        header.push(header_cell("Cache R", options.use_color));
-        header.push(header_cell("Total", options.use_color));
-        if options.show_cost {
-            header.push(header_cell("Cost", options.use_color));
-        }
-        table.set_header(header);
-    }
-
-    let cost_color = if options.use_color {
-        Some(Color::Green)
-    } else {
-        None
-    };
-
+    let cost_color = if options.use_color { Some(Color::Green) } else { None };
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
 
-    for date in &dates {
-        let day = &day_stats[*date];
-
-        if options.compact {
-            let day_cost = sum_model_costs(&day.models, pricing_db);
-            total_cost += day_cost;
-
-            let mut row = vec![
-                Cell::new(*date),
-                right_cell(
-                    &format_compact(day.stats.count, options.number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_compact(day.stats.input_tokens, options.number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_compact(day.stats.output_tokens, options.number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_compact(day.stats.total_tokens(), options.number_format),
-                    None,
-                    false,
-                ),
-            ];
-            if options.show_cost {
-                row.push(right_cell(&format_cost(day_cost), cost_color, false));
-            }
-            table.add_row(row);
+    for key in &keys {
+        let data = &period_stats[*key];
+        let cost = if options.compact {
+            add_compact_rows(&mut table, key, data, &cfg, &options, cost_color, pricing_db)
         } else if breakdown {
-            let mut models: Vec<_> = day.models.keys().collect();
-            models.sort();
-
-            for (i, model) in models.iter().enumerate() {
-                let stats = &day.models[*model];
-                let cost = calculate_cost(stats, model, pricing_db);
-                total_cost += cost;
-
-                let mut row = vec![
-                    Cell::new(if i == 0 { *date } else { "" }),
-                    Cell::new(*model),
-                    right_cell(
-                        &format_number(stats.count, options.number_format),
-                        None,
-                        false,
-                    ),
-                    right_cell(
-                        &format_number(stats.input_tokens, options.number_format),
-                        None,
-                        false,
-                    ),
-                    right_cell(
-                        &format_number(stats.output_tokens, options.number_format),
-                        None,
-                        false,
-                    ),
-                ];
-                if options.show_reasoning {
-                    row.push(right_cell(
-                        &format_number(stats.reasoning_tokens, options.number_format),
-                        None,
-                        false,
-                    ));
-                }
-                if options.show_cache_creation {
-                    row.push(right_cell(
-                        &format_number(stats.cache_creation, options.number_format),
-                        None,
-                        false,
-                    ));
-                }
-                row.push(right_cell(
-                    &format_number(stats.cache_read, options.number_format),
-                    None,
-                    false,
-                ));
-                if options.show_cost {
-                    row.push(right_cell(&format_cost(cost), cost_color, false));
-                }
-                table.add_row(row);
-            }
+            add_breakdown_rows(&mut table, key, data, &cfg, &options, cost_color, pricing_db)
         } else {
-            let mut models: Vec<_> = day.models.keys().collect();
-            models.sort();
-            let models_str = models
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            let day_cost = sum_model_costs(&day.models, pricing_db);
-            total_cost += day_cost;
-
-            let mut row = vec![
-                Cell::new(*date),
-                Cell::new(&models_str),
-                right_cell(
-                    &format_number(day.stats.count, options.number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_number(day.stats.input_tokens, options.number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_number(day.stats.output_tokens, options.number_format),
-                    None,
-                    false,
-                ),
-            ];
-            if options.show_reasoning {
-                row.push(right_cell(
-                    &format_number(day.stats.reasoning_tokens, options.number_format),
-                    None,
-                    false,
-                ));
-            }
-            if options.show_cache_creation {
-                row.push(right_cell(
-                    &format_number(day.stats.cache_creation, options.number_format),
-                    None,
-                    false,
-                ));
-            }
-            row.push(right_cell(
-                &format_number(day.stats.cache_read, options.number_format),
-                None,
-                false,
-            ));
-            row.push(right_cell(
-                &format_number(day.stats.total_tokens(), options.number_format),
-                None,
-                false,
-            ));
-            if options.show_cost {
-                row.push(right_cell(&format_cost(day_cost), cost_color, false));
-            }
-            table.add_row(row);
-        }
-
-        total_stats.add(&day.stats);
+            add_standard_rows(&mut table, key, data, &cfg, &options, cost_color, pricing_db)
+        };
+        total_cost += cost;
+        total_stats.add(&data.stats);
     }
 
-    let cyan = if options.use_color {
-        Some(Color::Cyan)
-    } else {
-        None
-    };
-    let green = if options.use_color {
-        Some(Color::Green)
-    } else {
-        None
-    };
+    add_total_row(&mut table, &total_stats, total_cost, &cfg, breakdown, &options);
 
-    // Add total row
-    if options.compact {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            right_cell(
-                &format_compact(total_stats.count, options.number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_compact(total_stats.input_tokens, options.number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_compact(total_stats.output_tokens, options.number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_compact(total_stats.total_tokens(), options.number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if options.show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    } else if breakdown {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            Cell::new(""),
-            right_cell(
-                &format_number(total_stats.count, options.number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.input_tokens, options.number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.output_tokens, options.number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if options.show_reasoning {
-            row.push(right_cell(
-                &format_number(total_stats.reasoning_tokens, options.number_format),
-                cyan,
-                true,
-            ));
-        }
-        if options.show_cache_creation {
-            row.push(right_cell(
-                &format_number(total_stats.cache_creation, options.number_format),
-                cyan,
-                true,
-            ));
-        }
-        row.push(right_cell(
-            &format_number(total_stats.cache_read, options.number_format),
-            cyan,
-            true,
-        ));
-        if options.show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    } else {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            Cell::new(""),
-            right_cell(
-                &format_number(total_stats.count, options.number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.input_tokens, options.number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.output_tokens, options.number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if options.show_reasoning {
-            row.push(right_cell(
-                &format_number(total_stats.reasoning_tokens, options.number_format),
-                cyan,
-                true,
-            ));
-        }
-        if options.show_cache_creation {
-            row.push(right_cell(
-                &format_number(total_stats.cache_creation, options.number_format),
-                cyan,
-                true,
-            ));
-        }
-        row.push(right_cell(
-            &format_number(total_stats.cache_read, options.number_format),
-            cyan,
-            true,
-        ));
-        row.push(right_cell(
-            &format_number(total_stats.total_tokens(), options.number_format),
-            cyan,
-            true,
-        ));
-        if options.show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    }
-
-    println!("\n  Token Usage\n");
+    println!("\n  {}\n", cfg.title);
     println!("{table}");
     print_summary_line(
         summary.valid,
@@ -436,334 +373,14 @@ pub(crate) fn print_daily_table(
     );
 }
 
-pub(crate) fn print_monthly_table(
+pub(crate) fn print_daily_table(
     day_stats: &HashMap<String, DayStats>,
     breakdown: bool,
     summary: SummaryOptions,
     pricing_db: &PricingDb,
     options: TokenTableOptions,
 ) {
-    let skipped = summary.skipped;
-    let valid = summary.valid;
-    let elapsed_ms = summary.elapsed_ms;
-    let order = options.order;
-    let use_color = options.use_color;
-    let compact = options.compact;
-    let show_cost = options.show_cost;
-    let number_format = options.number_format;
-    let show_reasoning = options.show_reasoning;
-    let show_cache_creation = options.show_cache_creation;
-
-    let month_stats = aggregate_day_stats_by_period(day_stats, Period::Month);
-
-    let mut months: Vec<_> = month_stats.keys().collect();
-    sort_keys(&mut months, order);
-
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-        .set_content_arrangement(ContentArrangement::Dynamic);
-    normalize_header_separator(&mut table);
-
-    if compact {
-        let mut header = vec![
-            header_cell("Month", use_color),
-            header_cell("In", use_color),
-            header_cell("Out", use_color),
-            header_cell("Total", use_color),
-        ];
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
-        }
-        table.set_header(header);
-    } else if breakdown {
-        let mut header = vec![
-            header_cell("Month", use_color),
-            header_cell("Model", use_color),
-            header_cell("Input", use_color),
-            header_cell("Output", use_color),
-        ];
-        if show_reasoning {
-            header.push(header_cell("Reason", use_color));
-        }
-        if show_cache_creation {
-            header.push(header_cell("Cache W", use_color));
-        }
-        header.push(header_cell("Cache R", use_color));
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
-        }
-        table.set_header(header);
-    } else {
-        let mut header = vec![
-            header_cell("Month", use_color),
-            header_cell("Models", use_color),
-            header_cell("Input", use_color),
-            header_cell("Output", use_color),
-        ];
-        if show_reasoning {
-            header.push(header_cell("Reason", use_color));
-        }
-        if show_cache_creation {
-            header.push(header_cell("Cache W", use_color));
-        }
-        header.push(header_cell("Cache R", use_color));
-        header.push(header_cell("Total", use_color));
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
-        }
-        table.set_header(header);
-    }
-
-    let cost_color = if use_color { Some(Color::Green) } else { None };
-
-    let mut total_stats = Stats::default();
-    let mut total_cost = 0.0;
-
-    for month in &months {
-        let month_data = &month_stats[*month];
-
-        if compact {
-            let month_cost = sum_model_costs(&month_data.models, pricing_db);
-            total_cost += month_cost;
-
-            let mut row = vec![
-                Cell::new(*month),
-                right_cell(
-                    &format_compact(month_data.stats.input_tokens, number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_compact(month_data.stats.output_tokens, number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_compact(month_data.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
-            ];
-            if show_cost {
-                row.push(right_cell(&format_cost(month_cost), cost_color, false));
-            }
-            table.add_row(row);
-        } else if breakdown {
-            let mut models: Vec<_> = month_data.models.keys().collect();
-            models.sort();
-
-            for (i, model) in models.iter().enumerate() {
-                let stats = &month_data.models[*model];
-                let cost = calculate_cost(stats, model, pricing_db);
-                total_cost += cost;
-
-                let mut row = vec![
-                    Cell::new(if i == 0 { *month } else { "" }),
-                    Cell::new(*model),
-                    right_cell(
-                        &format_number(stats.input_tokens, number_format),
-                        None,
-                        false,
-                    ),
-                    right_cell(
-                        &format_number(stats.output_tokens, number_format),
-                        None,
-                        false,
-                    ),
-                ];
-                if show_reasoning {
-                    row.push(right_cell(
-                        &format_number(stats.reasoning_tokens, number_format),
-                        None,
-                        false,
-                    ));
-                }
-                if show_cache_creation {
-                    row.push(right_cell(
-                        &format_number(stats.cache_creation, number_format),
-                        None,
-                        false,
-                    ));
-                }
-                row.push(right_cell(
-                    &format_number(stats.cache_read, number_format),
-                    None,
-                    false,
-                ));
-                if show_cost {
-                    row.push(right_cell(&format_cost(cost), cost_color, false));
-                }
-                table.add_row(row);
-            }
-        } else {
-            let models: Vec<_> = month_data.models.keys().map(|s| s.as_str()).collect();
-            let models_str = models.join(", ");
-
-            let month_cost = sum_model_costs(&month_data.models, pricing_db);
-            total_cost += month_cost;
-
-            let mut row = vec![
-                Cell::new(*month),
-                Cell::new(&models_str),
-                right_cell(
-                    &format_number(month_data.stats.input_tokens, number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_number(month_data.stats.output_tokens, number_format),
-                    None,
-                    false,
-                ),
-            ];
-            if show_reasoning {
-                row.push(right_cell(
-                    &format_number(month_data.stats.reasoning_tokens, number_format),
-                    None,
-                    false,
-                ));
-            }
-            if show_cache_creation {
-                row.push(right_cell(
-                    &format_number(month_data.stats.cache_creation, number_format),
-                    None,
-                    false,
-                ));
-            }
-            row.push(right_cell(
-                &format_number(month_data.stats.cache_read, number_format),
-                None,
-                false,
-            ));
-            row.push(right_cell(
-                &format_number(month_data.stats.total_tokens(), number_format),
-                None,
-                false,
-            ));
-            if show_cost {
-                row.push(right_cell(&format_cost(month_cost), cost_color, false));
-            }
-            table.add_row(row);
-        }
-
-        total_stats.add(&month_data.stats);
-    }
-
-    let cyan = if use_color { Some(Color::Cyan) } else { None };
-    let green = if use_color { Some(Color::Green) } else { None };
-
-    // Add total row
-    if compact {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            right_cell(
-                &format_compact(total_stats.input_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_compact(total_stats.output_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_compact(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    } else if breakdown {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            Cell::new(""),
-            right_cell(
-                &format_number(total_stats.input_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.output_tokens, number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if show_reasoning {
-            row.push(right_cell(
-                &format_number(total_stats.reasoning_tokens, number_format),
-                cyan,
-                true,
-            ));
-        }
-        if show_cache_creation {
-            row.push(right_cell(
-                &format_number(total_stats.cache_creation, number_format),
-                cyan,
-                true,
-            ));
-        }
-        row.push(right_cell(
-            &format_number(total_stats.cache_read, number_format),
-            cyan,
-            true,
-        ));
-        if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    } else {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            Cell::new(""),
-            right_cell(
-                &format_number(total_stats.input_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.output_tokens, number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if show_reasoning {
-            row.push(right_cell(
-                &format_number(total_stats.reasoning_tokens, number_format),
-                cyan,
-                true,
-            ));
-        }
-        if show_cache_creation {
-            row.push(right_cell(
-                &format_number(total_stats.cache_creation, number_format),
-                cyan,
-                true,
-            ));
-        }
-        row.push(right_cell(
-            &format_number(total_stats.cache_read, number_format),
-            cyan,
-            true,
-        ));
-        row.push(right_cell(
-            &format_number(total_stats.total_tokens(), number_format),
-            cyan,
-            true,
-        ));
-        if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    }
-
-    println!("\n  Monthly Token Usage\n");
-    println!("{table}");
-    print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
+    print_period_table(day_stats, Period::Day, breakdown, summary, pricing_db, options);
 }
 
 pub(crate) fn print_weekly_table(
@@ -773,325 +390,15 @@ pub(crate) fn print_weekly_table(
     pricing_db: &PricingDb,
     options: TokenTableOptions,
 ) {
-    let skipped = summary.skipped;
-    let valid = summary.valid;
-    let elapsed_ms = summary.elapsed_ms;
-    let order = options.order;
-    let use_color = options.use_color;
-    let compact = options.compact;
-    let show_cost = options.show_cost;
-    let number_format = options.number_format;
-    let show_reasoning = options.show_reasoning;
-    let show_cache_creation = options.show_cache_creation;
+    print_period_table(day_stats, Period::Week, breakdown, summary, pricing_db, options);
+}
 
-    let week_stats = aggregate_day_stats_by_period(day_stats, Period::Week);
-
-    let mut weeks: Vec<_> = week_stats.keys().collect();
-    sort_keys(&mut weeks, order);
-
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-        .set_content_arrangement(ContentArrangement::Dynamic);
-    normalize_header_separator(&mut table);
-
-    if compact {
-        let mut header = vec![
-            header_cell("Week", use_color),
-            header_cell("In", use_color),
-            header_cell("Out", use_color),
-            header_cell("Total", use_color),
-        ];
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
-        }
-        table.set_header(header);
-    } else if breakdown {
-        let mut header = vec![
-            header_cell("Week", use_color),
-            header_cell("Model", use_color),
-            header_cell("Input", use_color),
-            header_cell("Output", use_color),
-        ];
-        if show_reasoning {
-            header.push(header_cell("Reason", use_color));
-        }
-        if show_cache_creation {
-            header.push(header_cell("Cache W", use_color));
-        }
-        header.push(header_cell("Cache R", use_color));
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
-        }
-        table.set_header(header);
-    } else {
-        let mut header = vec![
-            header_cell("Week", use_color),
-            header_cell("Models", use_color),
-            header_cell("Input", use_color),
-            header_cell("Output", use_color),
-        ];
-        if show_reasoning {
-            header.push(header_cell("Reason", use_color));
-        }
-        if show_cache_creation {
-            header.push(header_cell("Cache W", use_color));
-        }
-        header.push(header_cell("Cache R", use_color));
-        header.push(header_cell("Total", use_color));
-        if show_cost {
-            header.push(header_cell("Cost", use_color));
-        }
-        table.set_header(header);
-    }
-
-    let cost_color = if use_color { Some(Color::Green) } else { None };
-
-    let mut total_stats = Stats::default();
-    let mut total_cost = 0.0;
-
-    for week in &weeks {
-        let week_data = &week_stats[*week];
-
-        if compact {
-            let week_cost = sum_model_costs(&week_data.models, pricing_db);
-            total_cost += week_cost;
-
-            let mut row = vec![
-                Cell::new(*week),
-                right_cell(
-                    &format_compact(week_data.stats.input_tokens, number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_compact(week_data.stats.output_tokens, number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_compact(week_data.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
-            ];
-            if show_cost {
-                row.push(right_cell(&format_cost(week_cost), cost_color, false));
-            }
-            table.add_row(row);
-        } else if breakdown {
-            let mut models: Vec<_> = week_data.models.keys().collect();
-            models.sort();
-
-            for (i, model) in models.iter().enumerate() {
-                let stats = &week_data.models[*model];
-                let cost = calculate_cost(stats, model, pricing_db);
-                total_cost += cost;
-
-                let mut row = vec![
-                    Cell::new(if i == 0 { *week } else { "" }),
-                    Cell::new(*model),
-                    right_cell(
-                        &format_number(stats.input_tokens, number_format),
-                        None,
-                        false,
-                    ),
-                    right_cell(
-                        &format_number(stats.output_tokens, number_format),
-                        None,
-                        false,
-                    ),
-                ];
-                if show_reasoning {
-                    row.push(right_cell(
-                        &format_number(stats.reasoning_tokens, number_format),
-                        None,
-                        false,
-                    ));
-                }
-                if show_cache_creation {
-                    row.push(right_cell(
-                        &format_number(stats.cache_creation, number_format),
-                        None,
-                        false,
-                    ));
-                }
-                row.push(right_cell(
-                    &format_number(stats.cache_read, number_format),
-                    None,
-                    false,
-                ));
-                if show_cost {
-                    row.push(right_cell(&format_cost(cost), cost_color, false));
-                }
-                table.add_row(row);
-            }
-        } else {
-            let models: Vec<_> = week_data.models.keys().map(|s| s.as_str()).collect();
-            let models_str = models.join(", ");
-
-            let week_cost = sum_model_costs(&week_data.models, pricing_db);
-            total_cost += week_cost;
-
-            let mut row = vec![
-                Cell::new(*week),
-                Cell::new(&models_str),
-                right_cell(
-                    &format_number(week_data.stats.input_tokens, number_format),
-                    None,
-                    false,
-                ),
-                right_cell(
-                    &format_number(week_data.stats.output_tokens, number_format),
-                    None,
-                    false,
-                ),
-            ];
-            if show_reasoning {
-                row.push(right_cell(
-                    &format_number(week_data.stats.reasoning_tokens, number_format),
-                    None,
-                    false,
-                ));
-            }
-            if show_cache_creation {
-                row.push(right_cell(
-                    &format_number(week_data.stats.cache_creation, number_format),
-                    None,
-                    false,
-                ));
-            }
-            row.push(right_cell(
-                &format_number(week_data.stats.cache_read, number_format),
-                None,
-                false,
-            ));
-            row.push(right_cell(
-                &format_number(week_data.stats.total_tokens(), number_format),
-                None,
-                false,
-            ));
-            if show_cost {
-                row.push(right_cell(&format_cost(week_cost), cost_color, false));
-            }
-            table.add_row(row);
-        }
-
-        total_stats.add(&week_data.stats);
-    }
-
-    let cyan = if use_color { Some(Color::Cyan) } else { None };
-    let green = if use_color { Some(Color::Green) } else { None };
-
-    // Add total row
-    if compact {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            right_cell(
-                &format_compact(total_stats.input_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_compact(total_stats.output_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_compact(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    } else if breakdown {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            Cell::new(""),
-            right_cell(
-                &format_number(total_stats.input_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.output_tokens, number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if show_reasoning {
-            row.push(right_cell(
-                &format_number(total_stats.reasoning_tokens, number_format),
-                cyan,
-                true,
-            ));
-        }
-        if show_cache_creation {
-            row.push(right_cell(
-                &format_number(total_stats.cache_creation, number_format),
-                cyan,
-                true,
-            ));
-        }
-        row.push(right_cell(
-            &format_number(total_stats.cache_read, number_format),
-            cyan,
-            true,
-        ));
-        if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    } else {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            Cell::new(""),
-            right_cell(
-                &format_number(total_stats.input_tokens, number_format),
-                cyan,
-                true,
-            ),
-            right_cell(
-                &format_number(total_stats.output_tokens, number_format),
-                cyan,
-                true,
-            ),
-        ];
-        if show_reasoning {
-            row.push(right_cell(
-                &format_number(total_stats.reasoning_tokens, number_format),
-                cyan,
-                true,
-            ));
-        }
-        if show_cache_creation {
-            row.push(right_cell(
-                &format_number(total_stats.cache_creation, number_format),
-                cyan,
-                true,
-            ));
-        }
-        row.push(right_cell(
-            &format_number(total_stats.cache_read, number_format),
-            cyan,
-            true,
-        ));
-        row.push(right_cell(
-            &format_number(total_stats.total_tokens(), number_format),
-            cyan,
-            true,
-        ));
-        if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
-        }
-        table.add_row(row);
-    }
-
-    println!("\n  Weekly Token Usage\n");
-    println!("{table}");
-    print_summary_line(valid, skipped, number_format, elapsed_ms, use_color);
+pub(crate) fn print_monthly_table(
+    day_stats: &HashMap<String, DayStats>,
+    breakdown: bool,
+    summary: SummaryOptions,
+    pricing_db: &PricingDb,
+    options: TokenTableOptions,
+) {
+    print_period_table(day_stats, Period::Month, breakdown, summary, pricing_db, options);
 }
