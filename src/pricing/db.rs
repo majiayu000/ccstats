@@ -309,4 +309,207 @@ mod tests {
         let cost = calculate_cost(&stats, "totally-unknown-model", &db);
         assert!(cost.is_nan());
     }
+
+    #[test]
+    fn calculate_cost_with_reasoning_tokens() {
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "opus-4".to_string(),
+            ModelPricing {
+                input: 15e-6,
+                output: 75e-6,
+                reasoning_output: 75e-6,
+                cache_create: 0.0,
+                cache_read: 0.0,
+            },
+        );
+
+        let stats = Stats {
+            input_tokens: 100_000,
+            output_tokens: 0,
+            reasoning_tokens: 50_000,
+            ..Default::default()
+        };
+
+        let cost = calculate_cost(&stats, "opus-4", &db);
+        // 100K * $15/M + 50K * $75/M = $1.5 + $3.75 = $5.25
+        assert!((cost - 5.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn sum_model_costs_multiple_models() {
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                ..Default::default()
+            },
+        );
+        db.models.insert(
+            "haiku-3.5".to_string(),
+            ModelPricing {
+                input: 0.8e-6,
+                output: 4e-6,
+                ..Default::default()
+            },
+        );
+
+        let mut models = HashMap::new();
+        models.insert(
+            "sonnet-4".to_string(),
+            Stats {
+                input_tokens: 1_000_000,
+                output_tokens: 100_000,
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "haiku-3.5".to_string(),
+            Stats {
+                input_tokens: 500_000,
+                output_tokens: 50_000,
+                ..Default::default()
+            },
+        );
+
+        let total = sum_model_costs(&models, &db);
+        // sonnet: 1M*3e-6 + 100K*15e-6 = 3.0 + 1.5 = 4.5
+        // haiku: 500K*0.8e-6 + 50K*4e-6 = 0.4 + 0.2 = 0.6
+        assert!((total - 5.1).abs() < 0.001);
+    }
+
+    #[test]
+    fn sum_model_costs_empty_map() {
+        let db = PricingDb::default();
+        let models: HashMap<String, Stats> = HashMap::new();
+        let total = sum_model_costs(&models, &db);
+        assert_eq!(total, 0.0);
+    }
+
+    #[test]
+    fn sum_model_costs_returns_nan_if_any_unknown_strict() {
+        let db = PricingDb {
+            strict_unknown: true,
+            ..PricingDb::default()
+        };
+
+        let mut models = HashMap::new();
+        models.insert(
+            "totally-unknown-xyz".to_string(),
+            Stats {
+                input_tokens: 100,
+                ..Default::default()
+            },
+        );
+
+        let total = sum_model_costs(&models, &db);
+        assert!(total.is_nan());
+    }
+
+    #[test]
+    fn attach_costs_computes_per_item() {
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                ..Default::default()
+            },
+        );
+
+        // Simple wrapper: Vec of (label, model_map)
+        let items: Vec<(String, HashMap<String, Stats>)> = vec![
+            (
+                "day1".to_string(),
+                HashMap::from([(
+                    "sonnet-4".to_string(),
+                    Stats {
+                        input_tokens: 1_000_000,
+                        output_tokens: 0,
+                        ..Default::default()
+                    },
+                )]),
+            ),
+            (
+                "day2".to_string(),
+                HashMap::from([(
+                    "sonnet-4".to_string(),
+                    Stats {
+                        input_tokens: 0,
+                        output_tokens: 100_000,
+                        ..Default::default()
+                    },
+                )]),
+            ),
+        ];
+
+        let costed = attach_costs(&items, |item| &item.1, &db);
+        assert_eq!(costed.len(), 2);
+        // day1: 1M * 3e-6 = $3.0
+        assert!((costed[0].cost - 3.0).abs() < 0.001);
+        // day2: 100K * 15e-6 = $1.5
+        assert!((costed[1].cost - 1.5).abs() < 0.001);
+        assert_eq!(costed[0].item.0, "day1");
+        assert_eq!(costed[1].item.0, "day2");
+    }
+
+    #[test]
+    fn attach_costs_empty_slice() {
+        let db = PricingDb::default();
+        let items: Vec<(String, HashMap<String, Stats>)> = vec![];
+        let costed = attach_costs(&items, |item| &item.1, &db);
+        assert!(costed.is_empty());
+    }
+
+    #[test]
+    fn get_pricing_caches_resolved_result() {
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                ..Default::default()
+            },
+        );
+
+        // First call resolves and caches
+        let p1 = db.get_pricing("sonnet-4");
+        assert!(p1.is_some());
+        assert!(db.resolved.borrow().contains_key("sonnet-4"));
+
+        // Second call hits cache
+        let p2 = db.get_pricing("sonnet-4");
+        assert_eq!(p1.unwrap().input, p2.unwrap().input);
+    }
+
+    #[test]
+    fn get_pricing_caches_unknown_in_strict_mode() {
+        let db = PricingDb {
+            strict_unknown: true,
+            ..PricingDb::default()
+        };
+
+        let p = db.get_pricing("nonexistent-xyz-model");
+        assert!(p.is_none());
+
+        // Verify it cached as Unknown
+        let resolved = db.resolved.borrow();
+        assert!(resolved.contains_key("nonexistent-xyz-model"));
+        assert!(matches!(
+            resolved.get("nonexistent-xyz-model"),
+            Some(ResolvedPricing::Unknown)
+        ));
+    }
+
+    #[test]
+    fn default_pricing_db_has_empty_models() {
+        let db = PricingDb::default();
+        assert!(db.models.is_empty());
+        assert!(db.resolved.borrow().is_empty());
+        assert!(!db.strict_unknown);
+    }
 }
