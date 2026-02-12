@@ -712,6 +712,68 @@ mod tests {
     }
 
     #[test]
+    fn add_total_row_compact_no_cost_no_calls() {
+        let mut table = create_styled_table();
+        let cfg = period_config(Period::Week);
+        let opts = TokenTableOptions {
+            compact: true,
+            show_cost: false,
+            ..default_opts()
+        };
+        let stats = Stats {
+            input_tokens: 3000,
+            output_tokens: 1000,
+            ..Default::default()
+        };
+        // Week: no calls column; show_cost=false: no cost column
+        add_total_row(&mut table, &stats, 0.0, &cfg, false, &opts);
+        assert_eq!(table.row_count(), 1);
+    }
+
+    #[test]
+    fn add_compact_rows_weekly_no_calls() {
+        let mut table = create_styled_table();
+        let cfg = period_config(Period::Week);
+        let opts = TokenTableOptions {
+            compact: true,
+            show_cost: false,
+            ..default_opts()
+        };
+        let data = make_day_stats();
+        let cost = add_compact_rows(
+            &mut table,
+            "2026-W07",
+            &data,
+            &cfg,
+            &opts,
+            None,
+            &PricingDb::default(),
+        );
+        assert!(cost.is_finite());
+        assert_eq!(table.row_count(), 1);
+    }
+
+    #[test]
+    fn add_total_row_breakdown_mode_omits_total_column() {
+        let mut table = create_styled_table();
+        let cfg = period_config(Period::Day);
+        let opts = TokenTableOptions {
+            show_cost: true,
+            show_reasoning: true,
+            ..default_opts()
+        };
+        let stats = Stats {
+            input_tokens: 8000,
+            output_tokens: 3000,
+            reasoning_tokens: 500,
+            ..Default::default()
+        };
+        // breakdown=true: Total column should NOT appear in total row
+        add_total_row(&mut table, &stats, 2.00, &cfg, true, &opts);
+        assert_eq!(table.row_count(), 1);
+    }
+
+    #[test]
     fn add_total_row_standard_mode() {
         let mut table = create_styled_table();
         let cfg = period_config(Period::Week);
