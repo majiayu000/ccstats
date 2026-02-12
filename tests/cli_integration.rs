@@ -460,6 +460,200 @@ fn claude_daily_json_reads_home_projects() {
 }
 
 #[test]
+fn claude_daily_csv_outputs_correct_format() {
+    let root = unique_temp_dir("claude-csv-daily");
+    let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
+    write_file(
+        &claude_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 2, "header + 1 data row");
+    assert_eq!(
+        lines[0],
+        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+    );
+    // input=100, output=50, reasoning=0, cache_creation=10, cache_read=20, total=180
+    assert_eq!(lines[1], "2026-02-06,100,50,0,10,20,180");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_session_csv_outputs_correct_format() {
+    let root = unique_temp_dir("claude-csv-session");
+    let session_a = root.join(".claude/projects/myapp/session-a.jsonl");
+    let session_b = root.join(".claude/projects/myapp/session-b.jsonl");
+
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","message":{"id":"msg_2","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":80,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "session",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 3, "header + 2 sessions");
+    assert_eq!(
+        lines[0],
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,total_tokens"
+    );
+    // Sessions sorted by last_timestamp asc: session-a (10:00) then session-b (11:00)
+    assert!(lines[1].starts_with("session-a,"));
+    assert!(lines[1].ends_with(",100,50,150"));
+    assert!(lines[2].starts_with("session-b,"));
+    assert!(lines[2].ends_with(",200,80,280"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_project_csv_outputs_correct_format() {
+    let root = unique_temp_dir("claude-csv-project");
+    let session_a = root.join(".claude/projects/myapp/session-a.jsonl");
+    let session_b = root.join(".claude/projects/other-project/session-b.jsonl");
+
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","message":{"id":"msg_2","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":80,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "project",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 3, "header + 2 projects");
+    assert_eq!(
+        lines[0],
+        "project_name,project_path,sessions,input_tokens,output_tokens,total_tokens"
+    );
+    // With --no-cost, all costs are 0.0 so order is undefined — find by name
+    let myapp_line = lines
+        .iter()
+        .find(|l| l.starts_with("myapp,"))
+        .expect("myapp row");
+    assert!(myapp_line.ends_with(",1,100,50,150"));
+    let other_line = lines
+        .iter()
+        .find(|l| l.starts_with("other-project,"))
+        .expect("other-project row");
+    assert!(other_line.ends_with(",1,200,80,280"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_blocks_csv_outputs_correct_format() {
+    let root = unique_temp_dir("claude-csv-blocks");
+    let session = root.join(".claude/projects/myapp/session-blocks.jsonl");
+
+    // Entry at 10:00 UTC → block 10:00-15:00
+    // Entry at 15:00 UTC → block 15:00-20:00
+    write_file(
+        &session,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_a","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}
+{"timestamp":"2026-02-06T15:00:00Z","message":{"id":"msg_b","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":300,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "blocks",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 3, "header + 2 blocks");
+    assert_eq!(
+        lines[0],
+        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+    );
+    // Block 1: 10:00-15:00, input=100, output=50, cache_creation=10, cache_read=20, total=180
+    assert!(lines[1].contains("10:00"));
+    assert!(lines[1].ends_with(",100,50,10,20,180"));
+    // Block 2: 15:00-20:00, input=300, output=150, cache_creation=0, cache_read=0, total=450
+    assert!(lines[2].contains("15:00"));
+    assert!(lines[2].ends_with(",300,150,0,0,450"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn since_after_until_exits_with_error() {
     let root = unique_temp_dir("date-range");
     let claude_file = root.join(".claude/projects/myproject/session.jsonl");
