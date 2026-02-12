@@ -23,7 +23,7 @@ pub(crate) enum Commands {
     Blocks,
     /// Output single line for statusline/tmux integration
     Statusline,
-    /// OpenAI Codex CLI usage statistics
+    /// `Codex` CLI usage statistics
     Codex {
         #[command(subcommand)]
         command: Option<CodexCommands>,
@@ -102,7 +102,7 @@ impl From<&Option<CodexCommands>> for SourceCommand {
 }
 
 /// Parse CLI command into (`is_codex`, `SourceCommand`)
-pub(crate) fn parse_command(cmd: &Option<Commands>) -> (bool, SourceCommand) {
+pub(crate) fn parse_command(cmd: Option<&Commands>) -> (bool, SourceCommand) {
     match cmd {
         Some(Commands::Codex { command }) => (true, SourceCommand::from(command)),
         Some(cmd) => (false, SourceCommand::from(cmd)),

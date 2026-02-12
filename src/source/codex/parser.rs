@@ -57,7 +57,7 @@ struct TokenUsage {
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
     #[serde(alias = "cache_read_input_tokens")]
-    _cache_read_input_tokens: Option<i64>,
+    alt_cache_read_input_tokens: Option<i64>,
     output_tokens: Option<i64>,
     reasoning_output_tokens: Option<i64>,
     total_tokens: Option<i64>,
@@ -66,7 +66,7 @@ struct TokenUsage {
 impl TokenUsage {
     fn cached_input(&self) -> i64 {
         self.cached_input_tokens
-            .or(self._cache_read_input_tokens)
+            .or(self.alt_cache_read_input_tokens)
             .unwrap_or(0)
     }
 
@@ -76,7 +76,7 @@ impl TokenUsage {
                 (self.input_tokens.unwrap_or(0) - prev.input_tokens.unwrap_or(0)).max(0),
             ),
             cached_input_tokens: Some((self.cached_input() - prev.cached_input()).max(0)),
-            _cache_read_input_tokens: None,
+            alt_cache_read_input_tokens: None,
             output_tokens: Some(
                 (self.output_tokens.unwrap_or(0) - prev.output_tokens.unwrap_or(0)).max(0),
             ),
@@ -351,7 +351,7 @@ mod tests {
         let total = TokenUsage {
             input_tokens: Some(1000),
             cached_input_tokens: Some(200),
-            _cache_read_input_tokens: None,
+            alt_cache_read_input_tokens: None,
             output_tokens: Some(500),
             reasoning_output_tokens: Some(100),
             total_tokens: Some(1500),
@@ -359,7 +359,7 @@ mod tests {
         let prev = TokenUsage {
             input_tokens: Some(400),
             cached_input_tokens: Some(100),
-            _cache_read_input_tokens: None,
+            alt_cache_read_input_tokens: None,
             output_tokens: Some(200),
             reasoning_output_tokens: Some(50),
             total_tokens: Some(600),
@@ -377,7 +377,7 @@ mod tests {
         let total = TokenUsage {
             input_tokens: Some(100),
             cached_input_tokens: Some(50),
-            _cache_read_input_tokens: None,
+            alt_cache_read_input_tokens: None,
             output_tokens: Some(10),
             reasoning_output_tokens: Some(0),
             total_tokens: Some(110),
@@ -385,7 +385,7 @@ mod tests {
         let prev = TokenUsage {
             input_tokens: Some(500),
             cached_input_tokens: Some(200),
-            _cache_read_input_tokens: None,
+            alt_cache_read_input_tokens: None,
             output_tokens: Some(300),
             reasoning_output_tokens: Some(100),
             total_tokens: Some(800),
@@ -455,7 +455,7 @@ mod tests {
     fn test_cached_input_prefers_cached_input_tokens() {
         let usage = TokenUsage {
             cached_input_tokens: Some(100),
-            _cache_read_input_tokens: Some(50),
+            alt_cache_read_input_tokens: Some(50),
             ..Default::default()
         };
         assert_eq!(usage.cached_input(), 100);
@@ -465,7 +465,7 @@ mod tests {
     fn test_cached_input_falls_back_to_cache_read() {
         let usage = TokenUsage {
             cached_input_tokens: None,
-            _cache_read_input_tokens: Some(75),
+            alt_cache_read_input_tokens: Some(75),
             ..Default::default()
         };
         assert_eq!(usage.cached_input(), 75);

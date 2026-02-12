@@ -38,7 +38,7 @@ pub(crate) struct CommandContext<'a> {
 pub(crate) fn handle_source_command(
     source: &dyn Source,
     command: SourceCommand,
-    ctx: CommandContext<'_>,
+    ctx: &CommandContext<'_>,
 ) {
     let filter = ctx.filter;
     let cli = ctx.cli;

@@ -102,7 +102,7 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "FILTER")]
     pub(crate) jq: Option<String>,
 
-    /// Timezone for date display (e.g., "Asia/Shanghai", "UTC", "America/New_York")
+    /// Timezone for date display (e.g., `Asia/Shanghai`, `UTC`, `America/New_York`)
     #[arg(long, global = true, value_name = "TZ")]
     pub(crate) timezone: Option<String>,
 

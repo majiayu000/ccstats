@@ -30,7 +30,7 @@ fn main() {
     // Parse CLI and extract source command
     let raw_cli = Cli::parse();
     let raw_timezone = raw_cli.timezone.clone();
-    let (is_codex, source_cmd) = parse_command(&raw_cli.command);
+    let (is_codex, source_cmd) = parse_command(raw_cli.command.as_ref());
     let is_statusline = source_cmd.is_statusline();
 
     // Load config file (quiet for statusline)
@@ -121,7 +121,7 @@ fn main() {
     handle_source_command(
         source,
         source_cmd,
-        CommandContext {
+        &CommandContext {
             filter: &filter,
             cli: &cli,
             pricing_db: &pricing_db,
