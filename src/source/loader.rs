@@ -55,18 +55,28 @@ impl<'a> DataLoader<'a> {
         filtered
     }
 
-    /// Load and deduplicate entries incrementally to avoid buffering all raw records in memory.
-    fn load_deduped_entries_incremental(
+    /// Parallel file processing pipeline: discover → parse → filter → aggregate → reduce.
+    /// Extracts the common pattern shared by all incremental loaders.
+    fn par_process<T, F, I, R>(
         &self,
         filter: &DateFilter,
         timezone: &Timezone,
-    ) -> (Vec<RawEntry>, i64) {
+        per_file: F,
+        init: I,
+        reduce: R,
+    ) -> Option<(T, usize)>
+    where
+        T: Send,
+        F: Fn(Vec<RawEntry>) -> T + Send + Sync,
+        I: Fn() -> T + Send + Sync,
+        R: Fn(T, T) -> T + Send + Sync,
+    {
         let discovery_start = Instant::now();
         let files = self.source.find_files();
         let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
 
         if files.is_empty() {
-            return (Vec::new(), 0);
+            return None;
         }
 
         if !self.quiet {
@@ -78,32 +88,53 @@ impl<'a> DataLoader<'a> {
             );
         }
 
+        let file_count = files.len();
         let parse_start = Instant::now();
-        let accumulator = files
+        let result = files
             .par_iter()
             .map(|path| {
                 let entries = self.source.parse_file(path, timezone);
                 let filtered = Self::filter_entries(entries, filter, timezone);
-                let mut partial = DedupAccumulator::new();
-                partial.extend(filtered);
-                partial
+                per_file(filtered)
             })
-            .reduce(DedupAccumulator::new, |mut acc, partial| {
-                acc.merge(partial);
-                acc
-            });
+            .reduce(&init, &reduce);
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-        let (entries, skipped) = accumulator.finalize();
 
         if !self.quiet {
             eprintln!(
-                "Parsed {} files and deduplicated incrementally ({:.2}ms)",
-                files.len(),
-                parse_ms
+                "Parsed {} files incrementally ({:.2}ms)",
+                file_count, parse_ms
             );
         }
 
-        (entries, skipped)
+        Some((result, file_count))
+    }
+
+    /// Load and deduplicate entries incrementally to avoid buffering all raw records in memory.
+    fn load_deduped_entries_incremental(
+        &self,
+        filter: &DateFilter,
+        timezone: &Timezone,
+    ) -> (Vec<RawEntry>, i64) {
+        let result = self.par_process(
+            filter,
+            timezone,
+            |filtered| {
+                let mut partial = DedupAccumulator::new();
+                partial.extend(filtered);
+                partial
+            },
+            DedupAccumulator::new,
+            |mut acc, partial| {
+                acc.merge(partial);
+                acc
+            },
+        );
+
+        match result {
+            Some((accumulator, _)) => accumulator.finalize(),
+            None => (Vec::new(), 0),
+        }
     }
 
     fn merge_day_stats(target: &mut HashMap<String, DayStats>, source: HashMap<String, DayStats>) {
@@ -118,44 +149,22 @@ impl<'a> DataLoader<'a> {
 
     fn load_daily_incremental(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
         let load_start = Instant::now();
-        let discovery_start = Instant::now();
-        let files = self.source.find_files();
-        let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
 
-        if files.is_empty() {
-            return LoadResult::default();
-        }
-
-        if !self.quiet {
-            eprintln!(
-                "Scanning {} {} files... ({:.2}ms)",
-                files.len(),
-                self.source.display_name(),
-                discovery_ms
-            );
-        }
-
-        let parse_start = Instant::now();
-        let day_stats = files
-            .par_iter()
-            .map(|path| {
-                let entries = self.source.parse_file(path, timezone);
-                let filtered = Self::filter_entries(entries, filter, timezone);
-                aggregate_daily(filtered)
-            })
-            .reduce(HashMap::new, |mut acc, partial| {
+        let result = self.par_process(
+            filter,
+            timezone,
+            aggregate_daily,
+            HashMap::new,
+            |mut acc, partial| {
                 Self::merge_day_stats(&mut acc, partial);
                 acc
-            });
-        let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
+            },
+        );
 
-        if !self.quiet {
-            eprintln!(
-                "Parsed {} files and aggregated incrementally ({:.2}ms)",
-                files.len(),
-                parse_ms
-            );
-        }
+        let day_stats = match result {
+            Some((stats, _)) => stats,
+            None => return LoadResult::default(),
+        };
 
         let valid: i64 = day_stats.values().map(|day| day.stats.count).sum();
         if self.debug && !self.quiet {
@@ -202,40 +211,20 @@ impl<'a> DataLoader<'a> {
         filter: &DateFilter,
         timezone: &Timezone,
     ) -> Vec<SessionStats> {
-        let discovery_start = Instant::now();
-        let files = self.source.find_files();
-        let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
-
-        if files.is_empty() {
-            return Vec::new();
-        }
-
-        if !self.quiet {
-            eprintln!(
-                "Scanning {} {} files... ({:.2}ms)",
-                files.len(),
-                self.source.display_name(),
-                discovery_ms
-            );
-        }
-
-        let parse_start = Instant::now();
-        let merged = files
-            .par_iter()
-            .map(|path| {
-                let entries = self.source.parse_file(path, timezone);
-                let filtered = Self::filter_entries(entries, filter, timezone);
-                aggregate_sessions(filtered)
-            })
-            .map(|sessions| {
+        let result = self.par_process(
+            filter,
+            timezone,
+            |filtered| {
+                let sessions = aggregate_sessions(filtered);
                 let mut map = HashMap::<String, SessionStats>::new();
                 for session in sessions {
                     let key = session.session_id.clone();
                     map.insert(key, session);
                 }
                 map
-            })
-            .reduce(HashMap::<String, SessionStats>::new, |mut acc, partial| {
+            },
+            HashMap::<String, SessionStats>::new,
+            |mut acc, partial| {
                 for session in partial.into_values() {
                     match acc.get_mut(&session.session_id) {
                         Some(existing) => Self::merge_session_stats(existing, session),
@@ -246,19 +235,13 @@ impl<'a> DataLoader<'a> {
                     }
                 }
                 acc
-            });
-        let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
+            },
+        );
 
-        let sessions: Vec<SessionStats> = merged.into_values().collect();
-        if !self.quiet {
-            eprintln!(
-                "Parsed {} files and aggregated {} sessions incrementally ({:.2}ms)",
-                files.len(),
-                sessions.len(),
-                parse_ms
-            );
+        match result {
+            Some((merged, _)) => merged.into_values().collect(),
+            None => Vec::new(),
         }
-        sessions
     }
 
     /// Load and aggregate daily stats
