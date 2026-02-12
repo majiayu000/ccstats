@@ -203,7 +203,7 @@ mod tests {
         ts_ms: i64,
     ) -> RawEntry {
         RawEntry {
-            timestamp: format!("2025-01-01T{:02}:00:00Z", ts_ms / 3600000 % 24),
+            timestamp: format!("2025-01-01T{:02}:00:00Z", ts_ms / 3_600_000 % 24),
             timestamp_ms: ts_ms,
             date_str: date.to_string(),
             message_id: None,

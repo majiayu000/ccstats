@@ -290,8 +290,8 @@ mod tests {
             timestamp: Some(timestamp.to_string()),
             message: Some(Message {
                 id: Some("msg_001".to_string()),
-                model: model.map(|s| s.to_string()),
-                stop_reason: stop_reason.map(|s| s.to_string()),
+                model: model.map(ToString::to_string),
+                stop_reason: stop_reason.map(ToString::to_string),
                 usage: Some(Usage {
                     input_tokens: Some(input),
                     output_tokens: Some(output),

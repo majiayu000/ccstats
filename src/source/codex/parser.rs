@@ -581,7 +581,7 @@ mod tests {
                 total_token_usage: None,
                 last_token_usage: None,
                 model: Some("  ".to_string()),
-                model_name: Some("".to_string()),
+                model_name: Some(String::new()),
                 metadata: None,
             }),
         };

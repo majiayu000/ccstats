@@ -159,6 +159,7 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
     use serde_json::json;
