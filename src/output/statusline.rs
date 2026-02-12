@@ -1,8 +1,23 @@
 use std::collections::HashMap;
 
-use crate::core::DayStats;
+use crate::core::{DayStats, Stats};
 use crate::output::format::{NumberFormat, cost_json_value, format_compact, format_cost};
 use crate::pricing::{PricingDb, sum_model_costs};
+
+struct Totals {
+    stats: Stats,
+    cost: f64,
+}
+
+fn aggregate_totals(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) -> Totals {
+    let mut stats = Stats::default();
+    let mut cost = 0.0;
+    for day in day_stats.values() {
+        stats.add(&day.stats);
+        cost += sum_model_costs(&day.models, pricing_db);
+    }
+    Totals { stats, cost }
+}
 
 /// Output a single line suitable for statusline/tmux integration
 /// Format: "CC: $X.XX | In: XM Out: XK | Today"
@@ -12,30 +27,20 @@ pub(crate) fn print_statusline(
     source_label: &str,
     number_format: NumberFormat,
 ) {
-    let mut total_input = 0i64;
-    let mut total_output = 0i64;
-    let mut total_reasoning = 0i64;
-    let mut total_cost = 0.0;
-
-    for stats in day_stats.values() {
-        total_input += stats.stats.input_tokens;
-        total_output += stats.stats.output_tokens;
-        total_reasoning += stats.stats.reasoning_tokens;
-        total_cost += sum_model_costs(&stats.models, pricing_db);
-    }
+    let t = aggregate_totals(day_stats, pricing_db);
 
     let mut parts = vec![
-        format!("{}: {}", source_label, format_cost(total_cost)),
+        format!("{}: {}", source_label, format_cost(t.cost)),
         format!(
             "In: {} Out: {}",
-            format_compact(total_input, number_format),
-            format_compact(total_output, number_format)
+            format_compact(t.stats.input_tokens, number_format),
+            format_compact(t.stats.output_tokens, number_format)
         ),
     ];
-    if total_reasoning > 0 {
+    if t.stats.reasoning_tokens > 0 {
         parts.push(format!(
             "Reason: {}",
-            format_compact(total_reasoning, number_format)
+            format_compact(t.stats.reasoning_tokens, number_format)
         ));
     }
     println!("{}", parts.join(" | "));
@@ -48,36 +53,22 @@ pub(crate) fn print_statusline_json(
     source_label: &str,
     number_format: NumberFormat,
 ) -> String {
-    let mut total_input = 0i64;
-    let mut total_output = 0i64;
-    let mut total_reasoning = 0i64;
-    let mut total_cache_creation = 0i64;
-    let mut total_cache_read = 0i64;
-    let mut total_cost = 0.0;
-
-    for stats in day_stats.values() {
-        total_input += stats.stats.input_tokens;
-        total_output += stats.stats.output_tokens;
-        total_reasoning += stats.stats.reasoning_tokens;
-        total_cache_creation += stats.stats.cache_creation;
-        total_cache_read += stats.stats.cache_read;
-        total_cost += sum_model_costs(&stats.models, pricing_db);
-    }
+    let t = aggregate_totals(day_stats, pricing_db);
 
     let output = serde_json::json!({
         "source": source_label,
-        "input_tokens": total_input,
-        "output_tokens": total_output,
-        "reasoning_tokens": total_reasoning,
-        "cache_creation_tokens": total_cache_creation,
-        "cache_read_tokens": total_cache_read,
-        "total_tokens": total_input + total_output + total_reasoning + total_cache_creation + total_cache_read,
-        "cost": cost_json_value(total_cost),
+        "input_tokens": t.stats.input_tokens,
+        "output_tokens": t.stats.output_tokens,
+        "reasoning_tokens": t.stats.reasoning_tokens,
+        "cache_creation_tokens": t.stats.cache_creation,
+        "cache_read_tokens": t.stats.cache_read,
+        "total_tokens": t.stats.total_tokens(),
+        "cost": cost_json_value(t.cost),
         "formatted": {
-            "cost": format_cost(total_cost),
-            "input": format_compact(total_input, number_format),
-            "output": format_compact(total_output, number_format),
-            "reasoning": format_compact(total_reasoning, number_format),
+            "cost": format_cost(t.cost),
+            "input": format_compact(t.stats.input_tokens, number_format),
+            "output": format_compact(t.stats.output_tokens, number_format),
+            "reasoning": format_compact(t.stats.reasoning_tokens, number_format),
         }
     });
 
@@ -90,7 +81,6 @@ pub(crate) fn print_statusline_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{DayStats, Stats};
 
     fn make_day(input: i64, output: i64, reasoning: i64, cache_c: i64, cache_r: i64) -> DayStats {
         let stats = Stats {
