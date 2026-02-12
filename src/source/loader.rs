@@ -425,3 +425,256 @@ pub(crate) fn load_blocks(
     let loader = DataLoader::new(source, quiet, false);
     loader.load_blocks(filter, timezone)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Stats;
+    use chrono::NaiveDate;
+
+    fn make_entry(date_str: &str, model: &str, input: i64) -> RawEntry {
+        RawEntry {
+            timestamp: format!("{}T12:00:00Z", date_str),
+            timestamp_ms: 0,
+            date_str: date_str.to_string(),
+            message_id: None,
+            session_id: "s1".to_string(),
+            project_path: String::new(),
+            model: model.to_string(),
+            input_tokens: input,
+            output_tokens: 0,
+            cache_creation: 0,
+            cache_read: 0,
+            reasoning_tokens: 0,
+            stop_reason: Some("end_turn".to_string()),
+        }
+    }
+
+    fn tz() -> Timezone {
+        Timezone::parse(None).unwrap()
+    }
+
+    // ========================================================================
+    // filter_entries
+    // ========================================================================
+
+    #[test]
+    fn filter_entries_no_filter_passes_all() {
+        let entries = vec![make_entry("2025-01-01", "m", 10), make_entry("2025-06-15", "m", 20)];
+        let filter = DateFilter::new(None, None);
+        let result = DataLoader::filter_entries(entries, &filter, &tz());
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn filter_entries_since_excludes_earlier() {
+        let entries = vec![
+            make_entry("2025-01-01", "m", 10),
+            make_entry("2025-03-01", "m", 20),
+            make_entry("2025-06-01", "m", 30),
+        ];
+        let since = NaiveDate::from_ymd_opt(2025, 3, 1);
+        let filter = DateFilter::new(since, None);
+        let result = DataLoader::filter_entries(entries, &filter, &tz());
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].input_tokens, 20);
+        assert_eq!(result[1].input_tokens, 30);
+    }
+
+    #[test]
+    fn filter_entries_until_excludes_later() {
+        let entries = vec![
+            make_entry("2025-01-01", "m", 10),
+            make_entry("2025-03-01", "m", 20),
+            make_entry("2025-06-01", "m", 30),
+        ];
+        let until = NaiveDate::from_ymd_opt(2025, 3, 1);
+        let filter = DateFilter::new(None, until);
+        let result = DataLoader::filter_entries(entries, &filter, &tz());
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].input_tokens, 10);
+        assert_eq!(result[1].input_tokens, 20);
+    }
+
+    #[test]
+    fn filter_entries_invalid_date_str_falls_back_to_timestamp() {
+        let mut entry = make_entry("2025-01-15", "m", 100);
+        entry.date_str = "bad-date".to_string();
+        // timestamp is "2025-01-15T12:00:00Z" — should parse and recover
+        let filter = DateFilter::new(None, None);
+        let result = DataLoader::filter_entries(vec![entry], &filter, &tz());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].date_str, "2025-01-15"); // recovered from timestamp
+    }
+
+    #[test]
+    fn filter_entries_empty_input() {
+        let filter = DateFilter::new(None, None);
+        let result = DataLoader::filter_entries(Vec::new(), &filter, &tz());
+        assert!(result.is_empty());
+    }
+
+    // ========================================================================
+    // merge_day_stats
+    // ========================================================================
+
+    fn make_day_stats(model: &str, input: i64, count: i64) -> DayStats {
+        let mut ds = DayStats::default();
+        let stats = Stats {
+            input_tokens: input,
+            count,
+            ..Default::default()
+        };
+        ds.stats.add(&stats);
+        ds.models.entry(model.to_string()).or_default().add(&stats);
+        ds
+    }
+
+    #[test]
+    fn merge_day_stats_disjoint_dates() {
+        let mut target = HashMap::new();
+        target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
+
+        let mut source = HashMap::new();
+        source.insert("2025-01-02".to_string(), make_day_stats("gpt-4", 200, 2));
+
+        DataLoader::merge_day_stats(&mut target, source);
+        assert_eq!(target.len(), 2);
+        assert_eq!(target["2025-01-01"].stats.input_tokens, 100);
+        assert_eq!(target["2025-01-02"].stats.input_tokens, 200);
+    }
+
+    #[test]
+    fn merge_day_stats_overlapping_dates_accumulates() {
+        let mut target = HashMap::new();
+        target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
+
+        let mut source = HashMap::new();
+        source.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 200, 2));
+
+        DataLoader::merge_day_stats(&mut target, source);
+        assert_eq!(target.len(), 1);
+        assert_eq!(target["2025-01-01"].stats.input_tokens, 300);
+        assert_eq!(target["2025-01-01"].stats.count, 3);
+        assert_eq!(target["2025-01-01"].models["gpt-4"].input_tokens, 300);
+    }
+
+    #[test]
+    fn merge_day_stats_different_models_preserved() {
+        let mut target = HashMap::new();
+        target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
+
+        let mut source = HashMap::new();
+        source.insert("2025-01-01".to_string(), make_day_stats("claude", 200, 2));
+
+        DataLoader::merge_day_stats(&mut target, source);
+        assert_eq!(target["2025-01-01"].models.len(), 2);
+        assert_eq!(target["2025-01-01"].models["gpt-4"].input_tokens, 100);
+        assert_eq!(target["2025-01-01"].models["claude"].input_tokens, 200);
+        assert_eq!(target["2025-01-01"].stats.input_tokens, 300);
+    }
+
+    #[test]
+    fn merge_day_stats_empty_source() {
+        let mut target = HashMap::new();
+        target.insert("2025-01-01".to_string(), make_day_stats("m", 100, 1));
+
+        DataLoader::merge_day_stats(&mut target, HashMap::new());
+        assert_eq!(target.len(), 1);
+    }
+
+    // ========================================================================
+    // merge_session_stats
+    // ========================================================================
+
+    fn make_session(id: &str, project: &str, first: &str, last: &str, input: i64) -> SessionStats {
+        SessionStats {
+            session_id: id.to_string(),
+            project_path: project.to_string(),
+            first_timestamp: first.to_string(),
+            last_timestamp: last.to_string(),
+            stats: Stats {
+                input_tokens: input,
+                count: 1,
+                ..Default::default()
+            },
+            models: {
+                let mut m = HashMap::new();
+                m.insert("model".to_string(), Stats {
+                    input_tokens: input,
+                    count: 1,
+                    ..Default::default()
+                });
+                m
+            },
+        }
+    }
+
+    #[test]
+    fn merge_session_stats_updates_timestamps() {
+        let mut target = make_session("s1", "proj", "2025-01-01T10:00:00Z", "2025-01-01T12:00:00Z", 100);
+        let incoming = make_session("s1", "proj", "2025-01-01T08:00:00Z", "2025-01-01T14:00:00Z", 200);
+
+        DataLoader::merge_session_stats(&mut target, incoming);
+        assert_eq!(target.first_timestamp, "2025-01-01T08:00:00Z");
+        assert_eq!(target.last_timestamp, "2025-01-01T14:00:00Z");
+    }
+
+    #[test]
+    fn merge_session_stats_keeps_earlier_timestamps() {
+        let mut target = make_session("s1", "proj", "2025-01-01T08:00:00Z", "2025-01-01T14:00:00Z", 100);
+        let incoming = make_session("s1", "proj", "2025-01-01T10:00:00Z", "2025-01-01T12:00:00Z", 200);
+
+        DataLoader::merge_session_stats(&mut target, incoming);
+        // target already had earlier first and later last — should keep them
+        assert_eq!(target.first_timestamp, "2025-01-01T08:00:00Z");
+        assert_eq!(target.last_timestamp, "2025-01-01T14:00:00Z");
+    }
+
+    #[test]
+    fn merge_session_stats_accumulates_tokens() {
+        let mut target = make_session("s1", "", "a", "b", 100);
+        let incoming = make_session("s1", "", "a", "b", 200);
+
+        DataLoader::merge_session_stats(&mut target, incoming);
+        assert_eq!(target.stats.input_tokens, 300);
+        assert_eq!(target.stats.count, 2);
+        assert_eq!(target.models["model"].input_tokens, 300);
+    }
+
+    #[test]
+    fn merge_session_stats_fills_empty_project_path() {
+        let mut target = make_session("s1", "", "a", "b", 100);
+        let incoming = make_session("s1", "/home/user/project", "a", "b", 200);
+
+        DataLoader::merge_session_stats(&mut target, incoming);
+        assert_eq!(target.project_path, "/home/user/project");
+    }
+
+    #[test]
+    fn merge_session_stats_keeps_existing_project_path() {
+        let mut target = make_session("s1", "/existing", "a", "b", 100);
+        let incoming = make_session("s1", "/other", "a", "b", 200);
+
+        DataLoader::merge_session_stats(&mut target, incoming);
+        assert_eq!(target.project_path, "/existing");
+    }
+
+    #[test]
+    fn merge_session_stats_merges_different_models() {
+        let mut target = make_session("s1", "", "a", "b", 100);
+        let mut incoming = make_session("s1", "", "a", "b", 200);
+        // Replace the model in incoming
+        incoming.models.clear();
+        incoming.models.insert("other-model".to_string(), Stats {
+            input_tokens: 200,
+            count: 1,
+            ..Default::default()
+        });
+
+        DataLoader::merge_session_stats(&mut target, incoming);
+        assert_eq!(target.models.len(), 2);
+        assert_eq!(target.models["model"].input_tokens, 100);
+        assert_eq!(target.models["other-model"].input_tokens, 200);
+    }
+}
