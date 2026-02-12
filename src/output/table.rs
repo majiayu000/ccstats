@@ -86,34 +86,28 @@ fn period_config(period: Period) -> PeriodConfig {
     }
 }
 
-fn build_header(
-    cfg: &PeriodConfig,
-    breakdown: bool,
-    opts: &TokenTableOptions,
-) -> Vec<Cell> {
+fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions) -> Vec<Cell> {
     let c = opts.use_color;
     if opts.compact {
         let mut h = vec![header_cell(cfg.label, c)];
         if cfg.show_calls {
             h.push(header_cell("Calls", c));
         }
-        h.extend([header_cell("In", c), header_cell("Out", c), header_cell("Total", c)]);
+        h.extend([
+            header_cell("In", c),
+            header_cell("Out", c),
+            header_cell("Total", c),
+        ]);
         if opts.show_cost {
             h.push(header_cell("Cost", c));
         }
         h
     } else if breakdown {
-        let mut h = vec![
-            header_cell(cfg.label, c),
-            header_cell("Model", c),
-        ];
+        let mut h = vec![header_cell(cfg.label, c), header_cell("Model", c)];
         if cfg.show_calls {
             h.push(header_cell("Calls", c));
         }
-        h.extend([
-            header_cell("Input", c),
-            header_cell("Output", c),
-        ]);
+        h.extend([header_cell("Input", c), header_cell("Output", c)]);
         if opts.show_reasoning {
             h.push(header_cell("Reason", c));
         }
@@ -126,17 +120,11 @@ fn build_header(
         }
         h
     } else {
-        let mut h = vec![
-            header_cell(cfg.label, c),
-            header_cell("Models", c),
-        ];
+        let mut h = vec![header_cell(cfg.label, c), header_cell("Models", c)];
         if cfg.show_calls {
             h.push(header_cell("Calls", c));
         }
-        h.extend([
-            header_cell("Input", c),
-            header_cell("Output", c),
-        ]);
+        h.extend([header_cell("Input", c), header_cell("Output", c)]);
         if opts.show_reasoning {
             h.push(header_cell("Reason", c));
         }
@@ -164,7 +152,11 @@ fn add_compact_rows(
     let nf = opts.number_format;
     let mut row = vec![Cell::new(key)];
     if cfg.show_calls {
-        row.push(right_cell(&format_compact(data.stats.count, nf), None, false));
+        row.push(right_cell(
+            &format_compact(data.stats.count, nf),
+            None,
+            false,
+        ));
     }
     row.extend([
         right_cell(&format_compact(data.stats.input_tokens, nf), None, false),
@@ -197,10 +189,7 @@ fn add_breakdown_rows(
         let cost = calculate_cost(stats, model, pricing_db);
         period_cost += cost;
 
-        let mut row = vec![
-            Cell::new(if i == 0 { key } else { "" }),
-            Cell::new(*model),
-        ];
+        let mut row = vec![Cell::new(if i == 0 { key } else { "" }), Cell::new(*model)];
         if cfg.show_calls {
             row.push(right_cell(&format_number(stats.count, nf), None, false));
         }
@@ -209,12 +198,24 @@ fn add_breakdown_rows(
             right_cell(&format_number(stats.output_tokens, nf), None, false),
         ]);
         if opts.show_reasoning {
-            row.push(right_cell(&format_number(stats.reasoning_tokens, nf), None, false));
+            row.push(right_cell(
+                &format_number(stats.reasoning_tokens, nf),
+                None,
+                false,
+            ));
         }
         if opts.show_cache_creation {
-            row.push(right_cell(&format_number(stats.cache_creation, nf), None, false));
+            row.push(right_cell(
+                &format_number(stats.cache_creation, nf),
+                None,
+                false,
+            ));
         }
-        row.push(right_cell(&format_number(stats.cache_read, nf), None, false));
+        row.push(right_cell(
+            &format_number(stats.cache_read, nf),
+            None,
+            false,
+        ));
         if opts.show_cost {
             row.push(right_cell(&format_cost(cost), cost_color, false));
         }
@@ -234,29 +235,50 @@ fn add_standard_rows(
 ) -> f64 {
     let mut models: Vec<_> = data.models.keys().collect();
     models.sort();
-    let models_str = models.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+    let models_str = models
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     let cost = sum_model_costs(&data.models, pricing_db);
     let nf = opts.number_format;
 
-    let mut row = vec![
-        Cell::new(key),
-        Cell::new(&models_str),
-    ];
+    let mut row = vec![Cell::new(key), Cell::new(&models_str)];
     if cfg.show_calls {
-        row.push(right_cell(&format_number(data.stats.count, nf), None, false));
+        row.push(right_cell(
+            &format_number(data.stats.count, nf),
+            None,
+            false,
+        ));
     }
     row.extend([
         right_cell(&format_number(data.stats.input_tokens, nf), None, false),
         right_cell(&format_number(data.stats.output_tokens, nf), None, false),
     ]);
     if opts.show_reasoning {
-        row.push(right_cell(&format_number(data.stats.reasoning_tokens, nf), None, false));
+        row.push(right_cell(
+            &format_number(data.stats.reasoning_tokens, nf),
+            None,
+            false,
+        ));
     }
     if opts.show_cache_creation {
-        row.push(right_cell(&format_number(data.stats.cache_creation, nf), None, false));
+        row.push(right_cell(
+            &format_number(data.stats.cache_creation, nf),
+            None,
+            false,
+        ));
     }
-    row.push(right_cell(&format_number(data.stats.cache_read, nf), None, false));
-    row.push(right_cell(&format_number(data.stats.total_tokens(), nf), None, false));
+    row.push(right_cell(
+        &format_number(data.stats.cache_read, nf),
+        None,
+        false,
+    ));
+    row.push(right_cell(
+        &format_number(data.stats.total_tokens(), nf),
+        None,
+        false,
+    ));
     if opts.show_cost {
         row.push(right_cell(&format_cost(cost), cost_color, false));
     }
@@ -272,14 +294,26 @@ fn add_total_row(
     breakdown: bool,
     opts: &TokenTableOptions,
 ) {
-    let cyan = if opts.use_color { Some(Color::Cyan) } else { None };
-    let green = if opts.use_color { Some(Color::Green) } else { None };
+    let cyan = if opts.use_color {
+        Some(Color::Cyan)
+    } else {
+        None
+    };
+    let green = if opts.use_color {
+        Some(Color::Green)
+    } else {
+        None
+    };
     let nf = opts.number_format;
 
     if opts.compact {
         let mut row = vec![styled_cell("TOTAL", cyan, true)];
         if cfg.show_calls {
-            row.push(right_cell(&format_compact(total_stats.count, nf), cyan, true));
+            row.push(right_cell(
+                &format_compact(total_stats.count, nf),
+                cyan,
+                true,
+            ));
         }
         row.extend([
             right_cell(&format_compact(total_stats.input_tokens, nf), cyan, true),
@@ -291,26 +325,43 @@ fn add_total_row(
         }
         table.add_row(row);
     } else {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            Cell::new(""),
-        ];
+        let mut row = vec![styled_cell("TOTAL", cyan, true), Cell::new("")];
         if cfg.show_calls {
-            row.push(right_cell(&format_number(total_stats.count, nf), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.count, nf),
+                cyan,
+                true,
+            ));
         }
         row.extend([
             right_cell(&format_number(total_stats.input_tokens, nf), cyan, true),
             right_cell(&format_number(total_stats.output_tokens, nf), cyan, true),
         ]);
         if opts.show_reasoning {
-            row.push(right_cell(&format_number(total_stats.reasoning_tokens, nf), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.reasoning_tokens, nf),
+                cyan,
+                true,
+            ));
         }
         if opts.show_cache_creation {
-            row.push(right_cell(&format_number(total_stats.cache_creation, nf), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.cache_creation, nf),
+                cyan,
+                true,
+            ));
         }
-        row.push(right_cell(&format_number(total_stats.cache_read, nf), cyan, true));
+        row.push(right_cell(
+            &format_number(total_stats.cache_read, nf),
+            cyan,
+            true,
+        ));
         if !breakdown {
-            row.push(right_cell(&format_number(total_stats.total_tokens(), nf), cyan, true));
+            row.push(right_cell(
+                &format_number(total_stats.total_tokens(), nf),
+                cyan,
+                true,
+            ));
         }
         if opts.show_cost {
             row.push(right_cell(&format_cost(total_cost), green, true));
@@ -342,24 +393,41 @@ pub(crate) fn print_period_table(
     let mut table = create_styled_table();
     table.set_header(build_header(&cfg, breakdown, &options));
 
-    let cost_color = if options.use_color { Some(Color::Green) } else { None };
+    let cost_color = if options.use_color {
+        Some(Color::Green)
+    } else {
+        None
+    };
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
 
     for key in &keys {
         let data = &stats_ref[*key];
         let cost = if options.compact {
-            add_compact_rows(&mut table, key, data, &cfg, &options, cost_color, pricing_db)
+            add_compact_rows(
+                &mut table, key, data, &cfg, &options, cost_color, pricing_db,
+            )
         } else if breakdown {
-            add_breakdown_rows(&mut table, key, data, &cfg, &options, cost_color, pricing_db)
+            add_breakdown_rows(
+                &mut table, key, data, &cfg, &options, cost_color, pricing_db,
+            )
         } else {
-            add_standard_rows(&mut table, key, data, &cfg, &options, cost_color, pricing_db)
+            add_standard_rows(
+                &mut table, key, data, &cfg, &options, cost_color, pricing_db,
+            )
         };
         total_cost += cost;
         total_stats.add(&data.stats);
     }
 
-    add_total_row(&mut table, &total_stats, total_cost, &cfg, breakdown, &options);
+    add_total_row(
+        &mut table,
+        &total_stats,
+        total_cost,
+        &cfg,
+        breakdown,
+        &options,
+    );
 
     println!("\n  {}\n", cfg.title);
     println!("{table}");
@@ -396,7 +464,11 @@ mod tests {
     #[test]
     fn header_compact_daily_with_cost() {
         let cfg = period_config(Period::Day);
-        let opts = TokenTableOptions { compact: true, show_cost: true, ..default_opts() };
+        let opts = TokenTableOptions {
+            compact: true,
+            show_cost: true,
+            ..default_opts()
+        };
         let h = build_header(&cfg, false, &opts);
         // Date, Calls, In, Out, Total, Cost
         assert_eq!(h.len(), 6);
@@ -405,7 +477,11 @@ mod tests {
     #[test]
     fn header_compact_weekly_no_calls() {
         let cfg = period_config(Period::Week);
-        let opts = TokenTableOptions { compact: true, show_cost: false, ..default_opts() };
+        let opts = TokenTableOptions {
+            compact: true,
+            show_cost: false,
+            ..default_opts()
+        };
         let h = build_header(&cfg, false, &opts);
         // Week, In, Out, Total (no Calls, no Cost)
         assert_eq!(h.len(), 4);
@@ -524,9 +600,21 @@ mod tests {
     fn add_compact_rows_returns_cost() {
         let mut table = create_styled_table();
         let cfg = period_config(Period::Day);
-        let opts = TokenTableOptions { compact: true, show_cost: true, ..default_opts() };
+        let opts = TokenTableOptions {
+            compact: true,
+            show_cost: true,
+            ..default_opts()
+        };
         let data = make_day_stats();
-        let cost = add_compact_rows(&mut table, "2026-02-12", &data, &cfg, &opts, None, &PricingDb::default());
+        let cost = add_compact_rows(
+            &mut table,
+            "2026-02-12",
+            &data,
+            &cfg,
+            &opts,
+            None,
+            &PricingDb::default(),
+        );
         // With default pricing db, cost should be a finite number
         assert!(cost.is_finite());
     }
@@ -535,9 +623,22 @@ mod tests {
     fn add_breakdown_rows_returns_cost() {
         let mut table = create_styled_table();
         let cfg = period_config(Period::Day);
-        let opts = TokenTableOptions { show_cost: true, show_reasoning: true, show_cache_creation: true, ..default_opts() };
+        let opts = TokenTableOptions {
+            show_cost: true,
+            show_reasoning: true,
+            show_cache_creation: true,
+            ..default_opts()
+        };
         let data = make_day_stats();
-        let cost = add_breakdown_rows(&mut table, "2026-02-12", &data, &cfg, &opts, None, &PricingDb::default());
+        let cost = add_breakdown_rows(
+            &mut table,
+            "2026-02-12",
+            &data,
+            &cfg,
+            &opts,
+            None,
+            &PricingDb::default(),
+        );
         assert!(cost.is_finite());
     }
 
@@ -545,9 +646,20 @@ mod tests {
     fn add_standard_rows_returns_cost() {
         let mut table = create_styled_table();
         let cfg = period_config(Period::Day);
-        let opts = TokenTableOptions { show_cost: true, ..default_opts() };
+        let opts = TokenTableOptions {
+            show_cost: true,
+            ..default_opts()
+        };
         let data = make_day_stats();
-        let cost = add_standard_rows(&mut table, "2026-02-12", &data, &cfg, &opts, None, &PricingDb::default());
+        let cost = add_standard_rows(
+            &mut table,
+            "2026-02-12",
+            &data,
+            &cfg,
+            &opts,
+            None,
+            &PricingDb::default(),
+        );
         assert!(cost.is_finite());
     }
 
@@ -563,10 +675,19 @@ mod tests {
             count: 1,
             ..Default::default()
         };
-        data.models.insert("claude-haiku".to_string(), extra.clone());
+        data.models
+            .insert("claude-haiku".to_string(), extra.clone());
         data.stats.add(&extra);
         // Should add one row per model (2 models)
-        add_breakdown_rows(&mut table, "2026-02-12", &data, &cfg, &opts, None, &PricingDb::default());
+        add_breakdown_rows(
+            &mut table,
+            "2026-02-12",
+            &data,
+            &cfg,
+            &opts,
+            None,
+            &PricingDb::default(),
+        );
         // Table should have 2 rows (one per model)
         assert_eq!(table.row_count(), 2);
     }
@@ -575,7 +696,11 @@ mod tests {
     fn add_total_row_compact_mode() {
         let mut table = create_styled_table();
         let cfg = period_config(Period::Day);
-        let opts = TokenTableOptions { compact: true, show_cost: true, ..default_opts() };
+        let opts = TokenTableOptions {
+            compact: true,
+            show_cost: true,
+            ..default_opts()
+        };
         let stats = Stats {
             input_tokens: 5000,
             output_tokens: 2000,
@@ -590,7 +715,11 @@ mod tests {
     fn add_total_row_standard_mode() {
         let mut table = create_styled_table();
         let cfg = period_config(Period::Week);
-        let opts = TokenTableOptions { show_cost: true, show_reasoning: true, ..default_opts() };
+        let opts = TokenTableOptions {
+            show_cost: true,
+            show_reasoning: true,
+            ..default_opts()
+        };
         let stats = Stats {
             input_tokens: 10000,
             output_tokens: 5000,

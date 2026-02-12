@@ -210,7 +210,10 @@ mod tests {
     #[test]
     fn test_parse_openai_model() {
         let mut data = HashMap::new();
-        data.insert("openai/gpt-4o".to_string(), make_litellm_entry(2.5e-6, 10e-6));
+        data.insert(
+            "openai/gpt-4o".to_string(),
+            make_litellm_entry(2.5e-6, 10e-6),
+        );
 
         let result = parse_litellm_data(data);
         assert!(result.contains_key("openai/gpt-4o"));

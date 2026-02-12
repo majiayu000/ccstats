@@ -139,7 +139,10 @@ mod tests {
     fn aggregate_merges_model_breakdown() {
         let mut day_stats = HashMap::new();
         day_stats.insert("2025-01-06".to_string(), make_day_stats(&[("sonnet", 100)]));
-        day_stats.insert("2025-01-08".to_string(), make_day_stats(&[("sonnet", 50), ("opus", 200)]));
+        day_stats.insert(
+            "2025-01-08".to_string(),
+            make_day_stats(&[("sonnet", 50), ("opus", 200)]),
+        );
 
         let result = aggregate_day_stats_by_period(&day_stats, Period::Week);
         let week = &result["2025-01-06"];

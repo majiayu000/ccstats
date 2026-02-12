@@ -232,21 +232,29 @@ pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry>
             continue;
         }
 
-        let Some(payload) = &raw_entry.payload else { continue };
+        let Some(payload) = &raw_entry.payload else {
+            continue;
+        };
 
-        let Some(payload_type) = &payload.payload_type else { continue };
+        let Some(payload_type) = &payload.payload_type else {
+            continue;
+        };
 
         if payload_type != "token_count" {
             continue;
         }
 
-        let Some(timestamp) = &raw_entry.timestamp else { continue };
+        let Some(timestamp) = &raw_entry.timestamp else {
+            continue;
+        };
         let timestamp = timestamp.clone();
 
         let Some(info) = &payload.info else { continue };
 
         // Get delta usage
-        let Some(total) = &info.total_token_usage else { continue };
+        let Some(total) = &info.total_token_usage else {
+            continue;
+        };
 
         // Skip if total hasn't changed (duplicate event)
         if let Some(prev) = &previous_totals
@@ -538,10 +546,7 @@ mod tests {
                 metadata: None,
             }),
         };
-        assert_eq!(
-            extract_model(&payload),
-            Some("payload-model".to_string())
-        );
+        assert_eq!(extract_model(&payload), Some("payload-model".to_string()));
     }
 
     #[test]
@@ -551,10 +556,7 @@ mod tests {
             model: Some("payload-only".to_string()),
             info: None,
         };
-        assert_eq!(
-            extract_model(&payload),
-            Some("payload-only".to_string())
-        );
+        assert_eq!(extract_model(&payload), Some("payload-only".to_string()));
     }
 
     #[test]

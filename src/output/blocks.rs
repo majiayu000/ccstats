@@ -280,7 +280,12 @@ mod tests {
     #[test]
     fn output_block_json_single_block() {
         let db = PricingDb::default();
-        let blocks = vec![make_block("2026-02-12 10:00", "2026-02-12 15:00", 1000, 500)];
+        let blocks = vec![make_block(
+            "2026-02-12 10:00",
+            "2026-02-12 15:00",
+            1000,
+            500,
+        )];
         let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 

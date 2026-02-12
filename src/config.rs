@@ -129,10 +129,9 @@ mod tests {
     #[test]
     fn test_config_paths_contain_expected_filenames() {
         let paths = Config::get_config_paths();
-        let has_xdg = paths.iter().any(|p| {
-            p.to_string_lossy()
-                .contains(".config/ccstats/config.toml")
-        });
+        let has_xdg = paths
+            .iter()
+            .any(|p| p.to_string_lossy().contains(".config/ccstats/config.toml"));
         let has_dotfile = paths
             .iter()
             .any(|p| p.to_string_lossy().ends_with(".ccstats.toml"));
@@ -203,13 +202,8 @@ strict_pricing = true
 
     #[test]
     fn test_deserialize_color_modes() {
-        for (input, expected) in [
-            ("auto", "auto"),
-            ("always", "always"),
-            ("never", "never"),
-        ] {
-            let config: Config =
-                toml::from_str(&format!("color = \"{}\"", input)).unwrap();
+        for (input, expected) in [("auto", "auto"), ("always", "always"), ("never", "never")] {
+            let config: Config = toml::from_str(&format!("color = \"{}\"", input)).unwrap();
             match config.color {
                 Some(ConfigColorMode::Auto) => assert_eq!(expected, "auto"),
                 Some(ConfigColorMode::Always) => assert_eq!(expected, "always"),
@@ -230,10 +224,8 @@ strict_pricing = true
 
     #[test]
     fn test_deserialize_string_fields() {
-        let config: Config = toml::from_str(
-            "timezone = \"Asia/Tokyo\"\nlocale = \"ja-JP\"",
-        )
-        .unwrap();
+        let config: Config =
+            toml::from_str("timezone = \"Asia/Tokyo\"\nlocale = \"ja-JP\"").unwrap();
         assert_eq!(config.timezone.as_deref(), Some("Asia/Tokyo"));
         assert_eq!(config.locale.as_deref(), Some("ja-JP"));
     }
@@ -309,18 +301,15 @@ locale = "en-US"
     #[test]
     fn test_load_from_valid_file() {
         let f = write_temp_config("compact = true\noffline = true");
-        let config =
-            Config::load_from_paths(&[f.path().to_path_buf()], true);
+        let config = Config::load_from_paths(&[f.path().to_path_buf()], true);
         assert!(config.compact);
         assert!(config.offline);
     }
 
     #[test]
     fn test_load_from_nonexistent_path_returns_default() {
-        let config = Config::load_from_paths(
-            &[PathBuf::from("/nonexistent/path/config.toml")],
-            true,
-        );
+        let config =
+            Config::load_from_paths(&[PathBuf::from("/nonexistent/path/config.toml")], true);
         assert!(!config.offline);
         assert!(!config.compact);
     }
@@ -336,10 +325,8 @@ locale = "en-US"
     fn test_load_priority_first_valid_wins() {
         let f1 = write_temp_config("compact = true");
         let f2 = write_temp_config("compact = false\noffline = true");
-        let config = Config::load_from_paths(
-            &[f1.path().to_path_buf(), f2.path().to_path_buf()],
-            true,
-        );
+        let config =
+            Config::load_from_paths(&[f1.path().to_path_buf(), f2.path().to_path_buf()], true);
         // First file wins
         assert!(config.compact);
         // Second file's offline=true is NOT loaded
@@ -350,10 +337,8 @@ locale = "en-US"
     fn test_load_skips_invalid_toml_tries_next() {
         let bad = write_temp_config("this is not valid toml [[[");
         let good = write_temp_config("debug = true");
-        let config = Config::load_from_paths(
-            &[bad.path().to_path_buf(), good.path().to_path_buf()],
-            true,
-        );
+        let config =
+            Config::load_from_paths(&[bad.path().to_path_buf(), good.path().to_path_buf()], true);
         assert!(config.debug);
     }
 
