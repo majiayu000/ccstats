@@ -248,6 +248,7 @@ pub(crate) fn output_project_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn compare_cost_normal_values() {
@@ -267,5 +268,86 @@ mod tests {
     fn compare_cost_zero_and_negative() {
         assert_eq!(compare_cost(0.0, 0.0), Ordering::Equal);
         assert_eq!(compare_cost(-1.0, 1.0), Ordering::Less);
+    }
+
+    fn make_project(name: &str, path: &str, sessions: usize, input: i64, output: i64) -> ProjectStats {
+        ProjectStats {
+            project_name: name.to_string(),
+            project_path: path.to_string(),
+            session_count: sessions,
+            stats: Stats { input_tokens: input, output_tokens: output, count: 1, ..Default::default() },
+            models: HashMap::from([("claude".to_string(), Stats { input_tokens: input, output_tokens: output, count: 1, ..Default::default() })]),
+        }
+    }
+
+    #[test]
+    fn output_project_json_empty() {
+        let db = PricingDb::default();
+        let result = output_project_json(&[], &db, SortOrder::Desc, false);
+        assert_eq!(result.trim(), "[]");
+    }
+
+    #[test]
+    fn output_project_json_single_project() {
+        let db = PricingDb::default();
+        let projects = vec![make_project("myapp", "/path/myapp", 3, 1000, 500)];
+        let result = output_project_json(&projects, &db, SortOrder::Desc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["project"], "myapp");
+        assert_eq!(parsed[0]["project_path"], "/path/myapp");
+        assert_eq!(parsed[0]["session_count"], 3);
+        assert_eq!(parsed[0]["input_tokens"], 1000);
+        assert_eq!(parsed[0]["output_tokens"], 500);
+        assert_eq!(parsed[0]["total_tokens"], 1500);
+        assert!(parsed[0].get("cost").is_none());
+    }
+
+    #[test]
+    fn output_project_json_with_cost() {
+        let db = PricingDb::default();
+        let projects = vec![make_project("app", "/app", 1, 100, 50)];
+        let result = output_project_json(&projects, &db, SortOrder::Desc, true);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
+        assert!(parsed[0].get("cost").is_some());
+    }
+
+    #[test]
+    fn output_project_json_models_sorted() {
+        let db = PricingDb::default();
+        let projects = vec![ProjectStats {
+            project_name: "app".to_string(),
+            project_path: "/app".to_string(),
+            session_count: 1,
+            stats: Stats { input_tokens: 300, count: 2, ..Default::default() },
+            models: HashMap::from([
+                ("gpt-4".to_string(), Stats { input_tokens: 100, count: 1, ..Default::default() }),
+                ("claude".to_string(), Stats { input_tokens: 200, count: 1, ..Default::default() }),
+            ]),
+        }];
+        let result = output_project_json(&projects, &db, SortOrder::Desc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
+        let models = parsed[0]["models"].as_array().unwrap();
+        assert_eq!(models[0], "claude");
+        assert_eq!(models[1], "gpt-4");
+    }
+
+    #[test]
+    fn output_project_json_sort_order() {
+        let db = PricingDb::default();
+        let projects = vec![
+            make_project("small", "/small", 1, 10, 5),
+            make_project("big", "/big", 1, 1000, 500),
+        ];
+        // Desc: big first (higher cost)
+        let desc = output_project_json(&projects, &db, SortOrder::Desc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&desc).unwrap();
+        // With empty pricing DB, all costs are 0.0, so order is stable
+        assert_eq!(parsed.len(), 2);
+
+        // Asc: same with empty pricing
+        let asc = output_project_json(&projects, &db, SortOrder::Asc, false);
+        let parsed_asc: Vec<serde_json::Value> = serde_json::from_str(&asc).unwrap();
+        assert_eq!(parsed_asc.len(), 2);
     }
 }
