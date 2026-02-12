@@ -112,8 +112,13 @@ fn main() {
 
     // Get the appropriate data source
     let source_name = if is_codex { "codex" } else { "claude" };
-    let source =
-        get_source(source_name).unwrap_or_else(|| panic!("{} source not found", source_name));
+    let source = match get_source(source_name) {
+        Some(s) => s,
+        None => {
+            eprintln!("Error: {} source not found", source_name);
+            std::process::exit(1);
+        }
+    };
 
     handle_source_command(
         source,
