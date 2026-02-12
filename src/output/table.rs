@@ -330,9 +330,15 @@ fn print_period_table(
     options: TokenTableOptions,
 ) {
     let cfg = period_config(period);
-    let period_stats = aggregate_day_stats_by_period(day_stats, period);
+    let aggregated;
+    let stats_ref = if period == Period::Day {
+        day_stats
+    } else {
+        aggregated = aggregate_day_stats_by_period(day_stats, period);
+        &aggregated
+    };
 
-    let mut keys: Vec<_> = period_stats.keys().collect();
+    let mut keys: Vec<_> = stats_ref.keys().collect();
     sort_keys(&mut keys, options.order);
 
     let mut table = Table::new();
@@ -348,7 +354,7 @@ fn print_period_table(
     let mut total_cost = 0.0;
 
     for key in &keys {
-        let data = &period_stats[*key];
+        let data = &stats_ref[*key];
         let cost = if options.compact {
             add_compact_rows(&mut table, key, data, &cfg, &options, cost_color, pricing_db)
         } else if breakdown {

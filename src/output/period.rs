@@ -32,9 +32,7 @@ pub(crate) fn aggregate_day_stats_by_period(
     day_stats: &HashMap<String, DayStats>,
     period: Period,
 ) -> HashMap<String, DayStats> {
-    if period == Period::Day {
-        return day_stats.clone();
-    }
+    debug_assert_ne!(period, Period::Day, "Day period should not be aggregated");
 
     let mut aggregated: HashMap<String, DayStats> = HashMap::new();
 
