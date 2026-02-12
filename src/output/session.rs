@@ -1,15 +1,13 @@
 use chrono::{DateTime, Utc};
-use comfy_table::{
-    Cell, Color, ContentArrangement, Table, modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
-};
+use comfy_table::{Cell, Color};
 use std::cmp::Ordering;
 
 use crate::cli::SortOrder;
 use crate::consts::DATE_FORMAT;
 use crate::core::{SessionStats, Stats, format_project_name};
 use crate::output::format::{
-    NumberFormat, cost_json_value, format_compact, format_cost, format_number, header_cell,
-    normalize_header_separator, right_cell, styled_cell,
+    NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
+    header_cell, right_cell, styled_cell,
 };
 use crate::pricing::{PricingDb, sum_model_costs};
 use crate::utils::Timezone;
@@ -87,12 +85,7 @@ pub(crate) fn print_session_table(
         SortOrder::Desc => sorted_sessions.sort_by(|a, b| compare_session_last_timestamp(b, a)),
     }
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-        .set_content_arrangement(ContentArrangement::Dynamic);
-    normalize_header_separator(&mut table);
+    let mut table = create_styled_table();
 
     if compact {
         let mut header = vec![

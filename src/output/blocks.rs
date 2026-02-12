@@ -1,12 +1,10 @@
-use comfy_table::{
-    Cell, Color, ContentArrangement, Table, modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
-};
+use comfy_table::{Cell, Color};
 
 use crate::cli::SortOrder;
 use crate::core::{BlockStats, Stats};
 use crate::output::format::{
-    NumberFormat, cost_json_value, format_compact, format_cost, format_number, header_cell,
-    normalize_header_separator, right_cell, styled_cell,
+    NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
+    header_cell, right_cell, styled_cell,
 };
 use crate::pricing::{PricingDb, sum_model_costs};
 
@@ -39,12 +37,7 @@ pub(crate) fn print_block_table(
         SortOrder::Desc => sorted_blocks.sort_by(|a, b| b.block_start.cmp(&a.block_start)),
     }
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-        .set_content_arrangement(ContentArrangement::Dynamic);
-    normalize_header_separator(&mut table);
+    let mut table = create_styled_table();
 
     if compact {
         let mut header = vec![

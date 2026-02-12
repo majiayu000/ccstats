@@ -1,13 +1,11 @@
-use comfy_table::{
-    Cell, Color, ContentArrangement, Table, modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
-};
+use comfy_table::{Cell, Color, Table};
 use std::collections::HashMap;
 
 use crate::cli::SortOrder;
 use crate::core::{DayStats, Stats};
 use crate::output::format::{
-    NumberFormat, format_compact, format_cost, format_number, header_cell,
-    normalize_header_separator, right_cell, styled_cell,
+    NumberFormat, create_styled_table, format_compact, format_cost, format_number, header_cell,
+    right_cell, styled_cell,
 };
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
@@ -341,12 +339,7 @@ fn print_period_table(
     let mut keys: Vec<_> = stats_ref.keys().collect();
     sort_keys(&mut keys, options.order);
 
-    let mut table = Table::new();
-    table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-        .set_content_arrangement(ContentArrangement::Dynamic);
-    normalize_header_separator(&mut table);
+    let mut table = create_styled_table();
     table.set_header(build_header(&cfg, breakdown, &options));
 
     let cost_color = if options.use_color { Some(Color::Green) } else { None };

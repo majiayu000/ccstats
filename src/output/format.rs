@@ -1,4 +1,7 @@
-use comfy_table::{Attribute, Cell, CellAlignment, Color, Table, TableComponent};
+use comfy_table::{
+    Attribute, Cell, CellAlignment, Color, ContentArrangement, Table, TableComponent,
+    modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
+};
 
 use crate::error::AppError;
 
@@ -125,11 +128,22 @@ pub(super) fn header_cell(text: &str, use_color: bool) -> Cell {
 }
 
 /// Replace the double-line header separator (╞═╪═╡) with single-line (├─┼─┤)
-pub(super) fn normalize_header_separator(table: &mut Table) {
+fn normalize_header_separator(table: &mut Table) {
     table.set_style(TableComponent::HeaderLines, '─');
     table.set_style(TableComponent::LeftHeaderIntersection, '├');
     table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
     table.set_style(TableComponent::RightHeaderIntersection, '┤');
+}
+
+/// Create a table with the standard preset, inner borders, and normalized header separator.
+pub(super) fn create_styled_table() -> Table {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+    normalize_header_separator(&mut table);
+    table
 }
 
 pub(super) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
