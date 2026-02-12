@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::core::DayStats;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Period {
+pub(crate) enum Period {
     Day,
     Week,
     Month,
@@ -28,7 +28,7 @@ fn period_key(date: &str, period: Period) -> String {
     }
 }
 
-pub(super) fn aggregate_day_stats_by_period(
+pub(crate) fn aggregate_day_stats_by_period(
     day_stats: &HashMap<String, DayStats>,
     period: Period,
 ) -> HashMap<String, DayStats> {
