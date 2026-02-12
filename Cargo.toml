@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.2.22"
+version = "0.2.23"
 edition = "2024"
 description = "Fast Claude Code token usage statistics CLI"
 license = "MIT"

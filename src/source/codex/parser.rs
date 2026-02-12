@@ -348,8 +348,12 @@ pub(super) fn parse_codex_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry
 mod tests {
     use super::*;
 
+    // ========================================================================
+    // TokenUsage::subtract
+    // ========================================================================
+
     #[test]
-    fn test_token_usage_subtract() {
+    fn test_subtract_normal() {
         let total = TokenUsage {
             input_tokens: Some(1000),
             cached_input_tokens: Some(200),
@@ -358,7 +362,6 @@ mod tests {
             reasoning_output_tokens: Some(100),
             total_tokens: Some(1500),
         };
-
         let prev = TokenUsage {
             input_tokens: Some(400),
             cached_input_tokens: Some(100),
@@ -367,9 +370,7 @@ mod tests {
             reasoning_output_tokens: Some(50),
             total_tokens: Some(600),
         };
-
         let delta = total.subtract(&prev);
-
         assert_eq!(delta.input_tokens, Some(600));
         assert_eq!(delta.cached_input_tokens, Some(100));
         assert_eq!(delta.output_tokens, Some(300));
@@ -378,14 +379,221 @@ mod tests {
     }
 
     #[test]
-    fn test_token_usage_is_empty() {
-        let empty = TokenUsage::default();
-        assert!(empty.is_empty());
+    fn test_subtract_clamps_negative_to_zero() {
+        let total = TokenUsage {
+            input_tokens: Some(100),
+            cached_input_tokens: Some(50),
+            _cache_read_input_tokens: None,
+            output_tokens: Some(10),
+            reasoning_output_tokens: Some(0),
+            total_tokens: Some(110),
+        };
+        let prev = TokenUsage {
+            input_tokens: Some(500),
+            cached_input_tokens: Some(200),
+            _cache_read_input_tokens: None,
+            output_tokens: Some(300),
+            reasoning_output_tokens: Some(100),
+            total_tokens: Some(800),
+        };
+        let delta = total.subtract(&prev);
+        assert_eq!(delta.input_tokens, Some(0));
+        assert_eq!(delta.cached_input_tokens, Some(0));
+        assert_eq!(delta.output_tokens, Some(0));
+        assert_eq!(delta.reasoning_output_tokens, Some(0));
+        assert_eq!(delta.total_tokens, Some(0));
+    }
 
-        let non_empty = TokenUsage {
+    #[test]
+    fn test_subtract_none_fields_treated_as_zero() {
+        let total = TokenUsage {
             input_tokens: Some(100),
             ..Default::default()
         };
-        assert!(!non_empty.is_empty());
+        let prev = TokenUsage::default();
+        let delta = total.subtract(&prev);
+        assert_eq!(delta.input_tokens, Some(100));
+        assert_eq!(delta.output_tokens, Some(0));
+        assert_eq!(delta.reasoning_output_tokens, Some(0));
+    }
+
+    // ========================================================================
+    // TokenUsage::is_empty
+    // ========================================================================
+
+    #[test]
+    fn test_is_empty_default() {
+        assert!(TokenUsage::default().is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_with_input() {
+        let usage = TokenUsage {
+            input_tokens: Some(1),
+            ..Default::default()
+        };
+        assert!(!usage.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_with_cached_only() {
+        let usage = TokenUsage {
+            cached_input_tokens: Some(50),
+            ..Default::default()
+        };
+        assert!(!usage.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_with_reasoning_only() {
+        let usage = TokenUsage {
+            reasoning_output_tokens: Some(10),
+            ..Default::default()
+        };
+        assert!(!usage.is_empty());
+    }
+
+    // ========================================================================
+    // TokenUsage::cached_input (fallback logic)
+    // ========================================================================
+
+    #[test]
+    fn test_cached_input_prefers_cached_input_tokens() {
+        let usage = TokenUsage {
+            cached_input_tokens: Some(100),
+            _cache_read_input_tokens: Some(50),
+            ..Default::default()
+        };
+        assert_eq!(usage.cached_input(), 100);
+    }
+
+    #[test]
+    fn test_cached_input_falls_back_to_cache_read() {
+        let usage = TokenUsage {
+            cached_input_tokens: None,
+            _cache_read_input_tokens: Some(75),
+            ..Default::default()
+        };
+        assert_eq!(usage.cached_input(), 75);
+    }
+
+    #[test]
+    fn test_cached_input_both_none_returns_zero() {
+        let usage = TokenUsage::default();
+        assert_eq!(usage.cached_input(), 0);
+    }
+
+    // ========================================================================
+    // extract_model (priority chain)
+    // ========================================================================
+
+    #[test]
+    fn test_extract_model_from_info_model() {
+        let payload = Payload {
+            payload_type: None,
+            model: Some("fallback-model".to_string()),
+            info: Some(TokenInfo {
+                total_token_usage: None,
+                last_token_usage: None,
+                model: Some("info-model".to_string()),
+                model_name: Some("info-model-name".to_string()),
+                metadata: Some(Metadata {
+                    model: Some("meta-model".to_string()),
+                }),
+            }),
+        };
+        assert_eq!(extract_model(&payload), Some("info-model".to_string()));
+    }
+
+    #[test]
+    fn test_extract_model_falls_back_to_model_name() {
+        let payload = Payload {
+            payload_type: None,
+            model: Some("fallback".to_string()),
+            info: Some(TokenInfo {
+                total_token_usage: None,
+                last_token_usage: None,
+                model: None,
+                model_name: Some("model-name".to_string()),
+                metadata: None,
+            }),
+        };
+        assert_eq!(extract_model(&payload), Some("model-name".to_string()));
+    }
+
+    #[test]
+    fn test_extract_model_falls_back_to_metadata() {
+        let payload = Payload {
+            payload_type: None,
+            model: Some("fallback".to_string()),
+            info: Some(TokenInfo {
+                total_token_usage: None,
+                last_token_usage: None,
+                model: None,
+                model_name: None,
+                metadata: Some(Metadata {
+                    model: Some("meta-model".to_string()),
+                }),
+            }),
+        };
+        assert_eq!(extract_model(&payload), Some("meta-model".to_string()));
+    }
+
+    #[test]
+    fn test_extract_model_falls_back_to_payload_model() {
+        let payload = Payload {
+            payload_type: None,
+            model: Some("payload-model".to_string()),
+            info: Some(TokenInfo {
+                total_token_usage: None,
+                last_token_usage: None,
+                model: None,
+                model_name: None,
+                metadata: None,
+            }),
+        };
+        assert_eq!(
+            extract_model(&payload),
+            Some("payload-model".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_model_no_info_uses_payload() {
+        let payload = Payload {
+            payload_type: None,
+            model: Some("payload-only".to_string()),
+            info: None,
+        };
+        assert_eq!(
+            extract_model(&payload),
+            Some("payload-only".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_model_all_none_returns_none() {
+        let payload = Payload {
+            payload_type: None,
+            model: None,
+            info: None,
+        };
+        assert_eq!(extract_model(&payload), None);
+    }
+
+    #[test]
+    fn test_extract_model_empty_strings_skipped() {
+        let payload = Payload {
+            payload_type: None,
+            model: Some("real-model".to_string()),
+            info: Some(TokenInfo {
+                total_token_usage: None,
+                last_token_usage: None,
+                model: Some("  ".to_string()),
+                model_name: Some("".to_string()),
+                metadata: None,
+            }),
+        };
+        assert_eq!(extract_model(&payload), Some("real-model".to_string()));
     }
 }
