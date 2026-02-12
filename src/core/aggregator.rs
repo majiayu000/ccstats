@@ -193,16 +193,382 @@ fn get_block_start(dt: DateTime<FixedOffset>) -> DateTime<FixedOffset> {
 mod tests {
     use super::*;
 
+    fn make_entry(
+        date: &str,
+        session: &str,
+        project: &str,
+        model: &str,
+        input: i64,
+        output: i64,
+        ts_ms: i64,
+    ) -> RawEntry {
+        RawEntry {
+            timestamp: format!("2025-01-01T{:02}:00:00Z", ts_ms / 3600000 % 24),
+            timestamp_ms: ts_ms,
+            date_str: date.to_string(),
+            message_id: None,
+            session_id: session.to_string(),
+            project_path: project.to_string(),
+            model: model.to_string(),
+            input_tokens: input,
+            output_tokens: output,
+            cache_creation: 0,
+            cache_read: 0,
+            reasoning_tokens: 0,
+            stop_reason: Some("end_turn".to_string()),
+        }
+    }
+
+    // --- format_project_name ---
+
     #[test]
-    fn test_format_project_name() {
+    fn format_project_name_encoded_path() {
         assert_eq!(
             format_project_name("-Users-john-projects-myapp"),
             "Users-john-projects-myapp"
         );
+    }
+
+    #[test]
+    fn format_project_name_simple() {
         assert_eq!(format_project_name("simple"), "simple");
+    }
+
+    #[test]
+    fn format_project_name_unix_path() {
         assert_eq!(
             format_project_name("/Users/john/projects/my-project"),
             "my-project"
         );
+    }
+
+    #[test]
+    fn format_project_name_with_backslash() {
+        // On Unix, backslash is not a path separator, so Path treats the whole
+        // string as a filename. The function still enters the Path branch
+        // because it detects '\\', but file_name() returns the full string.
+        let result = format_project_name("C:\\Users\\john\\projects\\app");
+        // On Windows this would be "app", on Unix it's the full string
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn format_project_name_empty() {
+        assert_eq!(format_project_name(""), "");
+    }
+
+    #[test]
+    fn format_project_name_leading_dashes() {
+        assert_eq!(format_project_name("---foo"), "foo");
+    }
+
+    // --- aggregate_daily ---
+
+    #[test]
+    fn aggregate_daily_empty() {
+        let result = aggregate_daily(vec![]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn aggregate_daily_single_entry() {
+        let entries = vec![make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000)];
+        let result = aggregate_daily(entries);
+        assert_eq!(result.len(), 1);
+        let day = &result["2025-01-01"];
+        assert_eq!(day.stats.input_tokens, 100);
+        assert_eq!(day.stats.output_tokens, 50);
+        assert_eq!(day.stats.count, 1);
+    }
+
+    #[test]
+    fn aggregate_daily_multiple_days() {
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000),
+            make_entry("2025-01-02", "s1", "p1", "claude", 200, 100, 2000),
+        ];
+        let result = aggregate_daily(entries);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result["2025-01-01"].stats.input_tokens, 100);
+        assert_eq!(result["2025-01-02"].stats.input_tokens, 200);
+    }
+
+    #[test]
+    fn aggregate_daily_same_day_different_models() {
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000),
+            make_entry("2025-01-01", "s1", "p1", "gpt-4", 200, 100, 2000),
+        ];
+        let result = aggregate_daily(entries);
+        assert_eq!(result.len(), 1);
+        let day = &result["2025-01-01"];
+        assert_eq!(day.stats.input_tokens, 300);
+        assert_eq!(day.stats.count, 2);
+        assert_eq!(day.models.len(), 2);
+        assert_eq!(day.models["claude"].input_tokens, 100);
+        assert_eq!(day.models["gpt-4"].input_tokens, 200);
+    }
+
+    #[test]
+    fn aggregate_daily_same_model_accumulates() {
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000),
+            make_entry("2025-01-01", "s2", "p1", "claude", 150, 75, 2000),
+        ];
+        let result = aggregate_daily(entries);
+        let day = &result["2025-01-01"];
+        assert_eq!(day.stats.input_tokens, 250);
+        assert_eq!(day.models["claude"].input_tokens, 250);
+        assert_eq!(day.models["claude"].count, 2);
+    }
+
+    // --- aggregate_sessions ---
+
+    #[test]
+    fn aggregate_sessions_empty() {
+        let result = aggregate_sessions(vec![]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn aggregate_sessions_single_session() {
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "/path/proj", "claude", 100, 50, 1000),
+            make_entry("2025-01-01", "s1", "/path/proj", "claude", 200, 100, 5000),
+        ];
+        let result = aggregate_sessions(entries);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].session_id, "s1");
+        assert_eq!(result[0].project_path, "/path/proj");
+        assert_eq!(result[0].stats.input_tokens, 300);
+        assert_eq!(result[0].stats.count, 2);
+    }
+
+    #[test]
+    fn aggregate_sessions_tracks_min_max_timestamps() {
+        let entries = vec![
+            RawEntry {
+                timestamp: "2025-01-01T12:00:00Z".to_string(),
+                timestamp_ms: 5000,
+                date_str: "2025-01-01".to_string(),
+                message_id: None,
+                session_id: "s1".to_string(),
+                project_path: "p1".to_string(),
+                model: "claude".to_string(),
+                input_tokens: 100, output_tokens: 50,
+                cache_creation: 0, cache_read: 0, reasoning_tokens: 0,
+                stop_reason: None,
+            },
+            RawEntry {
+                timestamp: "2025-01-01T08:00:00Z".to_string(),
+                timestamp_ms: 1000,
+                date_str: "2025-01-01".to_string(),
+                message_id: None,
+                session_id: "s1".to_string(),
+                project_path: "p1".to_string(),
+                model: "claude".to_string(),
+                input_tokens: 100, output_tokens: 50,
+                cache_creation: 0, cache_read: 0, reasoning_tokens: 0,
+                stop_reason: None,
+            },
+            RawEntry {
+                timestamp: "2025-01-01T20:00:00Z".to_string(),
+                timestamp_ms: 9000,
+                date_str: "2025-01-01".to_string(),
+                message_id: None,
+                session_id: "s1".to_string(),
+                project_path: "p1".to_string(),
+                model: "claude".to_string(),
+                input_tokens: 100, output_tokens: 50,
+                cache_creation: 0, cache_read: 0, reasoning_tokens: 0,
+                stop_reason: None,
+            },
+        ];
+        let result = aggregate_sessions(entries);
+        assert_eq!(result[0].first_timestamp, "2025-01-01T08:00:00Z");
+        assert_eq!(result[0].last_timestamp, "2025-01-01T20:00:00Z");
+    }
+
+    #[test]
+    fn aggregate_sessions_multiple_sessions() {
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000),
+            make_entry("2025-01-01", "s2", "p2", "gpt-4", 200, 100, 2000),
+        ];
+        let result = aggregate_sessions(entries);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn aggregate_sessions_model_breakdown() {
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000),
+            make_entry("2025-01-01", "s1", "p1", "gpt-4", 200, 100, 2000),
+        ];
+        let result = aggregate_sessions(entries);
+        assert_eq!(result[0].models.len(), 2);
+        assert_eq!(result[0].models["claude"].input_tokens, 100);
+        assert_eq!(result[0].models["gpt-4"].input_tokens, 200);
+    }
+
+    // --- aggregate_projects ---
+
+    #[test]
+    fn aggregate_projects_empty() {
+        let result = aggregate_projects(vec![]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn aggregate_projects_single_project() {
+        let sessions = vec![SessionStats {
+            session_id: "s1".to_string(),
+            project_path: "/Users/john/myapp".to_string(),
+            first_timestamp: "t1".to_string(),
+            last_timestamp: "t2".to_string(),
+            stats: Stats { input_tokens: 100, output_tokens: 50, count: 1, ..Default::default() },
+            models: HashMap::from([("claude".to_string(), Stats { input_tokens: 100, output_tokens: 50, count: 1, ..Default::default() })]),
+        }];
+        let result = aggregate_projects(sessions);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].project_name, "myapp");
+        assert_eq!(result[0].session_count, 1);
+        assert_eq!(result[0].stats.input_tokens, 100);
+    }
+
+    #[test]
+    fn aggregate_projects_merges_sessions() {
+        let sessions = vec![
+            SessionStats {
+                session_id: "s1".to_string(),
+                project_path: "/path/app".to_string(),
+                stats: Stats { input_tokens: 100, count: 1, ..Default::default() },
+                models: HashMap::from([("claude".to_string(), Stats { input_tokens: 100, count: 1, ..Default::default() })]),
+                ..Default::default()
+            },
+            SessionStats {
+                session_id: "s2".to_string(),
+                project_path: "/path/app".to_string(),
+                stats: Stats { input_tokens: 200, count: 2, ..Default::default() },
+                models: HashMap::from([("claude".to_string(), Stats { input_tokens: 200, count: 2, ..Default::default() })]),
+                ..Default::default()
+            },
+        ];
+        let result = aggregate_projects(sessions);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].session_count, 2);
+        assert_eq!(result[0].stats.input_tokens, 300);
+        assert_eq!(result[0].models["claude"].input_tokens, 300);
+    }
+
+    #[test]
+    fn aggregate_projects_sorted_by_total_tokens_desc() {
+        let sessions = vec![
+            SessionStats {
+                session_id: "s1".to_string(),
+                project_path: "/path/small".to_string(),
+                stats: Stats { input_tokens: 10, ..Default::default() },
+                models: HashMap::new(),
+                ..Default::default()
+            },
+            SessionStats {
+                session_id: "s2".to_string(),
+                project_path: "/path/big".to_string(),
+                stats: Stats { input_tokens: 1000, ..Default::default() },
+                models: HashMap::new(),
+                ..Default::default()
+            },
+        ];
+        let result = aggregate_projects(sessions);
+        assert_eq!(result[0].project_name, "big");
+        assert_eq!(result[1].project_name, "small");
+    }
+
+    // --- aggregate_blocks ---
+
+    #[test]
+    fn aggregate_blocks_empty() {
+        let result = aggregate_blocks(vec![], &HashMap::new());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn aggregate_blocks_skips_missing_timestamps() {
+        let entries = vec![make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 999)];
+        // local_times map doesn't contain ts_ms=999
+        let result = aggregate_blocks(entries, &HashMap::new());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn aggregate_blocks_groups_by_5h_window() {
+        let offset = FixedOffset::east_opt(0).unwrap();
+        let dt1 = offset.with_ymd_and_hms(2025, 1, 1, 2, 30, 0).unwrap(); // block 0:00-5:00
+        let dt2 = offset.with_ymd_and_hms(2025, 1, 1, 3, 0, 0).unwrap();  // same block
+        let dt3 = offset.with_ymd_and_hms(2025, 1, 1, 7, 0, 0).unwrap();  // block 5:00-10:00
+
+        let local_times: HashMap<i64, DateTime<FixedOffset>> =
+            HashMap::from([(1000, dt1), (2000, dt2), (3000, dt3)]);
+
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000),
+            make_entry("2025-01-01", "s1", "p1", "claude", 200, 100, 2000),
+            make_entry("2025-01-01", "s1", "p1", "claude", 300, 150, 3000),
+        ];
+
+        let result = aggregate_blocks(entries, &local_times);
+        assert_eq!(result.len(), 2);
+        // sorted by block_start
+        assert!(result[0].block_start.contains("00:00"));
+        assert_eq!(result[0].stats.input_tokens, 300); // 100+200
+        assert!(result[1].block_start.contains("05:00"));
+        assert_eq!(result[1].stats.input_tokens, 300);
+    }
+
+    #[test]
+    fn aggregate_blocks_sorted_chronologically() {
+        let offset = FixedOffset::east_opt(0).unwrap();
+        let dt_late = offset.with_ymd_and_hms(2025, 1, 1, 22, 0, 0).unwrap();
+        let dt_early = offset.with_ymd_and_hms(2025, 1, 1, 1, 0, 0).unwrap();
+
+        let local_times: HashMap<i64, DateTime<FixedOffset>> =
+            HashMap::from([(2000, dt_late), (1000, dt_early)]);
+
+        let entries = vec![
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 2000),
+            make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000),
+        ];
+
+        let result = aggregate_blocks(entries, &local_times);
+        assert!(result[0].block_start < result[1].block_start);
+    }
+
+    // --- get_block_start ---
+
+    #[test]
+    fn get_block_start_boundaries() {
+        let offset = FixedOffset::east_opt(0).unwrap();
+        // Hour 0 → block 0
+        let dt = offset.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        assert_eq!(get_block_start(dt).hour(), 0);
+        // Hour 4 → block 0
+        let dt = offset.with_ymd_and_hms(2025, 1, 1, 4, 59, 59).unwrap();
+        assert_eq!(get_block_start(dt).hour(), 0);
+        // Hour 5 → block 5
+        let dt = offset.with_ymd_and_hms(2025, 1, 1, 5, 0, 0).unwrap();
+        assert_eq!(get_block_start(dt).hour(), 5);
+        // Hour 23 → block 20
+        let dt = offset.with_ymd_and_hms(2025, 1, 1, 23, 30, 0).unwrap();
+        assert_eq!(get_block_start(dt).hour(), 20);
+    }
+
+    #[test]
+    fn get_block_start_preserves_date_and_offset() {
+        let offset = FixedOffset::east_opt(9 * 3600).unwrap(); // +09:00
+        let dt = offset.with_ymd_and_hms(2025, 6, 15, 14, 30, 0).unwrap();
+        let block = get_block_start(dt);
+        assert_eq!(block.hour(), 10);
+        assert_eq!(block.minute(), 0);
+        assert_eq!(*block.offset(), offset);
     }
 }
