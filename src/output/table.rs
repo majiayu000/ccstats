@@ -44,12 +44,12 @@ pub(crate) fn print_summary_line(
 
     if let Some(ms) = elapsed_ms {
         if use_color {
-            println!("\n  {} | \x1b[36m{:.0}ms\x1b[0m\n", stats_text, ms);
+            println!("\n  {stats_text} | \x1b[36m{ms:.0}ms\x1b[0m\n");
         } else {
-            println!("\n  {} | {:.0}ms\n", stats_text, ms);
+            println!("\n  {stats_text} | {ms:.0}ms\n");
         }
     } else {
-        println!("\n  {}\n", stats_text);
+        println!("\n  {stats_text}\n");
     }
 }
 

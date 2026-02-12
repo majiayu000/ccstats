@@ -70,7 +70,7 @@ pub(super) fn format_number(n: i64, format: NumberFormat) -> String {
         result.push(c);
     }
     let formatted: String = result.chars().rev().collect();
-    format!("{}{}", sign, formatted)
+    format!("{sign}{formatted}")
 }
 
 /// Format number in compact form (K, M, B suffixes)
@@ -83,20 +83,20 @@ pub(super) fn format_compact(n: i64, format: NumberFormat) -> String {
     } else if value >= 1_000 {
         (value as f64 / 1_000.0, "K")
     } else {
-        return format!("{}{}", sign, value);
+        return format!("{sign}{value}");
     };
-    let mut s = format!("{:.1}", scaled);
+    let mut s = format!("{scaled:.1}");
     if format.decimal_sep != '.' {
         s = s.replace('.', &format.decimal_sep.to_string());
     }
-    format!("{}{}{}", sign, s, suffix)
+    format!("{sign}{s}{suffix}")
 }
 
 pub(super) fn format_cost(cost: f64) -> String {
     if cost.is_nan() {
         "N/A".to_string()
     } else {
-        format!("${:.2}", cost)
+        format!("${cost:.2}")
     }
 }
 

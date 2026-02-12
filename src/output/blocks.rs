@@ -176,7 +176,7 @@ pub(crate) fn print_block_table(
         table.add_row(row);
     }
 
-    println!("\n  {} 5-Hour Billing Blocks\n", source_label);
+    println!("\n  {source_label} 5-Hour Billing Blocks\n");
     println!("{table}");
     println!(
         "\n  {} blocks\n",
@@ -222,7 +222,7 @@ pub(crate) fn output_block_json(
         .collect();
 
     serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
-        eprintln!("Failed to serialize JSON output: {}", e);
+        eprintln!("Failed to serialize JSON output: {e}");
         "[]".to_string()
     })
 }

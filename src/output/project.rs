@@ -191,7 +191,7 @@ pub(crate) fn print_project_table(
         table.add_row(row);
     }
 
-    println!("\n  {} Project Usage\n", source_label);
+    println!("\n  {source_label} Project Usage\n");
     println!("{table}");
     println!(
         "\n  {} projects, {} sessions\n",
@@ -240,7 +240,7 @@ pub(crate) fn output_project_json(
         .collect();
 
     serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
-        eprintln!("Failed to serialize JSON output: {}", e);
+        eprintln!("Failed to serialize JSON output: {e}");
         "[]".to_string()
     })
 }

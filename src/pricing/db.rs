@@ -15,7 +15,7 @@ enum ResolvedPricing {
     Unknown,
 }
 
-/// Pricing database loaded from LiteLLM or cache
+/// Pricing database loaded from `LiteLLM` or cache
 #[derive(Debug)]
 pub(crate) struct PricingDb {
     models: HashMap<String, ModelPricing>,

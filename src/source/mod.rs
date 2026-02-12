@@ -50,7 +50,7 @@ pub(crate) trait Source: Send + Sync {
     fn find_files(&self) -> Vec<PathBuf>;
 
     /// Parse a single file into raw entries
-    fn parse_file(&self, path: &Path, timezone: &Timezone) -> Vec<RawEntry>;
+    fn parse_file(&self, path: &Path, timezone: Timezone) -> Vec<RawEntry>;
 }
 
 /// Box type for dynamic dispatch

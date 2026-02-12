@@ -1,4 +1,4 @@
-//! OpenAI Codex CLI data source
+//! `OpenAI` Codex CLI data source
 //!
 //! Parses JSONL logs from ~/.codex/sessions/ directory.
 //! Codex log format uses cumulative token counts that need delta computation.

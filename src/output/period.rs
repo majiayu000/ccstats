@@ -14,7 +14,7 @@ pub(crate) enum Period {
 fn week_start(date_str: &str) -> String {
     if let Ok(date) = NaiveDate::parse_from_str(date_str, DATE_FORMAT) {
         let weekday = date.weekday().num_days_from_monday();
-        let monday = date - chrono::Duration::days(weekday as i64);
+        let monday = date - chrono::Duration::days(i64::from(weekday));
         monday.format(DATE_FORMAT).to_string()
     } else {
         date_str.to_string()

@@ -32,7 +32,7 @@ impl<'a> DataLoader<'a> {
     fn filter_entries(
         entries: Vec<RawEntry>,
         filter: &DateFilter,
-        timezone: &Timezone,
+        timezone: Timezone,
     ) -> Vec<RawEntry> {
         let mut filtered = Vec::new();
         for mut entry in entries {
@@ -61,7 +61,7 @@ impl<'a> DataLoader<'a> {
     fn par_process<T, F, I, R>(
         &self,
         filter: &DateFilter,
-        timezone: &Timezone,
+        timezone: Timezone,
         per_file: F,
         init: I,
         reduce: R,
@@ -103,8 +103,7 @@ impl<'a> DataLoader<'a> {
 
         if !self.quiet {
             eprintln!(
-                "Parsed {} files incrementally ({:.2}ms)",
-                file_count, parse_ms
+                "Parsed {file_count} files incrementally ({parse_ms:.2}ms)"
             );
         }
 
@@ -115,7 +114,7 @@ impl<'a> DataLoader<'a> {
     fn load_deduped_entries_incremental(
         &self,
         filter: &DateFilter,
-        timezone: &Timezone,
+        timezone: Timezone,
     ) -> (Vec<RawEntry>, i64) {
         let result = self.par_process(
             filter,
@@ -148,7 +147,7 @@ impl<'a> DataLoader<'a> {
         }
     }
 
-    fn load_daily_incremental(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
+    fn load_daily_incremental(&self, filter: &DateFilter, timezone: Timezone) -> LoadResult {
         let load_start = Instant::now();
 
         let result = self.par_process(
@@ -162,10 +161,7 @@ impl<'a> DataLoader<'a> {
             },
         );
 
-        let day_stats = match result {
-            Some((stats, _)) => stats,
-            None => return LoadResult::default(),
-        };
+        let Some((day_stats, _)) = result else { return LoadResult::default() };
 
         let valid: i64 = day_stats.values().map(|day| day.stats.count).sum();
         if self.debug && !self.quiet {
@@ -210,7 +206,7 @@ impl<'a> DataLoader<'a> {
     fn load_sessions_incremental(
         &self,
         filter: &DateFilter,
-        timezone: &Timezone,
+        timezone: Timezone,
     ) -> Vec<SessionStats> {
         let result = self.par_process(
             filter,
@@ -227,12 +223,9 @@ impl<'a> DataLoader<'a> {
             HashMap::<String, SessionStats>::new,
             |mut acc, partial| {
                 for session in partial.into_values() {
-                    match acc.get_mut(&session.session_id) {
-                        Some(existing) => Self::merge_session_stats(existing, session),
-                        None => {
-                            let key = session.session_id.clone();
-                            acc.insert(key, session);
-                        }
+                    if let Some(existing) = acc.get_mut(&session.session_id) { Self::merge_session_stats(existing, session) } else {
+                        let key = session.session_id.clone();
+                        acc.insert(key, session);
                     }
                 }
                 acc
@@ -246,7 +239,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load and aggregate daily stats
-    fn load_daily(&self, filter: &DateFilter, timezone: &Timezone) -> LoadResult {
+    fn load_daily(&self, filter: &DateFilter, timezone: Timezone) -> LoadResult {
         if !self.source.capabilities().needs_dedup {
             return self.load_daily_incremental(filter, timezone);
         }
@@ -265,16 +258,15 @@ impl<'a> DataLoader<'a> {
         if !self.quiet {
             if skipped > 0 {
                 eprintln!(
-                    "Deduplicated {} entries, aggregated ({:.2}ms)",
-                    skipped, agg_ms
+                    "Deduplicated {skipped} entries, aggregated ({agg_ms:.2}ms)"
                 );
             } else {
-                eprintln!("Aggregated ({:.2}ms)", agg_ms);
+                eprintln!("Aggregated ({agg_ms:.2}ms)");
             }
         }
 
         if self.debug && !self.quiet {
-            eprintln!("[DEBUG] Processed {} entries, {} skipped", valid, skipped);
+            eprintln!("[DEBUG] Processed {valid} entries, {skipped} skipped");
             eprintln!("[DEBUG] Days with data: {}", day_stats.len());
         }
 
@@ -289,7 +281,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load session stats
-    fn load_sessions(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<SessionStats> {
+    fn load_sessions(&self, filter: &DateFilter, timezone: Timezone) -> Vec<SessionStats> {
         if !self.source.capabilities().needs_dedup {
             return self.load_sessions_incremental(filter, timezone);
         }
@@ -317,7 +309,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load project stats (only for sources that support it)
-    fn load_projects(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<ProjectStats> {
+    fn load_projects(&self, filter: &DateFilter, timezone: Timezone) -> Vec<ProjectStats> {
         if !self.source.capabilities().has_projects {
             return Vec::new();
         }
@@ -333,7 +325,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load block stats (only for sources that support it)
-    fn load_blocks(&self, filter: &DateFilter, timezone: &Timezone) -> Vec<BlockStats> {
+    fn load_blocks(&self, filter: &DateFilter, timezone: Timezone) -> Vec<BlockStats> {
         if !self.source.capabilities().has_billing_blocks {
             return Vec::new();
         }
@@ -390,7 +382,7 @@ impl<'a> DataLoader<'a> {
 pub(crate) fn load_daily(
     source: &dyn Source,
     filter: &DateFilter,
-    timezone: &Timezone,
+    timezone: Timezone,
     quiet: bool,
     debug: bool,
 ) -> LoadResult {
@@ -402,7 +394,7 @@ pub(crate) fn load_daily(
 pub(crate) fn load_sessions(
     source: &dyn Source,
     filter: &DateFilter,
-    timezone: &Timezone,
+    timezone: Timezone,
     quiet: bool,
 ) -> Vec<SessionStats> {
     let loader = DataLoader::new(source, quiet, false);
@@ -413,7 +405,7 @@ pub(crate) fn load_sessions(
 pub(crate) fn load_projects(
     source: &dyn Source,
     filter: &DateFilter,
-    timezone: &Timezone,
+    timezone: Timezone,
     quiet: bool,
 ) -> Vec<ProjectStats> {
     let loader = DataLoader::new(source, quiet, false);
@@ -424,7 +416,7 @@ pub(crate) fn load_projects(
 pub(crate) fn load_blocks(
     source: &dyn Source,
     filter: &DateFilter,
-    timezone: &Timezone,
+    timezone: Timezone,
     quiet: bool,
 ) -> Vec<BlockStats> {
     let loader = DataLoader::new(source, quiet, false);
@@ -467,7 +459,7 @@ mod tests {
     fn filter_entries_no_filter_passes_all() {
         let entries = vec![make_entry("2025-01-01", "m", 10), make_entry("2025-06-15", "m", 20)];
         let filter = DateFilter::new(None, None);
-        let result = DataLoader::filter_entries(entries, &filter, &tz());
+        let result = DataLoader::filter_entries(entries, &filter, tz());
         assert_eq!(result.len(), 2);
     }
 
@@ -480,7 +472,7 @@ mod tests {
         ];
         let since = NaiveDate::from_ymd_opt(2025, 3, 1);
         let filter = DateFilter::new(since, None);
-        let result = DataLoader::filter_entries(entries, &filter, &tz());
+        let result = DataLoader::filter_entries(entries, &filter, tz());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].input_tokens, 20);
         assert_eq!(result[1].input_tokens, 30);
@@ -495,7 +487,7 @@ mod tests {
         ];
         let until = NaiveDate::from_ymd_opt(2025, 3, 1);
         let filter = DateFilter::new(None, until);
-        let result = DataLoader::filter_entries(entries, &filter, &tz());
+        let result = DataLoader::filter_entries(entries, &filter, tz());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].input_tokens, 10);
         assert_eq!(result[1].input_tokens, 20);
@@ -507,7 +499,7 @@ mod tests {
         entry.date_str = "bad-date".to_string();
         // timestamp is "2025-01-15T12:00:00Z" — should parse and recover
         let filter = DateFilter::new(None, None);
-        let result = DataLoader::filter_entries(vec![entry], &filter, &tz());
+        let result = DataLoader::filter_entries(vec![entry], &filter, tz());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].date_str, "2025-01-15"); // recovered from timestamp
     }
@@ -515,7 +507,7 @@ mod tests {
     #[test]
     fn filter_entries_empty_input() {
         let filter = DateFilter::new(None, None);
-        let result = DataLoader::filter_entries(Vec::new(), &filter, &tz());
+        let result = DataLoader::filter_entries(Vec::new(), &filter, tz());
         assert!(result.is_empty());
     }
 

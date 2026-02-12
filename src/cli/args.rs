@@ -62,7 +62,7 @@ pub(crate) struct Cli {
     #[arg(short, long, global = true)]
     pub(crate) json: bool,
 
-    /// Use offline cached pricing (skip fetching from LiteLLM)
+    /// Use offline cached pricing (skip fetching from `LiteLLM`)
     #[arg(short = 'O', long, global = true)]
     pub(crate) offline: bool,
 
@@ -175,10 +175,10 @@ impl Cli {
 
         // String options: only apply if CLI didn't set them
         if self.timezone.is_none() {
-            self.timezone = config.timezone.clone();
+            self.timezone.clone_from(&config.timezone);
         }
         if self.locale.is_none() {
-            self.locale = config.locale.clone();
+            self.locale.clone_from(&config.locale);
         }
 
         self

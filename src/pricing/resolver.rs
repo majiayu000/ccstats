@@ -18,16 +18,16 @@ pub(super) fn parse_litellm_data(
 
         let input = value
             .get("input_cost_per_token")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
         let output = value
             .get("output_cost_per_token")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
         let reasoning_output = value
             .get("reasoning_output_cost_per_token")
             .or_else(|| value.get("reasoning_cost_per_token"))
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(output);
 
         let pricing = ModelPricing {
@@ -36,11 +36,11 @@ pub(super) fn parse_litellm_data(
             reasoning_output,
             cache_read: value
                 .get("cache_read_input_token_cost")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0),
             cache_create: value
                 .get("cache_creation_input_token_cost")
-                .and_then(|v| v.as_f64())
+                .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0),
         };
 
@@ -72,7 +72,7 @@ pub(super) fn resolve_pricing_known(
     }
 
     // Try with claude- prefix
-    let with_prefix = format!("claude-{}", model);
+    let with_prefix = format!("claude-{model}");
     if let Some(pricing) = models.get(&with_prefix) {
         return Some(pricing.clone());
     }
