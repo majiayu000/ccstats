@@ -154,4 +154,133 @@ mod tests {
         let result = aggregate_day_stats_by_period(&day_stats, Period::Week);
         assert!(result.is_empty());
     }
+
+    #[test]
+    fn week_start_cross_month_boundary() {
+        // 2025-01-27 is Monday, 2025-02-02 is Sunday — same week
+        assert_eq!(week_start("2025-02-02"), "2025-01-27");
+        assert_eq!(week_start("2025-01-31"), "2025-01-27");
+    }
+
+    #[test]
+    fn week_start_leap_year_feb29() {
+        // 2024-02-29 is Thursday, Monday is 2024-02-26
+        assert_eq!(week_start("2024-02-29"), "2024-02-26");
+    }
+
+    #[test]
+    fn aggregate_by_week_cross_month_boundary() {
+        let mut day_stats = HashMap::new();
+        // Jan 27 (Mon) and Feb 1 (Sat) are the same week
+        day_stats.insert("2025-01-27".to_string(), make_day_stats(&[("sonnet", 100)]));
+        day_stats.insert("2025-02-01".to_string(), make_day_stats(&[("sonnet", 200)]));
+
+        let result = aggregate_day_stats_by_period(&day_stats, Period::Week);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result["2025-01-27"].stats.input_tokens, 300);
+    }
+
+    #[test]
+    fn aggregate_by_week_cross_year_boundary() {
+        let mut day_stats = HashMap::new();
+        // 2024-12-30 is Monday, 2025-01-01 is Wednesday — same week
+        day_stats.insert("2024-12-30".to_string(), make_day_stats(&[("opus", 400)]));
+        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("opus", 100)]));
+
+        let result = aggregate_day_stats_by_period(&day_stats, Period::Week);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result["2024-12-30"].stats.input_tokens, 500);
+    }
+
+    #[test]
+    fn aggregate_by_week_different_weeks_stay_separate() {
+        let mut day_stats = HashMap::new();
+        // Week 1: Jan 6 (Mon)
+        day_stats.insert("2025-01-06".to_string(), make_day_stats(&[("sonnet", 100)]));
+        // Week 2: Jan 13 (Mon)
+        day_stats.insert("2025-01-13".to_string(), make_day_stats(&[("sonnet", 200)]));
+
+        let result = aggregate_day_stats_by_period(&day_stats, Period::Week);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result["2025-01-06"].stats.input_tokens, 100);
+        assert_eq!(result["2025-01-13"].stats.input_tokens, 200);
+    }
+
+    #[test]
+    fn aggregate_by_month_cross_year_boundary() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2024-12-15".to_string(), make_day_stats(&[("sonnet", 300)]));
+        day_stats.insert("2024-12-31".to_string(), make_day_stats(&[("sonnet", 200)]));
+        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("sonnet", 100)]));
+
+        let result = aggregate_day_stats_by_period(&day_stats, Period::Month);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result["2024-12"].stats.input_tokens, 500);
+        assert_eq!(result["2025-01"].stats.input_tokens, 100);
+    }
+
+    #[test]
+    fn aggregate_single_day_input() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2025-06-15".to_string(), make_day_stats(&[("opus", 1000)]));
+
+        let week_result = aggregate_day_stats_by_period(&day_stats, Period::Week);
+        assert_eq!(week_result.len(), 1);
+        // 2025-06-15 is Sunday, Monday is 2025-06-09
+        assert_eq!(week_result["2025-06-09"].stats.input_tokens, 1000);
+
+        let month_result = aggregate_day_stats_by_period(&day_stats, Period::Month);
+        assert_eq!(month_result.len(), 1);
+        assert_eq!(month_result["2025-06"].stats.input_tokens, 1000);
+    }
+
+    #[test]
+    fn aggregate_preserves_all_stat_fields() {
+        let mut day_stats = HashMap::new();
+        let mut ds = DayStats::default();
+        let stats = Stats {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation: 10,
+            cache_read: 20,
+            reasoning_tokens: 5,
+            count: 1,
+            skipped_chunks: 0,
+        };
+        ds.add_stats("model-a".to_string(), &stats);
+        day_stats.insert("2025-03-01".to_string(), ds);
+
+        let mut ds2 = DayStats::default();
+        let stats2 = Stats {
+            input_tokens: 200,
+            output_tokens: 80,
+            cache_creation: 30,
+            cache_read: 40,
+            reasoning_tokens: 15,
+            count: 2,
+            skipped_chunks: 1,
+        };
+        ds2.add_stats("model-a".to_string(), &stats2);
+        day_stats.insert("2025-03-10".to_string(), ds2);
+
+        let result = aggregate_day_stats_by_period(&day_stats, Period::Month);
+        let month = &result["2025-03"];
+        assert_eq!(month.stats.input_tokens, 300);
+        assert_eq!(month.stats.output_tokens, 130);
+        assert_eq!(month.stats.cache_creation, 40);
+        assert_eq!(month.stats.cache_read, 60);
+        assert_eq!(month.stats.reasoning_tokens, 20);
+        assert_eq!(month.stats.count, 3);
+
+        let model = &month.models["model-a"];
+        assert_eq!(model.input_tokens, 300);
+        assert_eq!(model.output_tokens, 130);
+    }
+
+    #[test]
+    fn period_key_month_short_string_fallback() {
+        // Strings shorter than 7 chars — get(0..7) returns None, falls back to full string
+        assert_eq!(period_key("short", Period::Month), "short");
+        assert_eq!(period_key("", Period::Month), "");
+    }
 }
