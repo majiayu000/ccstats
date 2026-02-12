@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.2.15"
+version = "0.2.16"
 edition = "2024"
 description = "Fast Claude Code token usage statistics CLI"
 license = "MIT"
@@ -29,6 +29,7 @@ comfy-table = "7.2.2"
 rayon = "1.11.0"
 dirs = "6.0.0"
 ureq = { version = "3.1.4", features = ["json"] }
+thiserror = "2"
 toml = "0.9.11"
 
 [profile.release]

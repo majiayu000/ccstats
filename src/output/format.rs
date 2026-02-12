@@ -1,5 +1,7 @@
 use comfy_table::{Attribute, Cell, CellAlignment, Color, Table, TableComponent};
 
+use crate::error::AppError;
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NumberFormat {
     group_sep: char,
@@ -16,7 +18,7 @@ impl Default for NumberFormat {
 }
 
 impl NumberFormat {
-    pub(crate) fn from_locale(locale: Option<&str>) -> Result<Self, String> {
+    pub(crate) fn from_locale(locale: Option<&str>) -> Result<Self, AppError> {
         let Some(raw) = locale else {
             return Ok(NumberFormat::default());
         };
@@ -41,7 +43,9 @@ impl NumberFormat {
             },
             "en" | "zh" => NumberFormat::default(),
             _ => {
-                return Err(format!("Unsupported locale: {}", trimmed));
+                return Err(AppError::UnsupportedLocale {
+                    input: trimmed.to_string(),
+                });
             }
         };
 

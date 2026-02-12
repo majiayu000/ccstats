@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod config;
 mod core;
+mod error;
 mod output;
 mod pricing;
 mod source;
