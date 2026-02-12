@@ -93,8 +93,8 @@ impl PricingDb {
         }
         if let Some(raw_data) = fetch_litellm_raw() {
             let fetch_time = start.elapsed();
-            let db = Self::from_raw_data(raw_data.clone(), strict_unknown);
             save_raw_cache(&raw_data);
+            let db = Self::from_raw_data(raw_data, strict_unknown);
             if !quiet {
                 eprintln!(
                     " {} models ({:.2}ms)",
