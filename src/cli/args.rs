@@ -192,7 +192,13 @@ impl Cli {
         match self.color_mode() {
             ColorMode::Always => true,
             ColorMode::Never => false,
-            ColorMode::Auto => std::io::stdout().is_terminal(),
+            ColorMode::Auto => {
+                // Respect the NO_COLOR convention (https://no-color.org/)
+                if std::env::var_os("NO_COLOR").is_some() {
+                    return false;
+                }
+                std::io::stdout().is_terminal()
+            }
         }
     }
 
@@ -464,5 +470,27 @@ mod tests {
         assert!(!merged.strict_pricing);
         assert!(merged.timezone.is_none());
         assert!(merged.locale.is_none());
+    }
+
+    // --- NO_COLOR env var ---
+
+    #[test]
+    fn no_color_env_disables_color_in_auto_mode() {
+        // SAFETY: test-only, single-threaded access to env var
+        unsafe { std::env::set_var("NO_COLOR", "") };
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let result = cli.use_color();
+        unsafe { std::env::remove_var("NO_COLOR") };
+        assert!(!result);
+    }
+
+    #[test]
+    fn color_always_overrides_no_color_env() {
+        // SAFETY: test-only, single-threaded access to env var
+        unsafe { std::env::set_var("NO_COLOR", "1") };
+        let cli = Cli::parse_from(["ccstats", "daily", "--color", "always"]);
+        let result = cli.use_color();
+        unsafe { std::env::remove_var("NO_COLOR") };
+        assert!(result);
     }
 }
