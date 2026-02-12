@@ -8,6 +8,7 @@ use crate::core::{
     BlockStats, DateFilter, DayStats, DedupAccumulator, LoadResult, ProjectStats, RawEntry,
     SessionStats, aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
 };
+use crate::consts::DATE_FORMAT;
 use crate::source::Source;
 use crate::utils::Timezone;
 use chrono::{DateTime, FixedOffset, Utc};
@@ -35,13 +36,13 @@ impl<'a> DataLoader<'a> {
     ) -> Vec<RawEntry> {
         let mut filtered = Vec::new();
         for mut entry in entries {
-            let date = chrono::NaiveDate::parse_from_str(&entry.date_str, "%Y-%m-%d")
+            let date = chrono::NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
                 .ok()
                 .or_else(|| {
                     let utc_dt = entry.timestamp.parse::<DateTime<Utc>>().ok()?;
                     let local_dt = timezone.to_fixed_offset(utc_dt);
                     let date = local_dt.date_naive();
-                    entry.date_str = date.format("%Y-%m-%d").to_string();
+                    entry.date_str = date.format(DATE_FORMAT).to_string();
                     entry.timestamp_ms = utc_dt.timestamp_millis();
                     Some(date)
                 });

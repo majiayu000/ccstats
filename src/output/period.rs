@@ -1,6 +1,7 @@
 use chrono::{Datelike, NaiveDate};
 use std::collections::HashMap;
 
+use crate::consts::DATE_FORMAT;
 use crate::core::DayStats;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,10 +12,10 @@ pub(crate) enum Period {
 }
 
 fn week_start(date_str: &str) -> String {
-    if let Ok(date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+    if let Ok(date) = NaiveDate::parse_from_str(date_str, DATE_FORMAT) {
         let weekday = date.weekday().num_days_from_monday();
         let monday = date - chrono::Duration::days(weekday as i64);
-        monday.format("%Y-%m-%d").to_string()
+        monday.format(DATE_FORMAT).to_string()
     } else {
         date_str.to_string()
     }
