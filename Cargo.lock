@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "ccstats"
-version = "0.2.16"
+version = "0.2.19"
 dependencies = [
  "chrono",
  "chrono-tz",
