@@ -173,4 +173,62 @@ mod tests {
         assert_eq!(format_cost(f64::NAN), "N/A");
         assert_eq!(format_cost(1.234), "$1.23");
     }
+
+    #[test]
+    fn cost_json_value_nan_is_null() {
+        assert_eq!(super::cost_json_value(f64::NAN), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn cost_json_value_normal() {
+        let val = super::cost_json_value(1.5);
+        assert_eq!(val.as_f64().unwrap(), 1.5);
+    }
+
+    #[test]
+    fn from_locale_none_returns_default() {
+        let fmt = NumberFormat::from_locale(None).unwrap();
+        assert_eq!(format_number(1000, fmt), "1,000");
+    }
+
+    #[test]
+    fn from_locale_empty_returns_default() {
+        let fmt = NumberFormat::from_locale(Some("")).unwrap();
+        assert_eq!(format_number(1000, fmt), "1,000");
+    }
+
+    #[test]
+    fn from_locale_de_uses_dot_separator() {
+        let fmt = NumberFormat::from_locale(Some("de")).unwrap();
+        assert_eq!(format_number(1000, fmt), "1.000");
+    }
+
+    #[test]
+    fn from_locale_fr_uses_space_separator() {
+        let fmt = NumberFormat::from_locale(Some("fr")).unwrap();
+        assert_eq!(format_number(1000, fmt), "1 000");
+    }
+
+    #[test]
+    fn from_locale_with_region_suffix() {
+        let fmt = NumberFormat::from_locale(Some("de-DE")).unwrap();
+        assert_eq!(format_number(1000, fmt), "1.000");
+    }
+
+    #[test]
+    fn from_locale_unsupported_returns_error() {
+        assert!(NumberFormat::from_locale(Some("ja")).is_err());
+    }
+
+    #[test]
+    fn format_compact_with_de_locale() {
+        let fmt = NumberFormat::from_locale(Some("de")).unwrap();
+        assert_eq!(format_compact(1500, fmt), "1,5K");
+    }
+
+    #[test]
+    fn format_number_negative() {
+        let fmt = NumberFormat::default();
+        assert_eq!(format_number(-1234, fmt), "-1,234");
+    }
 }

@@ -177,3 +177,145 @@ pub(crate) fn output_monthly_json(
 ) -> String {
     output_period_json(day_stats, Period::Month, pricing_db, order, breakdown, show_cost)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Stats;
+
+    fn make_day_stats(models: &[(&str, i64)]) -> DayStats {
+        let mut ds = DayStats::default();
+        for &(model, tokens) in models {
+            let stats = Stats {
+                input_tokens: tokens,
+                output_tokens: tokens / 2,
+                count: 1,
+                ..Default::default()
+            };
+            ds.add_stats(model.to_string(), &stats);
+        }
+        ds
+    }
+
+    #[test]
+    fn period_label_mapping() {
+        assert_eq!(period_label(Period::Day), "date");
+        assert_eq!(period_label(Period::Week), "week");
+        assert_eq!(period_label(Period::Month), "month");
+    }
+
+    #[test]
+    fn sort_output_asc() {
+        let mut vals = vec![
+            serde_json::json!({"date": "2025-01-15"}),
+            serde_json::json!({"date": "2025-01-01"}),
+            serde_json::json!({"date": "2025-01-10"}),
+        ];
+        sort_output(&mut vals, "date", SortOrder::Asc);
+        let dates: Vec<&str> = vals.iter().map(|v| v["date"].as_str().unwrap()).collect();
+        assert_eq!(dates, vec!["2025-01-01", "2025-01-10", "2025-01-15"]);
+    }
+
+    #[test]
+    fn sort_output_desc() {
+        let mut vals = vec![
+            serde_json::json!({"date": "2025-01-01"}),
+            serde_json::json!({"date": "2025-01-15"}),
+        ];
+        sort_output(&mut vals, "date", SortOrder::Desc);
+        assert_eq!(vals[0]["date"].as_str().unwrap(), "2025-01-15");
+    }
+
+    #[test]
+    fn sort_models_breakdown_by_cost_desc() {
+        let mut models = vec![
+            serde_json::json!({"model": "opus", "cost": 1.0}),
+            serde_json::json!({"model": "sonnet", "cost": 5.0}),
+            serde_json::json!({"model": "haiku", "cost": 0.5}),
+        ];
+        sort_models_breakdown(&mut models, true);
+        let names: Vec<&str> = models.iter().map(|v| v["model"].as_str().unwrap()).collect();
+        assert_eq!(names, vec!["sonnet", "opus", "haiku"]);
+    }
+
+    #[test]
+    fn sort_models_breakdown_by_name_when_no_cost() {
+        let mut models = vec![
+            serde_json::json!({"model": "sonnet"}),
+            serde_json::json!({"model": "haiku"}),
+            serde_json::json!({"model": "opus"}),
+        ];
+        sort_models_breakdown(&mut models, false);
+        let names: Vec<&str> = models.iter().map(|v| v["model"].as_str().unwrap()).collect();
+        assert_eq!(names, vec!["haiku", "opus", "sonnet"]);
+    }
+
+    #[test]
+    fn output_daily_json_structure() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("sonnet", 1000)]));
+
+        let db = PricingDb::default();
+        let json_str = output_daily_json(&day_stats, &db, SortOrder::Asc, false, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["date"], "2025-01-01");
+        assert_eq!(parsed[0]["input_tokens"], 1000);
+        assert_eq!(parsed[0]["output_tokens"], 500);
+        assert!(parsed[0].get("cost").is_none());
+    }
+
+    #[test]
+    fn output_daily_json_with_cost() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("sonnet", 1000)]));
+
+        let db = PricingDb::default();
+        let json_str = output_daily_json(&day_stats, &db, SortOrder::Asc, false, true);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert!(parsed[0].get("cost").is_some());
+    }
+
+    #[test]
+    fn output_daily_json_with_breakdown() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("sonnet", 1000), ("opus", 500)]));
+
+        let db = PricingDb::default();
+        let json_str = output_daily_json(&day_stats, &db, SortOrder::Asc, true, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        let breakdown = parsed[0]["breakdown"].as_array().unwrap();
+        assert_eq!(breakdown.len(), 2);
+    }
+
+    #[test]
+    fn output_weekly_json_aggregates() {
+        let mut day_stats = HashMap::new();
+        // Same week (Mon 2025-01-06 and Wed 2025-01-08)
+        day_stats.insert("2025-01-06".to_string(), make_day_stats(&[("sonnet", 100)]));
+        day_stats.insert("2025-01-08".to_string(), make_day_stats(&[("sonnet", 200)]));
+
+        let db = PricingDb::default();
+        let json_str = output_weekly_json(&day_stats, &db, SortOrder::Asc, false, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["week"], "2025-01-06");
+        assert_eq!(parsed[0]["input_tokens"], 300);
+    }
+
+    #[test]
+    fn output_monthly_json_uses_month_key() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2025-03-15".to_string(), make_day_stats(&[("sonnet", 100)]));
+
+        let db = PricingDb::default();
+        let json_str = output_monthly_json(&day_stats, &db, SortOrder::Asc, false, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed[0]["month"], "2025-03");
+    }
+}
