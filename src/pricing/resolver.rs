@@ -79,6 +79,9 @@ pub(super) fn resolve_pricing_known(
 
     // Try partial matching
     let model_lower = model.to_lowercase();
+    if model_lower.is_empty() {
+        return None;
+    }
     let mut candidates: Vec<(&String, &ModelPricing)> = models
         .iter()
         .filter(|(name, _)| {
@@ -129,8 +132,16 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
             cache_create: 1e-6,
             cache_read: 0.08e-6,
         }
-    } else if model_lower.contains("gpt-5") || model_lower.contains("codex") {
-        // GPT-5 / Codex pricing (approximate)
+    } else if model_lower.contains("codex") {
+        // OpenAI Codex pricing
+        ModelPricing {
+            input: 0.15e-6, // $0.15/M
+            output: 0.6e-6, // $0.60/M
+            reasoning_output: 0.6e-6,
+            cache_create: 0.0,
+            cache_read: 0.0,
+        }
+    } else if model_lower.contains("gpt-5") {
         ModelPricing {
             input: 1.25e-6, // $1.25/M
             output: 10e-6,  // $10/M
@@ -339,7 +350,7 @@ mod tests {
     #[test]
     fn test_fallback_codex() {
         let p = fallback_pricing("codex-mini");
-        assert_eq!(p.input, 1.25e-6);
+        assert_eq!(p.input, 0.15e-6);
     }
 
     #[test]
@@ -477,11 +488,9 @@ mod tests {
         let mut models = HashMap::new();
         models.insert("claude-sonnet-4".to_string(), ModelPricing::default());
 
-        // Empty string is contained in every string, so it matches
+        // Empty string should return None (rejected early)
         let result = resolve_pricing_known("", &models);
-        // "" → tries exact match (no), tries "claude-" prefix (no),
-        // then partial: "" is contained in every key → matches longest
-        assert!(result.is_some());
+        assert!(result.is_none());
     }
 
     // --- parse_litellm_data boundary tests ---
