@@ -1,3 +1,13 @@
+// Enable pedantic lints for new code quality; allow domain-inherent cast warnings
+// (token counts are i64, display needs f64/u32 — precision loss is acceptable)
+#![warn(clippy::pedantic)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+
 mod app;
 mod cli;
 mod config;

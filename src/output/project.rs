@@ -31,6 +31,7 @@ fn compare_cost(a: f64, b: f64) -> Ordering {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn print_project_table(
     projects: &[ProjectStats],
     pricing_db: &PricingDb,

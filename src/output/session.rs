@@ -64,6 +64,7 @@ pub(crate) struct SessionTableOptions<'a> {
     pub(crate) timezone: Timezone,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn print_session_table(
     sessions: &[SessionStats],
     pricing_db: &PricingDb,

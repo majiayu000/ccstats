@@ -25,6 +25,7 @@ pub(crate) enum ConfigCostMode {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Config {
     #[serde(default)]
     pub(crate) offline: bool,
