@@ -47,9 +47,9 @@ pub(crate) struct DayStats {
 }
 
 impl DayStats {
-    pub(crate) fn add_stats(&mut self, model: &str, stats: &Stats) {
+    pub(crate) fn add_stats(&mut self, model: String, stats: &Stats) {
         self.stats.add(stats);
-        self.models.entry(model.to_string()).or_default().add(stats);
+        self.models.entry(model).or_default().add(stats);
     }
 }
 

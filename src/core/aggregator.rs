@@ -7,14 +7,14 @@ use std::collections::HashMap;
 
 use crate::core::types::{BlockStats, DayStats, ProjectStats, RawEntry, SessionStats, Stats};
 
-/// Aggregate entries by day
-pub(crate) fn aggregate_daily(entries: &[RawEntry]) -> HashMap<String, DayStats> {
+/// Aggregate entries by day (consumes entries to avoid cloning)
+pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStats> {
     let mut day_stats: HashMap<String, DayStats> = HashMap::new();
 
     for entry in entries {
         let stats = entry.to_stats();
-        let day = day_stats.entry(entry.date_str.clone()).or_default();
-        day.add_stats(&entry.model, &stats);
+        let day = day_stats.entry(entry.date_str).or_default();
+        day.add_stats(entry.model, &stats);
     }
 
     day_stats
@@ -23,7 +23,6 @@ pub(crate) fn aggregate_daily(entries: &[RawEntry]) -> HashMap<String, DayStats>
 /// Session accumulator for building session stats
 #[derive(Debug, Default)]
 struct SessionAccumulator {
-    session_id: String,
     project_path: String,
     first_timestamp: String,
     last_timestamp: String,
@@ -34,9 +33,8 @@ struct SessionAccumulator {
 }
 
 impl SessionAccumulator {
-    fn new(session_id: String, project_path: String, timestamp: &str, timestamp_ms: i64) -> Self {
+    fn new(project_path: String, timestamp: &str, timestamp_ms: i64) -> Self {
         SessionAccumulator {
-            session_id,
             project_path,
             first_timestamp: timestamp.to_string(),
             last_timestamp: timestamp.to_string(),
@@ -47,13 +45,10 @@ impl SessionAccumulator {
         }
     }
 
-    fn add_entry(&mut self, entry: &RawEntry) {
+    fn add_entry(&mut self, entry: RawEntry) {
         let stats = entry.to_stats();
         self.stats.add(&stats);
-        self.models
-            .entry(entry.model.clone())
-            .or_default()
-            .add(&stats);
+        self.models.entry(entry.model).or_default().add(&stats);
         self.update_timestamps(&entry.timestamp, entry.timestamp_ms);
     }
 
@@ -69,27 +64,27 @@ impl SessionAccumulator {
     }
 }
 
-impl From<SessionAccumulator> for SessionStats {
-    fn from(acc: SessionAccumulator) -> Self {
+impl SessionAccumulator {
+    fn into_session_stats(self, session_id: String) -> SessionStats {
         SessionStats {
-            session_id: acc.session_id,
-            project_path: acc.project_path,
-            first_timestamp: acc.first_timestamp,
-            last_timestamp: acc.last_timestamp,
-            stats: acc.stats,
-            models: acc.models,
+            session_id,
+            project_path: self.project_path,
+            first_timestamp: self.first_timestamp,
+            last_timestamp: self.last_timestamp,
+            stats: self.stats,
+            models: self.models,
         }
     }
 }
 
-/// Aggregate entries by session
-pub(crate) fn aggregate_sessions(entries: &[RawEntry]) -> Vec<SessionStats> {
+/// Aggregate entries by session (consumes entries to avoid cloning)
+pub(crate) fn aggregate_sessions(entries: Vec<RawEntry>) -> Vec<SessionStats> {
     let mut sessions: HashMap<String, SessionAccumulator> = HashMap::new();
 
     for entry in entries {
-        let session = sessions.entry(entry.session_id.clone()).or_insert_with(|| {
+        let session_id = entry.session_id.clone(); // one clone for HashMap key
+        let session = sessions.entry(session_id).or_insert_with(|| {
             SessionAccumulator::new(
-                entry.session_id.clone(),
                 entry.project_path.clone(),
                 &entry.timestamp,
                 entry.timestamp_ms,
@@ -98,19 +93,23 @@ pub(crate) fn aggregate_sessions(entries: &[RawEntry]) -> Vec<SessionStats> {
         session.add_entry(entry);
     }
 
-    sessions.into_values().map(SessionStats::from).collect()
+    sessions
+        .into_iter()
+        .map(|(id, acc)| acc.into_session_stats(id))
+        .collect()
 }
 
-/// Aggregate sessions by project
-pub(crate) fn aggregate_projects(sessions: &[SessionStats]) -> Vec<ProjectStats> {
+/// Aggregate sessions by project (consumes sessions to avoid cloning)
+pub(crate) fn aggregate_projects(sessions: Vec<SessionStats>) -> Vec<ProjectStats> {
     let mut project_map: HashMap<String, ProjectStats> = HashMap::new();
 
     for session in sessions {
+        let project_path = session.project_path; // move, not clone
         let project = project_map
-            .entry(session.project_path.clone())
+            .entry(project_path.clone()) // one clone for HashMap key
             .or_insert_with(|| ProjectStats {
-                project_path: session.project_path.clone(),
-                project_name: format_project_name(&session.project_path),
+                project_name: format_project_name(&project_path),
+                project_path,
                 session_count: 0,
                 stats: Stats::default(),
                 models: HashMap::new(),
@@ -119,12 +118,8 @@ pub(crate) fn aggregate_projects(sessions: &[SessionStats]) -> Vec<ProjectStats>
         project.session_count += 1;
         project.stats.add(&session.stats);
 
-        for (model, model_stats) in &session.models {
-            project
-                .models
-                .entry(model.clone())
-                .or_default()
-                .add(model_stats);
+        for (model, model_stats) in session.models {
+            project.models.entry(model).or_default().add(&model_stats);
         }
     }
 
@@ -146,9 +141,9 @@ pub(crate) fn format_project_name(path: &str) -> String {
     path.trim_start_matches('-').to_string()
 }
 
-/// Aggregate entries by 5-hour billing blocks
+/// Aggregate entries by 5-hour billing blocks (consumes entries to avoid cloning)
 pub(crate) fn aggregate_blocks(
-    entries: &[RawEntry],
+    entries: Vec<RawEntry>,
     local_times: &HashMap<i64, DateTime<FixedOffset>>,
 ) -> Vec<BlockStats> {
     let mut block_map: HashMap<DateTime<FixedOffset>, BlockStats> = HashMap::new();
@@ -171,11 +166,7 @@ pub(crate) fn aggregate_blocks(
         });
 
         block.stats.add(&stats);
-        block
-            .models
-            .entry(entry.model.clone())
-            .or_default()
-            .add(&stats);
+        block.models.entry(entry.model).or_default().add(&stats);
     }
 
     let mut blocks: Vec<BlockStats> = block_map.into_values().collect();

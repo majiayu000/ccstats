@@ -141,7 +141,7 @@ impl<'a> DataLoader<'a> {
             .map(|path| {
                 let entries = self.source.parse_file(path, timezone);
                 let filtered = Self::filter_entries(entries, filter, timezone);
-                aggregate_daily(&filtered)
+                aggregate_daily(filtered)
             })
             .reduce(HashMap::new, |mut acc, partial| {
                 Self::merge_day_stats(&mut acc, partial);
@@ -225,12 +225,13 @@ impl<'a> DataLoader<'a> {
             .map(|path| {
                 let entries = self.source.parse_file(path, timezone);
                 let filtered = Self::filter_entries(entries, filter, timezone);
-                aggregate_sessions(&filtered)
+                aggregate_sessions(filtered)
             })
             .map(|sessions| {
                 let mut map = HashMap::<String, SessionStats>::new();
                 for session in sessions {
-                    map.insert(session.session_id.clone(), session);
+                    let key = session.session_id.clone();
+                    map.insert(key, session);
                 }
                 map
             })
@@ -239,7 +240,8 @@ impl<'a> DataLoader<'a> {
                     match acc.get_mut(&session.session_id) {
                         Some(existing) => Self::merge_session_stats(existing, session),
                         None => {
-                            acc.insert(session.session_id.clone(), session);
+                            let key = session.session_id.clone();
+                            acc.insert(key, session);
                         }
                     }
                 }
@@ -273,7 +275,7 @@ impl<'a> DataLoader<'a> {
 
         let agg_start = Instant::now();
         let valid = final_entries.len() as i64;
-        let day_stats = aggregate_daily(&final_entries);
+        let day_stats = aggregate_daily(final_entries);
         let agg_ms = agg_start.elapsed().as_secs_f64() * 1000.0;
 
         if !self.quiet {
@@ -313,7 +315,7 @@ impl<'a> DataLoader<'a> {
             return Vec::new();
         }
 
-        let sessions = aggregate_sessions(&final_entries);
+        let sessions = aggregate_sessions(final_entries);
 
         if !self.quiet {
             if skipped > 0 {
@@ -337,7 +339,7 @@ impl<'a> DataLoader<'a> {
         }
 
         let sessions = self.load_sessions(filter, timezone);
-        let projects = aggregate_projects(&sessions);
+        let projects = aggregate_projects(sessions);
 
         if !self.quiet {
             eprintln!("Aggregated into {} projects", projects.len());
@@ -377,7 +379,7 @@ impl<'a> DataLoader<'a> {
             }
         }
 
-        let blocks = aggregate_blocks(&final_entries, &local_times);
+        let blocks = aggregate_blocks(final_entries, &local_times);
 
         if !self.quiet {
             if skipped > 0 {
