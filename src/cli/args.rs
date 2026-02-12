@@ -252,4 +252,216 @@ mod tests {
         let merged = cli.with_config(&config);
         assert!(merged.use_color());
     }
+
+    // --- Boolean config merging ---
+
+    #[test]
+    fn config_offline_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            offline: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(merged.offline);
+    }
+
+    #[test]
+    fn config_compact_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            compact: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(merged.compact);
+    }
+
+    #[test]
+    fn config_breakdown_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            breakdown: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(merged.breakdown);
+    }
+
+    #[test]
+    fn config_debug_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            debug: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(merged.debug);
+    }
+
+    #[test]
+    fn config_strict_pricing_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            strict_pricing: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(merged.strict_pricing);
+    }
+
+    #[test]
+    fn cli_boolean_flags_override_config_false() {
+        // CLI sets --compact, config has compact=false (default)
+        let cli = Cli::parse_from(["ccstats", "daily", "--compact"]);
+        let config = Config::default();
+        let merged = cli.with_config(&config);
+        assert!(merged.compact);
+    }
+
+    // --- no_cost / no_color shorthand ---
+
+    #[test]
+    fn no_cost_flag_hides_cost() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--no-cost"]);
+        assert!(!cli.show_cost());
+    }
+
+    #[test]
+    fn config_no_cost_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            no_cost: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(!merged.show_cost());
+    }
+
+    #[test]
+    fn cost_hide_enum_hides_cost() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--cost", "hide"]);
+        assert!(!cli.show_cost());
+    }
+
+    #[test]
+    fn config_cost_hide_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            cost: Some(ConfigCostMode::Hide),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(!merged.show_cost());
+    }
+
+    #[test]
+    fn no_color_flag_disables_color() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--no-color"]);
+        assert!(!cli.use_color());
+    }
+
+    #[test]
+    fn color_never_disables_color() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--color", "never"]);
+        assert!(!cli.use_color());
+    }
+
+    #[test]
+    fn config_no_color_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            no_color: true,
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(!merged.use_color());
+    }
+
+    #[test]
+    fn config_color_never_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            color: Some(ConfigColorMode::Never),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert!(!merged.use_color());
+    }
+
+    // --- Timezone / locale merging ---
+
+    #[test]
+    fn config_timezone_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            timezone: Some("Asia/Shanghai".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.timezone.as_deref(), Some("Asia/Shanghai"));
+    }
+
+    #[test]
+    fn cli_timezone_wins_over_config() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--timezone", "UTC"]);
+        let config = Config {
+            timezone: Some("Asia/Shanghai".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.timezone.as_deref(), Some("UTC"));
+    }
+
+    #[test]
+    fn config_locale_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            locale: Some("zh".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.locale.as_deref(), Some("zh"));
+    }
+
+    #[test]
+    fn cli_locale_wins_over_config() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--locale", "en"]);
+        let config = Config {
+            locale: Some("zh".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.locale.as_deref(), Some("en"));
+    }
+
+    // --- Defaults ---
+
+    #[test]
+    fn default_sort_order_is_asc() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        assert_eq!(cli.sort_order(), SortOrder::Asc);
+    }
+
+    #[test]
+    fn default_show_cost_is_true() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        assert!(cli.show_cost());
+    }
+
+    #[test]
+    fn empty_config_changes_nothing() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config::default();
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.sort_order(), SortOrder::Asc);
+        assert!(merged.show_cost());
+        assert!(!merged.offline);
+        assert!(!merged.compact);
+        assert!(!merged.breakdown);
+        assert!(!merged.debug);
+        assert!(!merged.strict_pricing);
+        assert!(merged.timezone.is_none());
+        assert!(merged.locale.is_none());
+    }
 }
