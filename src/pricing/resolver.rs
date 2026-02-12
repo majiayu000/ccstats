@@ -347,4 +347,247 @@ mod tests {
         assert_eq!(p.input, 3e-6);
         assert_eq!(p.output, 15e-6);
     }
+
+    // --- resolve_pricing_known: partial matching boundary tests ---
+
+    #[test]
+    fn test_resolve_case_insensitive_partial() {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-sonnet-4-20250514".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+
+        // Mixed case query should still match via case-insensitive containment
+        let result = resolve_pricing_known("Claude-Sonnet-4-20250514", &models);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().input, 3e-6);
+    }
+
+    #[test]
+    fn test_resolve_partial_substring_in_model_name() {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-sonnet-4-20250514".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+
+        // Query is a substring of a stored key
+        let result = resolve_pricing_known("sonnet-4-20250514", &models);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_resolve_partial_model_name_in_query() {
+        let mut models = HashMap::new();
+        models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+
+        // Stored key is a substring of the query (bidirectional containment)
+        let result = resolve_pricing_known("claude-sonnet-4-20250514", &models);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().input, 3e-6);
+    }
+
+    #[test]
+    fn test_resolve_longest_match_wins() {
+        let mut models = HashMap::new();
+        models.insert(
+            "sonnet".to_string(),
+            ModelPricing {
+                input: 1e-6,
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "claude-sonnet-4-20250514".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+
+        // Both match "sonnet-4-20250514", but the longer key should win
+        let result = resolve_pricing_known("sonnet-4-20250514", &models);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().input, 3e-6);
+    }
+
+    #[test]
+    fn test_resolve_exact_match_takes_priority_over_partial() {
+        let mut models = HashMap::new();
+        models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 99e-6,
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "claude-sonnet-4-20250514".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+
+        // Exact match should be returned immediately, not partial
+        let result = resolve_pricing_known("sonnet-4", &models);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().input, 99e-6);
+    }
+
+    #[test]
+    fn test_resolve_claude_prefix_fallback() {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-opus-4".to_string(),
+            ModelPricing {
+                input: 15e-6,
+                ..Default::default()
+            },
+        );
+
+        // "opus-4" → tries "claude-opus-4" prefix match before partial
+        let result = resolve_pricing_known("opus-4", &models);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().input, 15e-6);
+    }
+
+    #[test]
+    fn test_resolve_empty_models_map() {
+        let models: HashMap<String, ModelPricing> = HashMap::new();
+        assert!(resolve_pricing_known("claude-sonnet-4", &models).is_none());
+    }
+
+    #[test]
+    fn test_resolve_empty_model_string() {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-sonnet-4".to_string(),
+            ModelPricing::default(),
+        );
+
+        // Empty string is contained in every string, so it matches
+        let result = resolve_pricing_known("", &models);
+        // "" → tries exact match (no), tries "claude-" prefix (no),
+        // then partial: "" is contained in every key → matches longest
+        assert!(result.is_some());
+    }
+
+    // --- parse_litellm_data boundary tests ---
+
+    #[test]
+    fn test_parse_gpt_prefix_without_openai_slash() {
+        let mut data = HashMap::new();
+        data.insert("gpt-4o".to_string(), make_litellm_entry(2.5e-6, 10e-6));
+
+        let result = parse_litellm_data(data);
+        // "gpt-" prefix is recognized as OpenAI
+        assert!(result.contains_key("gpt-4o"));
+        // No "openai/" prefix to strip, so no extra key
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_anthropic_dot_prefix_normalized() {
+        let mut data = HashMap::new();
+        data.insert(
+            "anthropic.claude-sonnet-4".to_string(),
+            make_litellm_entry(3e-6, 15e-6),
+        );
+
+        let result = parse_litellm_data(data);
+        // Original key stored
+        assert!(result.contains_key("anthropic.claude-sonnet-4"));
+        // Normalized: remove "claude-" and "anthropic." → "sonnet-4"
+        assert!(result.contains_key("sonnet-4"));
+    }
+
+    #[test]
+    fn test_parse_reasoning_cost_primary_key() {
+        let mut data = HashMap::new();
+        data.insert(
+            "claude-opus-4".to_string(),
+            json!({
+                "input_cost_per_token": 15e-6,
+                "output_cost_per_token": 75e-6,
+                "reasoning_output_cost_per_token": 100e-6,
+            }),
+        );
+
+        let result = parse_litellm_data(data);
+        let pricing = &result["claude-opus-4"];
+        // Primary key takes precedence
+        assert_eq!(pricing.reasoning_output, 100e-6);
+    }
+
+    #[test]
+    fn test_parse_reasoning_cost_alternate_key() {
+        let mut data = HashMap::new();
+        data.insert(
+            "claude-opus-4".to_string(),
+            json!({
+                "input_cost_per_token": 15e-6,
+                "output_cost_per_token": 75e-6,
+                "reasoning_cost_per_token": 80e-6,
+            }),
+        );
+
+        let result = parse_litellm_data(data);
+        let pricing = &result["claude-opus-4"];
+        // Falls back to reasoning_cost_per_token
+        assert_eq!(pricing.reasoning_output, 80e-6);
+    }
+
+    #[test]
+    fn test_parse_missing_cost_fields_default_to_zero() {
+        let mut data = HashMap::new();
+        data.insert("claude-test".to_string(), json!({}));
+
+        let result = parse_litellm_data(data);
+        let pricing = &result["claude-test"];
+        assert_eq!(pricing.input, 0.0);
+        assert_eq!(pricing.output, 0.0);
+        assert_eq!(pricing.cache_read, 0.0);
+        assert_eq!(pricing.cache_create, 0.0);
+        // reasoning_output defaults to output (which is 0.0)
+        assert_eq!(pricing.reasoning_output, 0.0);
+    }
+
+    // --- fallback_pricing boundary tests ---
+
+    #[test]
+    fn test_fallback_opus_4_5_dot_variant() {
+        let p = fallback_pricing("claude-opus-4.5");
+        assert_eq!(p.input, 5e-6);
+        assert_eq!(p.output, 25e-6);
+    }
+
+    #[test]
+    fn test_fallback_case_insensitive() {
+        let p = fallback_pricing("Claude-OPUS-4-20250514");
+        assert_eq!(p.input, 15e-6);
+
+        let p2 = fallback_pricing("CLAUDE-HAIKU-3.5");
+        assert_eq!(p2.input, 0.8e-6);
+    }
+
+    #[test]
+    fn test_fallback_gpt4() {
+        let p = fallback_pricing("gpt-4o-mini");
+        assert_eq!(p.input, 2.5e-6);
+        assert_eq!(p.output, 10e-6);
+    }
 }
