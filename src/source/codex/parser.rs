@@ -31,6 +31,7 @@ struct RawJsonEntry {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::struct_field_names)] // field names match JSON schema
 struct Payload {
     #[serde(rename = "type")]
     payload_type: Option<String>,
@@ -53,6 +54,7 @@ struct Metadata {
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
+#[allow(clippy::struct_field_names)] // field names match JSON schema
 struct TokenUsage {
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
@@ -154,6 +156,7 @@ fn extract_model(payload: &Payload) -> Option<String> {
     non_empty(payload.model.as_ref())
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()

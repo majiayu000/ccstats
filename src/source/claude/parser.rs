@@ -31,6 +31,7 @@ struct Message {
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
+#[allow(clippy::struct_field_names)] // field names match JSON schema
 struct Usage {
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,

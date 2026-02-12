@@ -73,6 +73,7 @@ impl SourceCommand {
 }
 
 impl From<&Commands> for SourceCommand {
+    #[allow(clippy::match_same_arms)] // Codex default intentionally maps to Daily
     fn from(cmd: &Commands) -> Self {
         match cmd {
             Commands::Daily => SourceCommand::Daily,

@@ -11,6 +11,7 @@ use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
 
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct TokenTableOptions {
     pub(crate) order: SortOrder,
     pub(crate) use_color: bool,

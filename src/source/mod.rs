@@ -15,6 +15,7 @@ use crate::utils::Timezone;
 
 /// Capabilities that a data source may support
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Capabilities {
     /// Supports project-level aggregation
     pub(crate) has_projects: bool,

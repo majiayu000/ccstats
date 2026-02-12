@@ -18,6 +18,7 @@ pub(crate) struct BlockTableOptions<'a> {
     pub(crate) number_format: NumberFormat,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn print_block_table(
     blocks: &[BlockStats],
     pricing_db: &PricingDb,
