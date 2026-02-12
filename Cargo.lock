@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "ccstats"
-version = "0.2.14"
+version = "0.2.16"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -120,6 +120,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "thiserror",
  "toml",
  "ureq",
 ]
