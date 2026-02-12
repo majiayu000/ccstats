@@ -1,6 +1,6 @@
-//! OpenAI Codex CLI data source configuration
+//! `OpenAI` Codex CLI data source configuration
 //!
-//! Defines the CodexSource implementation of the Source trait.
+//! Defines the `CodexSource` implementation of the Source trait.
 
 use std::path::{Path, PathBuf};
 
@@ -52,7 +52,7 @@ impl Source for CodexSource {
         find_codex_files()
     }
 
-    fn parse_file(&self, path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
+    fn parse_file(&self, path: &Path, timezone: Timezone) -> Vec<RawEntry> {
         parse_codex_file(path, timezone)
     }
 }

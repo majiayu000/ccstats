@@ -80,7 +80,7 @@ fn normalize_model_name(model: &str) -> String {
     name
 }
 
-pub(super) fn parse_claude_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
+pub(super) fn parse_claude_file(path: &Path, timezone: Timezone) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -160,7 +160,7 @@ fn parse_entry(
     path: &Path,
     session_id: &str,
     project_path: &str,
-    timezone: &Timezone,
+    timezone: Timezone,
     line_no: usize,
 ) -> Option<RawEntry> {
     let ts = entry.timestamp?;
@@ -169,9 +169,7 @@ fn parse_entry(
 
     let model = msg
         .model
-        .as_deref()
-        .map(normalize_model_name)
-        .unwrap_or_else(|| UNKNOWN.to_string());
+        .as_deref().map_or_else(|| UNKNOWN.to_string(), normalize_model_name);
 
     if model == "<synthetic>" || model.is_empty() {
         return None;
@@ -315,7 +313,7 @@ mod tests {
             50,
         );
         let tz = make_timezone();
-        let result = parse_entry(entry, Path::new("test.jsonl"), "sess1", "proj1", &tz, 1);
+        let result = parse_entry(entry, Path::new("test.jsonl"), "sess1", "proj1", tz, 1);
         let raw = result.unwrap();
         assert_eq!(raw.input_tokens, 100);
         assert_eq!(raw.output_tokens, 50);
@@ -336,7 +334,7 @@ mod tests {
             }),
         };
         let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }
 
     #[test]
@@ -346,7 +344,7 @@ mod tests {
             message: None,
         };
         let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }
 
     #[test]
@@ -361,28 +359,28 @@ mod tests {
             }),
         };
         let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }
 
     #[test]
     fn test_parse_entry_synthetic_model_filtered() {
         let entry = make_usage_entry("2025-01-15T10:00:00Z", Some("<synthetic>"), None, 10, 5);
         let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }
 
     #[test]
     fn test_parse_entry_empty_model_filtered() {
         let entry = make_usage_entry("2025-01-15T10:00:00Z", Some(""), None, 10, 5);
         let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }
 
     #[test]
     fn test_parse_entry_no_model_uses_unknown() {
         let entry = make_usage_entry("2025-01-15T10:00:00Z", None, None, 10, 5);
         let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).unwrap();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).unwrap();
         assert_eq!(raw.model, UNKNOWN);
     }
 
@@ -390,7 +388,7 @@ mod tests {
     fn test_parse_entry_invalid_timestamp_returns_none() {
         let entry = make_usage_entry("not-a-date", Some("claude-3-5-sonnet-20241022"), None, 10, 5);
         let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).is_none());
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }
 
     #[test]
@@ -410,7 +408,7 @@ mod tests {
             }),
         };
         let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).unwrap();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).unwrap();
         assert_eq!(raw.cache_creation, 30);
         assert_eq!(raw.cache_read, 20);
     }
@@ -432,7 +430,7 @@ mod tests {
             }),
         };
         let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", &tz, 1).unwrap();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).unwrap();
         assert_eq!(raw.input_tokens, 0);
         assert_eq!(raw.output_tokens, 0);
         assert_eq!(raw.cache_creation, 0);

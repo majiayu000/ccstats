@@ -15,13 +15,13 @@ use crate::utils::{Timezone, filter_json};
 fn print_json(json: &str, jq_filter: Option<&str>) {
     match jq_filter {
         Some(filter) => match filter_json(json, filter) {
-            Ok(filtered) => print!("{}", filtered),
+            Ok(filtered) => print!("{filtered}"),
             Err(e) => {
-                eprintln!("{}", e);
+                eprintln!("{e}");
                 std::process::exit(1);
             }
         },
-        None => println!("{}", json),
+        None => println!("{json}"),
     }
 }
 
@@ -37,7 +37,7 @@ pub(crate) struct CommandContext<'a> {
 /// Handle commands for a specific data source
 pub(crate) fn handle_source_command(
     source: &dyn Source,
-    command: &SourceCommand,
+    command: SourceCommand,
     ctx: CommandContext<'_>,
 ) {
     let filter = ctx.filter;
@@ -56,7 +56,7 @@ pub(crate) fn handle_source_command(
 
     match command {
         SourceCommand::Session => {
-            let sessions = load_sessions(source, filter, &timezone, quiet);
+            let sessions = load_sessions(source, filter, timezone, quiet);
             if sessions.is_empty() {
                 println!("No {} session data found.", source.display_name());
                 return;
@@ -91,7 +91,7 @@ pub(crate) fn handle_source_command(
                 );
                 return;
             }
-            let projects = load_projects(source, filter, &timezone, quiet);
+            let projects = load_projects(source, filter, timezone, quiet);
             if projects.is_empty() {
                 println!("No {} project data found.", source.display_name());
                 return;
@@ -125,7 +125,7 @@ pub(crate) fn handle_source_command(
                 );
                 return;
             }
-            let blocks = load_blocks(source, filter, &timezone, quiet);
+            let blocks = load_blocks(source, filter, timezone, quiet);
             if blocks.is_empty() {
                 println!("No {} block data found.", source.display_name());
                 return;
@@ -152,7 +152,7 @@ pub(crate) fn handle_source_command(
             return;
         }
         SourceCommand::Statusline => {
-            let result = load_daily(source, filter, &timezone, true, false);
+            let result = load_daily(source, filter, timezone, true, false);
             if cli.json {
                 let json = print_statusline_json(
                     &result.day_stats,
@@ -182,7 +182,7 @@ pub(crate) fn handle_source_command(
         _ => unreachable!(),
     };
 
-    let result = load_daily(source, filter, &timezone, quiet, cli.debug);
+    let result = load_daily(source, filter, timezone, quiet, cli.debug);
     if result.day_stats.is_empty() {
         println!("No {} data found.", source.display_name());
         return;

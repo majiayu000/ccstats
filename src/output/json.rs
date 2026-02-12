@@ -33,8 +33,8 @@ fn sort_output(output: &mut [serde_json::Value], key: &str, order: SortOrder) {
 fn sort_models_breakdown(breakdown: &mut [serde_json::Value], show_cost: bool) {
     if show_cost {
         breakdown.sort_by(|a, b| {
-            let cost_a = a.get("cost").and_then(|v| v.as_f64());
-            let cost_b = b.get("cost").and_then(|v| v.as_f64());
+            let cost_a = a.get("cost").and_then(serde_json::Value::as_f64);
+            let cost_b = b.get("cost").and_then(serde_json::Value::as_f64);
             match cost_b.partial_cmp(&cost_a).unwrap_or(Ordering::Equal) {
                 Ordering::Equal => a
                     .get("model")
@@ -143,7 +143,7 @@ pub(crate) fn output_period_json(
 
     sort_output(&mut output, label, order);
     serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
-        eprintln!("Failed to serialize JSON output: {}", e);
+        eprintln!("Failed to serialize JSON output: {e}");
         "[]".to_string()
     })
 }

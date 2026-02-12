@@ -20,12 +20,12 @@ fn truncate_session_id(id: &str, max_len: usize) -> String {
         ".".repeat(max_len)
     } else {
         let prefix: String = id.chars().take(max_len - 3).collect();
-        format!("{}...", prefix)
+        format!("{prefix}...")
     }
 }
 
 /// Extract date from timestamp
-fn extract_date(ts: &str, timezone: &Timezone) -> String {
+fn extract_date(ts: &str, timezone: Timezone) -> String {
     if let Ok(utc_dt) = ts.parse::<DateTime<Utc>>() {
         let local = timezone.to_fixed_offset(utc_dt);
         return local.date_naive().format(DATE_FORMAT).to_string();
@@ -125,7 +125,7 @@ pub(crate) fn print_session_table(
 
         let session_id = truncate_session_id(&session.session_id, 12);
         let project = format_project_name(&session.project_path);
-        let date = extract_date(&session.last_timestamp, &timezone);
+        let date = extract_date(&session.last_timestamp, timezone);
 
         if compact {
             let mut row = vec![
@@ -216,7 +216,7 @@ pub(crate) fn print_session_table(
         table.add_row(row);
     }
 
-    println!("\n  {} Session Usage\n", source_label);
+    println!("\n  {source_label} Session Usage\n");
     println!("{table}");
     println!(
         "\n  {} sessions\n",
@@ -266,7 +266,7 @@ pub(crate) fn output_session_json(
         .collect();
 
     serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
-        eprintln!("Failed to serialize JSON output: {}", e);
+        eprintln!("Failed to serialize JSON output: {e}");
         "[]".to_string()
     })
 }
@@ -328,20 +328,20 @@ mod tests {
     #[test]
     fn extract_date_valid_utc_timestamp() {
         let tz = Timezone::Named(chrono_tz::UTC);
-        assert_eq!(extract_date("2026-02-12T10:30:00Z", &tz), "2026-02-12");
+        assert_eq!(extract_date("2026-02-12T10:30:00Z", tz), "2026-02-12");
     }
 
     #[test]
     fn extract_date_fallback_on_invalid_timestamp() {
         let tz = Timezone::Named(chrono_tz::UTC);
         // Falls back to splitting on 'T'
-        assert_eq!(extract_date("2026-02-12T_garbage", &tz), "2026-02-12");
+        assert_eq!(extract_date("2026-02-12T_garbage", tz), "2026-02-12");
     }
 
     #[test]
     fn extract_date_no_t_separator() {
         let tz = Timezone::Named(chrono_tz::UTC);
-        assert_eq!(extract_date("just-a-string", &tz), "just-a-string");
+        assert_eq!(extract_date("just-a-string", tz), "just-a-string");
     }
 
     // --- compare_session_last_timestamp ---

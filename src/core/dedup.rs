@@ -1,7 +1,7 @@
 //! Deduplication logic for streaming entries
 //!
 //! Streaming responses create multiple entries per message ID.
-//! We keep the entry with stop_reason (completed message) to get accurate token counts.
+//! We keep the entry with `stop_reason` (completed message) to get accurate token counts.
 
 use crate::core::types::RawEntry;
 use std::collections::HashMap;
@@ -30,7 +30,7 @@ impl Deduplicatable for RawEntry {
 /// State machine for tracking best candidate entry for a message ID
 #[derive(Debug, Clone)]
 struct CandidateState<T: Deduplicatable + Clone> {
-    /// Entry with stop_reason (preferred)
+    /// Entry with `stop_reason` (preferred)
     completed: Option<T>,
     /// Latest entry by timestamp (fallback)
     latest: T,
@@ -148,7 +148,7 @@ impl<T: Deduplicatable + Clone> DedupAccumulator<T> {
         let mut result: Vec<T> = self
             .message_map
             .into_values()
-            .map(|s| s.finalize())
+            .map(CandidateState::finalize)
             .collect();
         result.extend(self.no_id_entries);
 

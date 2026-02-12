@@ -1,6 +1,6 @@
 //! Claude Code data source configuration
 //!
-//! Defines the ClaudeSource implementation of the Source trait.
+//! Defines the `ClaudeSource` implementation of the Source trait.
 
 use std::path::{Path, PathBuf};
 
@@ -52,7 +52,7 @@ impl Source for ClaudeSource {
         find_claude_files()
     }
 
-    fn parse_file(&self, path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
+    fn parse_file(&self, path: &Path, timezone: Timezone) -> Vec<RawEntry> {
         parse_claude_file(path, timezone)
     }
 }

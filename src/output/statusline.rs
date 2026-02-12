@@ -82,7 +82,7 @@ pub(crate) fn print_statusline_json(
     });
 
     serde_json::to_string(&output).unwrap_or_else(|e| {
-        eprintln!("Failed to serialize JSON output: {}", e);
+        eprintln!("Failed to serialize JSON output: {e}");
         "{}".to_string()
     })
 }

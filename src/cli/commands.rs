@@ -62,12 +62,12 @@ pub(crate) enum SourceCommand {
 
 impl SourceCommand {
     /// Check if this is a statusline command (requires quiet mode)
-    pub(crate) fn is_statusline(&self) -> bool {
+    pub(crate) fn is_statusline(self) -> bool {
         matches!(self, SourceCommand::Statusline)
     }
 
     /// Check if this command needs today's date filter
-    pub(crate) fn needs_today_filter(&self) -> bool {
+    pub(crate) fn needs_today_filter(self) -> bool {
         matches!(self, SourceCommand::Today | SourceCommand::Statusline)
     }
 }
@@ -101,7 +101,7 @@ impl From<&Option<CodexCommands>> for SourceCommand {
     }
 }
 
-/// Parse CLI command into (is_codex, SourceCommand)
+/// Parse CLI command into (`is_codex`, `SourceCommand`)
 pub(crate) fn parse_command(cmd: &Option<Commands>) -> (bool, SourceCommand) {
     match cmd {
         Some(Commands::Codex { command }) => (true, SourceCommand::from(command)),

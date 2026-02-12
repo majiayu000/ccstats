@@ -1,4 +1,4 @@
-//! OpenAI Codex CLI JSONL parser
+//! `OpenAI` Codex CLI JSONL parser
 //!
 //! Parses JSONL logs from ~/.codex/sessions/ directory.
 //! Codex log format uses cumulative token counts that need delta computation.
@@ -154,7 +154,7 @@ fn extract_model(payload: &Payload) -> Option<String> {
     non_empty(payload.model.as_ref())
 }
 
-pub(super) fn parse_codex_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry> {
+pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -232,35 +232,21 @@ pub(super) fn parse_codex_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry
             continue;
         }
 
-        let payload = match &raw_entry.payload {
-            Some(p) => p,
-            None => continue,
-        };
+        let Some(payload) = &raw_entry.payload else { continue };
 
-        let payload_type = match &payload.payload_type {
-            Some(t) => t.as_str(),
-            None => continue,
-        };
+        let Some(payload_type) = &payload.payload_type else { continue };
 
         if payload_type != "token_count" {
             continue;
         }
 
-        let timestamp = match &raw_entry.timestamp {
-            Some(ts) => ts.clone(),
-            None => continue,
-        };
+        let Some(timestamp) = &raw_entry.timestamp else { continue };
+        let timestamp = timestamp.clone();
 
-        let info = match &payload.info {
-            Some(i) => i,
-            None => continue,
-        };
+        let Some(info) = &payload.info else { continue };
 
         // Get delta usage
-        let total = match &info.total_token_usage {
-            Some(t) => t,
-            None => continue,
-        };
+        let Some(total) = &info.total_token_usage else { continue };
 
         // Skip if total hasn't changed (duplicate event)
         if let Some(prev) = &previous_totals

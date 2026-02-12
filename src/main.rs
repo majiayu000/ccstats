@@ -21,6 +21,11 @@ use pricing::PricingDb;
 use source::get_source;
 use utils::{Timezone, parse_date, set_parse_debug};
 
+enum TimezoneSource {
+    Cli,
+    Config,
+}
+
 fn main() {
     // Parse CLI and extract source command
     let raw_cli = Cli::parse();
@@ -39,11 +44,6 @@ fn main() {
     let cli = raw_cli.with_config(&config);
     set_parse_debug(cli.debug);
 
-    enum TimezoneSource {
-        Cli,
-        Config,
-    }
-
     let timezone_source = if raw_timezone.is_some() {
         Some(TimezoneSource::Cli)
     } else if cli.timezone.is_some() {
@@ -54,22 +54,19 @@ fn main() {
 
     let timezone = match Timezone::parse(cli.timezone.as_deref()) {
         Ok(tz) => tz,
-        Err(err) => match timezone_source {
-            Some(TimezoneSource::Config) => {
-                eprintln!("Warning: {}. Falling back to local timezone.", err);
-                Timezone::Local
-            }
-            _ => {
-                eprintln!("{}", err);
-                std::process::exit(1);
-            }
+        Err(err) => if let Some(TimezoneSource::Config) = timezone_source {
+            eprintln!("Warning: {err}. Falling back to local timezone.");
+            Timezone::Local
+        } else {
+            eprintln!("{err}");
+            std::process::exit(1);
         },
     };
 
     let number_format = match NumberFormat::from_locale(cli.locale.as_deref()) {
         Ok(format) => format,
         Err(err) => {
-            eprintln!("Warning: {}. Using default locale.", err);
+            eprintln!("Warning: {err}. Using default locale.");
             NumberFormat::default()
         }
     };
@@ -80,7 +77,7 @@ fn main() {
         Some(s) => match parse_date(s) {
             Ok(date) => Some(date),
             Err(err) => {
-                eprintln!("--since: {}", err);
+                eprintln!("--since: {err}");
                 std::process::exit(1);
             }
         },
@@ -90,7 +87,7 @@ fn main() {
         Some(s) => match parse_date(s) {
             Ok(date) => Some(date),
             Err(err) => {
-                eprintln!("--until: {}", err);
+                eprintln!("--until: {err}");
                 std::process::exit(1);
             }
         },
@@ -114,17 +111,14 @@ fn main() {
 
     // Get the appropriate data source
     let source_name = if is_codex { "codex" } else { "claude" };
-    let source = match get_source(source_name) {
-        Some(s) => s,
-        None => {
-            eprintln!("Error: {} source not found", source_name);
-            std::process::exit(1);
-        }
+    let Some(source) = get_source(source_name) else {
+        eprintln!("Error: {source_name} source not found");
+        std::process::exit(1);
     };
 
     handle_source_command(
         source,
-        &source_cmd,
+        source_cmd,
         CommandContext {
             filter: &filter,
             cli: &cli,
