@@ -341,14 +341,19 @@ impl<'a> DataLoader<'a> {
         let (final_entries, skipped) = if self.source.capabilities().needs_dedup {
             self.load_deduped_entries_incremental(filter, timezone)
         } else {
-            let entries: Vec<RawEntry> = self
-                .source
-                .find_files()
-                .par_iter()
-                .flat_map(|path| self.source.parse_file(path, timezone))
-                .collect();
-            let entries = Self::filter_entries(entries, filter, timezone);
-            (entries, 0)
+            match self.par_process(
+                filter,
+                timezone,
+                |filtered| filtered,
+                Vec::new,
+                |mut acc, partial| {
+                    acc.extend(partial);
+                    acc
+                },
+            ) {
+                Some((entries, _)) => (entries, 0),
+                None => return Vec::new(),
+            }
         };
         if final_entries.is_empty() {
             return Vec::new();
