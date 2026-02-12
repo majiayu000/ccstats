@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.13] - 2026-02-12
+
+### Fixed
+- Replace `panic!()` in main.rs with graceful `eprintln` + `process::exit(1)`
+
 ## [0.1.20] - 2026-02-03
 
 ### Added
