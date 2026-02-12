@@ -1,7 +1,8 @@
 [package]
 name = "ccstats"
-version = "0.2.48"
+version = "0.2.49"
 edition = "2024"
+rust-version = "1.85"
 description = "Fast Claude Code token usage statistics CLI"
 license = "MIT"
 repository = "https://github.com/majiayu000/ccstats"
@@ -38,3 +39,4 @@ tempfile = "3"
 [profile.release]
 lto = true
 codegen-units = 1
+strip = true
