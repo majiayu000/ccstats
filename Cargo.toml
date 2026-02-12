@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.2.51"
+version = "0.2.52"
 edition = "2024"
 rust-version = "1.85"
 description = "Fast Claude Code token usage statistics CLI"
@@ -41,3 +41,4 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+opt-level = "z"
