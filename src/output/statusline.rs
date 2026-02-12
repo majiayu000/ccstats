@@ -92,6 +92,24 @@ mod tests {
     use super::*;
     use crate::core::{DayStats, Stats};
 
+    fn make_day(input: i64, output: i64, reasoning: i64, cache_c: i64, cache_r: i64) -> DayStats {
+        let stats = Stats {
+            input_tokens: input,
+            output_tokens: output,
+            reasoning_tokens: reasoning,
+            cache_creation: cache_c,
+            cache_read: cache_r,
+            count: 1,
+            skipped_chunks: 0,
+        };
+        let mut day = DayStats {
+            stats: stats.clone(),
+            ..Default::default()
+        };
+        day.models.insert("test-model".to_string(), stats);
+        day
+    }
+
     #[test]
     fn statusline_json_total_includes_reasoning_tokens() {
         let mut day_stats = HashMap::new();
@@ -120,5 +138,91 @@ mod tests {
         assert_eq!(value["reasoning_tokens"].as_i64(), Some(50));
         assert_eq!(value["total_tokens"].as_i64(), Some(380));
         assert_eq!(value["source"].as_str(), Some("OpenAI Codex"));
+    }
+
+    #[test]
+    fn statusline_json_empty_stats() {
+        let day_stats = HashMap::new();
+        let json = print_statusline_json(
+            &day_stats,
+            &PricingDb::default(),
+            "Claude Code",
+            NumberFormat::default(),
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["input_tokens"].as_i64(), Some(0));
+        assert_eq!(v["output_tokens"].as_i64(), Some(0));
+        assert_eq!(v["total_tokens"].as_i64(), Some(0));
+        assert_eq!(v["source"].as_str(), Some("Claude Code"));
+        assert_eq!(v["formatted"]["cost"].as_str(), Some("$0.00"));
+        assert_eq!(v["formatted"]["input"].as_str(), Some("0"));
+        assert_eq!(v["formatted"]["output"].as_str(), Some("0"));
+    }
+
+    #[test]
+    fn statusline_json_aggregates_multiple_days() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2026-02-10".to_string(), make_day(1000, 2000, 0, 0, 500));
+        day_stats.insert("2026-02-11".to_string(), make_day(3000, 4000, 100, 50, 200));
+
+        let json = print_statusline_json(
+            &day_stats,
+            &PricingDb::default(),
+            "CC",
+            NumberFormat::default(),
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["input_tokens"].as_i64(), Some(4000));
+        assert_eq!(v["output_tokens"].as_i64(), Some(6000));
+        assert_eq!(v["reasoning_tokens"].as_i64(), Some(100));
+        assert_eq!(v["cache_creation_tokens"].as_i64(), Some(50));
+        assert_eq!(v["cache_read_tokens"].as_i64(), Some(700));
+        assert_eq!(v["total_tokens"].as_i64(), Some(10850));
+    }
+
+    #[test]
+    fn statusline_json_zero_reasoning_still_present() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2026-02-12".to_string(), make_day(500, 300, 0, 0, 0));
+
+        let json = print_statusline_json(
+            &day_stats,
+            &PricingDb::default(),
+            "CC",
+            NumberFormat::default(),
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["reasoning_tokens"].as_i64(), Some(0));
+        assert_eq!(v["formatted"]["reasoning"].as_str(), Some("0"));
+    }
+
+    #[test]
+    fn statusline_json_formatted_uses_compact() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert("2026-02-12".to_string(), make_day(1_500_000, 250_000, 0, 0, 0));
+
+        let json = print_statusline_json(
+            &day_stats,
+            &PricingDb::default(),
+            "CC",
+            NumberFormat::default(),
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["formatted"]["input"].as_str(), Some("1.5M"));
+        assert_eq!(v["formatted"]["output"].as_str(), Some("250.0K"));
+    }
+
+    #[test]
+    fn statusline_json_cost_is_valid_json_number() {
+        let day_stats = HashMap::new();
+        let json = print_statusline_json(
+            &day_stats,
+            &PricingDb::default(),
+            "CC",
+            NumberFormat::default(),
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // Cost should be a number (0.0), not null
+        assert!(v["cost"].is_number());
     }
 }
