@@ -249,6 +249,187 @@ fn strict_pricing_sets_unknown_cost_to_null() {
 }
 
 #[test]
+fn claude_project_json_aggregates_sessions() {
+    let root = unique_temp_dir("claude-project");
+    // Two sessions in the same project, one session in a different project
+    let session_a = root.join(".claude/projects/myapp/session-a.jsonl");
+    let session_b = root.join(".claude/projects/myapp/session-b.jsonl");
+    let session_c = root.join(".claude/projects/other-project/session-c.jsonl");
+
+    // Session A: sonnet, 100 input + 50 output + 10 cache_creation + 20 cache_read = 180 total
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}
+"#,
+    );
+    // Session B: opus, 200 input + 80 output = 280 total
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","message":{"id":"msg_2","model":"claude-4-opus-20250514","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":80,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+    // Session C: sonnet, 50 input + 25 output = 75 total
+    write_file(
+        &session_c,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_3","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":50,"output_tokens":25,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "project",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 2, "should have 2 projects");
+
+    // Find each project by name (sort order depends on cost, which is 0 with --no-cost)
+    let myapp = arr
+        .iter()
+        .find(|p| p["project"].as_str() == Some("myapp"))
+        .expect("myapp project");
+    let other = arr
+        .iter()
+        .find(|p| p["project"].as_str() == Some("other-project"))
+        .expect("other-project");
+
+    assert_eq!(myapp["session_count"].as_i64(), Some(2));
+    assert_eq!(myapp["total_tokens"].as_i64(), Some(460));
+    // Models should be sorted alphabetically
+    let models: Vec<&str> = myapp["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert_eq!(models.len(), 2);
+    assert!(models[0] < models[1], "models should be sorted: {models:?}");
+
+    assert_eq!(other["session_count"].as_i64(), Some(1));
+    assert_eq!(other["total_tokens"].as_i64(), Some(75));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_blocks_json_groups_by_5h_window() {
+    let root = unique_temp_dir("claude-blocks");
+    let session = root.join(".claude/projects/myapp/session-blocks.jsonl");
+
+    // Entry at 10:00 UTC → block 10:00-15:00
+    // Entry at 14:30 UTC → same block 10:00-15:00
+    // Entry at 15:00 UTC → block 15:00-20:00
+    write_file(
+        &session,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_a","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"timestamp":"2026-02-06T14:30:00Z","message":{"id":"msg_b","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"timestamp":"2026-02-06T15:00:00Z","message":{"id":"msg_c","model":"claude-4-opus-20250514","stop_reason":"end_turn","usage":{"input_tokens":300,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "blocks",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 2, "should have 2 blocks");
+
+    // Default sort is asc by block_start
+    let block_10 = &arr[0];
+    assert!(
+        block_10["block_start"]
+            .as_str()
+            .unwrap()
+            .contains("10:00"),
+        "first block should start at 10:00"
+    );
+    assert_eq!(block_10["block_end"].as_str(), Some("15:00"));
+    // 100+50 + 200+100 = 450
+    assert_eq!(block_10["total_tokens"].as_i64(), Some(450));
+
+    let block_15 = &arr[1];
+    assert!(
+        block_15["block_start"]
+            .as_str()
+            .unwrap()
+            .contains("15:00"),
+        "second block should start at 15:00"
+    );
+    assert_eq!(block_15["block_end"].as_str(), Some("20:00"));
+    // 300+150 = 450
+    assert_eq!(block_15["total_tokens"].as_i64(), Some(450));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_dedup_keeps_completed_message() {
+    let root = unique_temp_dir("claude-dedup");
+    let session = root.join(".claude/projects/myapp/session-dedup.jsonl");
+
+    // Same message ID: first without stop_reason (streaming), second with stop_reason (completed)
+    // Dedup should keep the completed one with accurate token counts
+    write_file(
+        &session,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_dup","model":"claude-3-5-sonnet-20241022","usage":{"input_tokens":50,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"timestamp":"2026-02-06T10:00:01Z","message":{"id":"msg_dup","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    // Should use the completed message's tokens (100+50=150), not the streaming one (50+10=60)
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(150));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn claude_daily_json_reads_home_projects() {
     let root = unique_temp_dir("claude-daily");
     let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
