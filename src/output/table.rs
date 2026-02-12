@@ -319,7 +319,7 @@ fn add_total_row(
     }
 }
 
-fn print_period_table(
+pub(crate) fn print_period_table(
     day_stats: &HashMap<String, DayStats>,
     period: Period,
     breakdown: bool,
@@ -370,34 +370,4 @@ fn print_period_table(
         summary.elapsed_ms,
         options.use_color,
     );
-}
-
-pub(crate) fn print_daily_table(
-    day_stats: &HashMap<String, DayStats>,
-    breakdown: bool,
-    summary: SummaryOptions,
-    pricing_db: &PricingDb,
-    options: TokenTableOptions,
-) {
-    print_period_table(day_stats, Period::Day, breakdown, summary, pricing_db, options);
-}
-
-pub(crate) fn print_weekly_table(
-    day_stats: &HashMap<String, DayStats>,
-    breakdown: bool,
-    summary: SummaryOptions,
-    pricing_db: &PricingDb,
-    options: TokenTableOptions,
-) {
-    print_period_table(day_stats, Period::Week, breakdown, summary, pricing_db, options);
-}
-
-pub(crate) fn print_monthly_table(
-    day_stats: &HashMap<String, DayStats>,
-    breakdown: bool,
-    summary: SummaryOptions,
-    pricing_db: &PricingDb,
-    options: TokenTableOptions,
-) {
-    print_period_table(day_stats, Period::Month, breakdown, summary, pricing_db, options);
 }

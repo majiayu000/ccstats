@@ -2,11 +2,10 @@ use crate::cli::{Cli, SourceCommand};
 use crate::core::DateFilter;
 use crate::output::NumberFormat;
 use crate::output::{
-    BlockTableOptions, ProjectTableOptions, SessionTableOptions, SummaryOptions, TokenTableOptions,
-    output_block_json, output_daily_json, output_monthly_json, output_project_json,
-    output_session_json, output_weekly_json, print_block_table, print_daily_table,
-    print_monthly_table, print_project_table, print_session_table, print_statusline,
-    print_statusline_json, print_weekly_table,
+    BlockTableOptions, Period, ProjectTableOptions, SessionTableOptions, SummaryOptions,
+    TokenTableOptions, output_block_json, output_period_json, output_project_json,
+    output_session_json, print_block_table, print_period_table, print_project_table,
+    print_session_table, print_statusline, print_statusline_json,
 };
 use crate::pricing::PricingDb;
 use crate::source::{Source, load_blocks, load_daily, load_projects, load_sessions};
@@ -82,6 +81,7 @@ pub(crate) fn handle_source_command(
                     },
                 );
             }
+            return;
         }
         SourceCommand::Project => {
             if !caps.has_projects {
@@ -115,6 +115,7 @@ pub(crate) fn handle_source_command(
                     },
                 );
             }
+            return;
         }
         SourceCommand::Blocks => {
             if !caps.has_billing_blocks {
@@ -148,6 +149,7 @@ pub(crate) fn handle_source_command(
                     },
                 );
             }
+            return;
         }
         SourceCommand::Statusline => {
             let result = load_daily(source, filter, &timezone, true, false);
@@ -167,123 +169,56 @@ pub(crate) fn handle_source_command(
                     number_format,
                 );
             }
+            return;
         }
-        SourceCommand::Daily | SourceCommand::Today => {
-            let result = load_daily(source, filter, &timezone, quiet, cli.debug);
-            if result.day_stats.is_empty() {
-                println!("No {} data found.", source.display_name());
-                return;
-            }
-            let use_color = cli.use_color();
-            let show_cost = cli.show_cost();
-            if cli.json {
-                let json = output_daily_json(
-                    &result.day_stats,
-                    pricing_db,
-                    order,
-                    cli.breakdown,
-                    show_cost,
-                );
-                print_json(&json, jq_filter);
-            } else {
-                print_daily_table(
-                    &result.day_stats,
-                    cli.breakdown,
-                    SummaryOptions {
-                        skipped: result.skipped,
-                        valid: result.valid,
-                        elapsed_ms: Some(result.elapsed_ms),
-                    },
-                    pricing_db,
-                    TokenTableOptions {
-                        order,
-                        use_color,
-                        compact: cli.compact,
-                        show_cost,
-                        number_format,
-                        show_reasoning,
-                        show_cache_creation,
-                    },
-                );
-            }
-        }
-        SourceCommand::Weekly => {
-            let result = load_daily(source, filter, &timezone, quiet, cli.debug);
-            if result.day_stats.is_empty() {
-                println!("No {} data found.", source.display_name());
-                return;
-            }
-            let use_color = cli.use_color();
-            let show_cost = cli.show_cost();
-            if cli.json {
-                let json = output_weekly_json(
-                    &result.day_stats,
-                    pricing_db,
-                    order,
-                    cli.breakdown,
-                    show_cost,
-                );
-                print_json(&json, jq_filter);
-            } else {
-                print_weekly_table(
-                    &result.day_stats,
-                    cli.breakdown,
-                    SummaryOptions {
-                        skipped: result.skipped,
-                        valid: result.valid,
-                        elapsed_ms: Some(result.elapsed_ms),
-                    },
-                    pricing_db,
-                    TokenTableOptions {
-                        order,
-                        use_color,
-                        compact: cli.compact,
-                        show_cost,
-                        number_format,
-                        show_reasoning,
-                        show_cache_creation,
-                    },
-                );
-            }
-        }
-        SourceCommand::Monthly => {
-            let result = load_daily(source, filter, &timezone, quiet, cli.debug);
-            if result.day_stats.is_empty() {
-                println!("No {} data found.", source.display_name());
-                return;
-            }
-            let use_color = cli.use_color();
-            let show_cost = cli.show_cost();
-            if cli.json {
-                let json = output_monthly_json(
-                    &result.day_stats,
-                    pricing_db,
-                    order,
-                    cli.breakdown,
-                    show_cost,
-                );
-                print_json(&json, jq_filter);
-            } else {
-                print_monthly_table(
-                    &result.day_stats,
-                    cli.breakdown,
-                    SummaryOptions {
-                        skipped: result.skipped,
-                        valid: result.valid,
-                        elapsed_ms: Some(result.elapsed_ms),
-                    },
-                    pricing_db,
-                    TokenTableOptions {
-                        order,
-                        use_color,
-                        compact: cli.compact,
-                        show_cost,
-                        number_format,
-                        show_reasoning,
-                        show_cache_creation,
-                    },
-                );
-            }
-        }
+        _ => {}
+    }
+
+    // Period-based commands: Daily/Today/Weekly/Monthly
+    let period = match command {
+        SourceCommand::Daily | SourceCommand::Today => Period::Day,
+        SourceCommand::Weekly => Period::Week,
+        SourceCommand::Monthly => Period::Month,
+        _ => unreachable!(),
+    };
+
+    let result = load_daily(source, filter, &timezone, quiet, cli.debug);
+    if result.day_stats.is_empty() {
+        println!("No {} data found.", source.display_name());
+        return;
+    }
+    let use_color = cli.use_color();
+    let show_cost = cli.show_cost();
+    if cli.json {
+        let json = output_period_json(
+            &result.day_stats,
+            period,
+            pricing_db,
+            order,
+            cli.breakdown,
+            show_cost,
+        );
+        print_json(&json, jq_filter);
+    } else {
+        print_period_table(
+            &result.day_stats,
+            period,
+            cli.breakdown,
+            SummaryOptions {
+                skipped: result.skipped,
+                valid: result.valid,
+                elapsed_ms: Some(result.elapsed_ms),
+            },
+            pricing_db,
+            TokenTableOptions {
+                order,
+                use_color,
+                compact: cli.compact,
+                show_cost,
+                number_format,
+                show_reasoning,
+                show_cache_creation,
+            },
+        );
     }
 }
