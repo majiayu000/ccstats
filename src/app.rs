@@ -34,55 +34,127 @@ pub(crate) struct CommandContext<'a> {
     pub(crate) jq_filter: Option<&'a str>,
 }
 
+fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
+    let sessions = load_sessions(source, ctx.filter, ctx.timezone, false);
+    if sessions.is_empty() {
+        println!("No {} session data found.", source.display_name());
+        return;
+    }
+    if ctx.cli.json {
+        let json = output_session_json(
+            &sessions,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.show_cost(),
+        );
+        print_json(&json, ctx.jq_filter);
+    } else {
+        print_session_table(
+            &sessions,
+            ctx.pricing_db,
+            SessionTableOptions {
+                order: ctx.cli.sort_order(),
+                use_color: ctx.cli.use_color(),
+                compact: ctx.cli.compact,
+                show_cost: ctx.cli.show_cost(),
+                number_format: ctx.number_format,
+                source_label: source.display_name(),
+                timezone: ctx.timezone,
+            },
+        );
+    }
+}
+
+fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
+    let projects = load_projects(source, ctx.filter, ctx.timezone, false);
+    if projects.is_empty() {
+        println!("No {} project data found.", source.display_name());
+        return;
+    }
+    if ctx.cli.json {
+        let json = output_project_json(
+            &projects,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.show_cost(),
+        );
+        print_json(&json, ctx.jq_filter);
+    } else {
+        print_project_table(
+            &projects,
+            ctx.pricing_db,
+            ProjectTableOptions {
+                order: ctx.cli.sort_order(),
+                use_color: ctx.cli.use_color(),
+                compact: ctx.cli.compact,
+                show_cost: ctx.cli.show_cost(),
+                source_label: source.display_name(),
+                number_format: ctx.number_format,
+            },
+        );
+    }
+}
+
+fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
+    let blocks = load_blocks(source, ctx.filter, ctx.timezone, false);
+    if blocks.is_empty() {
+        println!("No {} block data found.", source.display_name());
+        return;
+    }
+    if ctx.cli.json {
+        let json = output_block_json(
+            &blocks,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.show_cost(),
+        );
+        print_json(&json, ctx.jq_filter);
+    } else {
+        print_block_table(
+            &blocks,
+            ctx.pricing_db,
+            BlockTableOptions {
+                order: ctx.cli.sort_order(),
+                use_color: ctx.cli.use_color(),
+                compact: ctx.cli.compact,
+                show_cost: ctx.cli.show_cost(),
+                source_label: source.display_name(),
+                number_format: ctx.number_format,
+            },
+        );
+    }
+}
+
+fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
+    let result = load_daily(source, ctx.filter, ctx.timezone, true, false);
+    if ctx.cli.json {
+        let json = print_statusline_json(
+            &result.day_stats,
+            ctx.pricing_db,
+            source.display_name(),
+            ctx.number_format,
+        );
+        print_json(&json, ctx.jq_filter);
+    } else {
+        print_statusline(
+            &result.day_stats,
+            ctx.pricing_db,
+            source.display_name(),
+            ctx.number_format,
+        );
+    }
+}
+
 /// Handle commands for a specific data source
 pub(crate) fn handle_source_command(
     source: &dyn Source,
     command: SourceCommand,
     ctx: &CommandContext<'_>,
 ) {
-    let filter = ctx.filter;
-    let cli = ctx.cli;
-    let pricing_db = ctx.pricing_db;
-    let timezone = ctx.timezone;
-    let number_format = ctx.number_format;
-    let jq_filter = ctx.jq_filter;
-
     let caps = source.capabilities();
-    let show_reasoning = caps.has_reasoning_tokens;
-    let show_cache_creation = caps.has_cache_creation;
-    let is_statusline = matches!(command, SourceCommand::Statusline);
-    let quiet = is_statusline;
-    let order = cli.sort_order();
 
     match command {
-        SourceCommand::Session => {
-            let sessions = load_sessions(source, filter, timezone, quiet);
-            if sessions.is_empty() {
-                println!("No {} session data found.", source.display_name());
-                return;
-            }
-            let use_color = cli.use_color();
-            let show_cost = cli.show_cost();
-            if cli.json {
-                let json = output_session_json(&sessions, pricing_db, order, show_cost);
-                print_json(&json, jq_filter);
-            } else {
-                print_session_table(
-                    &sessions,
-                    pricing_db,
-                    SessionTableOptions {
-                        order,
-                        use_color,
-                        compact: cli.compact,
-                        show_cost,
-                        number_format,
-                        source_label: source.display_name(),
-                        timezone,
-                    },
-                );
-            }
-            return;
-        }
+        SourceCommand::Session => return handle_session(source, ctx),
         SourceCommand::Project => {
             if !caps.has_projects {
                 println!(
@@ -91,31 +163,7 @@ pub(crate) fn handle_source_command(
                 );
                 return;
             }
-            let projects = load_projects(source, filter, timezone, quiet);
-            if projects.is_empty() {
-                println!("No {} project data found.", source.display_name());
-                return;
-            }
-            let use_color = cli.use_color();
-            let show_cost = cli.show_cost();
-            if cli.json {
-                let json = output_project_json(&projects, pricing_db, order, show_cost);
-                print_json(&json, jq_filter);
-            } else {
-                print_project_table(
-                    &projects,
-                    pricing_db,
-                    ProjectTableOptions {
-                        order,
-                        use_color,
-                        compact: cli.compact,
-                        show_cost,
-                        source_label: source.display_name(),
-                        number_format,
-                    },
-                );
-            }
-            return;
+            return handle_project(source, ctx);
         }
         SourceCommand::Blocks => {
             if !caps.has_billing_blocks {
@@ -125,52 +173,9 @@ pub(crate) fn handle_source_command(
                 );
                 return;
             }
-            let blocks = load_blocks(source, filter, timezone, quiet);
-            if blocks.is_empty() {
-                println!("No {} block data found.", source.display_name());
-                return;
-            }
-            let use_color = cli.use_color();
-            let show_cost = cli.show_cost();
-            if cli.json {
-                let json = output_block_json(&blocks, pricing_db, order, show_cost);
-                print_json(&json, jq_filter);
-            } else {
-                print_block_table(
-                    &blocks,
-                    pricing_db,
-                    BlockTableOptions {
-                        order,
-                        use_color,
-                        compact: cli.compact,
-                        show_cost,
-                        source_label: source.display_name(),
-                        number_format,
-                    },
-                );
-            }
-            return;
+            return handle_blocks(source, ctx);
         }
-        SourceCommand::Statusline => {
-            let result = load_daily(source, filter, timezone, true, false);
-            if cli.json {
-                let json = print_statusline_json(
-                    &result.day_stats,
-                    pricing_db,
-                    source.display_name(),
-                    number_format,
-                );
-                print_json(&json, jq_filter);
-            } else {
-                print_statusline(
-                    &result.day_stats,
-                    pricing_db,
-                    source.display_name(),
-                    number_format,
-                );
-            }
-            return;
-        }
+        SourceCommand::Statusline => return handle_statusline(source, ctx),
         _ => {}
     }
 
@@ -182,42 +187,40 @@ pub(crate) fn handle_source_command(
         _ => unreachable!(),
     };
 
-    let result = load_daily(source, filter, timezone, quiet, cli.debug);
+    let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
     if result.day_stats.is_empty() {
         println!("No {} data found.", source.display_name());
         return;
     }
-    let use_color = cli.use_color();
-    let show_cost = cli.show_cost();
-    if cli.json {
+    if ctx.cli.json {
         let json = output_period_json(
             &result.day_stats,
             period,
-            pricing_db,
-            order,
-            cli.breakdown,
-            show_cost,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.breakdown,
+            ctx.cli.show_cost(),
         );
-        print_json(&json, jq_filter);
+        print_json(&json, ctx.jq_filter);
     } else {
         print_period_table(
             &result.day_stats,
             period,
-            cli.breakdown,
+            ctx.cli.breakdown,
             SummaryOptions {
                 skipped: result.skipped,
                 valid: result.valid,
                 elapsed_ms: Some(result.elapsed_ms),
             },
-            pricing_db,
+            ctx.pricing_db,
             TokenTableOptions {
-                order,
-                use_color,
-                compact: cli.compact,
-                show_cost,
-                number_format,
-                show_reasoning,
-                show_cache_creation,
+                order: ctx.cli.sort_order(),
+                use_color: ctx.cli.use_color(),
+                compact: ctx.cli.compact,
+                show_cost: ctx.cli.show_cost(),
+                number_format: ctx.number_format,
+                show_reasoning: caps.has_reasoning_tokens,
+                show_cache_creation: caps.has_cache_creation,
             },
         );
     }
