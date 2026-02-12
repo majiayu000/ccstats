@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod config;
+mod consts;
 mod core;
 mod error;
 mod output;

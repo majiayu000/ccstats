@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::RawEntry;
 use crate::utils::{Timezone, parse_debug_enabled};
 
@@ -157,7 +158,7 @@ pub(super) fn parse_codex_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
+        .unwrap_or(UNKNOWN)
         .to_string();
 
     let file = match File::open(path) {
@@ -326,7 +327,7 @@ pub(super) fn parse_codex_file(path: &Path, timezone: &Timezone) -> Vec<RawEntry
         entries.push(RawEntry {
             timestamp,
             timestamp_ms: utc_dt.timestamp_millis(),
-            date_str: date.format("%Y-%m-%d").to_string(),
+            date_str: date.format(DATE_FORMAT).to_string(),
             message_id: None, // Codex doesn't use message IDs for dedup
             session_id: session_id.clone(),
             project_path: String::new(), // Codex doesn't track projects

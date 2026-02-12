@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::RawEntry;
 use crate::utils::{Timezone, parse_debug_enabled};
 
@@ -83,14 +84,14 @@ pub(super) fn parse_claude_file(path: &Path, timezone: &Timezone) -> Vec<RawEntr
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
+        .unwrap_or(UNKNOWN)
         .to_string();
 
     let project_path = path
         .parent()
         .and_then(|p| p.file_name())
         .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
+        .unwrap_or(UNKNOWN)
         .to_string();
 
     let file = match File::open(path) {
@@ -170,7 +171,7 @@ fn parse_entry(
         .model
         .as_deref()
         .map(normalize_model_name)
-        .unwrap_or_else(|| "unknown".to_string());
+        .unwrap_or_else(|| UNKNOWN.to_string());
 
     if model == "<synthetic>" || model.is_empty() {
         return None;
@@ -198,7 +199,7 @@ fn parse_entry(
     Some(RawEntry {
         timestamp: ts,
         timestamp_ms: utc_dt.timestamp_millis(),
-        date_str: date.format("%Y-%m-%d").to_string(),
+        date_str: date.format(DATE_FORMAT).to_string(),
         message_id: msg.id,
         session_id: session_id.to_string(),
         project_path: project_path.to_string(),

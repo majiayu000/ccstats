@@ -5,6 +5,7 @@ use comfy_table::{
 use std::cmp::Ordering;
 
 use crate::cli::SortOrder;
+use crate::consts::DATE_FORMAT;
 use crate::core::{SessionStats, Stats, format_project_name};
 use crate::output::format::{
     NumberFormat, cost_json_value, format_compact, format_cost, format_number, header_cell,
@@ -29,7 +30,7 @@ fn truncate_session_id(id: &str, max_len: usize) -> String {
 fn extract_date(ts: &str, timezone: &Timezone) -> String {
     if let Ok(utc_dt) = ts.parse::<DateTime<Utc>>() {
         let local = timezone.to_fixed_offset(utc_dt);
-        return local.date_naive().format("%Y-%m-%d").to_string();
+        return local.date_naive().format(DATE_FORMAT).to_string();
     }
     ts.split('T').next().unwrap_or(ts).to_string()
 }
