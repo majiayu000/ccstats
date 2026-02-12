@@ -106,6 +106,14 @@ fn main() {
         None => None,
     };
 
+    // Validate date range
+    if let (Some(s), Some(u)) = (since, until)
+        && s > u
+    {
+        eprintln!("Error: --since ({s}) is after --until ({u})");
+        std::process::exit(1);
+    }
+
     // For "today" and "statusline" commands, set since/until to today
     let filter = if source_cmd.needs_today_filter() {
         let today = timezone.to_fixed_offset(Utc::now()).date_naive();

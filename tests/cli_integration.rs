@@ -458,3 +458,34 @@ fn claude_daily_json_reads_home_projects() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn since_after_until_exits_with_error() {
+    let root = unique_temp_dir("date-range");
+    let claude_file = root.join(".claude/projects/myproject/session.jsonl");
+    write_file(
+        &claude_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, _stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-O",
+            "--since",
+            "2026-03-01",
+            "--until",
+            "2026-01-01",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(!ok, "should fail when --since is after --until");
+    let err = String::from_utf8_lossy(&stderr);
+    assert!(
+        err.contains("--since") && err.contains("--until"),
+        "error should mention both flags: {err}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
