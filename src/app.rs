@@ -3,9 +3,10 @@ use crate::core::DateFilter;
 use crate::output::NumberFormat;
 use crate::output::{
     BlockTableOptions, Period, ProjectTableOptions, SessionTableOptions, SummaryOptions,
-    TokenTableOptions, output_block_json, output_period_json, output_project_json,
-    output_session_json, print_block_table, print_period_table, print_project_table,
-    print_session_table, print_statusline, print_statusline_json,
+    TokenTableOptions, output_block_csv, output_block_json, output_period_csv, output_period_json,
+    output_project_csv, output_project_json, output_session_csv, output_session_json,
+    print_block_table, print_period_table, print_project_table, print_session_table,
+    print_statusline, print_statusline_json,
 };
 use crate::pricing::PricingDb;
 use crate::source::{Source, load_blocks, load_daily, load_projects, load_sessions};
@@ -40,7 +41,15 @@ fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
         println!("No {} session data found.", source.display_name());
         return;
     }
-    if ctx.cli.json {
+    if ctx.cli.csv {
+        let csv = output_session_csv(
+            &sessions,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.show_cost(),
+        );
+        print!("{csv}");
+    } else if ctx.cli.json {
         let json = output_session_json(
             &sessions,
             ctx.pricing_db,
@@ -71,7 +80,15 @@ fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
         println!("No {} project data found.", source.display_name());
         return;
     }
-    if ctx.cli.json {
+    if ctx.cli.csv {
+        let csv = output_project_csv(
+            &projects,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.show_cost(),
+        );
+        print!("{csv}");
+    } else if ctx.cli.json {
         let json = output_project_json(
             &projects,
             ctx.pricing_db,
@@ -101,7 +118,15 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
         println!("No {} block data found.", source.display_name());
         return;
     }
-    if ctx.cli.json {
+    if ctx.cli.csv {
+        let csv = output_block_csv(
+            &blocks,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.show_cost(),
+        );
+        print!("{csv}");
+    } else if ctx.cli.json {
         let json = output_block_json(
             &blocks,
             ctx.pricing_db,
@@ -197,7 +222,16 @@ pub(crate) fn handle_source_command(
         println!("No {} data found.", source.display_name());
         return;
     }
-    if ctx.cli.json {
+    if ctx.cli.csv {
+        let csv = output_period_csv(
+            &result.day_stats,
+            period,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.show_cost(),
+        );
+        print!("{csv}");
+    } else if ctx.cli.json {
         let json = output_period_json(
             &result.day_stats,
             period,

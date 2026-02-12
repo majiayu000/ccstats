@@ -63,6 +63,10 @@ pub(crate) struct Cli {
     #[arg(short, long, global = true)]
     pub(crate) json: bool,
 
+    /// Output as CSV
+    #[arg(long, global = true)]
+    pub(crate) csv: bool,
+
     /// Use offline cached pricing (skip fetching from `LiteLLM`)
     #[arg(short = 'O', long, global = true)]
     pub(crate) offline: bool,
