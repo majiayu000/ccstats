@@ -228,6 +228,7 @@ pub(crate) fn handle_source_command(
             period,
             ctx.pricing_db,
             ctx.cli.sort_order(),
+            ctx.cli.breakdown,
             ctx.cli.show_cost(),
         );
         print!("{csv}");

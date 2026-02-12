@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.2.54"
+version = "0.2.55"
 edition = "2024"
 rust-version = "1.85"
 description = "Fast Claude Code token usage statistics CLI"
