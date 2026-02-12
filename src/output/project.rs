@@ -251,3 +251,28 @@ pub(crate) fn output_project_json(
         "[]".to_string()
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compare_cost_normal_values() {
+        assert_eq!(compare_cost(1.0, 2.0), Ordering::Less);
+        assert_eq!(compare_cost(2.0, 1.0), Ordering::Greater);
+        assert_eq!(compare_cost(1.0, 1.0), Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_cost_nan_handling() {
+        assert_eq!(compare_cost(f64::NAN, f64::NAN), Ordering::Equal);
+        assert_eq!(compare_cost(f64::NAN, 1.0), Ordering::Greater);
+        assert_eq!(compare_cost(1.0, f64::NAN), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_cost_zero_and_negative() {
+        assert_eq!(compare_cost(0.0, 0.0), Ordering::Equal);
+        assert_eq!(compare_cost(-1.0, 1.0), Ordering::Less);
+    }
+}
