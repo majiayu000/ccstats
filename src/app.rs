@@ -153,6 +153,7 @@ pub(crate) fn handle_source_command(
 ) {
     let caps = source.capabilities();
 
+    // Non-period commands: dispatch and return early
     match command {
         SourceCommand::Session => return handle_session(source, ctx),
         SourceCommand::Project => {
@@ -176,7 +177,10 @@ pub(crate) fn handle_source_command(
             return handle_blocks(source, ctx);
         }
         SourceCommand::Statusline => return handle_statusline(source, ctx),
-        _ => {}
+        SourceCommand::Daily
+        | SourceCommand::Today
+        | SourceCommand::Weekly
+        | SourceCommand::Monthly => {}
     }
 
     // Period-based commands: Daily/Today/Weekly/Monthly
@@ -184,7 +188,8 @@ pub(crate) fn handle_source_command(
         SourceCommand::Daily | SourceCommand::Today => Period::Day,
         SourceCommand::Weekly => Period::Week,
         SourceCommand::Monthly => Period::Month,
-        _ => unreachable!(),
+        // All non-period variants handled above and returned early
+        _ => return,
     };
 
     let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
