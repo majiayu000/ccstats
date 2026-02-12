@@ -224,7 +224,7 @@ impl<'a> DataLoader<'a> {
             |mut acc, partial| {
                 for session in partial.into_values() {
                     if let Some(existing) = acc.get_mut(&session.session_id) {
-                        Self::merge_session_stats(existing, session)
+                        Self::merge_session_stats(existing, session);
                     } else {
                         let key = session.session_id.clone();
                         acc.insert(key, session);
