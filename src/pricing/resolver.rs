@@ -474,10 +474,7 @@ mod tests {
     #[test]
     fn test_resolve_empty_model_string() {
         let mut models = HashMap::new();
-        models.insert(
-            "claude-sonnet-4".to_string(),
-            ModelPricing::default(),
-        );
+        models.insert("claude-sonnet-4".to_string(), ModelPricing::default());
 
         // Empty string is contained in every string, so it matches
         let result = resolve_pricing_known("", &models);
