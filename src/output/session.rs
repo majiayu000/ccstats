@@ -280,9 +280,12 @@ pub(crate) fn output_session_json(
 
 #[cfg(test)]
 mod tests {
-    use super::{compare_session_last_timestamp, truncate_session_id};
+    use super::*;
     use crate::core::SessionStats;
     use std::cmp::Ordering;
+    use std::collections::HashMap;
+
+    // --- truncate_session_id ---
 
     #[test]
     fn truncate_session_id_ascii() {
@@ -298,6 +301,59 @@ mod tests {
     }
 
     #[test]
+    fn truncate_session_id_small_max_len() {
+        assert_eq!(truncate_session_id("abcdef", 3), "...");
+        assert_eq!(truncate_session_id("abcdef", 2), "..");
+        assert_eq!(truncate_session_id("abcdef", 1), ".");
+        assert_eq!(truncate_session_id("abcdef", 0), "");
+    }
+
+    #[test]
+    fn truncate_session_id_exact_boundary() {
+        assert_eq!(truncate_session_id("abcde", 5), "abcde");
+        assert_eq!(truncate_session_id("abcdef", 5), "ab...");
+    }
+
+    // --- parse_timestamp_millis ---
+
+    #[test]
+    fn parse_timestamp_millis_valid_rfc3339() {
+        let ms = parse_timestamp_millis("2026-02-12T10:00:00Z");
+        assert!(ms.is_some());
+        assert!(ms.unwrap() > 0);
+    }
+
+    #[test]
+    fn parse_timestamp_millis_invalid_input() {
+        assert!(parse_timestamp_millis("not-a-timestamp").is_none());
+        assert!(parse_timestamp_millis("").is_none());
+        assert!(parse_timestamp_millis("2026-02-12").is_none());
+    }
+
+    // --- extract_date ---
+
+    #[test]
+    fn extract_date_valid_utc_timestamp() {
+        let tz = Timezone::Named(chrono_tz::UTC);
+        assert_eq!(extract_date("2026-02-12T10:30:00Z", &tz), "2026-02-12");
+    }
+
+    #[test]
+    fn extract_date_fallback_on_invalid_timestamp() {
+        let tz = Timezone::Named(chrono_tz::UTC);
+        // Falls back to splitting on 'T'
+        assert_eq!(extract_date("2026-02-12T_garbage", &tz), "2026-02-12");
+    }
+
+    #[test]
+    fn extract_date_no_t_separator() {
+        let tz = Timezone::Named(chrono_tz::UTC);
+        assert_eq!(extract_date("just-a-string", &tz), "just-a-string");
+    }
+
+    // --- compare_session_last_timestamp ---
+
+    #[test]
     fn compare_session_last_timestamp_uses_absolute_time() {
         let a = SessionStats {
             last_timestamp: "2026-02-06T23:00:00+08:00".to_string(), // 15:00Z
@@ -310,5 +366,147 @@ mod tests {
 
         assert_eq!(compare_session_last_timestamp(&a, &b), Ordering::Less);
         assert_eq!(compare_session_last_timestamp(&b, &a), Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_session_last_timestamp_equal() {
+        let a = SessionStats {
+            last_timestamp: "2026-02-06T10:00:00Z".to_string(),
+            ..Default::default()
+        };
+        let b = SessionStats {
+            last_timestamp: "2026-02-06T10:00:00Z".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(compare_session_last_timestamp(&a, &b), Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_session_last_timestamp_invalid_falls_back_to_string() {
+        let a = SessionStats {
+            last_timestamp: "aaa".to_string(),
+            ..Default::default()
+        };
+        let b = SessionStats {
+            last_timestamp: "bbb".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(compare_session_last_timestamp(&a, &b), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_session_valid_before_invalid() {
+        let valid = SessionStats {
+            last_timestamp: "2026-02-06T10:00:00Z".to_string(),
+            ..Default::default()
+        };
+        let invalid = SessionStats {
+            last_timestamp: "not-valid".to_string(),
+            ..Default::default()
+        };
+        // Valid parses → Some, invalid → None → valid is Greater
+        assert_eq!(
+            compare_session_last_timestamp(&valid, &invalid),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_session_last_timestamp(&invalid, &valid),
+            Ordering::Less
+        );
+    }
+
+    // --- output_session_json ---
+
+    fn make_session(id: &str, last_ts: &str, input: i64, output: i64) -> SessionStats {
+        SessionStats {
+            session_id: id.to_string(),
+            project_path: "/home/user/project".to_string(),
+            first_timestamp: "2026-02-12T08:00:00Z".to_string(),
+            last_timestamp: last_ts.to_string(),
+            stats: Stats {
+                input_tokens: input,
+                output_tokens: output,
+                ..Default::default()
+            },
+            models: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn output_session_json_empty() {
+        let db = PricingDb::default();
+        let json_str = output_session_json(&[], &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn output_session_json_fields_present() {
+        let db = PricingDb::default();
+        let sessions = vec![make_session("sess-1", "2026-02-12T10:00:00Z", 1000, 500)];
+        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["session_id"], "sess-1");
+        assert_eq!(parsed[0]["project"], "project");
+        assert_eq!(parsed[0]["project_path"], "/home/user/project");
+        assert_eq!(parsed[0]["input_tokens"], 1000);
+        assert_eq!(parsed[0]["output_tokens"], 500);
+        assert_eq!(parsed[0]["total_tokens"], 1500);
+        assert!(parsed[0].get("cost").is_none());
+    }
+
+    #[test]
+    fn output_session_json_includes_cost_when_requested() {
+        let db = PricingDb::default();
+        let sessions = vec![make_session("sess-1", "2026-02-12T10:00:00Z", 100, 50)];
+        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, true);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert!(parsed[0].get("cost").is_some());
+    }
+
+    #[test]
+    fn output_session_json_sorts_by_timestamp() {
+        let db = PricingDb::default();
+        let sessions = vec![
+            make_session("late", "2026-02-12T20:00:00Z", 100, 50),
+            make_session("early", "2026-02-12T08:00:00Z", 200, 100),
+        ];
+
+        let asc = output_session_json(&sessions, &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&asc).unwrap();
+        assert_eq!(parsed[0]["session_id"], "early");
+        assert_eq!(parsed[1]["session_id"], "late");
+
+        let desc = output_session_json(&sessions, &db, SortOrder::Desc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&desc).unwrap();
+        assert_eq!(parsed[0]["session_id"], "late");
+        assert_eq!(parsed[1]["session_id"], "early");
+    }
+
+    #[test]
+    fn output_session_json_models_sorted() {
+        let db = PricingDb::default();
+        let mut models = HashMap::new();
+        models.insert("sonnet".to_string(), Stats::default());
+        models.insert("haiku".to_string(), Stats::default());
+
+        let sessions = vec![SessionStats {
+            session_id: "s1".to_string(),
+            models,
+            ..Default::default()
+        }];
+        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        let model_list: Vec<&str> = parsed[0]["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(model_list, vec!["haiku", "sonnet"]);
     }
 }
