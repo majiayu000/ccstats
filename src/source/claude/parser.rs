@@ -169,7 +169,8 @@ fn parse_entry(
 
     let model = msg
         .model
-        .as_deref().map_or_else(|| UNKNOWN.to_string(), normalize_model_name);
+        .as_deref()
+        .map_or_else(|| UNKNOWN.to_string(), normalize_model_name);
 
     if model == "<synthetic>" || model.is_empty() {
         return None;
@@ -239,10 +240,7 @@ mod tests {
 
     #[test]
     fn test_normalize_only_anthropic_prefix() {
-        assert_eq!(
-            normalize_model_name("anthropic.some-model"),
-            "some-model"
-        );
+        assert_eq!(normalize_model_name("anthropic.some-model"), "some-model");
     }
 
     #[test]
@@ -386,7 +384,13 @@ mod tests {
 
     #[test]
     fn test_parse_entry_invalid_timestamp_returns_none() {
-        let entry = make_usage_entry("not-a-date", Some("claude-3-5-sonnet-20241022"), None, 10, 5);
+        let entry = make_usage_entry(
+            "not-a-date",
+            Some("claude-3-5-sonnet-20241022"),
+            None,
+            10,
+            5,
+        );
         let tz = make_timezone();
         assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }

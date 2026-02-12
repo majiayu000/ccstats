@@ -272,7 +272,15 @@ mod tests {
 
     #[test]
     fn aggregate_daily_single_entry() {
-        let entries = vec![make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 1000)];
+        let entries = vec![make_entry(
+            "2025-01-01",
+            "s1",
+            "p1",
+            "claude",
+            100,
+            50,
+            1000,
+        )];
         let result = aggregate_daily(entries);
         assert_eq!(result.len(), 1);
         let day = &result["2025-01-01"];
@@ -355,8 +363,11 @@ mod tests {
                 session_id: "s1".to_string(),
                 project_path: "p1".to_string(),
                 model: "claude".to_string(),
-                input_tokens: 100, output_tokens: 50,
-                cache_creation: 0, cache_read: 0, reasoning_tokens: 0,
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation: 0,
+                cache_read: 0,
+                reasoning_tokens: 0,
                 stop_reason: None,
             },
             RawEntry {
@@ -367,8 +378,11 @@ mod tests {
                 session_id: "s1".to_string(),
                 project_path: "p1".to_string(),
                 model: "claude".to_string(),
-                input_tokens: 100, output_tokens: 50,
-                cache_creation: 0, cache_read: 0, reasoning_tokens: 0,
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation: 0,
+                cache_read: 0,
+                reasoning_tokens: 0,
                 stop_reason: None,
             },
             RawEntry {
@@ -379,8 +393,11 @@ mod tests {
                 session_id: "s1".to_string(),
                 project_path: "p1".to_string(),
                 model: "claude".to_string(),
-                input_tokens: 100, output_tokens: 50,
-                cache_creation: 0, cache_read: 0, reasoning_tokens: 0,
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation: 0,
+                cache_read: 0,
+                reasoning_tokens: 0,
                 stop_reason: None,
             },
         ];
@@ -426,8 +443,21 @@ mod tests {
             project_path: "/Users/john/myapp".to_string(),
             first_timestamp: "t1".to_string(),
             last_timestamp: "t2".to_string(),
-            stats: Stats { input_tokens: 100, output_tokens: 50, count: 1, ..Default::default() },
-            models: HashMap::from([("claude".to_string(), Stats { input_tokens: 100, output_tokens: 50, count: 1, ..Default::default() })]),
+            stats: Stats {
+                input_tokens: 100,
+                output_tokens: 50,
+                count: 1,
+                ..Default::default()
+            },
+            models: HashMap::from([(
+                "claude".to_string(),
+                Stats {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    count: 1,
+                    ..Default::default()
+                },
+            )]),
         }];
         let result = aggregate_projects(sessions);
         assert_eq!(result.len(), 1);
@@ -442,15 +472,37 @@ mod tests {
             SessionStats {
                 session_id: "s1".to_string(),
                 project_path: "/path/app".to_string(),
-                stats: Stats { input_tokens: 100, count: 1, ..Default::default() },
-                models: HashMap::from([("claude".to_string(), Stats { input_tokens: 100, count: 1, ..Default::default() })]),
+                stats: Stats {
+                    input_tokens: 100,
+                    count: 1,
+                    ..Default::default()
+                },
+                models: HashMap::from([(
+                    "claude".to_string(),
+                    Stats {
+                        input_tokens: 100,
+                        count: 1,
+                        ..Default::default()
+                    },
+                )]),
                 ..Default::default()
             },
             SessionStats {
                 session_id: "s2".to_string(),
                 project_path: "/path/app".to_string(),
-                stats: Stats { input_tokens: 200, count: 2, ..Default::default() },
-                models: HashMap::from([("claude".to_string(), Stats { input_tokens: 200, count: 2, ..Default::default() })]),
+                stats: Stats {
+                    input_tokens: 200,
+                    count: 2,
+                    ..Default::default()
+                },
+                models: HashMap::from([(
+                    "claude".to_string(),
+                    Stats {
+                        input_tokens: 200,
+                        count: 2,
+                        ..Default::default()
+                    },
+                )]),
                 ..Default::default()
             },
         ];
@@ -467,14 +519,20 @@ mod tests {
             SessionStats {
                 session_id: "s1".to_string(),
                 project_path: "/path/small".to_string(),
-                stats: Stats { input_tokens: 10, ..Default::default() },
+                stats: Stats {
+                    input_tokens: 10,
+                    ..Default::default()
+                },
                 models: HashMap::new(),
                 ..Default::default()
             },
             SessionStats {
                 session_id: "s2".to_string(),
                 project_path: "/path/big".to_string(),
-                stats: Stats { input_tokens: 1000, ..Default::default() },
+                stats: Stats {
+                    input_tokens: 1000,
+                    ..Default::default()
+                },
                 models: HashMap::new(),
                 ..Default::default()
             },
@@ -504,8 +562,8 @@ mod tests {
     fn aggregate_blocks_groups_by_5h_window() {
         let offset = FixedOffset::east_opt(0).unwrap();
         let dt1 = offset.with_ymd_and_hms(2025, 1, 1, 2, 30, 0).unwrap(); // block 0:00-5:00
-        let dt2 = offset.with_ymd_and_hms(2025, 1, 1, 3, 0, 0).unwrap();  // same block
-        let dt3 = offset.with_ymd_and_hms(2025, 1, 1, 7, 0, 0).unwrap();  // block 5:00-10:00
+        let dt2 = offset.with_ymd_and_hms(2025, 1, 1, 3, 0, 0).unwrap(); // same block
+        let dt3 = offset.with_ymd_and_hms(2025, 1, 1, 7, 0, 0).unwrap(); // block 5:00-10:00
 
         let local_times: HashMap<i64, DateTime<FixedOffset>> =
             HashMap::from([(1000, dt1), (2000, dt2), (3000, dt3)]);

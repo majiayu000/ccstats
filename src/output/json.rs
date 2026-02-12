@@ -204,7 +204,10 @@ mod tests {
             serde_json::json!({"model": "haiku", "cost": 0.5}),
         ];
         sort_models_breakdown(&mut models, true);
-        let names: Vec<&str> = models.iter().map(|v| v["model"].as_str().unwrap()).collect();
+        let names: Vec<&str> = models
+            .iter()
+            .map(|v| v["model"].as_str().unwrap())
+            .collect();
         assert_eq!(names, vec!["sonnet", "opus", "haiku"]);
     }
 
@@ -216,17 +219,24 @@ mod tests {
             serde_json::json!({"model": "opus"}),
         ];
         sort_models_breakdown(&mut models, false);
-        let names: Vec<&str> = models.iter().map(|v| v["model"].as_str().unwrap()).collect();
+        let names: Vec<&str> = models
+            .iter()
+            .map(|v| v["model"].as_str().unwrap())
+            .collect();
         assert_eq!(names, vec!["haiku", "opus", "sonnet"]);
     }
 
     #[test]
     fn output_daily_json_structure() {
         let mut day_stats = HashMap::new();
-        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("sonnet", 1000)]));
+        day_stats.insert(
+            "2025-01-01".to_string(),
+            make_day_stats(&[("sonnet", 1000)]),
+        );
 
         let db = PricingDb::default();
-        let json_str = output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, false, false);
+        let json_str =
+            output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, false, false);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed.len(), 1);
@@ -239,10 +249,14 @@ mod tests {
     #[test]
     fn output_daily_json_with_cost() {
         let mut day_stats = HashMap::new();
-        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("sonnet", 1000)]));
+        day_stats.insert(
+            "2025-01-01".to_string(),
+            make_day_stats(&[("sonnet", 1000)]),
+        );
 
         let db = PricingDb::default();
-        let json_str = output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, false, true);
+        let json_str =
+            output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, false, true);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert!(parsed[0].get("cost").is_some());
@@ -251,10 +265,14 @@ mod tests {
     #[test]
     fn output_daily_json_with_breakdown() {
         let mut day_stats = HashMap::new();
-        day_stats.insert("2025-01-01".to_string(), make_day_stats(&[("sonnet", 1000), ("opus", 500)]));
+        day_stats.insert(
+            "2025-01-01".to_string(),
+            make_day_stats(&[("sonnet", 1000), ("opus", 500)]),
+        );
 
         let db = PricingDb::default();
-        let json_str = output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, true, false);
+        let json_str =
+            output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, true, false);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         let breakdown = parsed[0]["breakdown"].as_array().unwrap();
@@ -269,7 +287,8 @@ mod tests {
         day_stats.insert("2025-01-08".to_string(), make_day_stats(&[("sonnet", 200)]));
 
         let db = PricingDb::default();
-        let json_str = output_period_json(&day_stats, Period::Week, &db, SortOrder::Asc, false, false);
+        let json_str =
+            output_period_json(&day_stats, Period::Week, &db, SortOrder::Asc, false, false);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed.len(), 1);
@@ -283,7 +302,8 @@ mod tests {
         day_stats.insert("2025-03-15".to_string(), make_day_stats(&[("sonnet", 100)]));
 
         let db = PricingDb::default();
-        let json_str = output_period_json(&day_stats, Period::Month, &db, SortOrder::Asc, false, false);
+        let json_str =
+            output_period_json(&day_stats, Period::Month, &db, SortOrder::Asc, false, false);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["month"], "2025-03");

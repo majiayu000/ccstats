@@ -4,11 +4,11 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::time::Instant;
 
+use crate::consts::DATE_FORMAT;
 use crate::core::{
     BlockStats, DateFilter, DayStats, DedupAccumulator, LoadResult, ProjectStats, RawEntry,
     SessionStats, aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
 };
-use crate::consts::DATE_FORMAT;
 use crate::source::Source;
 use crate::utils::Timezone;
 use chrono::{DateTime, FixedOffset, Utc};
@@ -102,9 +102,7 @@ impl<'a> DataLoader<'a> {
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
         if !self.quiet {
-            eprintln!(
-                "Parsed {file_count} files incrementally ({parse_ms:.2}ms)"
-            );
+            eprintln!("Parsed {file_count} files incrementally ({parse_ms:.2}ms)");
         }
 
         Some((result, file_count))
@@ -161,7 +159,9 @@ impl<'a> DataLoader<'a> {
             },
         );
 
-        let Some((day_stats, _)) = result else { return LoadResult::default() };
+        let Some((day_stats, _)) = result else {
+            return LoadResult::default();
+        };
 
         let valid: i64 = day_stats.values().map(|day| day.stats.count).sum();
         if self.debug && !self.quiet {
@@ -223,7 +223,9 @@ impl<'a> DataLoader<'a> {
             HashMap::<String, SessionStats>::new,
             |mut acc, partial| {
                 for session in partial.into_values() {
-                    if let Some(existing) = acc.get_mut(&session.session_id) { Self::merge_session_stats(existing, session) } else {
+                    if let Some(existing) = acc.get_mut(&session.session_id) {
+                        Self::merge_session_stats(existing, session)
+                    } else {
                         let key = session.session_id.clone();
                         acc.insert(key, session);
                     }
@@ -257,9 +259,7 @@ impl<'a> DataLoader<'a> {
 
         if !self.quiet {
             if skipped > 0 {
-                eprintln!(
-                    "Deduplicated {skipped} entries, aggregated ({agg_ms:.2}ms)"
-                );
+                eprintln!("Deduplicated {skipped} entries, aggregated ({agg_ms:.2}ms)");
             } else {
                 eprintln!("Aggregated ({agg_ms:.2}ms)");
             }
@@ -457,7 +457,10 @@ mod tests {
 
     #[test]
     fn filter_entries_no_filter_passes_all() {
-        let entries = vec![make_entry("2025-01-01", "m", 10), make_entry("2025-06-15", "m", 20)];
+        let entries = vec![
+            make_entry("2025-01-01", "m", 10),
+            make_entry("2025-06-15", "m", 20),
+        ];
         let filter = DateFilter::new(None, None);
         let result = DataLoader::filter_entries(entries, &filter, tz());
         assert_eq!(result.len(), 2);
@@ -597,11 +600,14 @@ mod tests {
             },
             models: {
                 let mut m = HashMap::new();
-                m.insert("model".to_string(), Stats {
-                    input_tokens: input,
-                    count: 1,
-                    ..Default::default()
-                });
+                m.insert(
+                    "model".to_string(),
+                    Stats {
+                        input_tokens: input,
+                        count: 1,
+                        ..Default::default()
+                    },
+                );
                 m
             },
         }
@@ -609,8 +615,20 @@ mod tests {
 
     #[test]
     fn merge_session_stats_updates_timestamps() {
-        let mut target = make_session("s1", "proj", "2025-01-01T10:00:00Z", "2025-01-01T12:00:00Z", 100);
-        let incoming = make_session("s1", "proj", "2025-01-01T08:00:00Z", "2025-01-01T14:00:00Z", 200);
+        let mut target = make_session(
+            "s1",
+            "proj",
+            "2025-01-01T10:00:00Z",
+            "2025-01-01T12:00:00Z",
+            100,
+        );
+        let incoming = make_session(
+            "s1",
+            "proj",
+            "2025-01-01T08:00:00Z",
+            "2025-01-01T14:00:00Z",
+            200,
+        );
 
         DataLoader::merge_session_stats(&mut target, incoming);
         assert_eq!(target.first_timestamp, "2025-01-01T08:00:00Z");
@@ -619,8 +637,20 @@ mod tests {
 
     #[test]
     fn merge_session_stats_keeps_earlier_timestamps() {
-        let mut target = make_session("s1", "proj", "2025-01-01T08:00:00Z", "2025-01-01T14:00:00Z", 100);
-        let incoming = make_session("s1", "proj", "2025-01-01T10:00:00Z", "2025-01-01T12:00:00Z", 200);
+        let mut target = make_session(
+            "s1",
+            "proj",
+            "2025-01-01T08:00:00Z",
+            "2025-01-01T14:00:00Z",
+            100,
+        );
+        let incoming = make_session(
+            "s1",
+            "proj",
+            "2025-01-01T10:00:00Z",
+            "2025-01-01T12:00:00Z",
+            200,
+        );
 
         DataLoader::merge_session_stats(&mut target, incoming);
         // target already had earlier first and later last — should keep them
@@ -663,11 +693,14 @@ mod tests {
         let mut incoming = make_session("s1", "", "a", "b", 200);
         // Replace the model in incoming
         incoming.models.clear();
-        incoming.models.insert("other-model".to_string(), Stats {
-            input_tokens: 200,
-            count: 1,
-            ..Default::default()
-        });
+        incoming.models.insert(
+            "other-model".to_string(),
+            Stats {
+                input_tokens: 200,
+                count: 1,
+                ..Default::default()
+            },
+        );
 
         DataLoader::merge_session_stats(&mut target, incoming);
         assert_eq!(target.models.len(), 2);

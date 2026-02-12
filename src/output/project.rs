@@ -270,13 +270,32 @@ mod tests {
         assert_eq!(compare_cost(-1.0, 1.0), Ordering::Less);
     }
 
-    fn make_project(name: &str, path: &str, sessions: usize, input: i64, output: i64) -> ProjectStats {
+    fn make_project(
+        name: &str,
+        path: &str,
+        sessions: usize,
+        input: i64,
+        output: i64,
+    ) -> ProjectStats {
         ProjectStats {
             project_name: name.to_string(),
             project_path: path.to_string(),
             session_count: sessions,
-            stats: Stats { input_tokens: input, output_tokens: output, count: 1, ..Default::default() },
-            models: HashMap::from([("claude".to_string(), Stats { input_tokens: input, output_tokens: output, count: 1, ..Default::default() })]),
+            stats: Stats {
+                input_tokens: input,
+                output_tokens: output,
+                count: 1,
+                ..Default::default()
+            },
+            models: HashMap::from([(
+                "claude".to_string(),
+                Stats {
+                    input_tokens: input,
+                    output_tokens: output,
+                    count: 1,
+                    ..Default::default()
+                },
+            )]),
         }
     }
 
@@ -319,10 +338,28 @@ mod tests {
             project_name: "app".to_string(),
             project_path: "/app".to_string(),
             session_count: 1,
-            stats: Stats { input_tokens: 300, count: 2, ..Default::default() },
+            stats: Stats {
+                input_tokens: 300,
+                count: 2,
+                ..Default::default()
+            },
             models: HashMap::from([
-                ("gpt-4".to_string(), Stats { input_tokens: 100, count: 1, ..Default::default() }),
-                ("claude".to_string(), Stats { input_tokens: 200, count: 1, ..Default::default() }),
+                (
+                    "gpt-4".to_string(),
+                    Stats {
+                        input_tokens: 100,
+                        count: 1,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "claude".to_string(),
+                    Stats {
+                        input_tokens: 200,
+                        count: 1,
+                        ..Default::default()
+                    },
+                ),
             ]),
         }];
         let result = output_project_json(&projects, &db, SortOrder::Desc, false);

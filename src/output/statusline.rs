@@ -199,7 +199,10 @@ mod tests {
     #[test]
     fn statusline_json_formatted_uses_compact() {
         let mut day_stats = HashMap::new();
-        day_stats.insert("2026-02-12".to_string(), make_day(1_500_000, 250_000, 0, 0, 0));
+        day_stats.insert(
+            "2026-02-12".to_string(),
+            make_day(1_500_000, 250_000, 0, 0, 0),
+        );
 
         let json = print_statusline_json(
             &day_stats,

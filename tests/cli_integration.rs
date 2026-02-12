@@ -364,10 +364,7 @@ fn claude_blocks_json_groups_by_5h_window() {
     // Default sort is asc by block_start
     let block_10 = &arr[0];
     assert!(
-        block_10["block_start"]
-            .as_str()
-            .unwrap()
-            .contains("10:00"),
+        block_10["block_start"].as_str().unwrap().contains("10:00"),
         "first block should start at 10:00"
     );
     assert_eq!(block_10["block_end"].as_str(), Some("15:00"));
@@ -376,10 +373,7 @@ fn claude_blocks_json_groups_by_5h_window() {
 
     let block_15 = &arr[1];
     assert!(
-        block_15["block_start"]
-            .as_str()
-            .unwrap()
-            .contains("15:00"),
+        block_15["block_start"].as_str().unwrap().contains("15:00"),
         "second block should start at 15:00"
     );
     assert_eq!(block_15["block_end"].as_str(), Some("20:00"));

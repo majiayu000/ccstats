@@ -54,13 +54,15 @@ fn main() {
 
     let timezone = match Timezone::parse(cli.timezone.as_deref()) {
         Ok(tz) => tz,
-        Err(err) => if let Some(TimezoneSource::Config) = timezone_source {
-            eprintln!("Warning: {err}. Falling back to local timezone.");
-            Timezone::Local
-        } else {
-            eprintln!("{err}");
-            std::process::exit(1);
-        },
+        Err(err) => {
+            if let Some(TimezoneSource::Config) = timezone_source {
+                eprintln!("Warning: {err}. Falling back to local timezone.");
+                Timezone::Local
+            } else {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
     };
 
     let number_format = match NumberFormat::from_locale(cli.locale.as_deref()) {
