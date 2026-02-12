@@ -4,10 +4,11 @@ use std::fmt::Write;
 use crate::cli::SortOrder;
 use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
+use crate::output::project::compare_cost;
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
 
 fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
+    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()
@@ -166,14 +167,16 @@ pub(crate) fn output_project_csv(
     let mut sorted: Vec<_> = projects.iter().collect();
     match order {
         SortOrder::Asc => sorted.sort_by(|a, b| {
-            sum_model_costs(&a.models, pricing_db)
-                .partial_cmp(&sum_model_costs(&b.models, pricing_db))
-                .unwrap_or(std::cmp::Ordering::Equal)
+            compare_cost(
+                sum_model_costs(&a.models, pricing_db),
+                sum_model_costs(&b.models, pricing_db),
+            )
         }),
         SortOrder::Desc => sorted.sort_by(|a, b| {
-            sum_model_costs(&b.models, pricing_db)
-                .partial_cmp(&sum_model_costs(&a.models, pricing_db))
-                .unwrap_or(std::cmp::Ordering::Equal)
+            compare_cost(
+                sum_model_costs(&b.models, pricing_db),
+                sum_model_costs(&a.models, pricing_db),
+            )
         }),
     }
 
