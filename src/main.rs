@@ -85,26 +85,17 @@ fn main() {
 
     let jq_filter = cli.jq.as_deref();
 
-    let since = match cli.since.as_ref() {
-        Some(s) => match parse_date(s) {
-            Ok(date) => Some(date),
+    let parse_date_flag = |value: &Option<String>, flag: &str| {
+        value.as_ref().map(|s| match parse_date(s) {
+            Ok(date) => date,
             Err(err) => {
-                eprintln!("--since: {err}");
+                eprintln!("{flag}: {err}");
                 std::process::exit(1);
             }
-        },
-        None => None,
+        })
     };
-    let until = match cli.until.as_ref() {
-        Some(s) => match parse_date(s) {
-            Ok(date) => Some(date),
-            Err(err) => {
-                eprintln!("--until: {err}");
-                std::process::exit(1);
-            }
-        },
-        None => None,
-    };
+    let since = parse_date_flag(&cli.since, "--since");
+    let until = parse_date_flag(&cli.until, "--until");
 
     // Validate date range
     if let (Some(s), Some(u)) = (since, until)
