@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_all_booleans_true() {
-        let toml_str = r#"
+        let toml_str = r"
 offline = true
 compact = true
 no_cost = true
@@ -169,7 +169,7 @@ no_color = true
 breakdown = true
 debug = true
 strict_pricing = true
-"#;
+";
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.offline);
         assert!(config.compact);
@@ -204,7 +204,7 @@ strict_pricing = true
     #[test]
     fn test_deserialize_color_modes() {
         for (input, expected) in [("auto", "auto"), ("always", "always"), ("never", "never")] {
-            let config: Config = toml::from_str(&format!("color = \"{}\"", input)).unwrap();
+            let config: Config = toml::from_str(&format!("color = \"{input}\"")).unwrap();
             match config.color {
                 Some(ConfigColorMode::Auto) => assert_eq!(expected, "auto"),
                 Some(ConfigColorMode::Always) => assert_eq!(expected, "always"),

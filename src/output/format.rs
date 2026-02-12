@@ -158,6 +158,7 @@ pub(super) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::{NumberFormat, format_compact, format_cost, format_number};
 
@@ -167,7 +168,7 @@ mod tests {
         assert_eq!(format_number(0, fmt), "0");
         assert_eq!(format_number(999, fmt), "999");
         assert_eq!(format_number(1000, fmt), "1,000");
-        assert_eq!(format_number(1234567, fmt), "1,234,567");
+        assert_eq!(format_number(1_234_567, fmt), "1,234,567");
     }
 
     #[test]
