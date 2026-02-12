@@ -233,3 +233,155 @@ pub(crate) fn output_block_json(
         "[]".to_string()
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_block(start: &str, end: &str, input: i64, output: i64) -> BlockStats {
+        BlockStats {
+            block_start: start.to_string(),
+            block_end: end.to_string(),
+            stats: Stats {
+                input_tokens: input,
+                output_tokens: output,
+                ..Default::default()
+            },
+            models: HashMap::new(),
+        }
+    }
+
+    fn make_block_with_cache(
+        start: &str,
+        end: &str,
+        input: i64,
+        output: i64,
+        cache_creation: i64,
+        cache_read: i64,
+    ) -> BlockStats {
+        BlockStats {
+            block_start: start.to_string(),
+            block_end: end.to_string(),
+            stats: Stats {
+                input_tokens: input,
+                output_tokens: output,
+                cache_creation,
+                cache_read,
+                ..Default::default()
+            },
+            models: HashMap::new(),
+        }
+    }
+
+    // --- JSON output tests ---
+
+    #[test]
+    fn output_block_json_empty_input() {
+        let db = PricingDb::default();
+        let json_str = output_block_json(&[], &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn output_block_json_single_block() {
+        let db = PricingDb::default();
+        let blocks = vec![make_block("2026-02-12 10:00", "2026-02-12 15:00", 1000, 500)];
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["block_start"], "2026-02-12 10:00");
+        assert_eq!(parsed[0]["block_end"], "2026-02-12 15:00");
+        assert_eq!(parsed[0]["input_tokens"], 1000);
+        assert_eq!(parsed[0]["output_tokens"], 500);
+        assert_eq!(parsed[0]["total_tokens"], 1500);
+        assert!(parsed[0].get("cost").is_none());
+    }
+
+    #[test]
+    fn output_block_json_includes_cost_when_requested() {
+        let db = PricingDb::default();
+        let blocks = vec![make_block("2026-02-12 10:00", "2026-02-12 15:00", 100, 50)];
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, true);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert!(parsed[0].get("cost").is_some());
+    }
+
+    #[test]
+    fn output_block_json_sorts_asc() {
+        let db = PricingDb::default();
+        let blocks = vec![
+            make_block("2026-02-12 15:00", "2026-02-12 20:00", 100, 50),
+            make_block("2026-02-12 05:00", "2026-02-12 10:00", 200, 100),
+            make_block("2026-02-12 10:00", "2026-02-12 15:00", 300, 150),
+        ];
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed[0]["block_start"], "2026-02-12 05:00");
+        assert_eq!(parsed[1]["block_start"], "2026-02-12 10:00");
+        assert_eq!(parsed[2]["block_start"], "2026-02-12 15:00");
+    }
+
+    #[test]
+    fn output_block_json_sorts_desc() {
+        let db = PricingDb::default();
+        let blocks = vec![
+            make_block("2026-02-12 05:00", "2026-02-12 10:00", 100, 50),
+            make_block("2026-02-12 15:00", "2026-02-12 20:00", 200, 100),
+        ];
+        let json_str = output_block_json(&blocks, &db, SortOrder::Desc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed[0]["block_start"], "2026-02-12 15:00");
+        assert_eq!(parsed[1]["block_start"], "2026-02-12 05:00");
+    }
+
+    #[test]
+    fn output_block_json_includes_cache_tokens() {
+        let db = PricingDb::default();
+        let blocks = vec![make_block_with_cache(
+            "2026-02-12 10:00",
+            "2026-02-12 15:00",
+            1000,
+            500,
+            200,
+            300,
+        )];
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(parsed[0]["cache_creation_tokens"], 200);
+        assert_eq!(parsed[0]["cache_read_tokens"], 300);
+        assert_eq!(parsed[0]["total_tokens"], 2000); // 1000+500+200+300
+    }
+
+    #[test]
+    fn output_block_json_models_sorted_alphabetically() {
+        let db = PricingDb::default();
+        let mut models = HashMap::new();
+        models.insert("sonnet".to_string(), Stats::default());
+        models.insert("opus".to_string(), Stats::default());
+        models.insert("haiku".to_string(), Stats::default());
+
+        let blocks = vec![BlockStats {
+            block_start: "2026-02-12 10:00".to_string(),
+            block_end: "2026-02-12 15:00".to_string(),
+            stats: Stats::default(),
+            models,
+        }];
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+
+        let model_list: Vec<&str> = parsed[0]["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(model_list, vec!["haiku", "opus", "sonnet"]);
+    }
+}
