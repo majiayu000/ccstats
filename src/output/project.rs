@@ -3,11 +3,10 @@ use comfy_table::{Cell, Color};
 use crate::cli::SortOrder;
 use crate::core::{ProjectStats, Stats};
 use crate::output::format::{
-    NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
-    header_cell, right_cell, styled_cell,
+    NumberFormat, compare_cost, cost_json_value, create_styled_table, format_compact, format_cost,
+    format_number, header_cell, right_cell, styled_cell,
 };
 use crate::pricing::{PricingDb, attach_costs};
-use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ProjectTableOptions<'a> {
@@ -17,18 +16,6 @@ pub(crate) struct ProjectTableOptions<'a> {
     pub(crate) show_cost: bool,
     pub(crate) source_label: &'a str,
     pub(crate) number_format: NumberFormat,
-}
-
-fn compare_cost(a: f64, b: f64) -> Ordering {
-    if a.is_nan() && b.is_nan() {
-        Ordering::Equal
-    } else if a.is_nan() {
-        Ordering::Greater
-    } else if b.is_nan() {
-        Ordering::Less
-    } else {
-        a.partial_cmp(&b).unwrap_or(Ordering::Equal)
-    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -250,26 +237,6 @@ pub(crate) fn output_project_json(
 mod tests {
     use super::*;
     use std::collections::HashMap;
-
-    #[test]
-    fn compare_cost_normal_values() {
-        assert_eq!(compare_cost(1.0, 2.0), Ordering::Less);
-        assert_eq!(compare_cost(2.0, 1.0), Ordering::Greater);
-        assert_eq!(compare_cost(1.0, 1.0), Ordering::Equal);
-    }
-
-    #[test]
-    fn compare_cost_nan_handling() {
-        assert_eq!(compare_cost(f64::NAN, f64::NAN), Ordering::Equal);
-        assert_eq!(compare_cost(f64::NAN, 1.0), Ordering::Greater);
-        assert_eq!(compare_cost(1.0, f64::NAN), Ordering::Less);
-    }
-
-    #[test]
-    fn compare_cost_zero_and_negative() {
-        assert_eq!(compare_cost(0.0, 0.0), Ordering::Equal);
-        assert_eq!(compare_cost(-1.0, 1.0), Ordering::Less);
-    }
 
     fn make_project(
         name: &str,

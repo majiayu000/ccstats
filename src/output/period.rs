@@ -11,6 +11,16 @@ pub(crate) enum Period {
     Month,
 }
 
+impl Period {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Period::Day => "date",
+            Period::Week => "week",
+            Period::Month => "month",
+        }
+    }
+}
+
 fn week_start(date_str: &str) -> String {
     if let Ok(date) = NaiveDate::parse_from_str(date_str, DATE_FORMAT) {
         let weekday = date.weekday().num_days_from_monday();

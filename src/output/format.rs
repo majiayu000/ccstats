@@ -92,6 +92,19 @@ pub(super) fn format_compact(n: i64, format: NumberFormat) -> String {
     format!("{sign}{s}{suffix}")
 }
 
+pub(super) fn compare_cost(a: f64, b: f64) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    if a.is_nan() && b.is_nan() {
+        Ordering::Equal
+    } else if a.is_nan() {
+        Ordering::Greater
+    } else if b.is_nan() {
+        Ordering::Less
+    } else {
+        a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+    }
+}
+
 pub(super) fn format_cost(cost: f64) -> String {
     if cost.is_nan() {
         "N/A".to_string()
@@ -160,7 +173,7 @@ pub(super) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
-    use super::{NumberFormat, format_compact, format_cost, format_number};
+    use super::{NumberFormat, compare_cost, format_compact, format_cost, format_number};
 
     #[test]
     fn format_number_with_commas() {
@@ -245,5 +258,28 @@ mod tests {
     fn format_number_negative() {
         let fmt = NumberFormat::default();
         assert_eq!(format_number(-1234, fmt), "-1,234");
+    }
+
+    #[test]
+    fn compare_cost_normal_values() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_cost(1.0, 2.0), Ordering::Less);
+        assert_eq!(compare_cost(2.0, 1.0), Ordering::Greater);
+        assert_eq!(compare_cost(1.0, 1.0), Ordering::Equal);
+    }
+
+    #[test]
+    fn compare_cost_nan_handling() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_cost(f64::NAN, f64::NAN), Ordering::Equal);
+        assert_eq!(compare_cost(f64::NAN, 1.0), Ordering::Greater);
+        assert_eq!(compare_cost(1.0, f64::NAN), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_cost_zero_and_negative() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_cost(0.0, 0.0), Ordering::Equal);
+        assert_eq!(compare_cost(-1.0, 1.0), Ordering::Less);
     }
 }

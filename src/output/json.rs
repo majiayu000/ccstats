@@ -7,14 +7,6 @@ use crate::output::format::cost_json_value;
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
 
-fn period_label(period: Period) -> &'static str {
-    match period {
-        Period::Day => "date",
-        Period::Week => "week",
-        Period::Month => "month",
-    }
-}
-
 fn sort_output(output: &mut [serde_json::Value], key: &str, order: SortOrder) {
     match order {
         SortOrder::Asc => output.sort_by(|a, b| {
@@ -127,7 +119,7 @@ pub(crate) fn output_period_json(
     breakdown: bool,
     show_cost: bool,
 ) -> String {
-    let label = period_label(period);
+    let label = period.label();
     let aggregated;
     let stats_ref = if period == Period::Day {
         day_stats
@@ -169,9 +161,9 @@ mod tests {
 
     #[test]
     fn period_label_mapping() {
-        assert_eq!(period_label(Period::Day), "date");
-        assert_eq!(period_label(Period::Week), "week");
-        assert_eq!(period_label(Period::Month), "month");
+        assert_eq!(Period::Day.label(), "date");
+        assert_eq!(Period::Week.label(), "week");
+        assert_eq!(Period::Month.label(), "month");
     }
 
     #[test]
