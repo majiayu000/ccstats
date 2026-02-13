@@ -176,12 +176,11 @@ pub(crate) fn aggregate_blocks(
 
 /// Calculate the 5-hour block start time for a given timestamp
 fn get_block_start(dt: DateTime<FixedOffset>) -> DateTime<FixedOffset> {
-    let hour = i64::from(dt.hour());
-    let block_hour = (hour / 5) * 5;
+    let block_hour = dt.hour() / 5 * 5;
     let offset = *dt.offset();
     let naive = dt
         .date_naive()
-        .and_hms_opt(block_hour as u32, 0, 0)
+        .and_hms_opt(block_hour, 0, 0)
         .unwrap_or_else(|| dt.naive_utc());
     offset
         .from_local_datetime(&naive)

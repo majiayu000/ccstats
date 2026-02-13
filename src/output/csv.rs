@@ -4,7 +4,7 @@ use std::fmt::Write;
 use crate::cli::SortOrder;
 use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::output::project::compare_cost;
+use crate::output::format::compare_cost;
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
 
 fn csv_escape(s: &str) -> String {
@@ -12,14 +12,6 @@ fn csv_escape(s: &str) -> String {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()
-    }
-}
-
-fn period_label(period: Period) -> &'static str {
-    match period {
-        Period::Day => "date",
-        Period::Week => "week",
-        Period::Month => "month",
     }
 }
 
@@ -44,7 +36,7 @@ pub(crate) fn output_period_csv(
         SortOrder::Asc => rows.sort_by(|a, b| a.0.cmp(b.0)),
         SortOrder::Desc => rows.sort_by(|a, b| b.0.cmp(a.0)),
     }
-    let label = period_label(period);
+    let label = period.label();
     let mut out = String::new();
 
     if breakdown {
