@@ -39,7 +39,7 @@ fn parse_timestamp_millis(ts: &str) -> Option<i64> {
         .map(|dt| dt.timestamp_millis())
 }
 
-fn compare_session_last_timestamp(a: &SessionStats, b: &SessionStats) -> Ordering {
+pub(super) fn compare_session_last_timestamp(a: &SessionStats, b: &SessionStats) -> Ordering {
     match (
         parse_timestamp_millis(&a.last_timestamp),
         parse_timestamp_millis(&b.last_timestamp),

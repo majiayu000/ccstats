@@ -175,6 +175,56 @@ fn codex_session_json_orders_by_actual_timestamp() {
 }
 
 #[test]
+fn codex_session_csv_orders_by_actual_timestamp() {
+    let root = unique_temp_dir("codex-session-csv-order");
+    let codex_home = root.join("codex-home");
+    let session_a = codex_home.join("sessions").join("a.jsonl");
+    let session_b = codex_home.join("sessions").join("b.jsonl");
+
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T23:00:00+08:00","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"last_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"model":"gpt-5"}}}
+"#,
+    );
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T16:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"last_token_usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":2},"model":"gpt-5"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "session",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+            "--order",
+            "desc",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let csv = String::from_utf8(stdout).expect("utf8 csv");
+    let mut lines = csv.lines();
+    let _header = lines.next().expect("csv header");
+    let first = lines.next().expect("first row");
+    let second = lines.next().expect("second row");
+
+    assert!(first.starts_with("b,"), "expected b first, got: {first}");
+    assert!(second.starts_with("a,"), "expected a second, got: {second}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn codex_session_json_includes_reasoning_tokens() {
     let root = unique_temp_dir("codex-session-reasoning");
     let codex_home = root.join("codex-home");

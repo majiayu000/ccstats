@@ -6,6 +6,7 @@ use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::output::format::compare_cost;
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
+use super::session::compare_session_last_timestamp;
 
 fn csv_escape(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
@@ -115,8 +116,8 @@ pub(crate) fn output_session_csv(
 ) -> String {
     let mut sorted: Vec<_> = sessions.iter().collect();
     match order {
-        SortOrder::Asc => sorted.sort_by(|a, b| a.last_timestamp.cmp(&b.last_timestamp)),
-        SortOrder::Desc => sorted.sort_by(|a, b| b.last_timestamp.cmp(&a.last_timestamp)),
+        SortOrder::Asc => sorted.sort_by(|a, b| compare_session_last_timestamp(a, b)),
+        SortOrder::Desc => sorted.sort_by(|a, b| compare_session_last_timestamp(b, a)),
     }
 
     let mut out = String::new();
