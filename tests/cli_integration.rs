@@ -633,13 +633,13 @@ fn claude_session_csv_outputs_correct_format() {
     assert_eq!(lines.len(), 3, "header + 2 sessions");
     assert_eq!(
         lines[0],
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
     );
     // Sessions sorted by last_timestamp asc: session-a (10:00) then session-b (11:00)
     assert!(lines[1].starts_with("session-a,"));
-    assert!(lines[1].ends_with(",100,50,150"));
+    assert!(lines[1].ends_with(",100,50,0,0,0,150"));
     assert!(lines[2].starts_with("session-b,"));
-    assert!(lines[2].ends_with(",200,80,280"));
+    assert!(lines[2].ends_with(",200,80,0,0,0,280"));
 
     let _ = fs::remove_dir_all(root);
 }
