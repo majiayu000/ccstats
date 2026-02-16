@@ -123,7 +123,7 @@ pub(crate) fn output_session_csv(
     let mut out = String::new();
     let _ = write!(
         out,
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
     );
     if show_cost {
         let _ = write!(out, ",cost");
@@ -134,13 +134,16 @@ pub(crate) fn output_session_csv(
         let cost = sum_model_costs(&s.models, pricing_db);
         let _ = write!(
             out,
-            "{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{}",
             csv_escape(&s.session_id),
             csv_escape(&s.project_path),
             csv_escape(&s.first_timestamp),
             csv_escape(&s.last_timestamp),
             s.stats.input_tokens,
             s.stats.output_tokens,
+            s.stats.reasoning_tokens,
+            s.stats.cache_creation,
+            s.stats.cache_read,
             s.stats.total_tokens(),
         );
         if show_cost {
@@ -354,9 +357,38 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,total_tokens"
+            "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
         );
         assert!(lines[1].starts_with("abc-123,/home/user/project,"));
+    }
+
+    #[test]
+    fn session_csv_includes_reasoning_and_cache_tokens() {
+        let sessions = vec![SessionStats {
+            session_id: "reasoning".to_string(),
+            project_path: String::new(),
+            first_timestamp: "2025-01-01T00:00:00Z".to_string(),
+            last_timestamp: "2025-01-01T01:00:00Z".to_string(),
+            stats: Stats {
+                input_tokens: 1000,
+                output_tokens: 300,
+                reasoning_tokens: 200,
+                cache_creation: 50,
+                cache_read: 100,
+                count: 1,
+                ..Default::default()
+            },
+            models: HashMap::new(),
+        }];
+
+        let db = PricingDb::default();
+        let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false);
+        let lines: Vec<&str> = csv.lines().collect();
+
+        assert_eq!(
+            lines[1],
+            "reasoning,,2025-01-01T00:00:00Z,2025-01-01T01:00:00Z,1000,300,200,50,100,1650"
+        );
     }
 
     #[test]

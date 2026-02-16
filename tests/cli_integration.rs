@@ -262,6 +262,51 @@ fn codex_session_json_includes_reasoning_tokens() {
 }
 
 #[test]
+fn codex_session_csv_includes_reasoning_and_cache_tokens() {
+    let root = unique_temp_dir("codex-session-reasoning-csv");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("reasoning-session.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":100,"output_tokens":500,"reasoning_output_tokens":200,"total_tokens":1500},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":100,"output_tokens":500,"reasoning_output_tokens":200,"total_tokens":1500},"model":"gpt-5.2-codex"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "session",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let csv = String::from_utf8(stdout).expect("utf8 csv");
+    let mut lines = csv.lines();
+    let header = lines.next().expect("header");
+    let row = lines.next().expect("row");
+    assert_eq!(
+        header,
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+    );
+    assert_eq!(
+        row,
+        "reasoning-session,,2026-02-06T10:00:00Z,2026-02-06T10:00:00Z,900,300,200,0,100,1500"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn strict_pricing_sets_unknown_cost_to_null() {
     let root = unique_temp_dir("strict-pricing");
     let codex_home = root.join("codex-home");
