@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::RawEntry;
+use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
 // ============================================================================
@@ -85,7 +86,7 @@ pub(super) fn parse_claude_file_with_debug(
     path: &Path,
     timezone: Timezone,
     debug: bool,
-) -> Vec<RawEntry> {
+) -> ParseOutput {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -105,12 +106,16 @@ pub(super) fn parse_claude_file_with_debug(
             if debug {
                 eprintln!("Failed to open {}: {}", path.display(), err);
             }
-            return Vec::new();
+            return ParseOutput {
+                entries: Vec::new(),
+                errors: 1,
+            };
         }
     };
     let reader = BufReader::new(file);
 
     let mut entries = Vec::new();
+    let mut parse_errors = 0usize;
     for (line_no, line) in reader.lines().enumerate() {
         let line = match line {
             Ok(line) => line,
@@ -123,6 +128,7 @@ pub(super) fn parse_claude_file_with_debug(
                         err
                     );
                 }
+                parse_errors += 1;
                 continue;
             }
         };
@@ -142,6 +148,7 @@ pub(super) fn parse_claude_file_with_debug(
                         err
                     );
                 }
+                parse_errors += 1;
                 continue;
             }
         };
@@ -154,11 +161,15 @@ pub(super) fn parse_claude_file_with_debug(
             timezone,
             line_no + 1,
             debug,
+            &mut parse_errors,
         ) {
             entries.push(entry);
         }
     }
-    entries
+    ParseOutput {
+        entries,
+        errors: parse_errors,
+    }
 }
 
 #[cfg(test)]
@@ -170,6 +181,7 @@ fn parse_entry(
     timezone: Timezone,
     line_no: usize,
 ) -> Option<RawEntry> {
+    let mut parse_errors = 0usize;
     parse_entry_with_debug(
         entry,
         path,
@@ -178,6 +190,7 @@ fn parse_entry(
         timezone,
         line_no,
         false,
+        &mut parse_errors,
     )
 }
 
@@ -189,6 +202,7 @@ fn parse_entry_with_debug(
     timezone: Timezone,
     line_no: usize,
     debug: bool,
+    parse_errors: &mut usize,
 ) -> Option<RawEntry> {
     let ts = entry.timestamp?;
     let msg = entry.message?;
@@ -216,6 +230,7 @@ fn parse_entry_with_debug(
                     err
                 );
             }
+            *parse_errors += 1;
             return None;
         }
     };

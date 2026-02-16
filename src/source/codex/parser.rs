@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::RawEntry;
+use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
 const DEFAULT_CODEX_DIR: &str = ".codex";
@@ -161,7 +162,7 @@ pub(super) fn parse_codex_file_with_debug(
     path: &Path,
     timezone: Timezone,
     debug: bool,
-) -> Vec<RawEntry> {
+) -> ParseOutput {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -174,12 +175,16 @@ pub(super) fn parse_codex_file_with_debug(
             if debug {
                 eprintln!("Failed to open {}: {}", path.display(), err);
             }
-            return Vec::new();
+            return ParseOutput {
+                entries: Vec::new(),
+                errors: 1,
+            };
         }
     };
     let reader = BufReader::new(file);
 
     let mut entries = Vec::new();
+    let mut parse_errors = 0usize;
     let mut previous_totals: Option<TokenUsage> = None;
     let mut current_model: Option<String> = None;
 
@@ -195,6 +200,7 @@ pub(super) fn parse_codex_file_with_debug(
                         err
                     );
                 }
+                parse_errors += 1;
                 continue;
             }
         };
@@ -215,6 +221,7 @@ pub(super) fn parse_codex_file_with_debug(
                         err
                     );
                 }
+                parse_errors += 1;
                 continue;
             }
         };
@@ -299,6 +306,7 @@ pub(super) fn parse_codex_file_with_debug(
                         err
                     );
                 }
+                parse_errors += 1;
                 continue;
             }
         };
@@ -342,7 +350,10 @@ pub(super) fn parse_codex_file_with_debug(
         });
     }
 
-    entries
+    ParseOutput {
+        entries,
+        errors: parse_errors,
+    }
 }
 
 #[cfg(test)]

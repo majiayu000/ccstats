@@ -91,18 +91,23 @@ impl<'a> DataLoader<'a> {
 
         let file_count = files.len();
         let parse_start = Instant::now();
-        let result = files
+        let (result, parse_errors) = files
             .par_iter()
             .map(|path| {
-                let entries = self.source.parse_file(path, timezone, self.debug);
-                let filtered = Self::filter_entries(entries, filter, timezone);
-                per_file(filtered)
+                let parsed = self.source.parse_file(path, timezone, self.debug);
+                let filtered = Self::filter_entries(parsed.entries, filter, timezone);
+                (per_file(filtered), parsed.errors)
             })
-            .reduce(&init, &reduce);
+            .reduce(|| (init(), 0usize), |(acc, acc_errors), (partial, partial_errors)| {
+                (reduce(acc, partial), acc_errors + partial_errors)
+            });
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
         if !self.quiet {
             eprintln!("Parsed {file_count} files incrementally ({parse_ms:.2}ms)");
+            if parse_errors > 0 {
+                eprintln!("Warning: ignored {parse_errors} malformed records");
+            }
         }
 
         Some((result, file_count))

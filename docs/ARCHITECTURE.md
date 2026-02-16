@@ -58,8 +58,8 @@ pub trait Source: Send + Sync {
     /// 发现所有数据文件
     fn find_files(&self) -> Vec<PathBuf>;
 
-    /// 解析单个文件，返回统一的 RawEntry 列表
-    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry>;
+    /// 解析单个文件，返回统一记录和解析错误统计
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
 }
 ```
 
@@ -228,8 +228,8 @@ impl Source for NewCliSource {
 
     fn find_files(&self) -> Vec<PathBuf> { find_files() }
 
-    fn parse_file(&self, path: &PathBuf, timezone: &Timezone) -> Vec<RawEntry> {
-        parse_file(path, timezone)
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
+        parse_file_with_debug(path, timezone, debug)
     }
 }
 ```

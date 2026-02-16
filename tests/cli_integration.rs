@@ -137,6 +137,42 @@ fn codex_subcommand_conflicts_with_different_source_flag() {
 }
 
 #[test]
+fn malformed_records_are_reported_without_debug_flag() {
+    let root = unique_temp_dir("malformed-record-warning");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("malformed.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"model":"gpt-5"}}}
+{"timestamp":"not-json"
+"#,
+    );
+
+    let (ok, _stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "codex",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(stderr.contains("malformed records"), "stderr: {stderr}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn codex_reasoning_tokens_not_double_counted() {
     let root = unique_temp_dir("codex-reasoning");
     let codex_home = root.join("codex-home");

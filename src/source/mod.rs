@@ -13,6 +13,13 @@ use std::path::{Path, PathBuf};
 use crate::core::RawEntry;
 use crate::utils::Timezone;
 
+/// Parse result for a single source file.
+#[derive(Debug, Default)]
+pub(crate) struct ParseOutput {
+    pub(crate) entries: Vec<RawEntry>,
+    pub(crate) errors: usize,
+}
+
 /// Capabilities that a data source may support
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::struct_excessive_bools)]
@@ -50,8 +57,8 @@ pub(crate) trait Source: Send + Sync {
     /// Find all data files for this source
     fn find_files(&self) -> Vec<PathBuf>;
 
-    /// Parse a single file into raw entries
-    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> Vec<RawEntry>;
+    /// Parse a single file into raw entries and diagnostics.
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
 }
 
 /// Box type for dynamic dispatch

@@ -4,8 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::core::RawEntry;
-use crate::source::{Capabilities, Source};
+use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
 use super::parser::{find_claude_files, parse_claude_file_with_debug};
@@ -52,7 +51,7 @@ impl Source for ClaudeSource {
         find_claude_files()
     }
 
-    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> Vec<RawEntry> {
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_claude_file_with_debug(path, timezone, debug)
     }
 }
