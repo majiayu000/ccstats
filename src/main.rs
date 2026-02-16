@@ -29,7 +29,7 @@ use core::DateFilter;
 use output::NumberFormat;
 use pricing::PricingDb;
 use source::get_source;
-use utils::{Timezone, parse_date, set_parse_debug};
+use utils::{Timezone, parse_date};
 
 enum TimezoneSource {
     Cli,
@@ -52,7 +52,6 @@ fn main() {
 
     // Merge config with CLI (CLI takes precedence)
     let cli = raw_cli.with_config(&config);
-    set_parse_debug(cli.debug);
 
     let timezone_source = if raw_timezone.is_some() {
         Some(TimezoneSource::Cli)

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::RawEntry;
-use crate::utils::{Timezone, parse_debug_enabled};
+use crate::utils::Timezone;
 
 // ============================================================================
 // Internal types for JSONL parsing
@@ -81,7 +81,11 @@ fn normalize_model_name(model: &str) -> String {
     name
 }
 
-pub(super) fn parse_claude_file(path: &Path, timezone: Timezone) -> Vec<RawEntry> {
+pub(super) fn parse_claude_file_with_debug(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -98,7 +102,7 @@ pub(super) fn parse_claude_file(path: &Path, timezone: Timezone) -> Vec<RawEntry
     let file = match File::open(path) {
         Ok(f) => f,
         Err(err) => {
-            if parse_debug_enabled() {
+            if debug {
                 eprintln!("Failed to open {}: {}", path.display(), err);
             }
             return Vec::new();
@@ -111,7 +115,7 @@ pub(super) fn parse_claude_file(path: &Path, timezone: Timezone) -> Vec<RawEntry
         let line = match line {
             Ok(line) => line,
             Err(err) => {
-                if parse_debug_enabled() {
+                if debug {
                     eprintln!(
                         "Failed to read line {} in {}: {}",
                         line_no + 1,
@@ -130,7 +134,7 @@ pub(super) fn parse_claude_file(path: &Path, timezone: Timezone) -> Vec<RawEntry
         let entry: UsageEntry = match serde_json::from_str(&line) {
             Ok(entry) => entry,
             Err(err) => {
-                if parse_debug_enabled() {
+                if debug {
                     eprintln!(
                         "Invalid JSON at {}:{}: {}",
                         path.display(),
@@ -142,13 +146,14 @@ pub(super) fn parse_claude_file(path: &Path, timezone: Timezone) -> Vec<RawEntry
             }
         };
 
-        if let Some(entry) = parse_entry(
+        if let Some(entry) = parse_entry_with_debug(
             entry,
             path,
             &session_id,
             &project_path,
             timezone,
             line_no + 1,
+            debug,
         ) {
             entries.push(entry);
         }
@@ -156,6 +161,7 @@ pub(super) fn parse_claude_file(path: &Path, timezone: Timezone) -> Vec<RawEntry
     entries
 }
 
+#[cfg(test)]
 fn parse_entry(
     entry: UsageEntry,
     path: &Path,
@@ -163,6 +169,26 @@ fn parse_entry(
     project_path: &str,
     timezone: Timezone,
     line_no: usize,
+) -> Option<RawEntry> {
+    parse_entry_with_debug(
+        entry,
+        path,
+        session_id,
+        project_path,
+        timezone,
+        line_no,
+        false,
+    )
+}
+
+fn parse_entry_with_debug(
+    entry: UsageEntry,
+    path: &Path,
+    session_id: &str,
+    project_path: &str,
+    timezone: Timezone,
+    line_no: usize,
+    debug: bool,
 ) -> Option<RawEntry> {
     let ts = entry.timestamp?;
     let msg = entry.message?;
@@ -181,7 +207,7 @@ fn parse_entry(
     let utc_dt = match ts.parse::<DateTime<Utc>>() {
         Ok(dt) => dt,
         Err(err) => {
-            if parse_debug_enabled() {
+            if debug {
                 eprintln!(
                     "Invalid timestamp at {}:{}: {} ({})",
                     path.display(),

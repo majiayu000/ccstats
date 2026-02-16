@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::RawEntry;
-use crate::utils::{Timezone, parse_debug_enabled};
+use crate::utils::Timezone;
 
 const DEFAULT_CODEX_DIR: &str = ".codex";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
@@ -157,7 +157,11 @@ fn extract_model(payload: &Payload) -> Option<String> {
 }
 
 #[allow(clippy::too_many_lines)]
-pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry> {
+pub(super) fn parse_codex_file_with_debug(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+) -> Vec<RawEntry> {
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -167,7 +171,7 @@ pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry>
     let file = match File::open(path) {
         Ok(f) => f,
         Err(err) => {
-            if parse_debug_enabled() {
+            if debug {
                 eprintln!("Failed to open {}: {}", path.display(), err);
             }
             return Vec::new();
@@ -183,7 +187,7 @@ pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry>
         let line = match line {
             Ok(line) => line,
             Err(err) => {
-                if parse_debug_enabled() {
+                if debug {
                     eprintln!(
                         "Failed to read line {} in {}: {}",
                         line_no + 1,
@@ -203,7 +207,7 @@ pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry>
         let raw_entry: RawJsonEntry = match serde_json::from_str(trimmed) {
             Ok(e) => e,
             Err(err) => {
-                if parse_debug_enabled() {
+                if debug {
                     eprintln!(
                         "Invalid JSON at {}:{}: {}",
                         path.display(),
@@ -286,7 +290,7 @@ pub(super) fn parse_codex_file(path: &Path, timezone: Timezone) -> Vec<RawEntry>
         let utc_dt = match timestamp.parse::<DateTime<Utc>>() {
             Ok(dt) => dt,
             Err(err) => {
-                if parse_debug_enabled() {
+                if debug {
                     eprintln!(
                         "Invalid timestamp at {}:{}: {} ({})",
                         path.display(),

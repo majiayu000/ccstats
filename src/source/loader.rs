@@ -94,7 +94,7 @@ impl<'a> DataLoader<'a> {
         let result = files
             .par_iter()
             .map(|path| {
-                let entries = self.source.parse_file(path, timezone);
+                let entries = self.source.parse_file(path, timezone, self.debug);
                 let filtered = Self::filter_entries(entries, filter, timezone);
                 per_file(filtered)
             })

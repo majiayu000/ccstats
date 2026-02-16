@@ -8,7 +8,7 @@ use crate::core::RawEntry;
 use crate::source::{Capabilities, Source};
 use crate::utils::Timezone;
 
-use super::parser::{find_codex_files, parse_codex_file};
+use super::parser::{find_codex_files, parse_codex_file_with_debug};
 
 /// Codex data source
 pub(crate) struct CodexSource;
@@ -52,7 +52,7 @@ impl Source for CodexSource {
         find_codex_files()
     }
 
-    fn parse_file(&self, path: &Path, timezone: Timezone) -> Vec<RawEntry> {
-        parse_codex_file(path, timezone)
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> Vec<RawEntry> {
+        parse_codex_file_with_debug(path, timezone, debug)
     }
 }
