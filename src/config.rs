@@ -51,6 +51,8 @@ pub(crate) struct Config {
     pub(crate) timezone: Option<String>,
     #[serde(default)]
     pub(crate) locale: Option<String>,
+    #[serde(default)]
+    pub(crate) source: Option<String>,
 }
 
 impl Config {
@@ -157,6 +159,7 @@ mod tests {
         assert!(config.cost.is_none());
         assert!(config.timezone.is_none());
         assert!(config.locale.is_none());
+        assert!(config.source.is_none());
     }
 
     #[test]
@@ -226,9 +229,11 @@ strict_pricing = true
     #[test]
     fn test_deserialize_string_fields() {
         let config: Config =
-            toml::from_str("timezone = \"Asia/Tokyo\"\nlocale = \"ja-JP\"").unwrap();
+            toml::from_str("timezone = \"Asia/Tokyo\"\nlocale = \"ja-JP\"\nsource = \"codex\"")
+                .unwrap();
         assert_eq!(config.timezone.as_deref(), Some("Asia/Tokyo"));
         assert_eq!(config.locale.as_deref(), Some("ja-JP"));
+        assert_eq!(config.source.as_deref(), Some("codex"));
     }
 
     #[test]
@@ -246,6 +251,7 @@ color = "never"
 cost = "hide"
 timezone = "US/Eastern"
 locale = "en-US"
+source = "codex"
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.offline);
@@ -260,6 +266,7 @@ locale = "en-US"
         assert!(matches!(config.cost, Some(ConfigCostMode::Hide)));
         assert_eq!(config.timezone.as_deref(), Some("US/Eastern"));
         assert_eq!(config.locale.as_deref(), Some("en-US"));
+        assert_eq!(config.source.as_deref(), Some("codex"));
     }
 
     #[test]
@@ -385,5 +392,6 @@ locale = "en-US"
         assert!(config.cost.is_none());
         assert!(config.timezone.is_none());
         assert!(config.locale.is_none());
+        assert!(config.source.is_none());
     }
 }

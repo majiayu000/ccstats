@@ -114,6 +114,10 @@ pub(crate) struct Cli {
     /// Locale for number formatting (e.g., "en", "zh", "de")
     #[arg(long, global = true, value_name = "LOCALE")]
     pub(crate) locale: Option<String>,
+
+    /// Data source name or alias (e.g., "claude", "codex", "cc", "cx")
+    #[arg(long, global = true, value_name = "SOURCE")]
+    pub(crate) source: Option<String>,
 }
 
 impl Cli {
@@ -184,6 +188,9 @@ impl Cli {
         }
         if self.locale.is_none() {
             self.locale.clone_from(&config.locale);
+        }
+        if self.source.is_none() {
+            self.source.clone_from(&config.source);
         }
 
         self
@@ -400,7 +407,7 @@ mod tests {
         assert!(!merged.use_color());
     }
 
-    // --- Timezone / locale merging ---
+    // --- Timezone / locale / source merging ---
 
     #[test]
     fn config_timezone_applies_when_cli_not_set() {
@@ -446,6 +453,28 @@ mod tests {
         assert_eq!(merged.locale.as_deref(), Some("en"));
     }
 
+    #[test]
+    fn config_source_applies_when_cli_not_set() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        let config = Config {
+            source: Some("codex".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.source.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn cli_source_wins_over_config() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--source", "claude"]);
+        let config = Config {
+            source: Some("codex".to_string()),
+            ..Default::default()
+        };
+        let merged = cli.with_config(&config);
+        assert_eq!(merged.source.as_deref(), Some("claude"));
+    }
+
     // --- Defaults ---
 
     #[test]
@@ -474,6 +503,7 @@ mod tests {
         assert!(!merged.strict_pricing);
         assert!(merged.timezone.is_none());
         assert!(merged.locale.is_none());
+        assert!(merged.source.is_none());
     }
 
     // --- NO_COLOR env var ---

@@ -84,6 +84,59 @@ fn codex_daily_json_reads_session_data() {
 }
 
 #[test]
+fn source_flag_can_select_codex_without_subcommand() {
+    let root = unique_temp_dir("source-flag-codex");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("flag-session.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"model":"gpt-5"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "codex",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(15));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_subcommand_conflicts_with_different_source_flag() {
+    let root = unique_temp_dir("source-flag-conflict");
+    let (ok, _stdout, stderr) = run_ccstats(
+        &["codex", "daily", "--source", "claude", "-O", "--no-cost"],
+        &[("HOME", &root)],
+    );
+    assert!(!ok, "expected conflict failure");
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(stderr.contains("conflicts with --source"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn codex_reasoning_tokens_not_double_counted() {
     let root = unique_temp_dir("codex-reasoning");
     let codex_home = root.join("codex-home");

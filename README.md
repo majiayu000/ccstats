@@ -94,6 +94,9 @@ ccstats monthly --locale de
 # Filter by date
 ccstats daily --since 20260101 --until 20260131
 
+# Select data source explicitly (supports aliases)
+ccstats daily --source codex
+
 # Offline mode (use cached pricing)
 ccstats today -O
 

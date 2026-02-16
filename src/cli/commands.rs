@@ -102,11 +102,55 @@ impl From<&Option<CodexCommands>> for SourceCommand {
     }
 }
 
-/// Parse CLI command into (`is_codex`, `SourceCommand`)
-pub(crate) fn parse_command(cmd: Option<&Commands>) -> (bool, SourceCommand) {
+/// Parsed command with optional source hint from subcommand routing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ParsedCommand {
+    pub(crate) source_hint: Option<&'static str>,
+    pub(crate) command: SourceCommand,
+}
+
+/// Parse CLI command into normalized command plus source hint.
+pub(crate) fn parse_command(cmd: Option<&Commands>) -> ParsedCommand {
     match cmd {
-        Some(Commands::Codex { command }) => (true, SourceCommand::from(command)),
-        Some(cmd) => (false, SourceCommand::from(cmd)),
-        None => (false, SourceCommand::Daily),
+        Some(Commands::Codex { command }) => ParsedCommand {
+            source_hint: Some("codex"),
+            command: SourceCommand::from(command),
+        },
+        Some(cmd) => ParsedCommand {
+            source_hint: None,
+            command: SourceCommand::from(cmd),
+        },
+        None => ParsedCommand {
+            source_hint: None,
+            command: SourceCommand::Daily,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_command_defaults_to_daily_without_source_hint() {
+        let parsed = parse_command(None);
+        assert_eq!(parsed.command, SourceCommand::Daily);
+        assert_eq!(parsed.source_hint, None);
+    }
+
+    #[test]
+    fn parse_command_codex_sets_source_hint() {
+        let parsed = parse_command(Some(&Commands::Codex {
+            command: Some(CodexCommands::Session),
+        }));
+        assert_eq!(parsed.command, SourceCommand::Session);
+        assert_eq!(parsed.source_hint, Some("codex"));
+    }
+
+    #[test]
+    fn parse_command_regular_keeps_no_source_hint() {
+        let parsed = parse_command(Some(&Commands::Weekly));
+        assert_eq!(parsed.command, SourceCommand::Weekly);
+        assert_eq!(parsed.source_hint, None);
     }
 }

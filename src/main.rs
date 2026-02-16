@@ -40,7 +40,8 @@ fn main() {
     // Parse CLI and extract source command
     let raw_cli = Cli::parse();
     let raw_timezone = raw_cli.timezone.clone();
-    let (is_codex, source_cmd) = parse_command(raw_cli.command.as_ref());
+    let parsed_command = parse_command(raw_cli.command.as_ref());
+    let source_cmd = parsed_command.command;
     let is_statusline = source_cmd.is_statusline();
 
     // Load config file (quiet for statusline)
@@ -119,8 +120,27 @@ fn main() {
         PricingDb::load(cli.offline, cli.strict_pricing)
     };
 
-    // Get the appropriate data source
-    let source_name = if is_codex { "codex" } else { "claude" };
+    // Resolve source name from subcommand hint and optional --source override.
+    let source_name = match (parsed_command.source_hint, cli.source.as_deref()) {
+        (Some(hint), Some(override_name)) => {
+            let Some(override_source) = get_source(override_name) else {
+                eprintln!("Error: unknown source '{override_name}'");
+                std::process::exit(1);
+            };
+            if override_source.name() != hint {
+                eprintln!(
+                    "Error: command source '{hint}' conflicts with --source '{}'",
+                    override_source.name()
+                );
+                std::process::exit(1);
+            }
+            override_source.name()
+        }
+        (Some(hint), None) => hint,
+        (None, Some(name)) => name,
+        (None, None) => "claude",
+    };
+
     let Some(source) = get_source(source_name) else {
         eprintln!("Error: {source_name} source not found");
         std::process::exit(1);
