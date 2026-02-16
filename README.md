@@ -66,6 +66,12 @@ ccstats today --debug
 ### OpenAI Codex
 
 ```bash
+# Codex subcommand mode
+ccstats codex daily
+
+# Or use unified source flag
+ccstats daily --source codex
+
 # Today's Codex usage
 ccstats codex today
 
@@ -105,6 +111,22 @@ ccstats today -c
 
 # Hide cost column
 ccstats today --no-cost
+```
+
+### Session CSV Columns
+
+`ccstats session --csv` now includes:
+
+- `reasoning_tokens`
+- `cache_creation_tokens`
+- `cache_read_tokens`
+
+### Parsing Warnings
+
+When malformed JSONL records are encountered, ccstats reports them in stderr:
+
+```text
+Warning: ignored <N> malformed records
 ```
 
 ## Supported Data Sources
