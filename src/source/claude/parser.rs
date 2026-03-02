@@ -194,6 +194,7 @@ fn parse_entry(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // Keeps call site explicit for parse context + diagnostics.
 fn parse_entry_with_debug(
     entry: UsageEntry,
     path: &Path,

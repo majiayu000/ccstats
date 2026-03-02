@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
+use super::session::compare_session_last_timestamp;
 use crate::cli::SortOrder;
 use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
-use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::output::format::compare_cost;
+use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
-use super::session::compare_session_last_timestamp;
 
 fn csv_escape(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {

@@ -36,6 +36,7 @@ enum TimezoneSource {
     Config,
 }
 
+#[allow(clippy::too_many_lines)] // Main wires CLI/config/runtime setup before dispatch.
 fn main() {
     // Parse CLI and extract source command
     let raw_cli = Cli::parse();

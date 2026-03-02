@@ -98,9 +98,12 @@ impl<'a> DataLoader<'a> {
                 let filtered = Self::filter_entries(parsed.entries, filter, timezone);
                 (per_file(filtered), parsed.errors)
             })
-            .reduce(|| (init(), 0usize), |(acc, acc_errors), (partial, partial_errors)| {
-                (reduce(acc, partial), acc_errors + partial_errors)
-            });
+            .reduce(
+                || (init(), 0usize),
+                |(acc, acc_errors), (partial, partial_errors)| {
+                    (reduce(acc, partial), acc_errors + partial_errors)
+                },
+            );
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
         if !self.quiet {
