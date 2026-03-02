@@ -41,6 +41,22 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh 
 ### Manual download
 Download from [GitHub Releases](https://github.com/majiayu000/ccstats/releases).
 
+## Quick Start (Codex)
+
+```bash
+# Install
+brew install majiayu000/tap/ccstats
+
+# Today
+ccstats codex today
+
+# Daily trend
+ccstats codex daily
+
+# Same result via unified source flag
+ccstats daily --source codex
+```
+
 ## Usage
 
 ### Claude Code
