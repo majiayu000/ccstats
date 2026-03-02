@@ -1,6 +1,20 @@
 # ccstats
 
-Fast token usage statistics CLI for Claude Code, Codex, and more.
+[![Crates.io](https://img.shields.io/crates/v/ccstats.svg)](https://crates.io/crates/ccstats)
+[![GitHub Release](https://img.shields.io/github/v/release/majiayu000/ccstats)](https://github.com/majiayu000/ccstats/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/majiayu000/ccstats/blob/main/LICENSE)
+
+`ccstats` is a fast CLI for token and cost usage analytics for Claude Code and OpenAI Codex logs.
+
+Search keywords: `claude code usage stats`, `codex usage stats`, `token usage cli`, `ai token cost tracker`.
+
+## Highlights
+
+- Fast local analysis of usage JSONL logs
+- Claude Code support (`~/.claude/projects/`)
+- OpenAI Codex support (`~/.codex/sessions/`)
+- Daily/weekly/monthly/project/session views
+- Optional model-level token and cost breakdown
 
 ## Installation
 
@@ -146,4 +160,4 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for:
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
