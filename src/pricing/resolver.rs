@@ -2,15 +2,26 @@ use std::collections::HashMap;
 
 use super::types::ModelPricing;
 
+fn openai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
+    ModelPricing {
+        input,
+        output,
+        reasoning_output: output,
+        cache_create: 0.0,
+        cache_read,
+    }
+}
+
 pub(super) fn parse_litellm_data(
     data: HashMap<String, serde_json::Value>,
 ) -> HashMap<String, ModelPricing> {
     let mut models = HashMap::new();
 
     for (name, value) in data {
-        // Load Claude models and OpenAI GPT models
+        // Load Claude models and direct OpenAI GPT/Codex model names.
         let is_claude = name.contains("claude");
-        let is_openai = name.starts_with("openai/") || name.starts_with("gpt-");
+        let is_openai =
+            name.starts_with("openai/") || name.starts_with("gpt-") || name.starts_with("codex");
 
         if !is_claude && !is_openai {
             continue;
@@ -132,31 +143,20 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
             cache_create: 1e-6,
             cache_read: 0.08e-6,
         }
+    } else if model_lower.contains("gpt-5.1-codex-mini") {
+        openai_pricing(0.25e-6, 2e-6, 0.025e-6)
+    } else if model_lower.contains("gpt-5.2-codex") || model_lower.contains("gpt-5.3-codex") {
+        openai_pricing(1.75e-6, 14e-6, 0.175e-6)
+    } else if model_lower.contains("gpt-5-codex") || model_lower.contains("gpt-5.1-codex") {
+        openai_pricing(1.25e-6, 10e-6, 0.125e-6)
+    } else if model_lower.contains("codex-mini") {
+        openai_pricing(1.5e-6, 6e-6, 0.375e-6)
     } else if model_lower.contains("codex") {
-        // OpenAI Codex pricing
-        ModelPricing {
-            input: 0.15e-6, // $0.15/M
-            output: 0.6e-6, // $0.60/M
-            reasoning_output: 0.6e-6,
-            cache_create: 0.0,
-            cache_read: 0.0,
-        }
+        openai_pricing(1.25e-6, 10e-6, 0.125e-6)
     } else if model_lower.contains("gpt-5") {
-        ModelPricing {
-            input: 1.25e-6, // $1.25/M
-            output: 10e-6,  // $10/M
-            reasoning_output: 10e-6,
-            cache_create: 0.0,
-            cache_read: 0.125e-6, // $0.125/M
-        }
+        openai_pricing(1.25e-6, 10e-6, 0.125e-6)
     } else if model_lower.contains("gpt-4") {
-        ModelPricing {
-            input: 2.5e-6,
-            output: 10e-6,
-            reasoning_output: 10e-6,
-            cache_create: 0.0,
-            cache_read: 0.0,
-        }
+        openai_pricing(2.5e-6, 10e-6, 0.0)
     } else {
         // Default to sonnet pricing for unknown models
         ModelPricing {
@@ -230,6 +230,26 @@ mod tests {
         let result = parse_litellm_data(data);
         assert!(result.contains_key("openai/gpt-4o"));
         assert!(result.contains_key("gpt-4o")); // stripped prefix
+    }
+
+    #[test]
+    fn test_parse_codex_model() {
+        let mut data = HashMap::new();
+        data.insert(
+            "codex-mini-latest".to_string(),
+            json!({
+                "input_cost_per_token": 1.5e-6,
+                "output_cost_per_token": 6e-6,
+                "cache_read_input_token_cost": 0.375e-6,
+            }),
+        );
+
+        let result = parse_litellm_data(data);
+        let pricing = &result["codex-mini-latest"];
+        assert_eq!(pricing.input, 1.5e-6);
+        assert_eq!(pricing.output, 6e-6);
+        assert_eq!(pricing.reasoning_output, 6e-6);
+        assert_eq!(pricing.cache_read, 0.375e-6);
     }
 
     #[test]
@@ -350,7 +370,33 @@ mod tests {
     #[test]
     fn test_fallback_codex() {
         let p = fallback_pricing("codex-mini");
-        assert_eq!(p.input, 0.15e-6);
+        assert_eq!(p.input, 1.5e-6);
+        assert_eq!(p.output, 6e-6);
+        assert_eq!(p.cache_read, 0.375e-6);
+    }
+
+    #[test]
+    fn test_fallback_gpt5_codex() {
+        let p = fallback_pricing("gpt-5.1-codex");
+        assert_eq!(p.input, 1.25e-6);
+        assert_eq!(p.output, 10e-6);
+        assert_eq!(p.cache_read, 0.125e-6);
+    }
+
+    #[test]
+    fn test_fallback_gpt5_codex_mini() {
+        let p = fallback_pricing("gpt-5.1-codex-mini");
+        assert_eq!(p.input, 0.25e-6);
+        assert_eq!(p.output, 2e-6);
+        assert_eq!(p.cache_read, 0.025e-6);
+    }
+
+    #[test]
+    fn test_fallback_gpt5_2_codex() {
+        let p = fallback_pricing("gpt-5.2-codex");
+        assert_eq!(p.input, 1.75e-6);
+        assert_eq!(p.output, 14e-6);
+        assert_eq!(p.cache_read, 0.175e-6);
     }
 
     #[test]
