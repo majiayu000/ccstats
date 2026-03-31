@@ -30,7 +30,7 @@ pub(crate) fn print_statusline(
     let t = aggregate_totals(day_stats, pricing_db);
 
     let mut parts = vec![
-        format!("{}: {}", source_label, format_cost(t.cost)),
+        format!("{}: {}", source_label, format_cost(t.cost, None)),
         format!(
             "In: {} Out: {}",
             format_compact(t.stats.input_tokens, number_format),
@@ -63,9 +63,9 @@ pub(crate) fn print_statusline_json(
         "cache_creation_tokens": t.stats.cache_creation,
         "cache_read_tokens": t.stats.cache_read,
         "total_tokens": t.stats.total_tokens(),
-        "cost": cost_json_value(t.cost),
+        "cost": cost_json_value(t.cost, None),
         "formatted": {
-            "cost": format_cost(t.cost),
+            "cost": format_cost(t.cost, None),
             "input": format_compact(t.stats.input_tokens, number_format),
             "output": format_compact(t.stats.output_tokens, number_format),
             "reasoning": format_compact(t.stats.reasoning_tokens, number_format),

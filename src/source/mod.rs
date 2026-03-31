@@ -68,4 +68,4 @@ pub(crate) type BoxedSource = Box<dyn Source>;
 pub(crate) use registry::get_source;
 
 // Re-export loader functions
-pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions};
+pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions, load_tool_calls};

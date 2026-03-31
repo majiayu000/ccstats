@@ -4,5 +4,6 @@
 
 mod config;
 mod parser;
+pub(crate) mod tool_parser;
 
 pub(crate) use config::ClaudeSource;

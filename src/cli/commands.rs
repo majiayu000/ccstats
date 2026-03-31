@@ -23,6 +23,8 @@ pub(crate) enum Commands {
     Blocks,
     /// Output single line for statusline/tmux integration
     Statusline,
+    /// Show tool usage statistics (Read, Bash, Edit, etc.)
+    Tools,
     /// `Codex` CLI usage statistics
     Codex {
         #[command(subcommand)]
@@ -58,6 +60,7 @@ pub(crate) enum SourceCommand {
     Project,
     Blocks,
     Statusline,
+    Tools,
 }
 
 impl SourceCommand {
@@ -84,6 +87,7 @@ impl From<&Commands> for SourceCommand {
             Commands::Project => SourceCommand::Project,
             Commands::Blocks => SourceCommand::Blocks,
             Commands::Statusline => SourceCommand::Statusline,
+            Commands::Tools => SourceCommand::Tools,
             Commands::Codex { .. } => SourceCommand::Daily, // Default, handled separately
         }
     }

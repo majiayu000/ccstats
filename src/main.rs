@@ -27,7 +27,7 @@ use cli::{Cli, parse_command};
 use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
-use pricing::PricingDb;
+use pricing::{CurrencyConverter, PricingDb};
 use source::get_source;
 use utils::{Timezone, parse_date};
 
@@ -147,6 +147,27 @@ fn main() {
         std::process::exit(1);
     };
 
+    // Initialize currency converter if requested
+    let currency_converter =
+        cli.currency
+            .as_ref()
+            .map(|code| match CurrencyConverter::load(code, cli.offline) {
+                Some(conv) => {
+                    if !is_statusline {
+                        eprintln!(
+                            "Converting costs to {} (rate: displayed as {})",
+                            conv.currency_code(),
+                            conv.format(1.0)
+                        );
+                    }
+                    conv
+                }
+                None => {
+                    eprintln!("Error: failed to load exchange rate for '{code}'");
+                    std::process::exit(1);
+                }
+            });
+
     handle_source_command(
         source,
         source_cmd,
@@ -157,6 +178,7 @@ fn main() {
             timezone,
             number_format,
             jq_filter,
+            currency: currency_converter.as_ref(),
         },
     );
 }

@@ -8,11 +8,11 @@ use crate::output::format::{
     right_cell, styled_cell,
 };
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
+use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
 
 #[derive(Debug, Clone, Copy)]
 #[allow(clippy::struct_excessive_bools)]
-pub(crate) struct TokenTableOptions {
+pub(crate) struct TokenTableOptions<'a> {
     pub(crate) order: SortOrder,
     pub(crate) use_color: bool,
     pub(crate) compact: bool,
@@ -20,6 +20,7 @@ pub(crate) struct TokenTableOptions {
     pub(crate) number_format: NumberFormat,
     pub(crate) show_reasoning: bool,
     pub(crate) show_cache_creation: bool,
+    pub(crate) currency: Option<&'a CurrencyConverter>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -87,7 +88,7 @@ fn period_config(period: Period) -> PeriodConfig {
     }
 }
 
-fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions) -> Vec<Cell> {
+fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_>) -> Vec<Cell> {
     let c = opts.use_color;
     if opts.compact {
         let mut h = vec![header_cell(cfg.label, c)];
@@ -145,7 +146,7 @@ fn add_compact_rows(
     key: &str,
     data: &DayStats,
     cfg: &PeriodConfig,
-    opts: &TokenTableOptions,
+    opts: &TokenTableOptions<'_>,
     cost_color: Option<Color>,
     pricing_db: &PricingDb,
 ) -> f64 {
@@ -165,7 +166,11 @@ fn add_compact_rows(
         right_cell(&format_compact(data.stats.total_tokens(), nf), None, false),
     ]);
     if opts.show_cost {
-        row.push(right_cell(&format_cost(cost), cost_color, false));
+        row.push(right_cell(
+            &format_cost(cost, opts.currency),
+            cost_color,
+            false,
+        ));
     }
     table.add_row(row);
     cost
@@ -176,7 +181,7 @@ fn add_breakdown_rows(
     key: &str,
     data: &DayStats,
     cfg: &PeriodConfig,
-    opts: &TokenTableOptions,
+    opts: &TokenTableOptions<'_>,
     cost_color: Option<Color>,
     pricing_db: &PricingDb,
 ) -> f64 {
@@ -218,7 +223,11 @@ fn add_breakdown_rows(
             false,
         ));
         if opts.show_cost {
-            row.push(right_cell(&format_cost(cost), cost_color, false));
+            row.push(right_cell(
+                &format_cost(cost, opts.currency),
+                cost_color,
+                false,
+            ));
         }
         table.add_row(row);
     }
@@ -230,7 +239,7 @@ fn add_standard_rows(
     key: &str,
     data: &DayStats,
     cfg: &PeriodConfig,
-    opts: &TokenTableOptions,
+    opts: &TokenTableOptions<'_>,
     cost_color: Option<Color>,
     pricing_db: &PricingDb,
 ) -> f64 {
@@ -281,7 +290,11 @@ fn add_standard_rows(
         false,
     ));
     if opts.show_cost {
-        row.push(right_cell(&format_cost(cost), cost_color, false));
+        row.push(right_cell(
+            &format_cost(cost, opts.currency),
+            cost_color,
+            false,
+        ));
     }
     table.add_row(row);
     cost
@@ -293,7 +306,7 @@ fn add_total_row(
     total_cost: f64,
     cfg: &PeriodConfig,
     breakdown: bool,
-    opts: &TokenTableOptions,
+    opts: &TokenTableOptions<'_>,
 ) {
     let cyan = if opts.use_color {
         Some(Color::Cyan)
@@ -322,7 +335,11 @@ fn add_total_row(
             right_cell(&format_compact(total_stats.total_tokens(), nf), cyan, true),
         ]);
         if opts.show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
+            row.push(right_cell(
+                &format_cost(total_cost, opts.currency),
+                green,
+                true,
+            ));
         }
         table.add_row(row);
     } else {
@@ -365,7 +382,11 @@ fn add_total_row(
             ));
         }
         if opts.show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
+            row.push(right_cell(
+                &format_cost(total_cost, opts.currency),
+                green,
+                true,
+            ));
         }
         table.add_row(row);
     }
@@ -377,7 +398,7 @@ pub(crate) fn print_period_table(
     breakdown: bool,
     summary: SummaryOptions,
     pricing_db: &PricingDb,
-    options: TokenTableOptions,
+    options: TokenTableOptions<'_>,
 ) {
     let cfg = period_config(period);
     let aggregated;
@@ -448,7 +469,7 @@ mod tests {
     use crate::output::format::NumberFormat;
     use crate::output::period::Period;
 
-    fn default_opts() -> TokenTableOptions {
+    fn default_opts() -> TokenTableOptions<'static> {
         TokenTableOptions {
             order: SortOrder::Asc,
             use_color: false,
@@ -457,6 +478,7 @@ mod tests {
             number_format: NumberFormat::default(),
             show_reasoning: false,
             show_cache_creation: false,
+            currency: None,
         }
     }
 

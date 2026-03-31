@@ -4,6 +4,7 @@ use comfy_table::{
 };
 
 use crate::error::AppError;
+use crate::pricing::CurrencyConverter;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NumberFormat {
@@ -105,19 +106,39 @@ pub(super) fn compare_cost(a: f64, b: f64) -> std::cmp::Ordering {
     }
 }
 
-pub(super) fn format_cost(cost: f64) -> String {
-    if cost.is_nan() {
-        "N/A".to_string()
-    } else {
-        format!("${cost:.2}")
+pub(super) fn format_cost(cost: f64, currency: Option<&CurrencyConverter>) -> String {
+    match currency {
+        Some(conv) => conv.format(cost),
+        None => {
+            if cost.is_nan() {
+                "N/A".to_string()
+            } else {
+                format!("${cost:.2}")
+            }
+        }
     }
 }
 
-pub(super) fn cost_json_value(cost: f64) -> serde_json::Value {
-    if cost.is_nan() {
-        serde_json::Value::Null
-    } else {
-        serde_json::json!(cost)
+pub(super) fn cost_json_value(
+    cost: f64,
+    currency: Option<&CurrencyConverter>,
+) -> serde_json::Value {
+    match currency {
+        Some(conv) => {
+            let converted = conv.convert(cost);
+            if converted.is_nan() {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(converted)
+            }
+        }
+        None => {
+            if cost.is_nan() {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(cost)
+            }
+        }
     }
 }
 
@@ -198,18 +219,21 @@ mod tests {
 
     #[test]
     fn format_cost_handles_nan() {
-        assert_eq!(format_cost(f64::NAN), "N/A");
-        assert_eq!(format_cost(1.234), "$1.23");
+        assert_eq!(format_cost(f64::NAN, None), "N/A");
+        assert_eq!(format_cost(1.234, None), "$1.23");
     }
 
     #[test]
     fn cost_json_value_nan_is_null() {
-        assert_eq!(super::cost_json_value(f64::NAN), serde_json::Value::Null);
+        assert_eq!(
+            super::cost_json_value(f64::NAN, None),
+            serde_json::Value::Null
+        );
     }
 
     #[test]
     fn cost_json_value_normal() {
-        let val = super::cost_json_value(1.5);
+        let val = super::cost_json_value(1.5, None);
         assert_eq!(val.as_f64().unwrap(), 1.5);
     }
 

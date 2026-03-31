@@ -5,6 +5,7 @@ use crate::cli::SortOrder;
 use crate::core::DayStats;
 use crate::output::format::cost_json_value;
 use crate::output::period::{Period, aggregate_day_stats_by_period};
+use crate::pricing::CurrencyConverter;
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
 
 fn sort_output(output: &mut [serde_json::Value], key: &str, order: SortOrder) {
@@ -51,6 +52,7 @@ fn build_period_entry(
     pricing_db: &PricingDb,
     breakdown: bool,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> serde_json::Value {
     if breakdown {
         let mut models_breakdown: Vec<serde_json::Value> = Vec::new();
@@ -69,7 +71,7 @@ fn build_period_entry(
                 "total_tokens": model_stats.total_tokens(),
             });
             if show_cost {
-                model_obj["cost"] = cost_json_value(cost);
+                model_obj["cost"] = cost_json_value(cost, currency);
             }
             models_breakdown.push(model_obj);
         }
@@ -87,7 +89,7 @@ fn build_period_entry(
             "breakdown": models_breakdown,
         });
         if show_cost {
-            obj["cost"] = cost_json_value(period_cost);
+            obj["cost"] = cost_json_value(period_cost, currency);
         }
         obj
     } else {
@@ -105,7 +107,7 @@ fn build_period_entry(
             "models": models,
         });
         if show_cost {
-            obj["cost"] = cost_json_value(period_cost);
+            obj["cost"] = cost_json_value(period_cost, currency);
         }
         obj
     }
@@ -118,6 +120,7 @@ pub(crate) fn output_period_json(
     order: SortOrder,
     breakdown: bool,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let label = period.label();
     let aggregated;
@@ -130,7 +133,11 @@ pub(crate) fn output_period_json(
 
     let mut output: Vec<serde_json::Value> = stats_ref
         .iter()
-        .map(|(key, stats)| build_period_entry(label, key, stats, pricing_db, breakdown, show_cost))
+        .map(|(key, stats)| {
+            build_period_entry(
+                label, key, stats, pricing_db, breakdown, show_cost, currency,
+            )
+        })
         .collect();
 
     sort_output(&mut output, label, order);
@@ -227,8 +234,15 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let json_str =
-            output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, false, false);
+        let json_str = output_period_json(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            false,
+            false,
+            None,
+        );
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed.len(), 1);
@@ -247,8 +261,15 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let json_str =
-            output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, false, true);
+        let json_str = output_period_json(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            false,
+            true,
+            None,
+        );
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert!(parsed[0].get("cost").is_some());
@@ -263,8 +284,15 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let json_str =
-            output_period_json(&day_stats, Period::Day, &db, SortOrder::Asc, true, false);
+        let json_str = output_period_json(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            true,
+            false,
+            None,
+        );
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         let breakdown = parsed[0]["breakdown"].as_array().unwrap();
@@ -279,8 +307,15 @@ mod tests {
         day_stats.insert("2025-01-08".to_string(), make_day_stats(&[("sonnet", 200)]));
 
         let db = PricingDb::default();
-        let json_str =
-            output_period_json(&day_stats, Period::Week, &db, SortOrder::Asc, false, false);
+        let json_str = output_period_json(
+            &day_stats,
+            Period::Week,
+            &db,
+            SortOrder::Asc,
+            false,
+            false,
+            None,
+        );
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed.len(), 1);
@@ -294,8 +329,15 @@ mod tests {
         day_stats.insert("2025-03-15".to_string(), make_day_stats(&[("sonnet", 100)]));
 
         let db = PricingDb::default();
-        let json_str =
-            output_period_json(&day_stats, Period::Month, &db, SortOrder::Asc, false, false);
+        let json_str = output_period_json(
+            &day_stats,
+            Period::Month,
+            &db,
+            SortOrder::Asc,
+            false,
+            false,
+            None,
+        );
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["month"], "2025-03");

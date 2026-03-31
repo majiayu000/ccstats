@@ -6,7 +6,7 @@ use crate::output::format::{
     NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
     header_cell, right_cell, styled_cell,
 };
-use crate::pricing::{PricingDb, sum_model_costs};
+use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlockTableOptions<'a> {
@@ -16,6 +16,7 @@ pub(crate) struct BlockTableOptions<'a> {
     pub(crate) show_cost: bool,
     pub(crate) source_label: &'a str,
     pub(crate) number_format: NumberFormat,
+    pub(crate) currency: Option<&'a CurrencyConverter>,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -86,7 +87,11 @@ pub(crate) fn print_block_table(
                 ),
             ];
             if show_cost {
-                row.push(right_cell(&format_cost(block_cost), cost_color, false));
+                row.push(right_cell(
+                    &format_cost(block_cost, options.currency),
+                    cost_color,
+                    false,
+                ));
             }
             table.add_row(row);
         } else {
@@ -119,7 +124,11 @@ pub(crate) fn print_block_table(
                 ),
             ];
             if show_cost {
-                row.push(right_cell(&format_cost(block_cost), cost_color, false));
+                row.push(right_cell(
+                    &format_cost(block_cost, options.currency),
+                    cost_color,
+                    false,
+                ));
             }
             table.add_row(row);
         }
@@ -139,7 +148,11 @@ pub(crate) fn print_block_table(
             ),
         ];
         if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
+            row.push(right_cell(
+                &format_cost(total_cost, options.currency),
+                green,
+                true,
+            ));
         }
         table.add_row(row);
     } else {
@@ -172,7 +185,11 @@ pub(crate) fn print_block_table(
             ),
         ];
         if show_cost {
-            row.push(right_cell(&format_cost(total_cost), green, true));
+            row.push(right_cell(
+                &format_cost(total_cost, options.currency),
+                green,
+                true,
+            ));
         }
         table.add_row(row);
     }
@@ -190,6 +207,7 @@ pub(crate) fn output_block_json(
     pricing_db: &PricingDb,
     order: SortOrder,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let mut sorted_blocks: Vec<_> = blocks.iter().collect();
 
@@ -216,7 +234,7 @@ pub(crate) fn output_block_json(
                 "models": models,
             });
             if show_cost {
-                obj["cost"] = cost_json_value(block_cost);
+                obj["cost"] = cost_json_value(block_cost, currency);
             }
             obj
         })
@@ -273,7 +291,7 @@ mod tests {
     #[test]
     fn output_block_json_empty_input() {
         let db = PricingDb::default();
-        let json_str = output_block_json(&[], &db, SortOrder::Asc, false);
+        let json_str = output_block_json(&[], &db, SortOrder::Asc, false, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.is_empty());
     }
@@ -287,7 +305,7 @@ mod tests {
             1000,
             500,
         )];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed.len(), 1);
@@ -303,7 +321,7 @@ mod tests {
     fn output_block_json_includes_cost_when_requested() {
         let db = PricingDb::default();
         let blocks = vec![make_block("2026-02-12 10:00", "2026-02-12 15:00", 100, 50)];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, true);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert!(parsed[0].get("cost").is_some());
@@ -317,7 +335,7 @@ mod tests {
             make_block("2026-02-12 05:00", "2026-02-12 10:00", 200, 100),
             make_block("2026-02-12 10:00", "2026-02-12 15:00", 300, 150),
         ];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["block_start"], "2026-02-12 05:00");
@@ -332,7 +350,7 @@ mod tests {
             make_block("2026-02-12 05:00", "2026-02-12 10:00", 100, 50),
             make_block("2026-02-12 15:00", "2026-02-12 20:00", 200, 100),
         ];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Desc, false);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Desc, false, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["block_start"], "2026-02-12 15:00");
@@ -350,7 +368,7 @@ mod tests {
             200,
             300,
         )];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["cache_creation_tokens"], 200);
@@ -372,7 +390,7 @@ mod tests {
             stats: Stats::default(),
             models,
         }];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         let model_list: Vec<&str> = parsed[0]["models"]

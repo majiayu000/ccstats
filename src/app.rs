@@ -1,15 +1,18 @@
 use crate::cli::{Cli, SourceCommand};
-use crate::core::DateFilter;
+use crate::core::{DateFilter, aggregate_tools};
 use crate::output::NumberFormat;
 use crate::output::{
     BlockTableOptions, Period, ProjectTableOptions, SessionTableOptions, SummaryOptions,
     TokenTableOptions, output_block_csv, output_block_json, output_period_csv, output_period_json,
     output_project_csv, output_project_json, output_session_csv, output_session_json,
-    print_block_table, print_period_table, print_project_table, print_session_table,
-    print_statusline, print_statusline_json,
+    output_tools_csv, output_tools_json, print_block_table, print_period_table,
+    print_project_table, print_session_table, print_statusline, print_statusline_json,
+    print_tools_table,
 };
 use crate::pricing::PricingDb;
-use crate::source::{Source, load_blocks, load_daily, load_projects, load_sessions};
+use crate::source::{
+    Source, load_blocks, load_daily, load_projects, load_sessions, load_tool_calls,
+};
 use crate::utils::{Timezone, filter_json};
 
 /// Print JSON output, optionally filtering through jq
@@ -33,6 +36,7 @@ pub(crate) struct CommandContext<'a> {
     pub(crate) timezone: Timezone,
     pub(crate) number_format: NumberFormat,
     pub(crate) jq_filter: Option<&'a str>,
+    pub(crate) currency: Option<&'a crate::pricing::CurrencyConverter>,
 }
 
 fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
@@ -55,6 +59,7 @@ fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             ctx.cli.sort_order(),
             ctx.cli.show_cost(),
+            ctx.currency,
         );
         print_json(&json, ctx.jq_filter);
     } else {
@@ -69,6 +74,7 @@ fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
                 number_format: ctx.number_format,
                 source_label: source.display_name(),
                 timezone: ctx.timezone,
+                currency: ctx.currency,
             },
         );
     }
@@ -94,6 +100,7 @@ fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             ctx.cli.sort_order(),
             ctx.cli.show_cost(),
+            ctx.currency,
         );
         print_json(&json, ctx.jq_filter);
     } else {
@@ -107,6 +114,7 @@ fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
                 show_cost: ctx.cli.show_cost(),
                 source_label: source.display_name(),
                 number_format: ctx.number_format,
+                currency: ctx.currency,
             },
         );
     }
@@ -132,6 +140,7 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             ctx.cli.sort_order(),
             ctx.cli.show_cost(),
+            ctx.currency,
         );
         print_json(&json, ctx.jq_filter);
     } else {
@@ -145,8 +154,23 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
                 show_cost: ctx.cli.show_cost(),
                 source_label: source.display_name(),
                 number_format: ctx.number_format,
+                currency: ctx.currency,
             },
         );
+    }
+}
+
+fn handle_tools(ctx: &CommandContext<'_>) {
+    let calls = load_tool_calls(ctx.filter, ctx.timezone);
+    let summary = aggregate_tools(calls);
+    if ctx.cli.csv {
+        let csv = output_tools_csv(&summary);
+        print!("{csv}");
+    } else if ctx.cli.json {
+        let json = output_tools_json(&summary);
+        print_json(&json, ctx.jq_filter);
+    } else {
+        print_tools_table(&summary, ctx.cli.use_color());
     }
 }
 
@@ -202,6 +226,13 @@ pub(crate) fn handle_source_command(
             return handle_blocks(source, ctx);
         }
         SourceCommand::Statusline => return handle_statusline(source, ctx),
+        SourceCommand::Tools => {
+            if source.name() != "claude" {
+                println!("Tool usage analysis is only supported for Claude source.");
+                return;
+            }
+            return handle_tools(ctx);
+        }
         SourceCommand::Daily
         | SourceCommand::Today
         | SourceCommand::Weekly
@@ -240,6 +271,7 @@ pub(crate) fn handle_source_command(
             ctx.cli.sort_order(),
             ctx.cli.breakdown,
             ctx.cli.show_cost(),
+            ctx.currency,
         );
         print_json(&json, ctx.jq_filter);
     } else {
@@ -261,6 +293,7 @@ pub(crate) fn handle_source_command(
                 number_format: ctx.number_format,
                 show_reasoning: caps.has_reasoning_tokens,
                 show_cache_creation: caps.has_cache_creation,
+                currency: ctx.currency,
             },
         );
     }

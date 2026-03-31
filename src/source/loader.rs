@@ -431,6 +431,48 @@ pub(crate) fn load_blocks(
     loader.load_blocks(filter, timezone)
 }
 
+/// Convenience function to load tool calls from Claude source
+pub(crate) fn load_tool_calls(
+    filter: &DateFilter,
+    timezone: Timezone,
+) -> Vec<crate::core::ToolCall> {
+    use crate::source::claude::tool_parser::parse_tool_calls;
+
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let claude_path = home.join(".claude").join("projects");
+    let mut files = Vec::new();
+    if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", claude_path.display())) {
+        for entry in entries.flatten() {
+            files.push(entry);
+        }
+    }
+
+    if files.is_empty() {
+        return Vec::new();
+    }
+
+    eprintln!("Scanning {} files for tool usage...", files.len());
+
+    let all_calls: Vec<crate::core::ToolCall> = files
+        .par_iter()
+        .flat_map(|path| {
+            let calls = parse_tool_calls(path, timezone);
+            calls
+                .into_iter()
+                .filter(|c| {
+                    chrono::NaiveDate::parse_from_str(&c.date_str, crate::consts::DATE_FORMAT)
+                        .is_ok_and(|d| filter.contains(d))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    eprintln!("Found {} tool calls", all_calls.len());
+    all_calls
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

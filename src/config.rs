@@ -52,6 +52,8 @@ pub(crate) struct Config {
     #[serde(default)]
     pub(crate) locale: Option<String>,
     #[serde(default)]
+    pub(crate) currency: Option<String>,
+    #[serde(default)]
     pub(crate) source: Option<String>,
 }
 

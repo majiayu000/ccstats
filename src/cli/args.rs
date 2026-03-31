@@ -115,6 +115,10 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "LOCALE")]
     pub(crate) locale: Option<String>,
 
+    /// Convert costs to local currency (e.g., "CNY", "EUR", "GBP")
+    #[arg(long, global = true, value_name = "CURRENCY")]
+    pub(crate) currency: Option<String>,
+
     /// Data source name or alias (e.g., "claude", "codex", "cc", "cx")
     #[arg(long, global = true, value_name = "SOURCE")]
     pub(crate) source: Option<String>,
@@ -188,6 +192,9 @@ impl Cli {
         }
         if self.locale.is_none() {
             self.locale.clone_from(&config.locale);
+        }
+        if self.currency.is_none() {
+            self.currency.clone_from(&config.currency);
         }
         if self.source.is_none() {
             self.source.clone_from(&config.source);
