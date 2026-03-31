@@ -83,3 +83,18 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+
+  homebrew:
+    name: Update Homebrew Formula
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: ccstats
+          homebrew-tap: majiayu000/homebrew-tap
+          tag-name: ${{ github.ref_name }}
+          download-url: https://github.com/majiayu000/ccstats/releases/download/${{ github.ref_name }}/ccstats-x86_64-apple-darwin.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
