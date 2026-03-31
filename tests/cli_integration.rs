@@ -673,6 +673,53 @@ fn claude_daily_json_reads_home_projects() {
 }
 
 #[test]
+fn claude_daily_ignores_sidechains_and_subagent_logs() {
+    let root = unique_temp_dir("claude-ignore-sidechains");
+    let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
+    let subagent_file = root.join(".claude/projects/myproject/subagents/agent-a.jsonl");
+
+    write_file(
+        &claude_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}
+{"timestamp":"2026-02-06T12:30:00Z","isSidechain":true,"message":{"id":"msg_2","model":"gpt-5.3-codex","stop_reason":"end_turn","usage":{"input_tokens":500,"output_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+    write_file(
+        &subagent_file,
+        r#"{"timestamp":"2026-02-06T14:00:00Z","isSidechain":true,"message":{"id":"msg_sub","model":"gpt-5.2-codex","stop_reason":"end_turn","usage":{"input_tokens":700,"output_tokens":300,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(180));
+    let models = arr[0]["models"].as_array().expect("models array");
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].as_str(), Some("3-5-sonnet"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn claude_daily_csv_outputs_correct_format() {
     let root = unique_temp_dir("claude-csv-daily");
     let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");

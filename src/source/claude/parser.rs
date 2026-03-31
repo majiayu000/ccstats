@@ -19,6 +19,8 @@ use crate::utils::Timezone;
 
 #[derive(Debug, Deserialize)]
 struct UsageEntry {
+    #[serde(default, rename = "isSidechain")]
+    is_sidechain: bool,
     timestamp: Option<String>,
     message: Option<Message>,
 }
@@ -205,6 +207,10 @@ fn parse_entry_with_debug(
     debug: bool,
     parse_errors: &mut usize,
 ) -> Option<RawEntry> {
+    if entry.is_sidechain {
+        return None;
+    }
+
     let ts = entry.timestamp?;
     let msg = entry.message?;
     let usage = msg.usage?;
@@ -329,6 +335,7 @@ mod tests {
         output: i64,
     ) -> UsageEntry {
         UsageEntry {
+            is_sidechain: false,
             timestamp: Some(timestamp.to_string()),
             message: Some(Message {
                 id: Some("msg_001".to_string()),
@@ -366,6 +373,7 @@ mod tests {
     #[test]
     fn test_parse_entry_no_timestamp_returns_none() {
         let entry = UsageEntry {
+            is_sidechain: false,
             timestamp: None,
             message: Some(Message {
                 id: Some("msg_001".to_string()),
@@ -381,6 +389,7 @@ mod tests {
     #[test]
     fn test_parse_entry_no_message_returns_none() {
         let entry = UsageEntry {
+            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: None,
         };
@@ -391,6 +400,7 @@ mod tests {
     #[test]
     fn test_parse_entry_no_usage_returns_none() {
         let entry = UsageEntry {
+            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: Some(Message {
                 id: Some("msg_001".to_string()),
@@ -413,6 +423,20 @@ mod tests {
     #[test]
     fn test_parse_entry_empty_model_filtered() {
         let entry = make_usage_entry("2025-01-15T10:00:00Z", Some(""), None, 10, 5);
+        let tz = make_timezone();
+        assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
+    }
+
+    #[test]
+    fn test_parse_entry_sidechain_filtered() {
+        let mut entry = make_usage_entry(
+            "2025-01-15T10:00:00Z",
+            Some("claude-3-5-sonnet-20241022"),
+            None,
+            10,
+            5,
+        );
+        entry.is_sidechain = true;
         let tz = make_timezone();
         assert!(parse_entry(entry, Path::new("t.jsonl"), "s", "p", tz, 1).is_none());
     }
@@ -441,6 +465,7 @@ mod tests {
     #[test]
     fn test_parse_entry_cache_tokens() {
         let entry = UsageEntry {
+            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: Some(Message {
                 id: Some("msg_002".to_string()),
@@ -463,6 +488,7 @@ mod tests {
     #[test]
     fn test_parse_entry_none_tokens_default_to_zero() {
         let entry = UsageEntry {
+            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: Some(Message {
                 id: Some("msg_003".to_string()),

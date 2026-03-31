@@ -113,9 +113,9 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions) -
             h.push(header_cell("Reason", c));
         }
         if opts.show_cache_creation {
-            h.push(header_cell("Cache W", c));
+            h.push(header_cell("Cache Creation", c));
         }
-        h.push(header_cell("Cache R", c));
+        h.push(header_cell("Cache Read", c));
         if opts.show_cost {
             h.push(header_cell("Cost", c));
         }
@@ -130,9 +130,9 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions) -
             h.push(header_cell("Reason", c));
         }
         if opts.show_cache_creation {
-            h.push(header_cell("Cache W", c));
+            h.push(header_cell("Cache Creation", c));
         }
-        h.extend([header_cell("Cache R", c), header_cell("Total", c)]);
+        h.extend([header_cell("Cache Read", c), header_cell("Total", c)]);
         if opts.show_cost {
             h.push(header_cell("Cost", c));
         }
@@ -498,8 +498,10 @@ mod tests {
             ..default_opts()
         };
         let h = build_header(&cfg, true, &opts);
-        // Date, Model, Calls, Input, Output, Reason, Cache W, Cache R, Cost
+        // Date, Model, Calls, Input, Output, Reason, Cache Creation, Cache Read, Cost
         assert_eq!(h.len(), 9);
+        assert_eq!(h[6].content(), "Cache Creation");
+        assert_eq!(h[7].content(), "Cache Read");
     }
 
     #[test]
@@ -521,8 +523,10 @@ mod tests {
             ..default_opts()
         };
         let h = build_header(&cfg, false, &opts);
-        // Date, Models, Calls, Input, Output, Reason, Cache W, Cache R, Total, Cost
+        // Date, Models, Calls, Input, Output, Reason, Cache Creation, Cache Read, Total, Cost
         assert_eq!(h.len(), 10);
+        assert_eq!(h[6].content(), "Cache Creation");
+        assert_eq!(h[7].content(), "Cache Read");
     }
 
     #[test]
