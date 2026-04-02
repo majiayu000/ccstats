@@ -1,5 +1,14 @@
+//! `ccstats` is a local-first CLI for token and cost analytics from Claude Code and
+//! OpenAI Codex session logs.
+//!
+//! Common commands:
+//! - `ccstats today` / `ccstats daily` for Claude Code usage
+//! - `ccstats codex today` / `ccstats codex daily` for Codex usage
+//! - `ccstats <command> --source codex` for unified source selection
+//!
+//! Project page: <https://github.com/majiayu000/ccstats>
 // Enable pedantic lints for new code quality; allow domain-inherent cast warnings
-// (token counts are i64, display needs f64/u32 — precision loss is acceptable)
+// (token counts are i64, display needs f64/u32; precision loss is acceptable)
 #![warn(clippy::pedantic)]
 #![allow(
     clippy::cast_possible_truncation,

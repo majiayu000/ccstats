@@ -57,6 +57,12 @@ ccstats codex daily
 ccstats daily --source codex
 ```
 
+## Crate Documentation
+
+- docs.rs: <https://docs.rs/ccstats/latest/ccstats/>
+- crates.io: <https://crates.io/crates/ccstats>
+- The crate-level Rustdoc in `src/main.rs` explains supported sources and common commands.
+
 ## Usage
 
 ### Claude Code
