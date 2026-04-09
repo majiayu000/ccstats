@@ -180,6 +180,16 @@ pub(super) fn find_codex_files() -> Vec<PathBuf> {
 // Parsing
 // ============================================================================
 
+fn estimate_entry_capacity(file: &File, approx_bytes_per_entry: u64) -> usize {
+    let estimate = file
+        .metadata()
+        .ok()
+        .map(|meta| meta.len() / approx_bytes_per_entry)
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(0);
+    estimate.saturating_add(1)
+}
+
 fn non_empty_model(model: Option<&str>) -> Option<&str> {
     model.and_then(|m| if m.trim().is_empty() { None } else { Some(m) })
 }
@@ -231,9 +241,10 @@ pub(super) fn parse_codex_file_with_debug(
             };
         }
     };
+    let estimated_capacity = estimate_entry_capacity(&file, 260);
     let reader = BufReader::new(file);
 
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(estimated_capacity);
     let mut parse_errors = 0usize;
     let mut previous_totals: Option<UsageTotals> = None;
     let mut current_model: Option<String> = None;

@@ -65,6 +65,16 @@ pub(super) fn find_claude_files() -> Vec<PathBuf> {
 // Parsing
 // ============================================================================
 
+fn estimate_entry_capacity(file: &File, approx_bytes_per_entry: u64) -> usize {
+    let estimate = file
+        .metadata()
+        .ok()
+        .map(|meta| meta.len() / approx_bytes_per_entry)
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(0);
+    estimate.saturating_add(1)
+}
+
 /// Normalize model name by removing prefixes and date suffixes
 fn normalize_model_name(model: &str) -> String {
     let name = model
@@ -114,9 +124,10 @@ pub(super) fn parse_claude_file_with_debug(
             };
         }
     };
+    let estimated_capacity = estimate_entry_capacity(&file, 220);
     let reader = BufReader::new(file);
 
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(estimated_capacity);
     let mut parse_errors = 0usize;
     for (line_no, line) in reader.lines().enumerate() {
         let line = match line {
