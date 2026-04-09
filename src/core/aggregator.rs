@@ -81,8 +81,8 @@ impl SessionAccumulator {
 pub(crate) fn aggregate_sessions(entries: Vec<RawEntry>) -> Vec<SessionStats> {
     let mut sessions: HashMap<String, SessionAccumulator> = HashMap::new();
 
-    for entry in entries {
-        let session_id = entry.session_id.clone(); // one clone for HashMap key
+    for mut entry in entries {
+        let session_id = std::mem::take(&mut entry.session_id);
         let session = sessions.entry(session_id).or_insert_with(|| {
             SessionAccumulator::new(
                 entry.project_path.clone(),

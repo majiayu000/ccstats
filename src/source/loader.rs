@@ -241,20 +241,19 @@ impl<'a> DataLoader<'a> {
             |filtered| {
                 let sessions = aggregate_sessions(filtered);
                 let mut map = HashMap::<String, SessionStats>::new();
-                for session in sessions {
-                    let key = session.session_id.clone();
+                for mut session in sessions {
+                    let key = std::mem::take(&mut session.session_id);
                     map.insert(key, session);
                 }
                 map
             },
             HashMap::<String, SessionStats>::new,
             |mut acc, partial| {
-                for session in partial.into_values() {
-                    if let Some(existing) = acc.get_mut(&session.session_id) {
+                for (session_id, session) in partial {
+                    if let Some(existing) = acc.get_mut(&session_id) {
                         Self::merge_session_stats(existing, session);
                     } else {
-                        let key = session.session_id.clone();
-                        acc.insert(key, session);
+                        acc.insert(session_id, session);
                     }
                 }
                 acc
@@ -262,7 +261,13 @@ impl<'a> DataLoader<'a> {
         );
 
         match result {
-            Some((merged, _)) => merged.into_values().collect(),
+            Some((merged, _)) => merged
+                .into_iter()
+                .map(|(session_id, mut session)| {
+                    session.session_id = session_id;
+                    session
+                })
+                .collect(),
             None => Vec::new(),
         }
     }
