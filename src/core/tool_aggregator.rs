@@ -6,7 +6,7 @@ use super::tool_types::{ToolCall, ToolStats, ToolSummary};
 
 /// Aggregate tool calls into a sorted summary
 pub(crate) fn aggregate_tools(calls: Vec<ToolCall>) -> ToolSummary {
-    let mut counts: HashMap<String, u64> = HashMap::new();
+    let mut counts: HashMap<String, u64> = HashMap::with_capacity(calls.len());
     for call in &calls {
         *counts.entry(call.name.clone()).or_default() += 1;
     }

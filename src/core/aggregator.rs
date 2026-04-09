@@ -9,7 +9,7 @@ use crate::core::types::{BlockStats, DayStats, ProjectStats, RawEntry, SessionSt
 
 /// Aggregate entries by day (consumes entries to avoid cloning)
 pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStats> {
-    let mut day_stats: HashMap<String, DayStats> = HashMap::new();
+    let mut day_stats: HashMap<String, DayStats> = HashMap::with_capacity(entries.len());
 
     for entry in entries {
         let stats = entry.to_stats();
@@ -79,7 +79,7 @@ impl SessionAccumulator {
 
 /// Aggregate entries by session (consumes entries to avoid cloning)
 pub(crate) fn aggregate_sessions(entries: Vec<RawEntry>) -> Vec<SessionStats> {
-    let mut sessions: HashMap<String, SessionAccumulator> = HashMap::new();
+    let mut sessions: HashMap<String, SessionAccumulator> = HashMap::with_capacity(entries.len());
 
     for mut entry in entries {
         let session_id = std::mem::take(&mut entry.session_id);
@@ -146,7 +146,8 @@ pub(crate) fn aggregate_blocks(
     entries: Vec<RawEntry>,
     local_times: &HashMap<i64, DateTime<FixedOffset>>,
 ) -> Vec<BlockStats> {
-    let mut block_map: HashMap<DateTime<FixedOffset>, BlockStats> = HashMap::new();
+    let mut block_map: HashMap<DateTime<FixedOffset>, BlockStats> =
+        HashMap::with_capacity(entries.len() / 2 + 1);
 
     for entry in entries {
         let local_dt = match local_times.get(&entry.timestamp_ms) {
