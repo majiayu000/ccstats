@@ -73,6 +73,7 @@ impl TokenUsage {
             .unwrap_or(0)
     }
 
+    #[cfg(test)]
     fn subtract(&self, prev: &TokenUsage) -> TokenUsage {
         TokenUsage {
             input_tokens: Some(
@@ -94,11 +95,51 @@ impl TokenUsage {
         }
     }
 
+    #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.input_tokens.unwrap_or(0) == 0
             && self.cached_input() == 0
             && self.output_tokens.unwrap_or(0) == 0
             && self.reasoning_output_tokens.unwrap_or(0) == 0
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct UsageTotals {
+    input_tokens: i64,
+    cached_input_tokens: i64,
+    output_tokens: i64,
+    reasoning_output_tokens: i64,
+    total_tokens: i64,
+}
+
+impl UsageTotals {
+    fn from_usage(usage: &TokenUsage) -> Self {
+        Self {
+            input_tokens: usage.input_tokens.unwrap_or(0),
+            cached_input_tokens: usage.cached_input(),
+            output_tokens: usage.output_tokens.unwrap_or(0),
+            reasoning_output_tokens: usage.reasoning_output_tokens.unwrap_or(0),
+            total_tokens: usage.total_tokens.unwrap_or(0),
+        }
+    }
+
+    fn subtract(self, prev: Self) -> Self {
+        Self {
+            input_tokens: (self.input_tokens - prev.input_tokens).max(0),
+            cached_input_tokens: (self.cached_input_tokens - prev.cached_input_tokens).max(0),
+            output_tokens: (self.output_tokens - prev.output_tokens).max(0),
+            reasoning_output_tokens: (self.reasoning_output_tokens - prev.reasoning_output_tokens)
+                .max(0),
+            total_tokens: (self.total_tokens - prev.total_tokens).max(0),
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.input_tokens == 0
+            && self.cached_input_tokens == 0
+            && self.output_tokens == 0
+            && self.reasoning_output_tokens == 0
     }
 }
 
@@ -139,22 +180,31 @@ pub(super) fn find_codex_files() -> Vec<PathBuf> {
 // Parsing
 // ============================================================================
 
-fn extract_model(payload: &Payload) -> Option<String> {
-    let non_empty = |model: Option<&String>| {
-        model
-            .filter(|m| !m.trim().is_empty())
-            .map(std::string::ToString::to_string)
-    };
+fn non_empty_model(model: Option<&str>) -> Option<&str> {
+    model.and_then(|m| if m.trim().is_empty() { None } else { Some(m) })
+}
 
+fn extract_model_ref(payload: &Payload) -> Option<&str> {
     if let Some(info) = &payload.info
-        && let Some(model) = non_empty(info.model.as_ref())
-            .or_else(|| non_empty(info.model_name.as_ref()))
-            .or_else(|| non_empty(info.metadata.as_ref().and_then(|m| m.model.as_ref())))
+        && let Some(model) = non_empty_model(info.model.as_deref())
+            .or_else(|| non_empty_model(info.model_name.as_deref()))
+            .or_else(|| {
+                non_empty_model(
+                    info.metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.model.as_deref()),
+                )
+            })
     {
         return Some(model);
     }
 
-    non_empty(payload.model.as_ref())
+    non_empty_model(payload.model.as_deref())
+}
+
+#[cfg(test)]
+fn extract_model(payload: &Payload) -> Option<String> {
+    extract_model_ref(payload).map(std::string::ToString::to_string)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -185,7 +235,7 @@ pub(super) fn parse_codex_file_with_debug(
 
     let mut entries = Vec::new();
     let mut parse_errors = 0usize;
-    let mut previous_totals: Option<TokenUsage> = None;
+    let mut previous_totals: Option<UsageTotals> = None;
     let mut current_model: Option<String> = None;
 
     for (line_no, line) in reader.lines().enumerate() {
@@ -234,9 +284,9 @@ pub(super) fn parse_codex_file_with_debug(
         // Handle turn_context to get model info
         if entry_type == "turn_context" {
             if let Some(payload) = &raw_entry.payload
-                && let Some(model) = extract_model(payload)
+                && let Some(model) = extract_model_ref(payload)
             {
-                current_model = Some(model);
+                current_model = Some(model.to_string());
             }
             continue;
         }
@@ -261,7 +311,6 @@ pub(super) fn parse_codex_file_with_debug(
         let Some(timestamp) = &raw_entry.timestamp else {
             continue;
         };
-        let timestamp = timestamp.clone();
 
         let Some(info) = &payload.info else { continue };
 
@@ -269,6 +318,7 @@ pub(super) fn parse_codex_file_with_debug(
         let Some(total) = &info.total_token_usage else {
             continue;
         };
+        let total = UsageTotals::from_usage(total);
 
         // Skip if total hasn't changed (duplicate event)
         if let Some(prev) = &previous_totals
@@ -279,15 +329,12 @@ pub(super) fn parse_codex_file_with_debug(
 
         // Use last_token_usage if available, otherwise compute delta
         let delta = if let Some(last) = &info.last_token_usage {
-            last.clone()
+            UsageTotals::from_usage(last)
         } else {
-            match &previous_totals {
-                Some(prev) => total.subtract(prev),
-                None => total.clone(),
-            }
+            previous_totals.map_or(total, |prev| total.subtract(prev))
         };
 
-        previous_totals = Some(total.clone());
+        previous_totals = Some(total);
 
         if delta.is_empty() {
             continue;
@@ -314,27 +361,27 @@ pub(super) fn parse_codex_file_with_debug(
         let date = local_dt.date_naive();
 
         // Get model name
-        let model = extract_model(payload)
-            .or_else(|| current_model.clone())
-            .unwrap_or_else(|| "gpt-5".to_string());
-
-        if let Some(m) = extract_model(payload) {
-            current_model = Some(m);
-        }
+        let model = if let Some(parsed_model) = extract_model_ref(payload) {
+            let parsed_model = parsed_model.to_string();
+            current_model = Some(parsed_model.clone());
+            parsed_model
+        } else {
+            current_model.clone().unwrap_or_else(|| "gpt-5".to_string())
+        };
 
         // Codex's input_tokens INCLUDES cached_input_tokens
-        let raw_input = delta.input_tokens.unwrap_or(0);
-        let cached = delta.cached_input();
+        let raw_input = delta.input_tokens;
+        let cached = delta.cached_input_tokens;
         let non_cached_input = (raw_input - cached).max(0);
 
         // OpenAI's output_tokens INCLUDES reasoning_output_tokens as a subset.
         // Separate them so total_tokens() and calculate_cost() don't double-count.
-        let raw_output = delta.output_tokens.unwrap_or(0);
-        let reasoning = delta.reasoning_output_tokens.unwrap_or(0);
+        let raw_output = delta.output_tokens;
+        let reasoning = delta.reasoning_output_tokens;
         let non_reasoning_output = (raw_output - reasoning).max(0);
 
         entries.push(RawEntry {
-            timestamp,
+            timestamp: timestamp.clone(),
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: date.format(DATE_FORMAT).to_string(),
             message_id: None, // Codex doesn't use message IDs for dedup

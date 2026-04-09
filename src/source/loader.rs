@@ -11,7 +11,7 @@ use crate::core::{
 };
 use crate::source::Source;
 use crate::utils::Timezone;
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
 
 /// Load data from a source
 struct DataLoader<'a> {
@@ -29,6 +29,27 @@ impl<'a> DataLoader<'a> {
         }
     }
 
+    fn parse_date_fast(date_str: &str) -> Option<NaiveDate> {
+        let bytes = date_str.as_bytes();
+        if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+            return None;
+        }
+
+        let year = (bytes[0].checked_sub(b'0')? as i32) * 1000
+            + (bytes[1].checked_sub(b'0')? as i32) * 100
+            + (bytes[2].checked_sub(b'0')? as i32) * 10
+            + (bytes[3].checked_sub(b'0')? as i32);
+        let month =
+            (bytes[5].checked_sub(b'0')? as u32) * 10 + (bytes[6].checked_sub(b'0')? as u32);
+        let day = (bytes[8].checked_sub(b'0')? as u32) * 10 + (bytes[9].checked_sub(b'0')? as u32);
+
+        if month == 0 || day == 0 {
+            return None;
+        }
+
+        NaiveDate::from_ymd_opt(year, month, day)
+    }
+
     fn filter_entries(
         entries: Vec<RawEntry>,
         filter: &DateFilter,
@@ -36,16 +57,14 @@ impl<'a> DataLoader<'a> {
     ) -> Vec<RawEntry> {
         let mut filtered = Vec::new();
         for mut entry in entries {
-            let date = chrono::NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
-                .ok()
-                .or_else(|| {
-                    let utc_dt = entry.timestamp.parse::<DateTime<Utc>>().ok()?;
-                    let local_dt = timezone.to_fixed_offset(utc_dt);
-                    let date = local_dt.date_naive();
-                    entry.date_str = date.format(DATE_FORMAT).to_string();
-                    entry.timestamp_ms = utc_dt.timestamp_millis();
-                    Some(date)
-                });
+            let date = Self::parse_date_fast(&entry.date_str).or_else(|| {
+                let utc_dt = entry.timestamp.parse::<DateTime<Utc>>().ok()?;
+                let local_dt = timezone.to_fixed_offset(utc_dt);
+                let date = local_dt.date_naive();
+                entry.date_str = date.format(DATE_FORMAT).to_string();
+                entry.timestamp_ms = utc_dt.timestamp_millis();
+                Some(date)
+            });
 
             if let Some(date) = date
                 && filter.contains(date)
@@ -555,6 +574,19 @@ mod tests {
         let result = DataLoader::filter_entries(vec![entry], &filter, tz());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].date_str, "2025-01-15"); // recovered from timestamp
+    }
+
+    #[test]
+    fn parse_date_fast_valid() {
+        let parsed = DataLoader::parse_date_fast("2025-12-31");
+        assert_eq!(parsed, NaiveDate::from_ymd_opt(2025, 12, 31));
+    }
+
+    #[test]
+    fn parse_date_fast_invalid() {
+        assert!(DataLoader::parse_date_fast("2025-13-01").is_none());
+        assert!(DataLoader::parse_date_fast("2025/12/31").is_none());
+        assert!(DataLoader::parse_date_fast("bad-date").is_none());
     }
 
     #[test]
