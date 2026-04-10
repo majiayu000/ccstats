@@ -8,6 +8,7 @@ use crate::consts::DATE_FORMAT;
 use crate::core::{
     BlockStats, DateFilter, DayStats, DedupAccumulator, LoadResult, ProjectStats, RawEntry,
     SessionStats, aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
+    aggregate_sessions_map,
 };
 use crate::source::Source;
 use crate::utils::Timezone;
@@ -238,15 +239,7 @@ impl<'a> DataLoader<'a> {
         let result = self.par_process(
             filter,
             timezone,
-            |filtered| {
-                let sessions = aggregate_sessions(filtered);
-                let mut map = HashMap::<String, SessionStats>::new();
-                for mut session in sessions {
-                    let key = std::mem::take(&mut session.session_id);
-                    map.insert(key, session);
-                }
-                map
-            },
+            aggregate_sessions_map,
             HashMap::<String, SessionStats>::new,
             |mut acc, partial| {
                 for (session_id, session) in partial {

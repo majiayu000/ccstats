@@ -64,21 +64,21 @@ impl SessionAccumulator {
     }
 }
 
-impl SessionAccumulator {
-    fn into_session_stats(self, session_id: String) -> SessionStats {
-        SessionStats {
-            session_id,
-            project_path: self.project_path,
-            first_timestamp: self.first_timestamp,
-            last_timestamp: self.last_timestamp,
-            stats: self.stats,
-            models: self.models,
-        }
-    }
-}
-
 /// Aggregate entries by session (consumes entries to avoid cloning)
 pub(crate) fn aggregate_sessions(entries: Vec<RawEntry>) -> Vec<SessionStats> {
+    let session_map = aggregate_sessions_map(entries);
+    session_map
+        .into_iter()
+        .map(|(session_id, mut session)| {
+            session.session_id = session_id;
+            session
+        })
+        .collect()
+}
+
+/// Aggregate entries by session into a map keyed by session ID.
+/// Values intentionally omit `session_id` to avoid duplicate storage.
+pub(crate) fn aggregate_sessions_map(entries: Vec<RawEntry>) -> HashMap<String, SessionStats> {
     let mut sessions: HashMap<String, SessionAccumulator> = HashMap::with_capacity(entries.len());
 
     for mut entry in entries {
@@ -95,7 +95,19 @@ pub(crate) fn aggregate_sessions(entries: Vec<RawEntry>) -> Vec<SessionStats> {
 
     sessions
         .into_iter()
-        .map(|(id, acc)| acc.into_session_stats(id))
+        .map(|(session_id, acc)| {
+            (
+                session_id,
+                SessionStats {
+                    session_id: String::new(),
+                    project_path: acc.project_path,
+                    first_timestamp: acc.first_timestamp,
+                    last_timestamp: acc.last_timestamp,
+                    stats: acc.stats,
+                    models: acc.models,
+                },
+            )
+        })
         .collect()
 }
 
