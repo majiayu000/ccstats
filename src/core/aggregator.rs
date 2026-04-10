@@ -73,7 +73,8 @@ impl SessionAccumulator {
     }
 
     fn update_timestamps(&mut self, timestamp: String, timestamp_ms: i64) {
-        let update_first = self.first_timestamp.is_empty() || timestamp_ms < self.first_timestamp_ms;
+        let update_first =
+            self.first_timestamp.is_empty() || timestamp_ms < self.first_timestamp_ms;
         let update_last = self.last_timestamp.is_empty() || timestamp_ms > self.last_timestamp_ms;
 
         if update_first {

@@ -248,15 +248,19 @@ pub(super) fn parse_codex_file_with_debug(
     let mut parse_errors = 0usize;
     let mut previous_totals: Option<UsageTotals> = None;
     let mut current_model: Option<String> = None;
-
-    for (line_no, line) in reader.lines().enumerate() {
-        let line = match line {
-            Ok(line) => line,
+    let mut line = String::new();
+    let mut line_no = 0usize;
+    let mut reader = reader;
+    loop {
+        line.clear();
+        let bytes_read = match reader.read_line(&mut line) {
+            Ok(n) => n,
             Err(err) => {
+                line_no += 1;
                 if debug {
                     eprintln!(
                         "Failed to read line {} in {}: {}",
-                        line_no + 1,
+                        line_no,
                         path.display(),
                         err
                     );
@@ -265,21 +269,21 @@ pub(super) fn parse_codex_file_with_debug(
                 continue;
             }
         };
+        if bytes_read == 0 {
+            break;
+        }
+        line_no += 1;
 
+        let line = line.trim_end_matches(['\n', '\r']);
         if line.is_empty() {
             continue;
         }
 
-        let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(&line) {
+        let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(line) {
             Ok(e) => e,
             Err(err) => {
                 if debug {
-                    eprintln!(
-                        "Invalid JSON at {}:{}: {}",
-                        path.display(),
-                        line_no + 1,
-                        err
-                    );
+                    eprintln!("Invalid JSON at {}:{}: {}", path.display(), line_no, err);
                 }
                 parse_errors += 1;
                 continue;
@@ -357,7 +361,7 @@ pub(super) fn parse_codex_file_with_debug(
                     eprintln!(
                         "Invalid timestamp at {}:{}: {} ({})",
                         path.display(),
-                        line_no + 1,
+                        line_no,
                         timestamp,
                         err
                     );

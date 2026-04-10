@@ -131,14 +131,19 @@ pub(super) fn parse_claude_file_with_debug(
 
     let mut entries = Vec::with_capacity(estimated_capacity);
     let mut parse_errors = 0usize;
-    for (line_no, line) in reader.lines().enumerate() {
-        let line = match line {
-            Ok(line) => line,
+    let mut line = String::new();
+    let mut line_no = 0usize;
+    let mut reader = reader;
+    loop {
+        line.clear();
+        let bytes_read = match reader.read_line(&mut line) {
+            Ok(n) => n,
             Err(err) => {
+                line_no += 1;
                 if debug {
                     eprintln!(
                         "Failed to read line {} in {}: {}",
-                        line_no + 1,
+                        line_no,
                         path.display(),
                         err
                     );
@@ -147,21 +152,21 @@ pub(super) fn parse_claude_file_with_debug(
                 continue;
             }
         };
+        if bytes_read == 0 {
+            break;
+        }
+        line_no += 1;
 
+        let line = line.trim_end_matches(['\n', '\r']);
         if line.is_empty() {
             continue;
         }
 
-        let entry: UsageEntry = match serde_json::from_str(&line) {
+        let entry: UsageEntry = match serde_json::from_str(line) {
             Ok(entry) => entry,
             Err(err) => {
                 if debug {
-                    eprintln!(
-                        "Invalid JSON at {}:{}: {}",
-                        path.display(),
-                        line_no + 1,
-                        err
-                    );
+                    eprintln!("Invalid JSON at {}:{}: {}", path.display(), line_no, err);
                 }
                 parse_errors += 1;
                 continue;
@@ -174,7 +179,7 @@ pub(super) fn parse_claude_file_with_debug(
             &session_id,
             &project_path,
             timezone,
-            line_no + 1,
+            line_no,
             debug,
             &mut parse_errors,
         ) {
