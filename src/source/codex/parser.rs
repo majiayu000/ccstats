@@ -24,34 +24,34 @@ const SESSION_SUBDIR: &str = "sessions";
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
-struct RawJsonEntry {
-    timestamp: Option<String>,
+struct RawJsonEntry<'a> {
+    timestamp: Option<&'a str>,
     #[serde(rename = "type")]
-    entry_type: Option<String>,
-    payload: Option<Payload>,
+    entry_type: Option<&'a str>,
+    payload: Option<Payload<'a>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(clippy::struct_field_names)] // field names match JSON schema
-struct Payload {
+struct Payload<'a> {
     #[serde(rename = "type")]
-    payload_type: Option<String>,
-    info: Option<TokenInfo>,
-    model: Option<String>,
+    payload_type: Option<&'a str>,
+    info: Option<TokenInfo<'a>>,
+    model: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
-struct TokenInfo {
+struct TokenInfo<'a> {
     total_token_usage: Option<TokenUsage>,
     last_token_usage: Option<TokenUsage>,
-    model: Option<String>,
-    model_name: Option<String>,
-    metadata: Option<Metadata>,
+    model: Option<&'a str>,
+    model_name: Option<&'a str>,
+    metadata: Option<Metadata<'a>>,
 }
 
 #[derive(Debug, Deserialize)]
-struct Metadata {
-    model: Option<String>,
+struct Metadata<'a> {
+    model: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -194,7 +194,7 @@ fn non_empty_model(model: Option<&str>) -> Option<&str> {
     model.and_then(|m| if m.trim().is_empty() { None } else { Some(m) })
 }
 
-fn extract_model_ref(payload: &Payload) -> Option<&str> {
+fn extract_model_ref<'a>(payload: &'a Payload<'a>) -> Option<&'a str> {
     if let Some(info) = &payload.info
         && let Some(model) = non_empty_model(info.model.as_deref())
             .or_else(|| non_empty_model(info.model_name.as_deref()))
@@ -213,7 +213,7 @@ fn extract_model_ref(payload: &Payload) -> Option<&str> {
 }
 
 #[cfg(test)]
-fn extract_model(payload: &Payload) -> Option<String> {
+fn extract_model(payload: &Payload<'_>) -> Option<String> {
     extract_model_ref(payload).map(std::string::ToString::to_string)
 }
 
@@ -271,7 +271,7 @@ pub(super) fn parse_codex_file_with_debug(
             continue;
         }
 
-        let raw_entry: RawJsonEntry = match serde_json::from_str(trimmed) {
+        let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(trimmed) {
             Ok(e) => e,
             Err(err) => {
                 if debug {
@@ -287,9 +287,8 @@ pub(super) fn parse_codex_file_with_debug(
             }
         };
 
-        let entry_type = match &raw_entry.entry_type {
-            Some(t) => t.as_str(),
-            None => continue,
+        let Some(entry_type) = raw_entry.entry_type else {
+            continue;
         };
 
         // Handle turn_context to get model info
@@ -311,7 +310,7 @@ pub(super) fn parse_codex_file_with_debug(
             continue;
         };
 
-        let Some(payload_type) = &payload.payload_type else {
+        let Some(payload_type) = payload.payload_type else {
             continue;
         };
 
@@ -392,7 +391,7 @@ pub(super) fn parse_codex_file_with_debug(
         let non_reasoning_output = (raw_output - reasoning).max(0);
 
         entries.push(RawEntry {
-            timestamp: timestamp.clone(),
+            timestamp: timestamp.to_string(),
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: date.format(DATE_FORMAT).to_string(),
             message_id: None, // Codex doesn't use message IDs for dedup
@@ -561,14 +560,14 @@ mod tests {
     fn test_extract_model_from_info_model() {
         let payload = Payload {
             payload_type: None,
-            model: Some("fallback-model".to_string()),
+            model: Some("fallback-model"),
             info: Some(TokenInfo {
                 total_token_usage: None,
                 last_token_usage: None,
-                model: Some("info-model".to_string()),
-                model_name: Some("info-model-name".to_string()),
+                model: Some("info-model"),
+                model_name: Some("info-model-name"),
                 metadata: Some(Metadata {
-                    model: Some("meta-model".to_string()),
+                    model: Some("meta-model"),
                 }),
             }),
         };
@@ -579,12 +578,12 @@ mod tests {
     fn test_extract_model_falls_back_to_model_name() {
         let payload = Payload {
             payload_type: None,
-            model: Some("fallback".to_string()),
+            model: Some("fallback"),
             info: Some(TokenInfo {
                 total_token_usage: None,
                 last_token_usage: None,
                 model: None,
-                model_name: Some("model-name".to_string()),
+                model_name: Some("model-name"),
                 metadata: None,
             }),
         };
@@ -595,14 +594,14 @@ mod tests {
     fn test_extract_model_falls_back_to_metadata() {
         let payload = Payload {
             payload_type: None,
-            model: Some("fallback".to_string()),
+            model: Some("fallback"),
             info: Some(TokenInfo {
                 total_token_usage: None,
                 last_token_usage: None,
                 model: None,
                 model_name: None,
                 metadata: Some(Metadata {
-                    model: Some("meta-model".to_string()),
+                    model: Some("meta-model"),
                 }),
             }),
         };
@@ -613,7 +612,7 @@ mod tests {
     fn test_extract_model_falls_back_to_payload_model() {
         let payload = Payload {
             payload_type: None,
-            model: Some("payload-model".to_string()),
+            model: Some("payload-model"),
             info: Some(TokenInfo {
                 total_token_usage: None,
                 last_token_usage: None,
@@ -629,7 +628,7 @@ mod tests {
     fn test_extract_model_no_info_uses_payload() {
         let payload = Payload {
             payload_type: None,
-            model: Some("payload-only".to_string()),
+            model: Some("payload-only"),
             info: None,
         };
         assert_eq!(extract_model(&payload), Some("payload-only".to_string()));
@@ -649,12 +648,12 @@ mod tests {
     fn test_extract_model_empty_strings_skipped() {
         let payload = Payload {
             payload_type: None,
-            model: Some("real-model".to_string()),
+            model: Some("real-model"),
             info: Some(TokenInfo {
                 total_token_usage: None,
                 last_token_usage: None,
-                model: Some("  ".to_string()),
-                model_name: Some(String::new()),
+                model: Some("  "),
+                model_name: Some(""),
                 metadata: None,
             }),
         };
