@@ -123,8 +123,13 @@ fn main() {
         DateFilter::new(since, until)
     };
 
-    // Load pricing database (quiet mode for statusline)
-    let pricing_db = if is_statusline {
+    let show_cost = cli.show_cost();
+    let needs_pricing = is_statusline || show_cost;
+
+    // Load pricing database only when cost output is required.
+    let pricing_db = if !needs_pricing {
+        PricingDb::default()
+    } else if is_statusline {
         PricingDb::load_quiet(cli.offline, cli.strict_pricing)
     } else {
         PricingDb::load(cli.offline, cli.strict_pricing)
@@ -157,7 +162,7 @@ fn main() {
     };
 
     // Initialize currency converter if requested
-    let currency_converter =
+    let currency_converter = if show_cost {
         cli.currency
             .as_ref()
             .map(|code| match CurrencyConverter::load(code, cli.offline) {
@@ -175,7 +180,10 @@ fn main() {
                     eprintln!("Error: failed to load exchange rate for '{code}'");
                     std::process::exit(1);
                 }
-            });
+            })
+    } else {
+        None
+    };
 
     handle_source_command(
         source,
