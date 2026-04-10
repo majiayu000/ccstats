@@ -284,7 +284,7 @@ pub(crate) fn output_session_json(
         })
         .collect();
 
-    serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
+    serde_json::to_string(&output).unwrap_or_else(|e| {
         eprintln!("Failed to serialize JSON output: {e}");
         "[]".to_string()
     })

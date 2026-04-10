@@ -141,7 +141,7 @@ pub(crate) fn output_period_json(
         .collect();
 
     sort_output(&mut output, label, order);
-    serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
+    serde_json::to_string(&output).unwrap_or_else(|e| {
         eprintln!("Failed to serialize JSON output: {e}");
         "[]".to_string()
     })
