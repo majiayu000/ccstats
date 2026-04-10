@@ -42,7 +42,7 @@ pub(crate) struct CommandContext<'a> {
 
 fn print_no_data_hint(source_name: &str, category: &str) {
     println!(
-        "No {source_name} {category} data found in the selected date range.\nHint: widen --since/--until, try `today`, or switch --source (claude/codex)."
+        "No {source_name} {category} data found in the selected date range.\nHint: widen --since/--until, try `today`, or run `ccstats sources` to pick a different --source."
     );
 }
 
@@ -282,7 +282,7 @@ pub(crate) fn handle_source_command(
         SourceCommand::Project => {
             if !caps.has_projects {
                 println!(
-                    "{} does not support project aggregation.",
+                    "{} does not support project aggregation.\nHint: try `session`/`daily`, or run `ccstats sources` to inspect capabilities.",
                     source.display_name()
                 );
                 return;
@@ -292,7 +292,7 @@ pub(crate) fn handle_source_command(
         SourceCommand::Blocks => {
             if !caps.has_billing_blocks {
                 println!(
-                    "{} does not support billing block aggregation.",
+                    "{} does not support billing block aggregation.\nHint: try `daily`/`session`, or run `ccstats sources` to inspect capabilities.",
                     source.display_name()
                 );
                 return;
@@ -302,7 +302,9 @@ pub(crate) fn handle_source_command(
         SourceCommand::Statusline => return handle_statusline(source, ctx),
         SourceCommand::Tools => {
             if source.name() != "claude" {
-                println!("Tool usage analysis is only supported for Claude source.");
+                println!(
+                    "Tool usage analysis is only supported for Claude source.\nHint: switch with `--source claude` (or alias `--source cc`)."
+                );
                 return;
             }
             return handle_tools(ctx);
