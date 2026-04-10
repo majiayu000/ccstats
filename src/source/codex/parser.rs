@@ -266,12 +266,11 @@ pub(super) fn parse_codex_file_with_debug(
             }
         };
 
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if line.is_empty() {
             continue;
         }
 
-        let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(trimmed) {
+        let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(&line) {
             Ok(e) => e,
             Err(err) => {
                 if debug {
