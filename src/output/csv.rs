@@ -86,7 +86,6 @@ pub(crate) fn output_period_csv(
         out.push('\n');
 
         for (key, stats) in &rows {
-            let cost = sum_model_costs(&stats.models, pricing_db);
             let _ = write!(
                 out,
                 "{},{},{},{},{},{},{}",
@@ -99,6 +98,7 @@ pub(crate) fn output_period_csv(
                 stats.stats.total_tokens(),
             );
             if show_cost {
+                let cost = sum_model_costs(&stats.models, pricing_db);
                 let _ = write!(out, ",{cost:.6}");
             }
             out.push('\n');
@@ -131,7 +131,6 @@ pub(crate) fn output_session_csv(
     out.push('\n');
 
     for s in &sorted {
-        let cost = sum_model_costs(&s.models, pricing_db);
         let _ = write!(
             out,
             "{},{},{},{},{},{},{},{},{},{}",
@@ -147,6 +146,7 @@ pub(crate) fn output_session_csv(
             s.stats.total_tokens(),
         );
         if show_cost {
+            let cost = sum_model_costs(&s.models, pricing_db);
             let _ = write!(out, ",{cost:.6}");
         }
         out.push('\n');
@@ -187,7 +187,6 @@ pub(crate) fn output_project_csv(
     out.push('\n');
 
     for p in &sorted {
-        let cost = sum_model_costs(&p.models, pricing_db);
         let _ = write!(
             out,
             "{},{},{},{},{},{}",
@@ -199,6 +198,7 @@ pub(crate) fn output_project_csv(
             p.stats.total_tokens(),
         );
         if show_cost {
+            let cost = sum_model_costs(&p.models, pricing_db);
             let _ = write!(out, ",{cost:.6}");
         }
         out.push('\n');
@@ -230,7 +230,6 @@ pub(crate) fn output_block_csv(
     out.push('\n');
 
     for b in &sorted {
-        let cost = sum_model_costs(&b.models, pricing_db);
         let _ = write!(
             out,
             "{},{},{},{},{},{},{}",
@@ -243,6 +242,7 @@ pub(crate) fn output_block_csv(
             b.stats.total_tokens(),
         );
         if show_cost {
+            let cost = sum_model_costs(&b.models, pricing_db);
             let _ = write!(out, ",{cost:.6}");
         }
         out.push('\n');

@@ -59,8 +59,6 @@ fn build_period_entry(
         let mut period_cost = 0.0;
 
         for (model, model_stats) in &stats.models {
-            let cost = calculate_cost(model_stats, model, pricing_db);
-            period_cost += cost;
             let mut model_obj = serde_json::json!({
                 "model": model,
                 "input_tokens": model_stats.input_tokens,
@@ -71,6 +69,8 @@ fn build_period_entry(
                 "total_tokens": model_stats.total_tokens(),
             });
             if show_cost {
+                let cost = calculate_cost(model_stats, model, pricing_db);
+                period_cost += cost;
                 model_obj["cost"] = cost_json_value(cost, currency);
             }
             models_breakdown.push(model_obj);
@@ -93,7 +93,11 @@ fn build_period_entry(
         }
         obj
     } else {
-        let period_cost = sum_model_costs(&stats.models, pricing_db);
+        let period_cost = if show_cost {
+            Some(sum_model_costs(&stats.models, pricing_db))
+        } else {
+            None
+        };
         let mut models: Vec<_> = stats.models.keys().cloned().collect();
         models.sort();
         let mut obj = serde_json::json!({
@@ -107,7 +111,7 @@ fn build_period_entry(
             "models": models,
         });
         if show_cost {
-            obj["cost"] = cost_json_value(period_cost, currency);
+            obj["cost"] = cost_json_value(period_cost.unwrap_or(0.0), currency);
         }
         obj
     }

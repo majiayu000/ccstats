@@ -121,8 +121,13 @@ pub(crate) fn print_session_table(
     let mut total_cost = 0.0;
 
     for session in &sorted_sessions {
-        let session_cost = sum_model_costs(&session.models, pricing_db);
-        total_cost += session_cost;
+        let session_cost = if show_cost {
+            let cost = sum_model_costs(&session.models, pricing_db);
+            total_cost += cost;
+            Some(cost)
+        } else {
+            None
+        };
         total_stats.add(&session.stats);
 
         let session_id = truncate_session_id(&session.session_id, 12);
@@ -142,7 +147,7 @@ pub(crate) fn print_session_table(
             ];
             if show_cost {
                 row.push(right_cell(
-                    &format_cost(session_cost, options.currency),
+                    &format_cost(session_cost.unwrap_or(0.0), options.currency),
                     cost_color,
                     false,
                 ));
@@ -171,7 +176,7 @@ pub(crate) fn print_session_table(
             ];
             if show_cost {
                 row.push(right_cell(
-                    &format_cost(session_cost, options.currency),
+                    &format_cost(session_cost.unwrap_or(0.0), options.currency),
                     cost_color,
                     false,
                 ));
@@ -259,7 +264,11 @@ pub(crate) fn output_session_json(
     let output: Vec<serde_json::Value> = sorted_sessions
         .iter()
         .map(|session| {
-            let session_cost = sum_model_costs(&session.models, pricing_db);
+            let session_cost = if show_cost {
+                Some(sum_model_costs(&session.models, pricing_db))
+            } else {
+                None
+            };
 
             let mut models: Vec<_> = session.models.keys().cloned().collect();
             models.sort();
@@ -278,7 +287,7 @@ pub(crate) fn output_session_json(
                 "models": models,
             });
             if show_cost {
-                obj["cost"] = cost_json_value(session_cost, currency);
+                obj["cost"] = cost_json_value(session_cost.unwrap_or(0.0), currency);
             }
             obj
         })
