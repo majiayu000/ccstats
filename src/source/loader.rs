@@ -12,7 +12,9 @@ use crate::core::{
 };
 use crate::source::Source;
 use crate::utils::Timezone;
-use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
+#[cfg(test)]
+use chrono::NaiveDate;
+use chrono::{DateTime, FixedOffset, Utc};
 
 /// Load data from a source
 struct DataLoader<'a> {
@@ -30,25 +32,67 @@ impl<'a> DataLoader<'a> {
         }
     }
 
+    #[cfg(test)]
     fn parse_date_fast(date_str: &str) -> Option<NaiveDate> {
+        let (year, month, day) = Self::parse_date_parts_fast(date_str)?;
+        NaiveDate::from_ymd_opt(year, month, day)
+    }
+
+    fn parse_digit(byte: u8) -> Option<u32> {
+        let n = byte.checked_sub(b'0')?;
+        if n <= 9 { Some(u32::from(n)) } else { None }
+    }
+
+    fn parse_date_parts_fast(date_str: &str) -> Option<(i32, u32, u32)> {
         let bytes = date_str.as_bytes();
         if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
             return None;
         }
 
-        let year = (bytes[0].checked_sub(b'0')? as i32) * 1000
-            + (bytes[1].checked_sub(b'0')? as i32) * 100
-            + (bytes[2].checked_sub(b'0')? as i32) * 10
-            + (bytes[3].checked_sub(b'0')? as i32);
-        let month =
-            (bytes[5].checked_sub(b'0')? as u32) * 10 + (bytes[6].checked_sub(b'0')? as u32);
-        let day = (bytes[8].checked_sub(b'0')? as u32) * 10 + (bytes[9].checked_sub(b'0')? as u32);
+        let year = (Self::parse_digit(bytes[0])? as i32) * 1000
+            + (Self::parse_digit(bytes[1])? as i32) * 100
+            + (Self::parse_digit(bytes[2])? as i32) * 10
+            + (Self::parse_digit(bytes[3])? as i32);
+        let month = Self::parse_digit(bytes[5])? * 10 + Self::parse_digit(bytes[6])?;
+        let day = Self::parse_digit(bytes[8])? * 10 + Self::parse_digit(bytes[9])?;
 
-        if month == 0 || day == 0 {
+        if !Self::is_valid_ymd_parts(year, month, day) {
             return None;
         }
+        Some((year, month, day))
+    }
 
-        NaiveDate::from_ymd_opt(year, month, day)
+    fn is_valid_ymd_parts(year: i32, month: u32, day: u32) -> bool {
+        if month == 0 || month > 12 || day == 0 {
+            return false;
+        }
+
+        let max_day = match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 if Self::is_leap_year(year) => 29,
+            2 => 28,
+            _ => 0,
+        };
+        day <= max_day
+    }
+
+    fn is_leap_year(year: i32) -> bool {
+        (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    }
+
+    fn date_str_in_filter(date_str: &str, since: Option<&str>, until: Option<&str>) -> bool {
+        if let Some(since) = since
+            && date_str < since
+        {
+            return false;
+        }
+        if let Some(until) = until
+            && date_str > until
+        {
+            return false;
+        }
+        true
     }
 
     fn filter_entries(
@@ -56,21 +100,32 @@ impl<'a> DataLoader<'a> {
         filter: &DateFilter,
         timezone: Timezone,
     ) -> Vec<RawEntry> {
+        let since_key = filter
+            .since
+            .map(|date| date.format(DATE_FORMAT).to_string());
+        let until_key = filter
+            .until
+            .map(|date| date.format(DATE_FORMAT).to_string());
+        let since_key = since_key.as_deref();
+        let until_key = until_key.as_deref();
+
         let mut filtered = Vec::new();
         for mut entry in entries {
-            let date = Self::parse_date_fast(&entry.date_str).or_else(|| {
-                let utc_dt = entry.timestamp.parse::<DateTime<Utc>>().ok()?;
+            if Self::parse_date_parts_fast(&entry.date_str).is_some() {
+                if Self::date_str_in_filter(&entry.date_str, since_key, until_key) {
+                    filtered.push(entry);
+                }
+                continue;
+            }
+
+            if let Ok(utc_dt) = entry.timestamp.parse::<DateTime<Utc>>() {
                 let local_dt = timezone.to_fixed_offset(utc_dt);
                 let date = local_dt.date_naive();
-                entry.date_str = date.format(DATE_FORMAT).to_string();
-                entry.timestamp_ms = utc_dt.timestamp_millis();
-                Some(date)
-            });
-
-            if let Some(date) = date
-                && filter.contains(date)
-            {
-                filtered.push(entry);
+                if filter.contains(date) {
+                    entry.date_str = date.format(DATE_FORMAT).to_string();
+                    entry.timestamp_ms = utc_dt.timestamp_millis();
+                    filtered.push(entry);
+                }
             }
         }
         filtered
