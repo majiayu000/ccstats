@@ -46,19 +46,42 @@ impl SessionAccumulator {
     }
 
     fn add_entry(&mut self, entry: RawEntry) {
-        let stats = entry.to_stats();
+        let RawEntry {
+            timestamp,
+            timestamp_ms,
+            model,
+            input_tokens,
+            output_tokens,
+            cache_creation,
+            cache_read,
+            reasoning_tokens,
+            ..
+        } = entry;
+
+        let stats = Stats {
+            input_tokens,
+            output_tokens,
+            cache_creation,
+            cache_read,
+            reasoning_tokens,
+            count: 1,
+            skipped_chunks: 0,
+        };
         self.stats.add(&stats);
-        self.models.entry(entry.model).or_default().add(&stats);
-        self.update_timestamps(&entry.timestamp, entry.timestamp_ms);
+        self.models.entry(model).or_default().add(&stats);
+        self.update_timestamps(timestamp, timestamp_ms);
     }
 
-    fn update_timestamps(&mut self, timestamp: &str, timestamp_ms: i64) {
-        if self.first_timestamp.is_empty() || timestamp_ms < self.first_timestamp_ms {
-            self.first_timestamp = timestamp.to_string();
+    fn update_timestamps(&mut self, timestamp: String, timestamp_ms: i64) {
+        let update_first = self.first_timestamp.is_empty() || timestamp_ms < self.first_timestamp_ms;
+        let update_last = self.last_timestamp.is_empty() || timestamp_ms > self.last_timestamp_ms;
+
+        if update_first {
+            self.first_timestamp = timestamp.clone();
             self.first_timestamp_ms = timestamp_ms;
         }
-        if self.last_timestamp.is_empty() || timestamp_ms > self.last_timestamp_ms {
-            self.last_timestamp = timestamp.to_string();
+        if update_last {
+            self.last_timestamp = timestamp;
             self.last_timestamp_ms = timestamp_ms;
         }
     }
