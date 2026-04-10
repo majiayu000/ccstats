@@ -28,47 +28,70 @@ impl Deduplicatable for RawEntry {
 }
 
 /// State machine for tracking best candidate entry for a message ID
-#[derive(Debug, Clone)]
-struct CandidateState<T: Deduplicatable + Clone> {
-    /// Entry with `stop_reason` (preferred)
-    completed: Option<T>,
+#[derive(Debug)]
+struct CandidateState<T: Deduplicatable> {
+    /// Best completed entry seen so far (excluding `latest` when it is completed).
+    best_completed: Option<T>,
     /// Latest entry by timestamp (fallback)
     latest: T,
 }
 
-impl<T: Deduplicatable + Clone> CandidateState<T> {
+impl<T: Deduplicatable> CandidateState<T> {
     fn new(entry: T) -> Self {
-        let completed = if entry.has_stop_reason() {
-            Some(entry.clone())
-        } else {
-            None
-        };
         Self {
-            completed,
+            best_completed: None,
             latest: entry,
         }
     }
 
+    fn best_completed_ts(&self) -> Option<i64> {
+        let latest_completed_ts = self
+            .latest
+            .has_stop_reason()
+            .then_some(self.latest.timestamp_ms());
+        match (&self.best_completed, latest_completed_ts) {
+            (Some(entry), Some(ts)) => Some(entry.timestamp_ms().max(ts)),
+            (Some(entry), None) => Some(entry.timestamp_ms()),
+            (None, Some(ts)) => Some(ts),
+            (None, None) => None,
+        }
+    }
+
+    fn replace_best_completed_if_newer(&mut self, entry: T) {
+        let entry_ts = entry.timestamp_ms();
+        let should_replace = match self.best_completed_ts() {
+            Some(best_ts) => entry_ts > best_ts,
+            None => true,
+        };
+        if should_replace {
+            self.best_completed = Some(entry);
+        }
+    }
+
     fn update(&mut self, entry: T) {
-        if entry.has_stop_reason() {
-            match &self.completed {
-                Some(existing) => {
-                    if entry.timestamp_ms() > existing.timestamp_ms() {
-                        self.completed = Some(entry.clone());
-                    }
-                }
-                None => self.completed = Some(entry.clone()),
+        let entry_ts = entry.timestamp_ms();
+        if entry_ts > self.latest.timestamp_ms() {
+            // Move completed latest into the completed slot before replacing it.
+            if self.latest.has_stop_reason() {
+                let old_latest = std::mem::replace(&mut self.latest, entry);
+                self.replace_best_completed_if_newer(old_latest);
+            } else {
+                self.latest = entry;
             }
+            return;
         }
 
-        if entry.timestamp_ms() > self.latest.timestamp_ms() {
-            self.latest = entry;
+        if entry.has_stop_reason() {
+            self.replace_best_completed_if_newer(entry);
         }
     }
 
     fn merge(&mut self, other: CandidateState<T>) {
-        let CandidateState { completed, latest } = other;
-        if let Some(entry) = completed {
+        let CandidateState {
+            best_completed,
+            latest,
+        } = other;
+        if let Some(entry) = best_completed {
             self.update(entry);
         }
         self.update(latest);
@@ -76,19 +99,27 @@ impl<T: Deduplicatable + Clone> CandidateState<T> {
 
     /// Get the best entry: completed if available, otherwise latest
     fn finalize(self) -> T {
-        self.completed.unwrap_or(self.latest)
+        match self.best_completed {
+            Some(best)
+                if !self.latest.has_stop_reason()
+                    || best.timestamp_ms() > self.latest.timestamp_ms() =>
+            {
+                best
+            }
+            _ => self.latest,
+        }
     }
 }
 
 /// Incremental dedup accumulator for chunked/parallel loading.
-#[derive(Debug, Clone)]
-pub(crate) struct DedupAccumulator<T: Deduplicatable + Clone> {
+#[derive(Debug)]
+pub(crate) struct DedupAccumulator<T: Deduplicatable> {
     message_map: HashMap<String, CandidateState<T>>,
     no_id_entries: Vec<T>,
     total_with_id: i64,
 }
 
-impl<T: Deduplicatable + Clone> Default for DedupAccumulator<T> {
+impl<T: Deduplicatable> Default for DedupAccumulator<T> {
     fn default() -> Self {
         Self {
             message_map: HashMap::new(),
@@ -98,7 +129,7 @@ impl<T: Deduplicatable + Clone> Default for DedupAccumulator<T> {
     }
 }
 
-impl<T: Deduplicatable + Clone> DedupAccumulator<T> {
+impl<T: Deduplicatable> DedupAccumulator<T> {
     pub(crate) fn new() -> Self {
         Self::default()
     }
@@ -161,7 +192,7 @@ impl<T: Deduplicatable + Clone> DedupAccumulator<T> {
 #[cfg(test)]
 pub(crate) fn deduplicate<T, I>(entries: I) -> (Vec<T>, i64)
 where
-    T: Deduplicatable + Clone,
+    T: Deduplicatable,
     I: IntoIterator<Item = T>,
 {
     let mut accumulator = DedupAccumulator::new();
@@ -220,6 +251,29 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].value, 2); // Completed entry
         assert_eq!(skipped, 2);
+    }
+
+    #[test]
+    fn test_deduplicate_same_timestamp_completed_wins() {
+        let entries = vec![
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 100,
+                stop: false,
+                value: 1,
+            },
+            TestEntry {
+                id: Some("msg1".to_string()),
+                ts: 100,
+                stop: true,
+                value: 2,
+            },
+        ];
+
+        let (result, skipped) = deduplicate(entries);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value, 2);
+        assert_eq!(skipped, 1);
     }
 
     #[test]

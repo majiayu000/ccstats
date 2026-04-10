@@ -39,10 +39,16 @@ pub(crate) struct CommandContext<'a> {
     pub(crate) currency: Option<&'a crate::pricing::CurrencyConverter>,
 }
 
+fn print_no_data_hint(source_name: &str, category: &str) {
+    println!(
+        "No {source_name} {category} data found in the selected date range.\nHint: widen --since/--until, try `today`, or switch --source (claude/codex)."
+    );
+}
+
 fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
     let sessions = load_sessions(source, ctx.filter, ctx.timezone, false);
     if sessions.is_empty() {
-        println!("No {} session data found.", source.display_name());
+        print_no_data_hint(source.display_name(), "session");
         return;
     }
     if ctx.cli.csv {
@@ -83,7 +89,7 @@ fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
 fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
     let projects = load_projects(source, ctx.filter, ctx.timezone, false);
     if projects.is_empty() {
-        println!("No {} project data found.", source.display_name());
+        print_no_data_hint(source.display_name(), "project");
         return;
     }
     if ctx.cli.csv {
@@ -123,7 +129,7 @@ fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
 fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
     let blocks = load_blocks(source, ctx.filter, ctx.timezone, false);
     if blocks.is_empty() {
-        println!("No {} block data found.", source.display_name());
+        print_no_data_hint(source.display_name(), "billing block");
         return;
     }
     if ctx.cli.csv {
@@ -250,7 +256,7 @@ pub(crate) fn handle_source_command(
 
     let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
     if result.day_stats.is_empty() {
-        println!("No {} data found.", source.display_name());
+        print_no_data_hint(source.display_name(), "usage");
         return;
     }
     if ctx.cli.csv {

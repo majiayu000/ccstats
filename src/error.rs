@@ -2,7 +2,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub(crate) enum AppError {
-    #[error("Invalid date \"{input}\" (expected YYYYMMDD or YYYY-MM-DD)")]
+    #[error(
+        "Invalid date \"{input}\" (expected YYYYMMDD or YYYY-MM-DD, e.g. 20260212 or 2026-02-12)"
+    )]
     InvalidDate { input: String },
 
     #[error("Invalid timezone: {input}")]
@@ -47,7 +49,7 @@ mod tests {
         };
         assert_eq!(
             e.to_string(),
-            r#"Invalid date "abc" (expected YYYYMMDD or YYYY-MM-DD)"#
+            r#"Invalid date "abc" (expected YYYYMMDD or YYYY-MM-DD, e.g. 20260212 or 2026-02-12)"#
         );
     }
 

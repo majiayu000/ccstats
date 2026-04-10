@@ -37,7 +37,7 @@ use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
 use pricing::{CurrencyConverter, PricingDb};
-use source::get_source;
+use source::{get_source, source_choices, suggest_source};
 use utils::{Timezone, parse_date};
 
 enum TimezoneSource {
@@ -135,11 +135,22 @@ fn main() {
         PricingDb::load(cli.offline, cli.strict_pricing)
     };
 
+    let unknown_source_message = |input: &str| {
+        let available = source_choices().join(", ");
+        if let Some(suggested) = suggest_source(input) {
+            format!(
+                "Error: unknown source '{input}'. Did you mean '{suggested}'? Available: {available}"
+            )
+        } else {
+            format!("Error: unknown source '{input}'. Available: {available}")
+        }
+    };
+
     // Resolve source name from subcommand hint and optional --source override.
     let source_name = match (parsed_command.source_hint, cli.source.as_deref()) {
         (Some(hint), Some(override_name)) => {
             let Some(override_source) = get_source(override_name) else {
-                eprintln!("Error: unknown source '{override_name}'");
+                eprintln!("{}", unknown_source_message(override_name));
                 std::process::exit(1);
             };
             if override_source.name() != hint {
@@ -157,7 +168,7 @@ fn main() {
     };
 
     let Some(source) = get_source(source_name) else {
-        eprintln!("Error: {source_name} source not found");
+        eprintln!("{}", unknown_source_message(source_name));
         std::process::exit(1);
     };
 

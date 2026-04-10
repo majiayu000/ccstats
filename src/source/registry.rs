@@ -31,6 +31,78 @@ pub(crate) fn get_source(name: &str) -> Option<&'static dyn Source> {
     })
 }
 
+/// Return available source names and aliases for CLI hints.
+pub(crate) fn source_choices() -> Vec<&'static str> {
+    let mut choices = Vec::new();
+    for source in SOURCES.iter() {
+        choices.push(source.name());
+        choices.extend(source.aliases());
+    }
+    choices.sort_unstable();
+    choices.dedup();
+    choices
+}
+
+/// Suggest the most likely source token (name or alias) for invalid input.
+pub(crate) fn suggest_source(input: &str) -> Option<&'static str> {
+    let needle = input.trim().to_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+
+    let mut best: Option<(&'static str, usize)> = None;
+    for source in SOURCES.iter() {
+        let mut tokens = Vec::with_capacity(1 + source.aliases().len());
+        tokens.push(source.name());
+        tokens.extend(source.aliases());
+
+        for token in tokens {
+            if token == needle {
+                return Some(token);
+            }
+
+            if token.starts_with(&needle) || needle.starts_with(token) {
+                return Some(token);
+            }
+
+            let distance = edit_distance(token, &needle);
+            if distance <= 2 {
+                match best {
+                    Some((_, best_distance)) if distance >= best_distance => {}
+                    _ => best = Some((token, distance)),
+                }
+            }
+        }
+    }
+    best.map(|(token, _)| token)
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    if a == b {
+        return 0;
+    }
+    if a.is_empty() {
+        return b.chars().count();
+    }
+    if b.is_empty() {
+        return a.chars().count();
+    }
+
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut curr = vec![0; b_chars.len() + 1];
+
+    for (i, a_ch) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        for (j, b_ch) in b_chars.iter().enumerate() {
+            let cost = usize::from(a_ch != *b_ch);
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_chars.len()]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +181,27 @@ mod tests {
         let by_name = get_source("codex").unwrap();
         let by_alias = get_source("cx").unwrap();
         assert_eq!(by_name.name(), by_alias.name());
+    }
+
+    #[test]
+    fn test_source_choices_include_names_and_aliases() {
+        let choices = source_choices();
+        assert!(choices.contains(&"claude"));
+        assert!(choices.contains(&"codex"));
+        assert!(choices.contains(&"cc"));
+        assert!(choices.contains(&"cx"));
+    }
+
+    #[test]
+    fn test_suggest_source_prefix_and_typo() {
+        assert_eq!(suggest_source("clau"), Some("claude"));
+        assert_eq!(suggest_source("code"), Some("codex"));
+        assert_eq!(suggest_source("claud"), Some("claude"));
+        assert_eq!(suggest_source("cx"), Some("cx"));
+    }
+
+    #[test]
+    fn test_suggest_source_none_for_distant_input() {
+        assert_eq!(suggest_source("totally-unknown"), None);
     }
 }
