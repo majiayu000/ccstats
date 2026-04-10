@@ -11,9 +11,10 @@ use crate::output::{
 };
 use crate::pricing::PricingDb;
 use crate::source::{
-    Source, load_blocks, load_daily, load_projects, load_sessions, load_tool_calls,
+    Source, all_sources, load_blocks, load_daily, load_projects, load_sessions, load_tool_calls,
 };
 use crate::utils::{Timezone, filter_json};
+use serde_json::json;
 
 /// Print JSON output, optionally filtering through jq
 fn print_json(json: &str, jq_filter: Option<&str>) {
@@ -180,6 +181,72 @@ fn handle_tools(ctx: &CommandContext<'_>) {
     }
 }
 
+fn handle_sources(ctx: &CommandContext<'_>) {
+    let sources: Vec<&dyn Source> = all_sources().collect();
+
+    if ctx.cli.csv {
+        println!("name,display_name,aliases,has_projects,has_billing_blocks,has_reasoning_tokens");
+        for source in sources {
+            let caps = source.capabilities();
+            let aliases = source.aliases().join("|");
+            println!(
+                "{},{},{},{},{},{}",
+                source.name(),
+                source.display_name(),
+                aliases,
+                caps.has_projects,
+                caps.has_billing_blocks,
+                caps.has_reasoning_tokens
+            );
+        }
+        return;
+    }
+
+    if ctx.cli.json {
+        let payload: Vec<serde_json::Value> = sources
+            .iter()
+            .map(|source| {
+                let caps = source.capabilities();
+                json!({
+                    "name": source.name(),
+                    "display_name": source.display_name(),
+                    "aliases": source.aliases(),
+                    "capabilities": {
+                        "has_projects": caps.has_projects,
+                        "has_billing_blocks": caps.has_billing_blocks,
+                        "has_reasoning_tokens": caps.has_reasoning_tokens,
+                        "has_cache_creation": caps.has_cache_creation,
+                        "needs_dedup": caps.needs_dedup
+                    }
+                })
+            })
+            .collect();
+        let json = serde_json::to_string(&payload).unwrap_or_else(|_| "[]".to_string());
+        print_json(&json, ctx.jq_filter);
+        return;
+    }
+
+    println!("Available sources:");
+    for source in sources {
+        let caps = source.capabilities();
+        let aliases = if source.aliases().is_empty() {
+            "-".to_string()
+        } else {
+            source.aliases().join(", ")
+        };
+        println!(
+            "- {} ({}) aliases: {} | projects={} blocks={} reasoning={}",
+            source.name(),
+            source.display_name(),
+            aliases,
+            caps.has_projects,
+            caps.has_billing_blocks,
+            caps.has_reasoning_tokens
+        );
+    }
+    println!("Hint: use `--source <name|alias>` (e.g. `--source codex` or `--source cx`).");
+}
+
 fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
     let result = load_daily(source, ctx.filter, ctx.timezone, true, false);
     if ctx.cli.json {
@@ -210,6 +277,7 @@ pub(crate) fn handle_source_command(
 
     // Non-period commands: dispatch and return early
     match command {
+        SourceCommand::Sources => return handle_sources(ctx),
         SourceCommand::Session => return handle_session(source, ctx),
         SourceCommand::Project => {
             if !caps.has_projects {

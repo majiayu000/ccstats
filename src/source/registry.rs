@@ -19,6 +19,11 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
     ]
 });
 
+/// Iterate all registered sources.
+pub(crate) fn all_sources() -> impl Iterator<Item = &'static dyn Source> {
+    SOURCES.iter().map(std::convert::AsRef::as_ref)
+}
+
 /// Get a source by name or alias
 pub(crate) fn get_source(name: &str) -> Option<&'static dyn Source> {
     let name_lower = name.to_lowercase();

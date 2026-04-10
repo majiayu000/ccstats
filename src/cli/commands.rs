@@ -7,6 +7,8 @@ use clap::Subcommand;
 /// Main CLI commands
 #[derive(Subcommand)]
 pub(crate) enum Commands {
+    /// List available data sources and aliases
+    Sources,
     /// Show daily usage (default)
     Daily,
     /// Show weekly usage
@@ -52,6 +54,7 @@ pub(crate) enum CodexCommands {
 /// Normalized command that works across all sources
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceCommand {
+    Sources,
     Daily,
     Weekly,
     Monthly,
@@ -79,6 +82,7 @@ impl From<&Commands> for SourceCommand {
     #[allow(clippy::match_same_arms)] // Codex default intentionally maps to Daily
     fn from(cmd: &Commands) -> Self {
         match cmd {
+            Commands::Sources => SourceCommand::Sources,
             Commands::Daily => SourceCommand::Daily,
             Commands::Weekly => SourceCommand::Weekly,
             Commands::Monthly => SourceCommand::Monthly,
@@ -155,6 +159,13 @@ mod tests {
     fn parse_command_regular_keeps_no_source_hint() {
         let parsed = parse_command(Some(&Commands::Weekly));
         assert_eq!(parsed.command, SourceCommand::Weekly);
+        assert_eq!(parsed.source_hint, None);
+    }
+
+    #[test]
+    fn parse_command_sources_has_no_source_hint() {
+        let parsed = parse_command(Some(&Commands::Sources));
+        assert_eq!(parsed.command, SourceCommand::Sources);
         assert_eq!(parsed.source_hint, None);
     }
 }

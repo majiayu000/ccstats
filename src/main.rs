@@ -32,7 +32,7 @@ use chrono::Utc;
 use clap::Parser;
 
 use app::{CommandContext, handle_source_command};
-use cli::{Cli, parse_command};
+use cli::{Cli, SourceCommand, parse_command};
 use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
@@ -147,24 +147,29 @@ fn main() {
     };
 
     // Resolve source name from subcommand hint and optional --source override.
-    let source_name = match (parsed_command.source_hint, cli.source.as_deref()) {
-        (Some(hint), Some(override_name)) => {
-            let Some(override_source) = get_source(override_name) else {
-                eprintln!("{}", unknown_source_message(override_name));
-                std::process::exit(1);
-            };
-            if override_source.name() != hint {
-                eprintln!(
-                    "Error: command source '{hint}' conflicts with --source '{}'",
-                    override_source.name()
-                );
-                std::process::exit(1);
+    let source_name = if source_cmd == SourceCommand::Sources {
+        // `sources` only lists registry metadata and does not require source selection.
+        "claude"
+    } else {
+        match (parsed_command.source_hint, cli.source.as_deref()) {
+            (Some(hint), Some(override_name)) => {
+                let Some(override_source) = get_source(override_name) else {
+                    eprintln!("{}", unknown_source_message(override_name));
+                    std::process::exit(1);
+                };
+                if override_source.name() != hint {
+                    eprintln!(
+                        "Error: command source '{hint}' conflicts with --source '{}'",
+                        override_source.name()
+                    );
+                    std::process::exit(1);
+                }
+                override_source.name()
             }
-            override_source.name()
+            (Some(hint), None) => hint,
+            (None, Some(name)) => name,
+            (None, None) => "claude",
         }
-        (Some(hint), None) => hint,
-        (None, Some(name)) => name,
-        (None, None) => "claude",
     };
 
     let Some(source) = get_source(source_name) else {
