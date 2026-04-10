@@ -77,11 +77,13 @@ fn estimate_entry_capacity(file: &File, approx_bytes_per_entry: u64) -> usize {
 
 /// Normalize model name by removing prefixes and date suffixes
 fn normalize_model_name(model: &str) -> String {
-    let name = model
-        .strip_prefix("anthropic.")
-        .unwrap_or(model)
-        .to_string();
-    let name = name.strip_prefix("claude-").unwrap_or(&name).to_string();
+    let mut name = model;
+    if let Some(stripped) = name.strip_prefix("anthropic.") {
+        name = stripped;
+    }
+    if let Some(stripped) = name.strip_prefix("claude-") {
+        name = stripped;
+    }
 
     // Remove date suffix like -20251101
     if let Some(pos) = name.rfind('-') {
@@ -91,7 +93,7 @@ fn normalize_model_name(model: &str) -> String {
         }
     }
 
-    name
+    name.to_string()
 }
 
 pub(super) fn parse_claude_file_with_debug(
@@ -146,7 +148,7 @@ pub(super) fn parse_claude_file_with_debug(
             }
         };
 
-        if line.trim().is_empty() {
+        if line.is_empty() {
             continue;
         }
 
