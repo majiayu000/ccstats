@@ -56,6 +56,7 @@ impl DayStats {
 /// Session statistics
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SessionStats {
+    pub(crate) session_key: String,
     pub(crate) session_id: String,
     pub(crate) project_path: String,
     pub(crate) first_timestamp: String,
@@ -95,6 +96,9 @@ pub(crate) struct RawEntry {
     pub(crate) date_str: String,
     /// Message ID for deduplication (optional)
     pub(crate) message_id: Option<String>,
+    /// Stable internal session identity used for aggregation/deduplication.
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub(crate) session_key: String,
     /// Session ID
     pub(crate) session_id: String,
     /// Project path (may be empty for some sources)
@@ -296,6 +300,7 @@ mod tests {
             timestamp_ms: 0,
             date_str: String::new(),
             message_id: None,
+            session_key: String::new(),
             session_id: String::new(),
             project_path: String::new(),
             model: String::new(),

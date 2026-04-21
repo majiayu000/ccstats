@@ -440,6 +440,7 @@ mod tests {
 
     fn make_session(id: &str, last_ts: &str, input: i64, output: i64) -> SessionStats {
         SessionStats {
+            session_key: id.to_string(),
             session_id: id.to_string(),
             project_path: "/home/user/project".to_string(),
             first_timestamp: "2026-02-12T08:00:00Z".to_string(),
@@ -515,6 +516,7 @@ mod tests {
         models.insert("haiku".to_string(), Stats::default());
 
         let sessions = vec![SessionStats {
+            session_key: "s1".to_string(),
             session_id: "s1".to_string(),
             models,
             ..Default::default()

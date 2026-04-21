@@ -462,6 +462,7 @@ mod tests {
     #[test]
     fn session_csv_structure() {
         let sessions = vec![SessionStats {
+            session_key: "abc-123".to_string(),
             session_id: "abc-123".to_string(),
             project_path: "/home/user/project".to_string(),
             first_timestamp: "2025-01-01T00:00:00Z".to_string(),
@@ -489,6 +490,7 @@ mod tests {
     #[test]
     fn session_csv_includes_reasoning_and_cache_tokens() {
         let sessions = vec![SessionStats {
+            session_key: "reasoning".to_string(),
             session_id: "reasoning".to_string(),
             project_path: String::new(),
             first_timestamp: "2025-01-01T00:00:00Z".to_string(),

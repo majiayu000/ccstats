@@ -11,6 +11,9 @@ pub(crate) trait Deduplicatable {
     fn timestamp_ms(&self) -> i64;
     fn has_stop_reason(&self) -> bool;
     fn message_id(&self) -> Option<&str>;
+    fn dedup_scope(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl Deduplicatable for RawEntry {
@@ -24,6 +27,10 @@ impl Deduplicatable for RawEntry {
 
     fn message_id(&self) -> Option<&str> {
         self.message_id.as_deref()
+    }
+
+    fn dedup_scope(&self) -> Option<&str> {
+        Some(&self.session_key)
     }
 }
 
@@ -114,7 +121,7 @@ impl<T: Deduplicatable> CandidateState<T> {
 /// Incremental dedup accumulator for chunked/parallel loading.
 #[derive(Debug)]
 pub(crate) struct DedupAccumulator<T: Deduplicatable> {
-    message_map: HashMap<String, CandidateState<T>>,
+    message_map: HashMap<(String, String), CandidateState<T>>,
     no_id_entries: Vec<T>,
     total_with_id: i64,
 }
@@ -137,11 +144,14 @@ impl<T: Deduplicatable> DedupAccumulator<T> {
     pub(crate) fn push(&mut self, entry: T) {
         if let Some(id) = entry.message_id() {
             self.total_with_id += 1;
-            match self.message_map.get_mut(id) {
+            let key = (
+                entry.dedup_scope().unwrap_or_default().to_string(),
+                id.to_string(),
+            );
+            match self.message_map.get_mut(&key) {
                 Some(state) => state.update(entry),
                 None => {
-                    self.message_map
-                        .insert(id.to_string(), CandidateState::new(entry));
+                    self.message_map.insert(key, CandidateState::new(entry));
                 }
             }
         } else if entry.has_stop_reason() {
@@ -162,11 +172,11 @@ impl<T: Deduplicatable> DedupAccumulator<T> {
         self.total_with_id += other.total_with_id;
         self.no_id_entries.extend(other.no_id_entries);
 
-        for (id, state) in other.message_map {
-            match self.message_map.get_mut(&id) {
+        for (key, state) in other.message_map {
+            match self.message_map.get_mut(&key) {
                 Some(existing) => existing.merge(state),
                 None => {
-                    self.message_map.insert(id, state);
+                    self.message_map.insert(key, state);
                 }
             }
         }

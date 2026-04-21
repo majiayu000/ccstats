@@ -263,6 +263,7 @@ impl<'a> DataLoader<'a> {
 
     fn merge_session_stats(into: &mut SessionStats, incoming: SessionStats) {
         let SessionStats {
+            session_key,
             project_path,
             first_timestamp,
             last_timestamp,
@@ -271,6 +272,9 @@ impl<'a> DataLoader<'a> {
             ..
         } = incoming;
 
+        if into.session_key.is_empty() && !session_key.is_empty() {
+            into.session_key = session_key;
+        }
         if first_timestamp < into.first_timestamp {
             into.first_timestamp = first_timestamp;
         }
@@ -297,11 +301,11 @@ impl<'a> DataLoader<'a> {
             aggregate_sessions_map,
             HashMap::<String, SessionStats>::new,
             |mut acc, partial| {
-                for (session_id, session) in partial {
-                    if let Some(existing) = acc.get_mut(&session_id) {
+                for (session_key, session) in partial {
+                    if let Some(existing) = acc.get_mut(&session_key) {
                         Self::merge_session_stats(existing, session);
                     } else {
-                        acc.insert(session_id, session);
+                        acc.insert(session_key, session);
                     }
                 }
                 acc
@@ -309,13 +313,7 @@ impl<'a> DataLoader<'a> {
         );
 
         match result {
-            Some((merged, _)) => merged
-                .into_iter()
-                .map(|(session_id, mut session)| {
-                    session.session_id = session_id;
-                    session
-                })
-                .collect(),
+            Some((merged, _)) => merged.into_values().collect(),
             None => Vec::new(),
         }
     }
@@ -557,6 +555,7 @@ mod tests {
             timestamp_ms: 0,
             date_str: date_str.to_string(),
             message_id: None,
+            session_key: "s1".to_string(),
             session_id: "s1".to_string(),
             project_path: String::new(),
             model: model.to_string(),
@@ -724,6 +723,7 @@ mod tests {
 
     fn make_session(id: &str, project: &str, first: &str, last: &str, input: i64) -> SessionStats {
         SessionStats {
+            session_key: id.to_string(),
             session_id: id.to_string(),
             project_path: project.to_string(),
             first_timestamp: first.to_string(),

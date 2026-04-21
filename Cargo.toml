@@ -3,10 +3,10 @@ name = "ccstats"
 version = "0.2.61"
 edition = "2024"
 rust-version = "1.85"
-description = "Fast Claude Code token usage statistics CLI"
+description = "Fast token and cost usage statistics CLI for Claude Code and OpenAI Codex"
 license = "MIT"
 repository = "https://github.com/majiayu000/ccstats"
-keywords = ["claude", "anthropic", "token", "usage", "cli"]
+keywords = ["claude", "codex", "openai", "token", "usage"]
 categories = ["command-line-utilities"]
 
 [package.metadata.binstall]

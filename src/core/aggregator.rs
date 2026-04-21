@@ -23,6 +23,8 @@ pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStat
 /// Session accumulator for building session stats
 #[derive(Debug, Default)]
 struct SessionAccumulator {
+    session_key: String,
+    session_id: String,
     project_path: String,
     first_timestamp: String,
     last_timestamp: String,
@@ -33,8 +35,16 @@ struct SessionAccumulator {
 }
 
 impl SessionAccumulator {
-    fn new(project_path: String, timestamp: &str, timestamp_ms: i64) -> Self {
+    fn new(
+        session_key: String,
+        session_id: String,
+        project_path: String,
+        timestamp: &str,
+        timestamp_ms: i64,
+    ) -> Self {
         SessionAccumulator {
+            session_key,
+            session_id,
             project_path,
             first_timestamp: timestamp.to_string(),
             last_timestamp: timestamp.to_string(),
@@ -86,29 +96,39 @@ impl SessionAccumulator {
             self.last_timestamp_ms = timestamp_ms;
         }
     }
+
+    fn into_session_stats(self) -> SessionStats {
+        SessionStats {
+            session_key: self.session_key,
+            session_id: self.session_id,
+            project_path: self.project_path,
+            first_timestamp: self.first_timestamp,
+            last_timestamp: self.last_timestamp,
+            stats: self.stats,
+            models: self.models,
+        }
+    }
 }
 
 /// Aggregate entries by session (consumes entries to avoid cloning)
 pub(crate) fn aggregate_sessions(entries: Vec<RawEntry>) -> Vec<SessionStats> {
-    let session_map = aggregate_sessions_map(entries);
-    session_map
-        .into_iter()
-        .map(|(session_id, mut session)| {
-            session.session_id = session_id;
-            session
-        })
-        .collect()
+    aggregate_sessions_map(entries).into_values().collect()
 }
 
-/// Aggregate entries by session into a map keyed by session ID.
-/// Values intentionally omit `session_id` to avoid duplicate storage.
+/// Aggregate entries by session into a map keyed by stable internal session key.
 pub(crate) fn aggregate_sessions_map(entries: Vec<RawEntry>) -> HashMap<String, SessionStats> {
     let mut sessions: HashMap<String, SessionAccumulator> = HashMap::with_capacity(entries.len());
 
-    for mut entry in entries {
-        let session_id = std::mem::take(&mut entry.session_id);
-        let session = sessions.entry(session_id).or_insert_with(|| {
+    for entry in entries {
+        let session_key = if entry.session_key.is_empty() {
+            entry.session_id.clone()
+        } else {
+            entry.session_key.clone()
+        };
+        let session = sessions.entry(session_key.clone()).or_insert_with(|| {
             SessionAccumulator::new(
+                session_key,
+                entry.session_id.clone(),
                 entry.project_path.clone(),
                 &entry.timestamp,
                 entry.timestamp_ms,
@@ -119,19 +139,7 @@ pub(crate) fn aggregate_sessions_map(entries: Vec<RawEntry>) -> HashMap<String, 
 
     sessions
         .into_iter()
-        .map(|(session_id, acc)| {
-            (
-                session_id,
-                SessionStats {
-                    session_id: String::new(),
-                    project_path: acc.project_path,
-                    first_timestamp: acc.first_timestamp,
-                    last_timestamp: acc.last_timestamp,
-                    stats: acc.stats,
-                    models: acc.models,
-                },
-            )
-        })
+        .map(|(session_key, acc)| (session_key, acc.into_session_stats()))
         .collect()
 }
 
@@ -243,6 +251,7 @@ mod tests {
             timestamp_ms: ts_ms,
             date_str: date.to_string(),
             message_id: None,
+            session_key: session.to_string(),
             session_id: session.to_string(),
             project_path: project.to_string(),
             model: model.to_string(),
@@ -396,6 +405,7 @@ mod tests {
                 timestamp_ms: 5000,
                 date_str: "2025-01-01".to_string(),
                 message_id: None,
+                session_key: "s1".to_string(),
                 session_id: "s1".to_string(),
                 project_path: "p1".to_string(),
                 model: "claude".to_string(),
@@ -411,6 +421,7 @@ mod tests {
                 timestamp_ms: 1000,
                 date_str: "2025-01-01".to_string(),
                 message_id: None,
+                session_key: "s1".to_string(),
                 session_id: "s1".to_string(),
                 project_path: "p1".to_string(),
                 model: "claude".to_string(),
@@ -426,6 +437,7 @@ mod tests {
                 timestamp_ms: 9000,
                 date_str: "2025-01-01".to_string(),
                 message_id: None,
+                session_key: "s1".to_string(),
                 session_id: "s1".to_string(),
                 project_path: "p1".to_string(),
                 model: "claude".to_string(),
@@ -475,6 +487,7 @@ mod tests {
     #[test]
     fn aggregate_projects_single_project() {
         let sessions = vec![SessionStats {
+            session_key: "s1".to_string(),
             session_id: "s1".to_string(),
             project_path: "/Users/john/myapp".to_string(),
             first_timestamp: "t1".to_string(),
