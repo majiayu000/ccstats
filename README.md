@@ -4,6 +4,8 @@
 [![GitHub Release](https://img.shields.io/github/v/release/majiayu000/ccstats)](https://github.com/majiayu000/ccstats/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/majiayu000/ccstats/blob/main/LICENSE)
 
+![ccstats token and cost analytics card](docs/branding/readme-card.png)
+
 `ccstats` is a fast CLI for token and cost usage analytics for Claude Code and OpenAI Codex logs.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `token usage cli`, `ai token cost tracker`.

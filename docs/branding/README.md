@@ -12,6 +12,12 @@ This directory stores icon exploration and production-ready exports for `ccstats
 
 Final selected icon is based on concept B in `final/icon.svg`.
 
+### README Card
+
+- `readme-card.png`: README hero card.
+- `readme-card.svg`: deterministic text and layout overlay used to regenerate the card.
+- `readme-card-background.png`: imagegen-generated dashboard background for the card.
+
 ### Exported Files
 
 - `final/icon.svg`: master vector source.
