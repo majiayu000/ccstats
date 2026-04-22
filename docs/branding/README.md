@@ -14,9 +14,9 @@ Final selected icon is based on concept B in `final/icon.svg`.
 
 ### README Card
 
-- `readme-card.png`: imagegen-generated README hero card with rendered text.
+- `readme-card.png`: imagegen-generated README hero card with rendered text and dashboard panels.
 
-Card text:
+Primary card text:
 
 - `ccstats`
 - `AI coding usage analytics`
