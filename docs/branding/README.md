@@ -14,9 +14,14 @@ Final selected icon is based on concept B in `final/icon.svg`.
 
 ### README Card
 
-- `readme-card.png`: README hero card.
-- `readme-card.svg`: deterministic text and layout overlay used to regenerate the card.
-- `readme-card-background.png`: imagegen-generated dashboard background for the card.
+- `readme-card.png`: imagegen-generated README hero card with rendered text.
+
+Card text:
+
+- `ccstats`
+- `AI coding usage analytics`
+- `Claude Code + OpenAI Codex logs`
+- `ccstats codex today -b`
 
 ### Exported Files
 
