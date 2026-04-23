@@ -356,6 +356,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_derive_project_path_uses_project_segment_for_subagent_logs() {
+        let path = Path::new("/tmp/.claude/projects/myproject/subagents/agent-a.jsonl");
+        assert_eq!(derive_project_path(path), "myproject");
+    }
+
+    #[test]
+    fn test_derive_project_path_falls_back_to_immediate_parent() {
+        let path = Path::new("/tmp/custom/session-a.jsonl");
+        assert_eq!(derive_project_path(path), "custom");
+    }
+
     // ========================================================================
     // parse_entry
     // ========================================================================

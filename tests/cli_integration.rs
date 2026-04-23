@@ -775,6 +775,51 @@ fn claude_project_json_aggregates_sessions() {
 }
 
 #[test]
+fn claude_project_json_ignores_sidechain_subagent_logs() {
+    let root = unique_temp_dir("claude-project-subagents");
+    let session_a = root.join(".claude/projects/myapp/session-a.jsonl");
+    let session_b = root.join(".claude/projects/myapp/subagents/agent-a.jsonl");
+
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}}}
+"#,
+    );
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","isSidechain":true,"message":{"id":"msg_2","model":"gpt-5.2-codex","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":80}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "project",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["project"].as_str(), Some("myapp"));
+    assert_eq!(arr[0]["project_path"].as_str(), Some("myapp"));
+    assert_eq!(arr[0]["session_count"].as_i64(), Some(1));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(150));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn claude_session_json_keeps_same_file_stem_from_different_projects_separate() {
     let root = unique_temp_dir("claude-session-separate-stems");
     let session_a = root.join(".claude/projects/projA/shared.jsonl");
