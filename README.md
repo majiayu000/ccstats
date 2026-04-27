@@ -144,6 +144,9 @@ ccstats daily --since 20260101 --until 20260131
 # Select data source explicitly (supports aliases)
 ccstats daily --source codex
 
+# Combine all supported data sources
+ccstats monthly --source all
+
 # Offline mode (use cached pricing)
 ccstats today -O
 
@@ -176,6 +179,7 @@ Warning: ignored <N> malformed records
 |--------|-----------|----------|
 | Claude Code | `~/.claude/projects/` | Projects, Billing Blocks, Deduplication |
 | OpenAI Codex | `~/.codex/sessions/` | Reasoning Tokens |
+| All Sources | Multiple | Combined daily/weekly/monthly/today/statusline summaries |
 
 ## Architecture
 

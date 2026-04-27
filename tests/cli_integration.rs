@@ -152,6 +152,63 @@ fn source_flag_can_select_codex_without_subcommand() {
 }
 
 #[test]
+fn source_all_daily_json_merges_registered_sources() {
+    let root = unique_temp_dir("source-all-daily");
+    let codex_home = root.join("codex-home");
+    let claude_session = root.join(".claude/projects/myapp/claude-session.jsonl");
+    let codex_session = codex_home.join("sessions").join("codex-session.jsonl");
+
+    write_file(
+        &claude_session,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+    write_file(
+        &codex_session,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"model":"gpt-5"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "all",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root), ("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["input_tokens"].as_i64(), Some(110));
+    assert_eq!(arr[0]["output_tokens"].as_i64(), Some(55));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(165));
+
+    let models = arr[0]["models"].as_array().expect("models");
+    assert_eq!(models.len(), 2);
+    assert!(
+        models
+            .iter()
+            .any(|model| model.as_str() == Some("3-5-sonnet"))
+    );
+    assert!(models.iter().any(|model| model.as_str() == Some("gpt-5")));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn codex_subcommand_conflicts_with_different_source_flag() {
     let root = unique_temp_dir("source-flag-conflict");
     let (ok, _stdout, stderr) = run_ccstats(
@@ -161,6 +218,20 @@ fn codex_subcommand_conflicts_with_different_source_flag() {
     assert!(!ok, "expected conflict failure");
     let stderr = String::from_utf8_lossy(&stderr);
     assert!(stderr.contains("conflicts with --source"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_subcommand_conflicts_with_source_all() {
+    let root = unique_temp_dir("source-all-conflict");
+    let (ok, _stdout, stderr) = run_ccstats(
+        &["codex", "daily", "--source", "all", "-O", "--no-cost"],
+        &[("HOME", &root)],
+    );
+    assert!(!ok, "expected conflict failure");
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(stderr.contains("conflicts with --source all"));
 
     let _ = fs::remove_dir_all(root);
 }

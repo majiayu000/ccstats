@@ -31,13 +31,13 @@ mod utils;
 use chrono::Utc;
 use clap::Parser;
 
-use app::{CommandContext, handle_source_command};
+use app::{CommandContext, handle_all_sources_command, handle_source_command};
 use cli::{Cli, SourceCommand, parse_command};
 use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
 use pricing::{CurrencyConverter, PricingDb};
-use source::{get_source, source_choices, suggest_source};
+use source::{ALL_SOURCES, get_source, source_choices, suggest_source};
 use utils::{Timezone, parse_date};
 
 enum TimezoneSource {
@@ -153,6 +153,10 @@ fn main() {
     } else {
         match (parsed_command.source_hint, cli.source.as_deref()) {
             (Some(hint), Some(override_name)) => {
+                if override_name.eq_ignore_ascii_case(ALL_SOURCES) {
+                    eprintln!("Error: command source '{hint}' conflicts with --source all");
+                    std::process::exit(1);
+                }
                 let Some(override_source) = get_source(override_name) else {
                     eprintln!("{}", unknown_source_message(override_name));
                     std::process::exit(1);
@@ -170,11 +174,6 @@ fn main() {
             (None, Some(name)) => name,
             (None, None) => "claude",
         }
-    };
-
-    let Some(source) = get_source(source_name) else {
-        eprintln!("{}", unknown_source_message(source_name));
-        std::process::exit(1);
     };
 
     // Initialize currency converter if requested
@@ -195,6 +194,26 @@ fn main() {
         })
     } else {
         None
+    };
+
+    if source_name.eq_ignore_ascii_case(ALL_SOURCES) {
+        return handle_all_sources_command(
+            source_cmd,
+            &CommandContext {
+                filter: &filter,
+                cli: &cli,
+                pricing_db: &pricing_db,
+                timezone,
+                number_format,
+                jq_filter,
+                currency: currency_converter.as_ref(),
+            },
+        );
+    }
+
+    let Some(source) = get_source(source_name) else {
+        eprintln!("{}", unknown_source_message(source_name));
+        std::process::exit(1);
     };
 
     handle_source_command(
