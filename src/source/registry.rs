@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use super::claude::ClaudeSource;
 use super::codex::CodexSource;
+use super::cursor::CursorSource;
 use super::{BoxedSource, Source};
 
 /// Pseudo-source that aggregates every registered source.
@@ -16,8 +17,8 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
     vec![
         Box::new(ClaudeSource::new()),
         Box::new(CodexSource::new()),
+        Box::new(CursorSource::new()),
         // Add new sources here:
-        // Box::new(CursorSource::new()),
         // Box::new(WindsurfSource::new()),
     ]
 });
@@ -122,6 +123,7 @@ mod tests {
     fn test_get_source_by_name() {
         assert!(get_source("claude").is_some());
         assert!(get_source("codex").is_some());
+        assert!(get_source("cursor").is_some());
         assert!(get_source("unknown").is_none());
     }
 
@@ -129,6 +131,7 @@ mod tests {
     fn test_get_source_by_alias() {
         assert!(get_source("cc").is_some());
         assert!(get_source("cx").is_some());
+        assert!(get_source("cur").is_some());
     }
 
     #[test]
@@ -136,6 +139,7 @@ mod tests {
         assert!(get_source("Claude").is_some());
         assert!(get_source("CLAUDE").is_some());
         assert!(get_source("Codex").is_some());
+        assert!(get_source("Cursor").is_some());
         assert!(get_source("CC").is_some());
     }
 
@@ -153,6 +157,14 @@ mod tests {
         assert_eq!(source.name(), "codex");
         assert_eq!(source.display_name(), "OpenAI Codex");
         assert!(source.aliases().contains(&"cx"));
+    }
+
+    #[test]
+    fn test_cursor_source_properties() {
+        let source = get_source("cursor").unwrap();
+        assert_eq!(source.name(), "cursor");
+        assert_eq!(source.display_name(), "Cursor");
+        assert!(source.aliases().contains(&"cur"));
     }
 
     #[test]
@@ -178,9 +190,20 @@ mod tests {
     }
 
     #[test]
+    fn test_cursor_capabilities() {
+        let source = get_source("cursor").unwrap();
+        let caps = source.capabilities();
+        assert!(!caps.has_projects);
+        assert!(!caps.has_billing_blocks);
+        assert!(!caps.has_cache_creation);
+        assert!(!caps.needs_dedup);
+        assert!(!caps.has_reasoning_tokens);
+    }
+
+    #[test]
     fn test_sources_count() {
-        // Verify we have exactly 2 registered sources
-        assert_eq!(SOURCES.len(), 2);
+        // Verify all built-in sources are registered
+        assert_eq!(SOURCES.len(), 3);
     }
 
     #[test]
@@ -192,6 +215,10 @@ mod tests {
         let by_name = get_source("codex").unwrap();
         let by_alias = get_source("cx").unwrap();
         assert_eq!(by_name.name(), by_alias.name());
+
+        let by_name = get_source("cursor").unwrap();
+        let by_alias = get_source("cur").unwrap();
+        assert_eq!(by_name.name(), by_alias.name());
     }
 
     #[test]
@@ -200,14 +227,17 @@ mod tests {
         assert!(choices.contains(&"all"));
         assert!(choices.contains(&"claude"));
         assert!(choices.contains(&"codex"));
+        assert!(choices.contains(&"cursor"));
         assert!(choices.contains(&"cc"));
         assert!(choices.contains(&"cx"));
+        assert!(choices.contains(&"cur"));
     }
 
     #[test]
     fn test_suggest_source_prefix_and_typo() {
         assert_eq!(suggest_source("clau"), Some("claude"));
         assert_eq!(suggest_source("code"), Some("codex"));
+        assert_eq!(suggest_source("curs"), Some("cursor"));
         assert_eq!(suggest_source("claud"), Some("claude"));
         assert_eq!(suggest_source("al"), Some("all"));
         assert_eq!(suggest_source("cx"), Some("cx"));

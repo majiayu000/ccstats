@@ -1,3 +1,4 @@
+use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,34 @@ fn write_file(path: &Path, content: &str) {
         fs::create_dir_all(parent).expect("create parent dirs");
     }
     fs::write(path, content).expect("write test file");
+}
+
+fn write_cursor_state_db(path: &Path) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create cursor db parent");
+    }
+    let conn = Connection::open(path).expect("open cursor db");
+    conn.execute(
+        "CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB)",
+        [],
+    )
+    .expect("create cursorDiskKV");
+    conn.execute(
+        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
+        (
+            "composerData:composer-1",
+            r#"{"composerId":"composer-1","modelConfig":{"modelName":"claude-4-sonnet"},"workspaceIdentifier":{"uri":{"fsPath":"/tmp/cursor-project"}}}"#,
+        ),
+    )
+    .expect("insert composer");
+    conn.execute(
+        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
+        (
+            "bubbleId:composer-1:bubble-1",
+            r#"{"createdAt":"2026-02-06T10:00:00Z","tokenCount":{"inputTokens":100,"outputTokens":40}}"#,
+        ),
+    )
+    .expect("insert bubble");
 }
 
 fn resolve_ccstats_binary() -> PathBuf {
@@ -204,6 +233,46 @@ fn source_all_daily_json_merges_registered_sources() {
             .any(|model| model.as_str() == Some("3-5-sonnet"))
     );
     assert!(models.iter().any(|model| model.as_str() == Some("gpt-5")));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn source_flag_can_select_cursor_without_subcommand() {
+    let root = unique_temp_dir("source-flag-cursor");
+    let cursor_home = root.join("cursor-user");
+    write_cursor_state_db(&cursor_home.join("globalStorage").join("state.vscdb"));
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "cursor",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CURSOR_HOME", &cursor_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["input_tokens"].as_i64(), Some(100));
+    assert_eq!(arr[0]["output_tokens"].as_i64(), Some(40));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(140));
+    assert_eq!(
+        arr[0]["models"].as_array().unwrap()[0].as_str(),
+        Some("claude-4-sonnet")
+    );
 
     let _ = fs::remove_dir_all(root);
 }
