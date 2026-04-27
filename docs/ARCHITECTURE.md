@@ -26,6 +26,10 @@ src/
 │   │   ├── config.rs      # Source trait 实现
 │   │   ├── parser.rs      # JSONL 解析逻辑
 │   │   └── mod.rs
+│   ├── cursor/            # Cursor 数据源
+│   │   ├── config.rs      # Source trait 实现
+│   │   ├── parser.rs      # SQLite 解析逻辑
+│   │   └── mod.rs
 │   ├── loader.rs          # 统一数据加载器
 │   ├── registry.rs        # 数据源注册表
 │   └── mod.rs             # Source trait 定义

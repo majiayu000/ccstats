@@ -1,10 +1,11 @@
-//! `ccstats` is a local-first CLI for token and cost analytics from Claude Code and
-//! `OpenAI` Codex session logs.
+//! `ccstats` is a local-first CLI for token and cost analytics from Claude Code,
+//! `OpenAI` Codex, and Cursor session logs.
 //!
 //! Common commands:
 //! - `ccstats today` / `ccstats daily` for Claude Code usage
 //! - `ccstats codex today` / `ccstats codex daily` for Codex usage
 //! - `ccstats <command> --source codex` for unified source selection
+//! - `ccstats <command> --source cursor` for experimental Cursor usage
 //!
 //! Project page: <https://github.com/majiayu000/ccstats>
 // Enable pedantic lints for new code quality; allow domain-inherent cast warnings

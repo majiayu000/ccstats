@@ -6,15 +6,16 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics for Claude Code and OpenAI Codex logs.
+`ccstats` is a fast CLI for token and cost usage analytics for Claude Code, OpenAI Codex, and Cursor logs.
 
-Search keywords: `claude code usage stats`, `codex usage stats`, `token usage cli`, `ai token cost tracker`.
+Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
 ## Highlights
 
 - Fast local analysis of usage JSONL logs
 - Claude Code support (`~/.claude/projects/`)
 - OpenAI Codex support (`~/.codex/sessions/`)
+- Experimental Cursor support (`Cursor/User/globalStorage/state.vscdb`)
 - Daily/weekly/monthly/project/session views
 - Optional model-level token and cost breakdown
 
@@ -60,6 +61,24 @@ ccstats codex daily
 
 # Same result via unified source flag
 ccstats daily --source codex
+```
+
+## Quick Start (Cursor)
+
+Cursor support is experimental because Cursor's local database schema is not a public API. ccstats reads local SQLite `tokenCount` fields only and does not estimate missing usage.
+
+```bash
+# Install
+brew install majiayu000/tap/ccstats
+
+# Today
+ccstats today --source cursor
+
+# Daily trend
+ccstats daily --source cursor
+
+# Same source via alias
+ccstats daily --source cur
 ```
 
 ## Crate Documentation
@@ -129,6 +148,45 @@ ccstats codex session
 ccstats codex today -b
 ```
 
+### Cursor (Experimental)
+
+Cursor uses the unified source flag rather than a dedicated subcommand.
+
+```bash
+# Today's Cursor usage
+ccstats today --source cursor
+
+# Daily Cursor breakdown
+ccstats daily --source cursor
+
+# Weekly Cursor summary
+ccstats weekly --source cursor
+
+# By session/conversation
+ccstats session --source cursor
+
+# Cursor alias
+ccstats daily --source cur
+```
+
+By default, ccstats checks these local Cursor databases:
+
+- macOS: `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
+- Linux: `~/.config/Cursor/User/globalStorage/state.vscdb`
+- `workspaceStorage/*/state.vscdb` under the same Cursor user directory
+
+You can override the Cursor user directory with `CURSOR_HOME`:
+
+```bash
+CURSOR_HOME="/path/to/Cursor/User" ccstats daily --source cursor
+```
+
+Current limitations:
+
+- Only explicit `tokenCount`/usage fields are counted.
+- Project aggregation and 5-hour billing blocks are not supported for Cursor.
+- Cache creation, cache read, and reasoning token fields are reported as zero unless Cursor exposes them directly in a supported local record.
+
 ### Common Options
 
 ```bash
@@ -152,6 +210,9 @@ ccstats monthly --source all
 
 # Experimental Cursor source (reads local SQLite tokenCount fields)
 ccstats daily --source cursor
+
+# Cursor alias
+ccstats daily --source cur
 
 # Offline mode (use cached pricing)
 ccstats today -O
