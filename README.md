@@ -38,6 +38,9 @@ cargo install ccstats
 ### Shell script
 ```bash
 curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | sh
+
+# Install a specific version
+curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.2.61 sh
 ```
 
 ### Manual download

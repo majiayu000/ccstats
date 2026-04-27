@@ -8,6 +8,7 @@ REPO="majiayu000/ccstats"
 BINARY="ccstats"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 LATEST_RELEASE_API="https://api.github.com/repos/${REPO}/releases/latest"
+REQUIRE_CHECKSUM="${REQUIRE_CHECKSUM:-0}"
 
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -72,6 +73,14 @@ get_latest_version() {
     sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp_json" | head -n 1
 }
 
+normalize_version() {
+    version="$1"
+    case "$version" in
+        v*) echo "$version" ;;
+        *) echo "v$version" ;;
+    esac
+}
+
 verify_checksum_if_available() {
     archive_url="$1"
     archive_path="$2"
@@ -94,9 +103,17 @@ verify_checksum_if_available() {
             fi
             echo "Checksum verified."
         else
+            if [ "$REQUIRE_CHECKSUM" = "1" ]; then
+                echo "No SHA-256 tool found and REQUIRE_CHECKSUM=1."
+                exit 1
+            fi
             echo "Warning: no SHA-256 tool found, skipping checksum verification."
         fi
     else
+        if [ "$REQUIRE_CHECKSUM" = "1" ]; then
+            echo "Checksum file not found for this release asset."
+            exit 1
+        fi
         echo "Checksum file not found for this release asset, skipping verification."
     fi
 }
@@ -118,7 +135,11 @@ main() {
     }
     trap cleanup EXIT INT TERM
 
-    version="$(get_latest_version "$tmp_json")"
+    if [ -n "${VERSION:-}" ]; then
+        version="$(normalize_version "$VERSION")"
+    else
+        version="$(get_latest_version "$tmp_json")"
+    fi
     if [ -z "$version" ]; then
         echo "Failed to get latest version."
         exit 1
@@ -128,8 +149,16 @@ main() {
 
     # Determine file extension
     case "$platform" in
-        *windows*) ext="zip" ;;
-        *) ext="tar.gz" ;;
+        *windows*)
+            ext="zip"
+            binary_name="${BINARY}.exe"
+            install_name="${BINARY}.exe"
+            ;;
+        *)
+            ext="tar.gz"
+            binary_name="$BINARY"
+            install_name="$BINARY"
+            ;;
     esac
 
     url="https://github.com/${REPO}/releases/download/${version}/${BINARY}-${platform}.${ext}"
@@ -158,21 +187,21 @@ main() {
             ;;
     esac
 
-    bin_path="$(find "$tmp_dir" -type f -name "$BINARY" | head -n 1)"
+    bin_path="$(find "$tmp_dir" -type f -name "$binary_name" | head -n 1)"
     if [ -z "$bin_path" ]; then
-        echo "Failed to locate extracted binary: $BINARY"
+        echo "Failed to locate extracted binary: $binary_name"
         exit 1
     fi
 
     if command -v install >/dev/null 2>&1; then
-        install -m 755 "$bin_path" "$INSTALL_DIR/$BINARY"
+        install -m 755 "$bin_path" "$INSTALL_DIR/$install_name"
     else
-        cp "$bin_path" "$INSTALL_DIR/$BINARY"
-        chmod +x "$INSTALL_DIR/$BINARY"
+        cp "$bin_path" "$INSTALL_DIR/$install_name"
+        chmod +x "$INSTALL_DIR/$install_name"
     fi
 
     echo ""
-    echo "ccstats installed to $INSTALL_DIR/$BINARY"
+    echo "ccstats installed to $INSTALL_DIR/$install_name"
     echo ""
 
     # Check if in PATH
