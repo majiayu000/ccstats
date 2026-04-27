@@ -78,7 +78,7 @@ impl SessionAccumulator {
         let update_last = self.last_timestamp.is_empty() || timestamp_ms > self.last_timestamp_ms;
 
         if update_first {
-            self.first_timestamp = timestamp.clone();
+            self.first_timestamp.clone_from(&timestamp);
             self.first_timestamp_ms = timestamp_ms;
         }
         if update_last {

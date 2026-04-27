@@ -1,7 +1,7 @@
 //! Currency conversion with exchange rate caching
 //!
 //! Fetches rates from open.er-api.com (free, no API key required).
-//! Caches to ~/.cache/ccstats/exchange_rates.json for 24h.
+//! Caches to `~/.cache/ccstats/exchange_rates.json` for 24h.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -72,10 +72,9 @@ impl CurrencyConverter {
 
 fn currency_symbol(code: &str) -> String {
     match code {
-        "CNY" | "RMB" => "¥".to_string(),
+        "CNY" | "RMB" | "JPY" => "¥".to_string(),
         "EUR" => "€".to_string(),
         "GBP" => "£".to_string(),
-        "JPY" => "¥".to_string(),
         "KRW" => "₩".to_string(),
         "INR" => "₹".to_string(),
         "BRL" => "R$".to_string(),
@@ -169,7 +168,7 @@ mod tests {
     #[test]
     fn usd_converter_is_identity() {
         let conv = CurrencyConverter::load("USD", true).unwrap();
-        assert_eq!(conv.convert(10.0), 10.0);
+        assert!((conv.convert(10.0) - 10.0).abs() < f64::EPSILON);
         assert_eq!(conv.format(10.0), "$10.00");
     }
 

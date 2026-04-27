@@ -169,7 +169,7 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
 
 fn handle_tools(ctx: &CommandContext<'_>) {
     let calls = load_tool_calls(ctx.filter, ctx.timezone);
-    let summary = aggregate_tools(calls);
+    let summary = aggregate_tools(&calls);
     if ctx.cli.csv {
         let csv = output_tools_csv(&summary);
         print!("{csv}");

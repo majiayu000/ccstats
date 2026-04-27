@@ -151,9 +151,7 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
         openai_pricing(1.25e-6, 10e-6, 0.125e-6)
     } else if model_lower.contains("codex-mini") {
         openai_pricing(1.5e-6, 6e-6, 0.375e-6)
-    } else if model_lower.contains("codex") {
-        openai_pricing(1.25e-6, 10e-6, 0.125e-6)
-    } else if model_lower.contains("gpt-5") {
+    } else if model_lower.contains("codex") || model_lower.contains("gpt-5") {
         openai_pricing(1.25e-6, 10e-6, 0.125e-6)
     } else if model_lower.contains("gpt-4") {
         openai_pricing(2.5e-6, 10e-6, 0.0)
