@@ -114,11 +114,11 @@ fn save_cached_rates(rates: &HashMap<String, f64>) {
     let Some(path) = cache_path() else {
         return;
     };
-    if let Some(parent) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            eprintln!("Warning: failed to create cache dir: {e}");
-            return;
-        }
+    if let Some(parent) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        eprintln!("Warning: failed to create cache dir: {e}");
+        return;
     }
     match File::create(&path) {
         Ok(file) => {

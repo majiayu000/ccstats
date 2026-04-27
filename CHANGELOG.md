@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.62] - 2026-04-27
+
+### Added
+- `--source all` overview support for registered sources.
+- Monthly budget forecasting for monthly reports.
+- Experimental Cursor usage source support.
+
+### Fixed
+- Harden release metadata checks and align release preflight with the current dependency MSRV.
+- Scope session and message deduplication by source file to avoid cross-file collisions.
+- Add GPT-5.4 pricing fallback and fall back to USD when currency conversion cannot be loaded.
+
 ## [0.2.61] - 2026-04-02
 
 ### Added

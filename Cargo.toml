@@ -1,8 +1,8 @@
 [package]
 name = "ccstats"
-version = "0.2.61"
+version = "0.2.62"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Fast token and cost usage statistics CLI for Claude Code and OpenAI Codex"
 license = "MIT"
 repository = "https://github.com/majiayu000/ccstats"
