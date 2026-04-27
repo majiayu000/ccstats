@@ -18,7 +18,7 @@ pub(crate) fn aggregate_tools(calls: &[ToolCall]) -> ToolSummary {
         .collect();
 
     // Sort by call count descending
-    tools.sort_by(|a, b| b.calls.cmp(&a.calls));
+    tools.sort_by_key(|tool| std::cmp::Reverse(tool.calls));
 
     ToolSummary { tools, total }
 }

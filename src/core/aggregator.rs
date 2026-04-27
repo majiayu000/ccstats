@@ -160,7 +160,7 @@ pub(crate) fn aggregate_projects(sessions: Vec<SessionStats>) -> Vec<ProjectStat
     }
 
     let mut projects: Vec<ProjectStats> = project_map.into_values().collect();
-    projects.sort_by(|a, b| b.stats.total_tokens().cmp(&a.stats.total_tokens()));
+    projects.sort_by_key(|project| std::cmp::Reverse(project.stats.total_tokens()));
     projects
 }
 
