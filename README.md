@@ -141,6 +141,9 @@ ccstats monthly --locale de
 # Filter by date
 ccstats daily --since 20260101 --until 20260131
 
+# Monthly budget forecast (uses --until as the as-of date when present)
+ccstats monthly --monthly-budget 25 --until 20260415
+
 # Select data source explicitly (supports aliases)
 ccstats daily --source codex
 

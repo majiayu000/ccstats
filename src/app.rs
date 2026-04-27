@@ -5,12 +5,13 @@ use crate::cli::{Cli, SourceCommand};
 use crate::core::{DateFilter, DayStats, LoadResult, aggregate_tools};
 use crate::output::NumberFormat;
 use crate::output::{
-    BlockTableOptions, Period, ProjectTableOptions, SessionTableOptions, SummaryOptions,
-    TokenTableOptions, output_block_csv, output_block_json, output_period_csv, output_period_json,
-    output_project_csv, output_project_json, output_session_csv, output_session_json,
-    output_tools_csv, output_tools_json, print_block_table, print_period_table,
-    print_project_table, print_session_table, print_statusline, print_statusline_json,
-    print_tools_table,
+    BlockTableOptions, MonthlyBudgetOptions, Period, ProjectTableOptions, SessionTableOptions,
+    SummaryOptions, TokenTableOptions, add_monthly_budget_to_json, monthly_budget_reports,
+    output_block_csv, output_block_json, output_monthly_budget_csv, output_period_csv,
+    output_period_json, output_project_csv, output_project_json, output_session_csv,
+    output_session_json, output_tools_csv, output_tools_json, print_block_table,
+    print_monthly_budget_table, print_period_table, print_project_table, print_session_table,
+    print_statusline, print_statusline_json, print_tools_table,
 };
 use crate::pricing::PricingDb;
 use crate::source::{
@@ -42,6 +43,7 @@ pub(crate) struct CommandContext<'a> {
     pub(crate) number_format: NumberFormat,
     pub(crate) jq_filter: Option<&'a str>,
     pub(crate) currency: Option<&'a crate::pricing::CurrencyConverter>,
+    pub(crate) budget_as_of: chrono::NaiveDate,
 }
 
 fn print_no_data_hint(source_name: &str, category: &str) {
@@ -297,6 +299,120 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
     }
 }
 
+fn render_period_result(
+    result: &LoadResult,
+    period: Period,
+    caps: &Capabilities,
+    ctx: &CommandContext<'_>,
+) {
+    let monthly_budget = (period == Period::Month)
+        .then_some(ctx.cli.monthly_budget)
+        .flatten();
+
+    if ctx.cli.csv {
+        let csv = if let Some(budget) = monthly_budget {
+            output_monthly_budget_csv(
+                &result.day_stats,
+                ctx.pricing_db,
+                MonthlyBudgetOptions {
+                    order: ctx.cli.sort_order(),
+                    breakdown: ctx.cli.breakdown,
+                    show_cost: ctx.cli.show_cost(),
+                    limit: budget,
+                    as_of: ctx.budget_as_of,
+                    currency: ctx.currency,
+                },
+            )
+        } else {
+            output_period_csv(
+                &result.day_stats,
+                period,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                ctx.cli.breakdown,
+                ctx.cli.show_cost(),
+            )
+        };
+        print!("{csv}");
+    } else if ctx.cli.json {
+        let mut json = output_period_json(
+            &result.day_stats,
+            period,
+            ctx.pricing_db,
+            ctx.cli.sort_order(),
+            ctx.cli.breakdown,
+            ctx.cli.show_cost(),
+            ctx.currency,
+        );
+        if let Some(budget) = monthly_budget {
+            let reports = monthly_budget_reports(
+                &result.day_stats,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                budget,
+                ctx.budget_as_of,
+                ctx.currency,
+            );
+            json = add_monthly_budget_to_json(&json, &reports);
+        }
+        print_json(&json, ctx.jq_filter);
+    } else {
+        print_period_table(
+            &result.day_stats,
+            period,
+            ctx.cli.breakdown,
+            SummaryOptions {
+                skipped: result.skipped,
+                valid: result.valid,
+                elapsed_ms: Some(result.elapsed_ms),
+            },
+            ctx.pricing_db,
+            TokenTableOptions {
+                order: ctx.cli.sort_order(),
+                use_color: ctx.cli.use_color(),
+                compact: ctx.cli.compact,
+                show_cost: ctx.cli.show_cost(),
+                number_format: ctx.number_format,
+                show_reasoning: caps.has_reasoning_tokens,
+                show_cache_creation: caps.has_cache_creation,
+                currency: ctx.currency,
+            },
+        );
+        if let Some(budget) = monthly_budget {
+            let reports = monthly_budget_reports(
+                &result.day_stats,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                budget,
+                ctx.budget_as_of,
+                ctx.currency,
+            );
+            print_monthly_budget_table(&reports, ctx.cli.use_color(), ctx.currency);
+        }
+    }
+}
+
+fn handle_period(
+    source: &dyn Source,
+    command: SourceCommand,
+    caps: &Capabilities,
+    ctx: &CommandContext<'_>,
+) {
+    let period = match command {
+        SourceCommand::Daily | SourceCommand::Today => Period::Day,
+        SourceCommand::Weekly => Period::Week,
+        SourceCommand::Monthly => Period::Month,
+        _ => return,
+    };
+
+    let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
+    if result.day_stats.is_empty() {
+        print_no_data_hint(source.display_name(), "usage");
+        return;
+    }
+    render_period_result(&result, period, caps, ctx);
+}
+
 /// Handle commands for a specific data source
 pub(crate) fn handle_source_command(
     source: &dyn Source,
@@ -346,63 +462,7 @@ pub(crate) fn handle_source_command(
     }
 
     // Period-based commands: Daily/Today/Weekly/Monthly
-    let period = match command {
-        SourceCommand::Daily | SourceCommand::Today => Period::Day,
-        SourceCommand::Weekly => Period::Week,
-        SourceCommand::Monthly => Period::Month,
-        // All non-period variants handled above and returned early
-        _ => return,
-    };
-
-    let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
-    if result.day_stats.is_empty() {
-        print_no_data_hint(source.display_name(), "usage");
-        return;
-    }
-    if ctx.cli.csv {
-        let csv = output_period_csv(
-            &result.day_stats,
-            period,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.breakdown,
-            ctx.cli.show_cost(),
-        );
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let json = output_period_json(
-            &result.day_stats,
-            period,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.breakdown,
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_period_table(
-            &result.day_stats,
-            period,
-            ctx.cli.breakdown,
-            SummaryOptions {
-                skipped: result.skipped,
-                valid: result.valid,
-                elapsed_ms: Some(result.elapsed_ms),
-            },
-            ctx.pricing_db,
-            TokenTableOptions {
-                order: ctx.cli.sort_order(),
-                use_color: ctx.cli.use_color(),
-                compact: ctx.cli.compact,
-                show_cost: ctx.cli.show_cost(),
-                number_format: ctx.number_format,
-                show_reasoning: caps.has_reasoning_tokens,
-                show_cache_creation: caps.has_cache_creation,
-                currency: ctx.currency,
-            },
-        );
-    }
+    handle_period(source, command, &caps, ctx);
 }
 
 fn all_sources_capabilities() -> Capabilities {
@@ -502,48 +562,5 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
         print_no_data_hint("All Sources", "usage");
         return;
     }
-    if ctx.cli.csv {
-        let csv = output_period_csv(
-            &result.day_stats,
-            period,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.breakdown,
-            ctx.cli.show_cost(),
-        );
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let json = output_period_json(
-            &result.day_stats,
-            period,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.breakdown,
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_period_table(
-            &result.day_stats,
-            period,
-            ctx.cli.breakdown,
-            SummaryOptions {
-                skipped: result.skipped,
-                valid: result.valid,
-                elapsed_ms: Some(result.elapsed_ms),
-            },
-            ctx.pricing_db,
-            TokenTableOptions {
-                order: ctx.cli.sort_order(),
-                use_color: ctx.cli.use_color(),
-                compact: ctx.cli.compact,
-                show_cost: ctx.cli.show_cost(),
-                number_format: ctx.number_format,
-                show_reasoning: caps.has_reasoning_tokens,
-                show_cache_creation: caps.has_cache_creation,
-                currency: ctx.currency,
-            },
-        );
-    }
+    render_period_result(&result, period, &caps, ctx);
 }

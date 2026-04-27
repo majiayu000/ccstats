@@ -119,6 +119,10 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "CURRENCY")]
     pub(crate) currency: Option<String>,
 
+    /// Monthly budget for monthly forecast output (USD by default, or --currency value)
+    #[arg(long, global = true, value_name = "AMOUNT")]
+    pub(crate) monthly_budget: Option<f64>,
+
     /// Data source name or alias (e.g., "claude", "codex", "all", "cc", "cx")
     #[arg(long, global = true, value_name = "SOURCE")]
     pub(crate) source: Option<String>,
@@ -494,6 +498,12 @@ mod tests {
     fn default_show_cost_is_true() {
         let cli = Cli::parse_from(["ccstats", "daily"]);
         assert!(cli.show_cost());
+    }
+
+    #[test]
+    fn monthly_budget_parses_amount() {
+        let cli = Cli::parse_from(["ccstats", "monthly", "--monthly-budget", "25.5"]);
+        assert_eq!(cli.monthly_budget, Some(25.5));
     }
 
     #[test]
