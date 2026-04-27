@@ -42,7 +42,7 @@ pub(crate) enum CostMode {
 #[derive(Parser)]
 #[command(name = "ccstats")]
 #[command(
-    about = "Fast token and cost usage statistics for Claude Code and OpenAI Codex",
+    about = "Fast token and cost usage statistics for Claude Code, OpenAI Codex, and Cursor",
     version
 )]
 #[allow(clippy::struct_excessive_bools)]
@@ -126,7 +126,7 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "AMOUNT")]
     pub(crate) monthly_budget: Option<f64>,
 
-    /// Data source name or alias (e.g., "claude", "codex", "all", "cc", "cx")
+    /// Data source name or alias (e.g., "claude", "codex", "cursor", "all", "cc", "cx", "cur")
     #[arg(long, global = true, value_name = "SOURCE")]
     pub(crate) source: Option<String>,
 }
