@@ -192,6 +192,7 @@ fn entry_from_bubble(
     key: &str,
     value: &Value,
     composers: &HashMap<String, ComposerMeta>,
+    path: &Path,
     timezone: Timezone,
 ) -> Option<RawEntry> {
     let (composer_id, bubble_id) = bubble_ids_from_key(key)?;
@@ -215,6 +216,7 @@ fn entry_from_bubble(
         timestamp_ms: utc_dt.timestamp_millis(),
         date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),
         message_id: Some(bubble_id.to_string()),
+        session_key: format!("{}:{composer_id}", path.display()),
         session_id: composer_id.to_string(),
         project_path: meta
             .and_then(|m| m.project_path.clone())
@@ -264,6 +266,7 @@ fn entry_from_generation(generation: &Value, path: &Path, timezone: Timezone) ->
         timestamp_ms: utc_dt.timestamp_millis(),
         date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),
         message_id: Some(session_id.clone()),
+        session_key: format!("{}:{session_id}", path.display()),
         session_id,
         project_path: String::new(),
         model,
@@ -278,6 +281,7 @@ fn entry_from_generation(generation: &Value, path: &Path, timezone: Timezone) ->
 
 fn parse_cursor_disk_kv(
     conn: &Connection,
+    path: &Path,
     timezone: Timezone,
 ) -> rusqlite::Result<(Vec<RawEntry>, usize)> {
     let mut entries = Vec::new();
@@ -307,7 +311,7 @@ fn parse_cursor_disk_kv(
     }
 
     for (key, value) in bubbles {
-        if let Some(entry) = entry_from_bubble(&key, &value, &composers, timezone) {
+        if let Some(entry) = entry_from_bubble(&key, &value, &composers, path, timezone) {
             entries.push(entry);
         }
     }
@@ -368,7 +372,7 @@ pub(super) fn parse_cursor_db_with_debug(
     let mut errors = 0usize;
 
     if table_exists(&conn, "cursorDiskKV") {
-        match parse_cursor_disk_kv(&conn, timezone) {
+        match parse_cursor_disk_kv(&conn, path, timezone) {
             Ok((mut parsed, parse_errors)) => {
                 entries.append(&mut parsed);
                 errors += parse_errors;
@@ -430,6 +434,7 @@ mod tests {
             "bubbleId:composer-1:bubble-1",
             &value,
             &HashMap::new(),
+            Path::new("/tmp/state.vscdb"),
             tz(),
         )
         .unwrap();
@@ -457,8 +462,14 @@ mod tests {
             "tokenCount": {"inputTokens": 10, "outputTokens": 5}
         });
 
-        let entry =
-            entry_from_bubble("bubbleId:composer-1:bubble-1", &value, &composers, tz()).unwrap();
+        let entry = entry_from_bubble(
+            "bubbleId:composer-1:bubble-1",
+            &value,
+            &composers,
+            Path::new("/tmp/state.vscdb"),
+            tz(),
+        )
+        .unwrap();
 
         assert_eq!(entry.model, "gpt-5");
         assert_eq!(entry.project_path, "/tmp/project");

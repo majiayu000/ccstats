@@ -83,11 +83,13 @@ Anthropic 的字段天然互不重叠，parser 直接映射即可。
 
 Claude Code 的流式响应会为同一个 `message.id` 写入多条日志（每个 chunk 都可能更新 usage）。去重规则：
 
-1. 以 `message.id` 为全局去重键（跨主文件和 subagent 文件）
-2. 同一 `message.id` 的多条记录，选择规则：
-   - 优先选有 `stop_reason` 的（表示完成），取最早的一条
+1. 以“源日志文件 + `message.id`”作为去重键
+2. 同一去重键的多条记录，选择规则：
+   - 优先选有 `stop_reason` 的（表示完成），取最新的一条
    - 若都没有 `stop_reason`，取最晚的一条（最佳近似）
 3. 没有 `message.id` 的条目：仅当有 `stop_reason` 时才计入
+
+这样可以避免不同日志文件中碰巧复用同一 `message.id` 时发生误去重，同时仍然保留同一文件内流式 chunk 的合并行为。
 
 ### 模型名归一化
 

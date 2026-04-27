@@ -143,6 +143,12 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
             cache_create: 1e-6,
             cache_read: 0.08e-6,
         }
+    } else if model_lower.contains("gpt-5.4-mini") {
+        openai_pricing(0.75e-6, 4.5e-6, 0.075e-6)
+    } else if model_lower.contains("gpt-5.4-nano") {
+        openai_pricing(0.2e-6, 1.25e-6, 0.02e-6)
+    } else if model_lower.contains("gpt-5.4") {
+        openai_pricing(2.5e-6, 15e-6, 0.25e-6)
     } else if model_lower.contains("gpt-5.1-codex-mini") {
         openai_pricing(0.25e-6, 2e-6, 0.025e-6)
     } else if model_lower.contains("gpt-5.2-codex") || model_lower.contains("gpt-5.3-codex") {
@@ -387,6 +393,14 @@ mod tests {
         assert_eq!(p.input, 0.25e-6);
         assert_eq!(p.output, 2e-6);
         assert_eq!(p.cache_read, 0.025e-6);
+    }
+
+    #[test]
+    fn test_fallback_gpt5_4_mini() {
+        let p = fallback_pricing("gpt-5.4-mini");
+        assert_eq!(p.input, 0.75e-6);
+        assert_eq!(p.output, 4.5e-6);
+        assert_eq!(p.cache_read, 0.075e-6);
     }
 
     #[test]

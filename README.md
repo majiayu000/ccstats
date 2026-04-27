@@ -194,7 +194,12 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for:
 - Adding new data sources
 - Data flow and processing pipeline
 - Caching mechanism
-- Deduplication algorithm
+- Architecture and module boundaries
+
+See [docs/algorithm/authoritative-token-accounting.md](docs/algorithm/authoritative-token-accounting.md) for:
+- Token accounting rules
+- Source-specific normalization
+- Deduplication semantics
 
 ## License
 

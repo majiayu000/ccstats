@@ -218,6 +218,7 @@ pub(super) fn parse_codex_file_with_debug(
     timezone: Timezone,
     debug: bool,
 ) -> ParseOutput {
+    let session_key = path.display().to_string();
     let session_id = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -393,6 +394,7 @@ pub(super) fn parse_codex_file_with_debug(
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: date.format(DATE_FORMAT).to_string(),
             message_id: None, // Codex doesn't use message IDs for dedup
+            session_key: session_key.clone(),
             session_id: session_id.clone(),
             project_path: String::new(), // Codex doesn't track projects
             model,

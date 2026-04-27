@@ -1,7 +1,8 @@
 //! Output formatters for tool usage statistics
 
-use comfy_table::CellAlignment;
 use std::fmt::Write;
+
+use comfy_table::CellAlignment;
 
 use crate::core::ToolSummary;
 

@@ -198,11 +198,21 @@ fn main() {
     // Initialize currency converter if requested
     let currency_converter = if show_cost {
         cli.currency.as_ref().map(|code| {
-            let Some(conv) = CurrencyConverter::load(code, cli.offline) else {
-                eprintln!("Error: failed to load exchange rate for '{code}'");
-                std::process::exit(1);
+            let conv = if let Some(conv) = CurrencyConverter::load(code, cli.offline) {
+                conv
+            } else {
+                if !is_statusline {
+                    eprintln!(
+                        "Warning: failed to load exchange rate for '{code}', showing USD costs."
+                    );
+                }
+                let Some(conv) = CurrencyConverter::load("USD", true) else {
+                    eprintln!("Error: failed to initialize USD currency converter");
+                    std::process::exit(1);
+                };
+                conv
             };
-            if !is_statusline {
+            if !is_statusline && conv.currency_code() != "USD" {
                 eprintln!(
                     "Converting costs to {} (rate: displayed as {})",
                     conv.currency_code(),

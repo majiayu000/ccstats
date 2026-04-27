@@ -775,6 +775,139 @@ fn claude_project_json_aggregates_sessions() {
 }
 
 #[test]
+fn claude_project_json_ignores_sidechain_subagent_logs() {
+    let root = unique_temp_dir("claude-project-subagents");
+    let session_a = root.join(".claude/projects/myapp/session-a.jsonl");
+    let session_b = root.join(".claude/projects/myapp/subagents/agent-a.jsonl");
+
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}}}
+"#,
+    );
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","isSidechain":true,"message":{"id":"msg_2","model":"gpt-5.2-codex","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":80}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "project",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["project"].as_str(), Some("myapp"));
+    assert_eq!(arr[0]["project_path"].as_str(), Some("myapp"));
+    assert_eq!(arr[0]["session_count"].as_i64(), Some(1));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(150));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_session_json_keeps_same_file_stem_from_different_projects_separate() {
+    let root = unique_temp_dir("claude-session-separate-stems");
+    let session_a = root.join(".claude/projects/projA/shared.jsonl");
+    let session_b = root.join(".claude/projects/projB/shared.jsonl");
+
+    write_file(
+        &session_a,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_a","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":20}}}
+"#,
+    );
+    write_file(
+        &session_b,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","message":{"id":"msg_b","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":30}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "session",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+            "--order",
+            "desc",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0]["session_id"].as_str(), Some("shared"));
+    assert_eq!(arr[0]["project_path"].as_str(), Some("projB"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(230));
+    assert_eq!(arr[1]["session_id"].as_str(), Some("shared"));
+    assert_eq!(arr[1]["project_path"].as_str(), Some("projA"));
+    assert_eq!(arr[1]["total_tokens"].as_i64(), Some(120));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn invalid_currency_falls_back_to_usd_costs() {
+    let root = unique_temp_dir("invalid-currency-fallback");
+    let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
+    write_file(
+        &claude_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--currency",
+            "ZZZ",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let stderr = String::from_utf8(stderr).expect("utf8 stderr");
+    assert!(stderr.contains("Warning: failed to load exchange rate"));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0]["cost"].as_f64().is_some());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn claude_blocks_json_groups_by_5h_window() {
     let root = unique_temp_dir("claude-blocks");
     let session = root.join(".claude/projects/myapp/session-blocks.jsonl");
@@ -869,6 +1002,48 @@ fn claude_dedup_keeps_completed_message() {
     assert_eq!(arr.len(), 1);
     // Should use the completed message's tokens (100+50=150), not the streaming one (50+10=60)
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(150));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_dedup_keeps_same_message_id_from_different_files() {
+    let root = unique_temp_dir("claude-dedup-scope");
+    let file_a = root.join(".claude/projects/projA/a.jsonl");
+    let file_b = root.join(".claude/projects/projB/b.jsonl");
+
+    write_file(
+        &file_a,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_dup","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}}}
+"#,
+    );
+    write_file(
+        &file_b,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","message":{"id":"msg_dup","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":80}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(430));
 
     let _ = fs::remove_dir_all(root);
 }
