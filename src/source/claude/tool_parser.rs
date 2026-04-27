@@ -94,11 +94,11 @@ fn extract_date(val: &serde_json::Value, timezone: Timezone) -> String {
                 .and_then(serde_json::Value::as_str)
         });
 
-    if let Some(ts) = ts {
-        if let Ok(utc_dt) = ts.parse::<DateTime<Utc>>() {
-            let local_dt = timezone.to_fixed_offset(utc_dt);
-            return local_dt.date_naive().format(DATE_FORMAT).to_string();
-        }
+    if let Some(ts) = ts
+        && let Ok(utc_dt) = ts.parse::<DateTime<Utc>>()
+    {
+        let local_dt = timezone.to_fixed_offset(utc_dt);
+        return local_dt.date_naive().format(DATE_FORMAT).to_string();
     }
 
     UNKNOWN.to_string()
