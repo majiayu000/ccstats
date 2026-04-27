@@ -1,4 +1,5 @@
 mod blocks;
+mod budget;
 mod csv;
 mod format;
 mod json;
@@ -10,7 +11,14 @@ mod table;
 mod tools;
 
 pub(crate) use blocks::{BlockTableOptions, output_block_json, print_block_table};
-pub(crate) use csv::{output_block_csv, output_period_csv, output_project_csv, output_session_csv};
+pub(crate) use budget::{
+    MonthlyBudgetOptions, add_monthly_budget_to_json, monthly_budget_reports,
+    print_monthly_budget_table,
+};
+pub(crate) use csv::{
+    output_block_csv, output_monthly_budget_csv, output_period_csv, output_project_csv,
+    output_session_csv,
+};
 pub(crate) use format::NumberFormat;
 pub(crate) use json::output_period_json;
 pub(crate) use period::Period;

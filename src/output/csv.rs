@@ -4,6 +4,7 @@ use std::fmt::Write;
 use super::session::compare_session_last_timestamp;
 use crate::cli::SortOrder;
 use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
+use crate::output::budget::{MonthlyBudgetOptions, MonthlyBudgetReport, monthly_budget_reports};
 use crate::output::format::compare_cost;
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
@@ -101,6 +102,129 @@ pub(crate) fn output_period_csv(
                 let cost = sum_model_costs(&stats.models, pricing_db);
                 let _ = write!(out, ",{cost:.6}");
             }
+            out.push('\n');
+        }
+    }
+
+    out
+}
+
+fn csv_float(value: f64) -> String {
+    if value.is_nan() {
+        "N/A".to_string()
+    } else {
+        format!("{value:.6}")
+    }
+}
+
+fn write_budget_header(out: &mut String) {
+    let _ = write!(
+        out,
+        ",budget_limit,budget_spent,budget_projected,budget_remaining,budget_used_pct,budget_projected_pct,budget_status,budget_days_elapsed,budget_days_in_month"
+    );
+}
+
+fn write_budget_fields(out: &mut String, report: &MonthlyBudgetReport) {
+    let _ = write!(
+        out,
+        ",{},{},{},{},{},{},{},{},{}",
+        csv_float(report.limit),
+        csv_float(report.spent),
+        csv_float(report.projected),
+        csv_float(report.remaining),
+        csv_float(report.used_pct),
+        csv_float(report.projected_pct),
+        report.status,
+        report.days_elapsed,
+        report.days_in_month
+    );
+}
+
+pub(crate) fn output_monthly_budget_csv(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    options: MonthlyBudgetOptions<'_>,
+) -> String {
+    let monthly = aggregate_day_stats_by_period(day_stats, Period::Month);
+    let reports = monthly_budget_reports(
+        day_stats,
+        pricing_db,
+        options.order,
+        options.limit,
+        options.as_of,
+        options.currency,
+    );
+    let mut out = String::new();
+
+    if options.breakdown {
+        let _ = write!(
+            out,
+            "month,model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        );
+        if options.show_cost {
+            let _ = write!(out, ",cost");
+        }
+        write_budget_header(&mut out);
+        out.push('\n');
+
+        for report in &reports {
+            let Some(stats) = monthly.get(&report.month) else {
+                continue;
+            };
+            let mut models: Vec<_> = stats.models.iter().collect();
+            models.sort_by_key(|(name, _)| name.as_str());
+            for (model, model_stats) in &models {
+                let _ = write!(
+                    out,
+                    "{},{},{},{},{},{},{},{}",
+                    csv_escape(&report.month),
+                    csv_escape(model),
+                    model_stats.input_tokens,
+                    model_stats.output_tokens,
+                    model_stats.reasoning_tokens,
+                    model_stats.cache_creation,
+                    model_stats.cache_read,
+                    model_stats.total_tokens(),
+                );
+                if options.show_cost {
+                    let cost = calculate_cost(model_stats, model, pricing_db);
+                    let _ = write!(out, ",{cost:.6}");
+                }
+                write_budget_fields(&mut out, report);
+                out.push('\n');
+            }
+        }
+    } else {
+        let _ = write!(
+            out,
+            "month,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        );
+        if options.show_cost {
+            let _ = write!(out, ",cost");
+        }
+        write_budget_header(&mut out);
+        out.push('\n');
+
+        for report in &reports {
+            let Some(stats) = monthly.get(&report.month) else {
+                continue;
+            };
+            let _ = write!(
+                out,
+                "{},{},{},{},{},{},{}",
+                csv_escape(&report.month),
+                stats.stats.input_tokens,
+                stats.stats.output_tokens,
+                stats.stats.reasoning_tokens,
+                stats.stats.cache_creation,
+                stats.stats.cache_read,
+                stats.stats.total_tokens(),
+            );
+            if options.show_cost {
+                let cost = sum_model_costs(&stats.models, pricing_db);
+                let _ = write!(out, ",{cost:.6}");
+            }
+            write_budget_fields(&mut out, report);
             out.push('\n');
         }
     }

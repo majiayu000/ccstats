@@ -209,6 +209,103 @@ fn source_all_daily_json_merges_registered_sources() {
 }
 
 #[test]
+fn monthly_budget_json_includes_forecast() {
+    let root = unique_temp_dir("monthly-budget-json");
+    let session_file = root.join(".claude/projects/myapp/session.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2025-02-10T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":1000000,"output_tokens":100000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "monthly",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2025-02-01",
+            "--until",
+            "2025-02-10",
+            "--monthly-budget",
+            "10",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["month"].as_str(), Some("2025-02"));
+
+    let budget = &arr[0]["budget"];
+    assert_eq!(budget["days_elapsed"].as_i64(), Some(10));
+    assert_eq!(budget["days_in_month"].as_i64(), Some(28));
+    assert_eq!(budget["status"].as_str(), Some("over_budget"));
+    assert!((budget["spent"].as_f64().unwrap() - 4.5).abs() < 0.001);
+    assert!((budget["projected"].as_f64().unwrap() - 12.6).abs() < 0.001);
+    assert!((budget["projected_pct"].as_f64().unwrap() - 126.0).abs() < 0.001);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn monthly_budget_csv_includes_budget_columns() {
+    let root = unique_temp_dir("monthly-budget-csv");
+    let session_file = root.join(".claude/projects/myapp/session.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2025-02-10T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":1000000,"output_tokens":100000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "monthly",
+            "--csv",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2025-02-01",
+            "--until",
+            "2025-02-10",
+            "--monthly-budget",
+            "10",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8_lossy(&stdout);
+    let mut lines = output.lines();
+    let header = lines.next().expect("header");
+    let row = lines.next().expect("row");
+    assert!(header.contains("budget_projected"));
+    assert!(header.contains("budget_status"));
+    assert!(row.contains("over_budget"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn monthly_budget_rejects_hidden_costs() {
+    let root = unique_temp_dir("monthly-budget-no-cost");
+    let (ok, _stdout, stderr) = run_ccstats(
+        &["monthly", "-O", "--monthly-budget", "10", "--no-cost"],
+        &[("HOME", &root)],
+    );
+    assert!(!ok, "expected hidden-cost failure");
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(stderr.contains("--monthly-budget requires cost display"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn codex_subcommand_conflicts_with_different_source_flag() {
     let root = unique_temp_dir("source-flag-conflict");
     let (ok, _stdout, stderr) = run_ccstats(

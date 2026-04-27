@@ -115,9 +115,28 @@ fn main() {
         std::process::exit(1);
     }
 
+    if let Some(monthly_budget) = cli.monthly_budget {
+        if !monthly_budget.is_finite() || monthly_budget <= 0.0 {
+            eprintln!("Error: --monthly-budget must be a positive number");
+            std::process::exit(1);
+        }
+        if source_cmd != SourceCommand::Monthly {
+            eprintln!("Error: --monthly-budget only supports the monthly command");
+            std::process::exit(1);
+        }
+        if !cli.show_cost() {
+            eprintln!(
+                "Error: --monthly-budget requires cost display; remove --no-cost or --cost hide"
+            );
+            std::process::exit(1);
+        }
+    }
+
+    let today = timezone.to_fixed_offset(Utc::now()).date_naive();
+    let budget_as_of = until.map_or(today, |end| end.min(today));
+
     // For "today" and "statusline" commands, set since/until to today
     let filter = if source_cmd.needs_today_filter() {
-        let today = timezone.to_fixed_offset(Utc::now()).date_naive();
         DateFilter::new(Some(today), Some(today))
     } else {
         DateFilter::new(since, until)
@@ -207,6 +226,7 @@ fn main() {
                 number_format,
                 jq_filter,
                 currency: currency_converter.as_ref(),
+                budget_as_of,
             },
         );
     }
@@ -227,6 +247,7 @@ fn main() {
             number_format,
             jq_filter,
             currency: currency_converter.as_ref(),
+            budget_as_of,
         },
     );
 }
