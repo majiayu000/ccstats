@@ -1,5 +1,5 @@
 //! `ccstats` is a local-first CLI for token and cost analytics from Claude Code and
-//! OpenAI Codex session logs.
+//! `OpenAI` Codex session logs.
 //!
 //! Common commands:
 //! - `ccstats today` / `ccstats daily` for Claude Code usage
@@ -179,24 +179,20 @@ fn main() {
 
     // Initialize currency converter if requested
     let currency_converter = if show_cost {
-        cli.currency
-            .as_ref()
-            .map(|code| match CurrencyConverter::load(code, cli.offline) {
-                Some(conv) => {
-                    if !is_statusline {
-                        eprintln!(
-                            "Converting costs to {} (rate: displayed as {})",
-                            conv.currency_code(),
-                            conv.format(1.0)
-                        );
-                    }
-                    conv
-                }
-                None => {
-                    eprintln!("Error: failed to load exchange rate for '{code}'");
-                    std::process::exit(1);
-                }
-            })
+        cli.currency.as_ref().map(|code| {
+            let Some(conv) = CurrencyConverter::load(code, cli.offline) else {
+                eprintln!("Error: failed to load exchange rate for '{code}'");
+                std::process::exit(1);
+            };
+            if !is_statusline {
+                eprintln!(
+                    "Converting costs to {} (rate: displayed as {})",
+                    conv.currency_code(),
+                    conv.format(1.0)
+                );
+            }
+            conv
+        })
     } else {
         None
     };

@@ -1,7 +1,7 @@
-//! Parser for tool_use blocks in Claude Code JSONL logs
+//! Parser for `tool_use` blocks in Claude Code JSONL logs
 //!
 //! Extracts tool call names from assistant messages using partial
-//! serde_json::Value parsing to avoid full deserialization.
+//! `serde_json::Value` parsing to avoid full deserialization.
 
 use chrono::{DateTime, Utc};
 use std::fs::File;
@@ -14,17 +14,15 @@ use crate::utils::Timezone;
 
 /// Parse a single JSONL file and extract tool calls
 pub(crate) fn parse_tool_calls(path: &Path, timezone: Timezone) -> Vec<ToolCall> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(_) => return Vec::new(),
+    let Ok(file) = File::open(path) else {
+        return Vec::new();
     };
     let reader = BufReader::new(file);
 
     let mut calls = Vec::new();
     for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
+        let Ok(line) = line else {
+            continue;
         };
         if line.trim().is_empty() {
             continue;

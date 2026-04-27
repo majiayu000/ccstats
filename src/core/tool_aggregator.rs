@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use super::tool_types::{ToolCall, ToolStats, ToolSummary};
 
 /// Aggregate tool calls into a sorted summary
-pub(crate) fn aggregate_tools(calls: Vec<ToolCall>) -> ToolSummary {
+pub(crate) fn aggregate_tools(calls: &[ToolCall]) -> ToolSummary {
     let mut counts: HashMap<String, u64> = HashMap::with_capacity(calls.len());
-    for call in &calls {
+    for call in calls {
         *counts.entry(call.name.clone()).or_default() += 1;
     }
 
@@ -18,7 +18,7 @@ pub(crate) fn aggregate_tools(calls: Vec<ToolCall>) -> ToolSummary {
         .collect();
 
     // Sort by call count descending
-    tools.sort_by(|a, b| b.calls.cmp(&a.calls));
+    tools.sort_by_key(|tool| std::cmp::Reverse(tool.calls));
 
     ToolSummary { tools, total }
 }
@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn aggregate_empty() {
-        let summary = aggregate_tools(vec![]);
+        let summary = aggregate_tools(&[]);
         assert_eq!(summary.total, 0);
         assert!(summary.tools.is_empty());
     }
@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn aggregate_single_tool() {
         let calls = vec![make_call("Read"), make_call("Read"), make_call("Read")];
-        let summary = aggregate_tools(calls);
+        let summary = aggregate_tools(&calls);
         assert_eq!(summary.total, 3);
         assert_eq!(summary.tools.len(), 1);
         assert_eq!(summary.tools[0].name, "Read");
@@ -61,7 +61,7 @@ mod tests {
             make_call("Bash"),
             make_call("Read"),
         ];
-        let summary = aggregate_tools(calls);
+        let summary = aggregate_tools(&calls);
         assert_eq!(summary.total, 6);
         assert_eq!(summary.tools.len(), 3);
         assert_eq!(summary.tools[0].name, "Read");

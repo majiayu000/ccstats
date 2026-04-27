@@ -105,6 +105,7 @@ impl TokenUsage {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+#[allow(clippy::struct_field_names)] // field names mirror normalized token fields
 struct UsageTotals {
     input_tokens: i64,
     cached_input_tokens: i64,
@@ -196,20 +197,14 @@ fn non_empty_model(model: Option<&str>) -> Option<&str> {
 
 fn extract_model_ref<'a>(payload: &'a Payload<'a>) -> Option<&'a str> {
     if let Some(info) = &payload.info
-        && let Some(model) = non_empty_model(info.model.as_deref())
-            .or_else(|| non_empty_model(info.model_name.as_deref()))
-            .or_else(|| {
-                non_empty_model(
-                    info.metadata
-                        .as_ref()
-                        .and_then(|metadata| metadata.model.as_deref()),
-                )
-            })
+        && let Some(model) = non_empty_model(info.model)
+            .or_else(|| non_empty_model(info.model_name))
+            .or_else(|| non_empty_model(info.metadata.as_ref().and_then(|metadata| metadata.model)))
     {
         return Some(model);
     }
 
-    non_empty_model(payload.model.as_deref())
+    non_empty_model(payload.model)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 //! Output formatters for tool usage statistics
 
 use comfy_table::CellAlignment;
+use std::fmt::Write;
 
 use crate::core::ToolSummary;
 
@@ -80,9 +81,9 @@ pub(crate) fn output_tools_csv(summary: &ToolSummary) -> String {
         } else {
             0.0
         };
-        out.push_str(&format!("{},{},{:.1}\n", tool.name, tool.calls, pct));
+        let _ = writeln!(out, "{},{},{pct:.1}", tool.name, tool.calls);
     }
-    out.push_str(&format!("Total,{},100.0\n", summary.total));
+    let _ = writeln!(out, "Total,{},100.0", summary.total);
     out
 }
 

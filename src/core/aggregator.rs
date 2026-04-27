@@ -78,7 +78,7 @@ impl SessionAccumulator {
         let update_last = self.last_timestamp.is_empty() || timestamp_ms > self.last_timestamp_ms;
 
         if update_first {
-            self.first_timestamp = timestamp.clone();
+            self.first_timestamp.clone_from(&timestamp);
             self.first_timestamp_ms = timestamp_ms;
         }
         if update_last {
@@ -160,7 +160,7 @@ pub(crate) fn aggregate_projects(sessions: Vec<SessionStats>) -> Vec<ProjectStat
     }
 
     let mut projects: Vec<ProjectStats> = project_map.into_values().collect();
-    projects.sort_by(|a, b| b.stats.total_tokens().cmp(&a.stats.total_tokens()));
+    projects.sort_by_key(|project| std::cmp::Reverse(project.stats.total_tokens()));
     projects
 }
 
