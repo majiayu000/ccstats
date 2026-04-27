@@ -9,8 +9,27 @@ permissions:
   contents: write
 
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Validate release metadata
+        run: scripts/check-release.sh
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Package dry run
+        run: cargo publish --dry-run --locked
+
   build:
     name: Build ${{ matrix.target }}
+    needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -52,6 +71,11 @@ jobs:
           cd target/${{ matrix.target }}/release
           tar czvf ../../../ccstats-${{ matrix.target }}.tar.gz ccstats
           cd ../../..
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 ccstats-${{ matrix.target }}.tar.gz > ccstats-${{ matrix.target }}.tar.gz.sha256
+          else
+            sha256sum ccstats-${{ matrix.target }}.tar.gz > ccstats-${{ matrix.target }}.tar.gz.sha256
+          fi
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -59,6 +83,7 @@ jobs:
           cd target/${{ matrix.target }}/release
           7z a ../../../ccstats-${{ matrix.target }}.zip ccstats.exe
           cd ../../..
+          (Get-FileHash ccstats-${{ matrix.target }}.zip -Algorithm SHA256).Hash.ToLower() + "  ccstats-${{ matrix.target }}.zip" | Out-File -Encoding ascii ccstats-${{ matrix.target }}.zip.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

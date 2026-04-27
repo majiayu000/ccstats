@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.61] - 2026-04-02
+
+### Added
+- `sources` command for discovering available data sources and aliases.
+
+### Changed
+- Improve unsupported-command guidance with actionable source hints.
+- Refresh README landing visuals and crate documentation.
+- Reduce parser, loader, aggregation, JSON serialization, and no-cost execution overhead.
+
 ## [0.2.15] - 2026-02-12
 
 ### Changed
