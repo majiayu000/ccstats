@@ -8,6 +8,9 @@ use super::claude::ClaudeSource;
 use super::codex::CodexSource;
 use super::{BoxedSource, Source};
 
+/// Pseudo-source that aggregates every registered source.
+pub(crate) const ALL_SOURCES: &str = "all";
+
 /// All registered data sources
 static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
     vec![
@@ -38,7 +41,7 @@ pub(crate) fn get_source(name: &str) -> Option<&'static dyn Source> {
 
 /// Return available source names and aliases for CLI hints.
 pub(crate) fn source_choices() -> Vec<&'static str> {
-    let mut choices = Vec::new();
+    let mut choices = vec![ALL_SOURCES];
     for source in SOURCES.iter() {
         choices.push(source.name());
         choices.extend(source.aliases());
@@ -53,6 +56,9 @@ pub(crate) fn suggest_source(input: &str) -> Option<&'static str> {
     let needle = input.trim().to_lowercase();
     if needle.is_empty() {
         return None;
+    }
+    if ALL_SOURCES.starts_with(&needle) || needle.starts_with(ALL_SOURCES) {
+        return Some(ALL_SOURCES);
     }
 
     let mut best: Option<(&'static str, usize)> = None;
@@ -191,6 +197,7 @@ mod tests {
     #[test]
     fn test_source_choices_include_names_and_aliases() {
         let choices = source_choices();
+        assert!(choices.contains(&"all"));
         assert!(choices.contains(&"claude"));
         assert!(choices.contains(&"codex"));
         assert!(choices.contains(&"cc"));
@@ -202,6 +209,7 @@ mod tests {
         assert_eq!(suggest_source("clau"), Some("claude"));
         assert_eq!(suggest_source("code"), Some("codex"));
         assert_eq!(suggest_source("claud"), Some("claude"));
+        assert_eq!(suggest_source("al"), Some("all"));
         assert_eq!(suggest_source("cx"), Some("cx"));
     }
 

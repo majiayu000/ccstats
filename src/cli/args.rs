@@ -119,7 +119,7 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "CURRENCY")]
     pub(crate) currency: Option<String>,
 
-    /// Data source name or alias (e.g., "claude", "codex", "cc", "cx")
+    /// Data source name or alias (e.g., "claude", "codex", "all", "cc", "cx")
     #[arg(long, global = true, value_name = "SOURCE")]
     pub(crate) source: Option<String>,
 }

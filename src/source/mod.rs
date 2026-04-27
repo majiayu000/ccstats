@@ -65,7 +65,7 @@ pub(crate) trait Source: Send + Sync {
 pub(crate) type BoxedSource = Box<dyn Source>;
 
 // Re-export registry functions
-pub(crate) use registry::{all_sources, get_source, source_choices, suggest_source};
+pub(crate) use registry::{ALL_SOURCES, all_sources, get_source, source_choices, suggest_source};
 
 // Re-export loader functions
 pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions, load_tool_calls};
