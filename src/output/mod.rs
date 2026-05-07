@@ -9,6 +9,7 @@ mod session;
 mod statusline;
 mod table;
 mod tools;
+mod top;
 
 pub(crate) use blocks::{BlockTableOptions, output_block_json, print_block_table};
 pub(crate) use budget::{
@@ -27,3 +28,7 @@ pub(crate) use session::{SessionTableOptions, output_session_json, print_session
 pub(crate) use statusline::{print_statusline, print_statusline_json};
 pub(crate) use table::{SummaryOptions, TokenTableOptions, print_period_table};
 pub(crate) use tools::{output_tools_csv, output_tools_json, print_tools_table};
+pub(crate) use top::{
+    TopRow, TopTableOptions, output_top_csv, output_top_json, print_top_table, rank_by_model,
+    rank_by_project,
+};

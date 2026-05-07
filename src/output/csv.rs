@@ -5,17 +5,9 @@ use super::session::compare_session_last_timestamp;
 use crate::cli::SortOrder;
 use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
 use crate::output::budget::{MonthlyBudgetOptions, MonthlyBudgetReport, monthly_budget_reports};
-use crate::output::format::compare_cost;
+use crate::output::format::{compare_cost, csv_escape};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
-
-fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
-}
 
 pub(crate) fn output_period_csv(
     day_stats: &HashMap<String, DayStats>,
