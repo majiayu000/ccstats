@@ -94,17 +94,23 @@ pub(crate) fn rank_by_project(projects: &[ProjectStats], pricing_db: &PricingDb)
 
 /// Sort rows by cost desc, falling back to token total when cost is unknown
 /// or when both rows tie on cost. NaN costs sink to the bottom so usable
-/// data dominates the leaderboard.
+/// data dominates the leaderboard. Name is the final tie-breaker so output
+/// is deterministic regardless of `HashMap` iteration order.
 fn sort_rows(rows: &mut [TopRow]) {
     rows.sort_by(|a, b| match (a.cost.is_nan(), b.cost.is_nan()) {
-        (true, true) => b.stats.total_tokens().cmp(&a.stats.total_tokens()),
+        (true, true) => b
+            .stats
+            .total_tokens()
+            .cmp(&a.stats.total_tokens())
+            .then_with(|| a.name.cmp(&b.name)),
         (true, false) => std::cmp::Ordering::Greater,
         (false, true) => std::cmp::Ordering::Less,
         (false, false) => b
             .cost
             .partial_cmp(&a.cost)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| b.stats.total_tokens().cmp(&a.stats.total_tokens())),
+            .then_with(|| b.stats.total_tokens().cmp(&a.stats.total_tokens()))
+            .then_with(|| a.name.cmp(&b.name)),
     });
 }
 
