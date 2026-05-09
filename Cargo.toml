@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.2.62"
+version = "0.2.63"
 edition = "2024"
 rust-version = "1.88"
 description = "Fast token and cost usage statistics CLI for Claude Code, OpenAI Codex, and Cursor"

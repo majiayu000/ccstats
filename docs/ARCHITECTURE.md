@@ -8,6 +8,7 @@ ccstats 是一个快速的 CLI 工具，用于分析多种 AI CLI 工具的 toke
 
 ```
 src/
+├── lib.rs                  # library crate, SDK exports, CLI runtime dispatch
 ├── cli/                    # 命令行接口
 │   ├── args.rs            # CLI 参数定义
 │   ├── commands.rs        # 子命令定义
@@ -35,8 +36,9 @@ src/
 │   └── mod.rs             # Source trait 定义
 ├── output/                 # 输出格式化
 ├── pricing/                # 价格计算
+├── sdk.rs                  # public Rust SDK: summarize_cost and DTO types
 ├── utils/                  # 工具函数
-└── main.rs                 # 程序入口
+└── main.rs                 # CLI binary thin entry point
 ```
 
 ## 核心概念
@@ -111,7 +113,7 @@ pub struct RawEntry {
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                           CLI (main.rs)                             │
+│                     CLI (main.rs) / SDK (lib.rs)                    │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -148,6 +150,8 @@ pub struct RawEntry {
 │                    Pricing + Output Formatting                       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+SDK 调用通过 `summarize_cost(SummaryOptions)` 复用同一套 source registry、loader、聚合和 pricing 逻辑，但返回结构化 `CostSummary`，不经过 table/JSON 输出层。
 
 ## 添加新数据源
 
