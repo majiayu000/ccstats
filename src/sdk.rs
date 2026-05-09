@@ -291,7 +291,10 @@ fn summarize_models(
         .collect();
 
     rows.sort_by(|a, b| match (b.cost_usd, a.cost_usd) {
-        (Some(left), Some(right)) => left.partial_cmp(&right).unwrap_or(Ordering::Equal),
+        (Some(left), Some(right)) => left
+            .partial_cmp(&right)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| a.model.cmp(&b.model)),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
         (None, None) => b
@@ -338,5 +341,31 @@ mod tests {
                 .resolve(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn model_summaries_use_model_name_as_equal_cost_tiebreaker() {
+        let pricing_db = PricingDb::default();
+        let mut models = HashMap::new();
+        models.insert(
+            "gpt-5-zeta".to_string(),
+            Stats {
+                input_tokens: 10,
+                ..Stats::default()
+            },
+        );
+        models.insert(
+            "gpt-5-alpha".to_string(),
+            Stats {
+                input_tokens: 10,
+                ..Stats::default()
+            },
+        );
+
+        let rows = summarize_models(&models, &pricing_db, None);
+
+        assert_eq!(rows[0].model, "gpt-5-alpha");
+        assert_eq!(rows[1].model, "gpt-5-zeta");
+        assert_eq!(rows[0].cost_usd, rows[1].cost_usd);
     }
 }
