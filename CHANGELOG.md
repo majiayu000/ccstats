@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.63] - 2026-05-09
+
+### Added
+- Expose a reusable Rust SDK entry point with `summarize_cost`, `SummaryOptions`, `UsageSource`, and `UsageRange`.
+- Return structured cost summaries with token totals, model breakdowns, source metadata, date bounds, and pricing/currency fields.
+
+### Changed
+- Move CLI startup behind `ccstats::run_cli()` so the binary is a thin caller of the library crate.
+
 ## [0.2.62] - 2026-04-27
 
 ### Added

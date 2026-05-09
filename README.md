@@ -85,7 +85,27 @@ ccstats daily --source cur
 
 - docs.rs: <https://docs.rs/ccstats/latest/ccstats/>
 - crates.io: <https://crates.io/crates/ccstats>
-- The crate-level Rustdoc in `src/main.rs` explains supported sources and common commands.
+- The crate-level Rustdoc in `src/lib.rs` explains the SDK entry points and CLI runtime.
+
+## Rust SDK
+
+`ccstats` can be used as a Rust library when another app needs structured local usage and cost data without spawning the CLI.
+
+```rust
+use ccstats::{SummaryOptions, UsageRange, UsageSource, summarize_cost};
+
+let summary = summarize_cost(SummaryOptions {
+    source: UsageSource::Codex,
+    range: UsageRange::Today,
+    timezone: Some("UTC".to_string()),
+    offline: true,
+    ..SummaryOptions::default()
+})?;
+
+println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
+```
+
+The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Returned summaries include total tokens, cache read/create tokens, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
 
 ## Usage
 
