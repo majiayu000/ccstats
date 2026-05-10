@@ -125,6 +125,6 @@ jobs:
           formula-path: Formula/ccstats.rb
           homebrew-tap: majiayu000/homebrew-tap
           tag-name: ${{ github.ref_name }}
-          download-url: https://crates.io/api/v1/crates/ccstats/${{ steps.release-version.outputs.version }}/download
+          download-url: https://static.crates.io/crates/ccstats/ccstats-${{ steps.release-version.outputs.version }}.crate
         env:
           COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
