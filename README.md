@@ -18,6 +18,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Experimental Cursor support (`Cursor/User/globalStorage/state.vscdb`)
 - Daily/weekly/monthly/project/session views
 - Optional model-level token and cost breakdown
+- Reusable Rust SDK for embedding local usage and cost summaries in other apps
 
 ## Installation
 
@@ -41,11 +42,11 @@ cargo install ccstats
 curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | sh
 
 # Install a specific version
-curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.2.61 sh
+curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.2.63 sh
 ```
 
 ### Manual download
-Download from [GitHub Releases](https://github.com/majiayu000/ccstats/releases).
+Download prebuilt archives and SHA-256 checksums from [GitHub Releases](https://github.com/majiayu000/ccstats/releases).
 
 ## Quick Start (Codex)
 
