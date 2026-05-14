@@ -151,7 +151,7 @@ pub struct RawEntry {
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-SDK 调用通过 `summarize_cost(SummaryOptions)` 复用同一套 source registry、loader、聚合和 pricing 逻辑，但返回结构化 `CostSummary`，不经过 table/JSON 输出层。
+SDK 调用通过 `summarize_cost(SummaryOptions)` 复用同一套 source registry、loader、聚合和 pricing 逻辑，但返回结构化 `CostSummary`，不经过 table/JSON 输出层。需要和 CLI 持久化配置同口径时，SDK 使用 `summarize_cost_with_cli_config` 复用 timezone、offline pricing、strict pricing 和 currency 默认值。
 
 ## 添加新数据源
 

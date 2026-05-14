@@ -93,20 +93,18 @@ ccstats daily --source cur
 `ccstats` can be used as a Rust library when another app needs structured local usage and cost data without spawning the CLI.
 
 ```rust
-use ccstats::{SummaryOptions, UsageRange, UsageSource, summarize_cost};
+use ccstats::{SummaryOptions, UsageRange, UsageSource, summarize_cost_with_cli_config};
 
-let summary = summarize_cost(SummaryOptions {
+let summary = summarize_cost_with_cli_config(SummaryOptions {
     source: UsageSource::Codex,
     range: UsageRange::Today,
-    timezone: Some("UTC".to_string()),
-    offline: true,
     ..SummaryOptions::default()
 })?;
 
 println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
 ```
 
-The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Returned summaries include total tokens, cache read/create tokens, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
+The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
 
 ## Usage
 
