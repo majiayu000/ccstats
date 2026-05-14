@@ -17,6 +17,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - OpenAI Codex support (`~/.codex/sessions/`)
 - Experimental Cursor support (`Cursor/User/globalStorage/state.vscdb`)
 - Daily/weekly/monthly/project/session views
+- Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
 - Reusable Rust SDK for embedding local usage and cost summaries in other apps
 
@@ -133,6 +134,10 @@ ccstats session
 
 # 5-hour billing blocks
 ccstats blocks
+
+# Top-N leaderboard (ranks by cost, falls back to tokens when costs unknown)
+ccstats top                          # top 10 models by cost
+ccstats top --dim project --limit 5  # top 5 projects
 
 # With model breakdown
 ccstats today -b

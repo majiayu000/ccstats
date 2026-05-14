@@ -191,6 +191,18 @@ pub(super) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
     cell
 }
 
+/// Escape a string for CSV output (RFC 4180 compatible quoting).
+///
+/// Wraps the value in double quotes and doubles any embedded quotes if the
+/// input contains a comma, double quote, newline, or carriage return.
+pub(super) fn csv_escape(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {

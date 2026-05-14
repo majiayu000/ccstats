@@ -2,7 +2,17 @@
 //!
 //! Defines the available commands for each data source.
 
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
+
+/// Dimension to rank in the `top` command
+#[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
+pub(crate) enum TopDimension {
+    /// Rank by model (default)
+    #[default]
+    Model,
+    /// Rank by project (requires source with project capability)
+    Project,
+}
 
 /// Main CLI commands
 #[derive(Subcommand)]
@@ -27,6 +37,15 @@ pub(crate) enum Commands {
     Statusline,
     /// Show tool usage statistics (Read, Bash, Edit, etc.)
     Tools,
+    /// Show top N consumers ranked by cost (or tokens when cost is unknown)
+    Top {
+        /// Dimension to rank by
+        #[arg(long, value_enum, default_value_t = TopDimension::Model)]
+        dim: TopDimension,
+        /// Maximum number of rows to display (1..=1000)
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
     /// `Codex` CLI usage statistics
     Codex {
         #[command(subcommand)]
@@ -64,6 +83,7 @@ pub(crate) enum SourceCommand {
     Blocks,
     Statusline,
     Tools,
+    Top { dim: TopDimension, limit: usize },
 }
 
 impl SourceCommand {
@@ -92,6 +112,10 @@ impl From<&Commands> for SourceCommand {
             Commands::Blocks => SourceCommand::Blocks,
             Commands::Statusline => SourceCommand::Statusline,
             Commands::Tools => SourceCommand::Tools,
+            Commands::Top { dim, limit } => SourceCommand::Top {
+                dim: *dim,
+                limit: *limit,
+            },
             Commands::Codex { .. } => SourceCommand::Daily, // Default, handled separately
         }
     }

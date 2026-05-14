@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::cli::{Cli, SourceCommand};
+use crate::cli::{Cli, SourceCommand, TopDimension};
 use crate::core::{DateFilter, DayStats, LoadResult, aggregate_tools};
 use crate::output::NumberFormat;
 use crate::output::{
     BlockTableOptions, MonthlyBudgetOptions, Period, ProjectTableOptions, SessionTableOptions,
-    SummaryOptions, TokenTableOptions, add_monthly_budget_to_json, monthly_budget_reports,
-    output_block_csv, output_block_json, output_monthly_budget_csv, output_period_csv,
-    output_period_json, output_project_csv, output_project_json, output_session_csv,
-    output_session_json, output_tools_csv, output_tools_json, print_block_table,
-    print_monthly_budget_table, print_period_table, print_project_table, print_session_table,
-    print_statusline, print_statusline_json, print_tools_table,
+    SummaryOptions, TokenTableOptions, TopRow, TopTableOptions, add_monthly_budget_to_json,
+    monthly_budget_reports, output_block_csv, output_block_json, output_monthly_budget_csv,
+    output_period_csv, output_period_json, output_project_csv, output_project_json,
+    output_session_csv, output_session_json, output_tools_csv, output_tools_json, output_top_csv,
+    output_top_json, print_block_table, print_monthly_budget_table, print_period_table,
+    print_project_table, print_session_table, print_statusline, print_statusline_json,
+    print_tools_table, print_top_table, rank_by_model, rank_by_project,
 };
 use crate::pricing::PricingDb;
 use crate::source::{
@@ -170,6 +171,77 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
                 currency: ctx.currency,
             },
         );
+    }
+}
+
+fn handle_top(
+    rows: &[TopRow],
+    dim: TopDimension,
+    limit: usize,
+    source_label: &str,
+    ctx: &CommandContext<'_>,
+) {
+    if rows.is_empty() {
+        print_no_data_hint(source_label, "usage");
+        return;
+    }
+    if ctx.cli.csv {
+        let csv = output_top_csv(rows, dim, limit, ctx.cli.show_cost());
+        print!("{csv}");
+    } else if ctx.cli.json {
+        let json = output_top_json(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
+        print_json(&json, ctx.jq_filter);
+    } else {
+        print_top_table(
+            rows,
+            TopTableOptions {
+                use_color: ctx.cli.use_color(),
+                compact: ctx.cli.compact,
+                show_cost: ctx.cli.show_cost(),
+                source_label,
+                number_format: ctx.number_format,
+                currency: ctx.currency,
+                dim,
+                limit,
+            },
+        );
+    }
+}
+
+fn handle_top_for_source(
+    source: &dyn Source,
+    dim: TopDimension,
+    limit: usize,
+    ctx: &CommandContext<'_>,
+) {
+    match dim {
+        TopDimension::Model => {
+            let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
+            let rows = rank_by_model(&result.day_stats, ctx.pricing_db);
+            handle_top(&rows, dim, limit, source.display_name(), ctx);
+        }
+        TopDimension::Project => {
+            if !source.capabilities().has_projects {
+                println!(
+                    "{} does not support project ranking.\nHint: try `--dim model`, or run `ccstats sources` to inspect capabilities.",
+                    source.display_name()
+                );
+                return;
+            }
+            let projects = load_projects(source, ctx.filter, ctx.timezone, false);
+            let rows = rank_by_project(&projects, ctx.pricing_db);
+            handle_top(&rows, dim, limit, source.display_name(), ctx);
+        }
+    }
+}
+
+fn validate_top_limit(limit: usize) -> Result<usize, String> {
+    if limit == 0 {
+        Err("--limit must be at least 1".to_string())
+    } else if limit > 1000 {
+        Err("--limit must be at most 1000".to_string())
+    } else {
+        Ok(limit)
     }
 }
 
@@ -455,6 +527,16 @@ pub(crate) fn handle_source_command(
             }
             return handle_tools(ctx);
         }
+        SourceCommand::Top { dim, limit } => {
+            let limit = match validate_top_limit(limit) {
+                Ok(l) => l,
+                Err(msg) => {
+                    eprintln!("Error: {msg}");
+                    std::process::exit(1);
+                }
+            };
+            return handle_top_for_source(source, dim, limit, ctx);
+        }
         SourceCommand::Daily
         | SourceCommand::Today
         | SourceCommand::Weekly
@@ -535,12 +617,34 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
             }
             return;
         }
+        SourceCommand::Top { dim, limit } => {
+            let limit = match validate_top_limit(limit) {
+                Ok(l) => l,
+                Err(msg) => {
+                    eprintln!("Error: {msg}");
+                    std::process::exit(1);
+                }
+            };
+            // Project ranking with --source all would require a unified
+            // project view across sources, which we do not aggregate today.
+            // Fall back to model ranking which works on the merged daily map.
+            if dim == TopDimension::Project {
+                println!(
+                    "`--source all` does not support `top --dim project`.\nHint: pick a specific --source (e.g. claude) for project ranking."
+                );
+                return;
+            }
+            let (result, _) = load_all_daily(ctx, false);
+            let rows = rank_by_model(&result.day_stats, ctx.pricing_db);
+            handle_top(&rows, dim, limit, "All Sources", ctx);
+            return;
+        }
         SourceCommand::Session
         | SourceCommand::Project
         | SourceCommand::Blocks
         | SourceCommand::Tools => {
             println!(
-                "`--source all` supports daily, weekly, monthly, today, and statusline views.\nHint: use a specific --source for {command:?}."
+                "`--source all` supports daily, weekly, monthly, today, statusline, and top views.\nHint: use a specific --source for {command:?}."
             );
             return;
         }
