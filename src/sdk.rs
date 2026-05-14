@@ -8,6 +8,7 @@ use chrono::{Datelike, Days, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::config::Config;
 use crate::core::{DateFilter, DayStats, Stats};
 use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
 use crate::source::{get_source, load_daily};
@@ -100,6 +101,9 @@ impl UsageRange {
 }
 
 /// Options for [`summarize_cost`].
+///
+/// Use [`summarize_cost_with_cli_config`] when SDK output should follow the
+/// same persisted defaults as the CLI for timezone, pricing, and currency.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryOptions {
     /// Usage source to read.
@@ -228,6 +232,38 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
         skipped_entries: result.skipped,
         elapsed_ms: result.elapsed_ms,
     })
+}
+
+/// Summarize local token usage using the same reusable config defaults as the CLI.
+///
+/// This preserves the explicit SDK source and range, then fills unset timezone
+/// and currency from config and applies config-enabled pricing flags. That makes
+/// calls like `ccstats codex today` and SDK `Codex + Today` use the same date
+/// boundary and pricing mode by default.
+///
+/// # Errors
+///
+/// Returns an error when the resolved source or timezone is invalid, or when an
+/// explicit date range has `since` after `until`.
+pub fn summarize_cost_with_cli_config(options: SummaryOptions) -> Result<CostSummary, SdkError> {
+    summarize_cost(apply_cli_config(options, &Config::load_quiet()))
+}
+
+fn apply_cli_config(mut options: SummaryOptions, config: &Config) -> SummaryOptions {
+    if !options.offline && config.offline {
+        options.offline = true;
+    }
+    if !options.strict_pricing && config.strict_pricing {
+        options.strict_pricing = true;
+    }
+    if options.timezone.is_none() {
+        options.timezone.clone_from(&config.timezone);
+    }
+    if options.currency.is_none() {
+        options.currency.clone_from(&config.currency);
+    }
+
+    options
 }
 
 impl TokenBreakdown {
@@ -367,5 +403,53 @@ mod tests {
         assert_eq!(rows[0].model, "gpt-5-alpha");
         assert_eq!(rows[1].model, "gpt-5-zeta");
         assert_eq!(rows[0].cost_usd, rows[1].cost_usd);
+    }
+
+    #[test]
+    fn cli_config_fills_sdk_summary_defaults() {
+        let config = Config {
+            offline: true,
+            strict_pricing: true,
+            timezone: Some("Asia/Shanghai".to_string()),
+            currency: Some("CNY".to_string()),
+            ..Config::default()
+        };
+
+        let options = apply_cli_config(
+            SummaryOptions {
+                source: UsageSource::Codex,
+                range: UsageRange::Today,
+                ..SummaryOptions::default()
+            },
+            &config,
+        );
+
+        assert_eq!(options.source, UsageSource::Codex);
+        assert_eq!(options.range, UsageRange::Today);
+        assert!(options.offline);
+        assert!(options.strict_pricing);
+        assert_eq!(options.timezone.as_deref(), Some("Asia/Shanghai"));
+        assert_eq!(options.currency.as_deref(), Some("CNY"));
+    }
+
+    #[test]
+    fn explicit_sdk_summary_options_win_over_cli_config() {
+        let config = Config {
+            timezone: Some("Asia/Shanghai".to_string()),
+            currency: Some("CNY".to_string()),
+            ..Config::default()
+        };
+
+        let options = apply_cli_config(
+            SummaryOptions {
+                timezone: Some("UTC".to_string()),
+                currency: Some("EUR".to_string()),
+                ..SummaryOptions::default()
+            },
+            &config,
+        );
+
+        assert_eq!(options.timezone.as_deref(), Some("UTC"));
+        assert_eq!(options.currency.as_deref(), Some("EUR"));
     }
 }
