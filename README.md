@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics for Claude Code, OpenAI Codex, and Cursor logs.
+`ccstats` is a fast CLI for token and cost usage analytics for Claude Code, OpenAI Codex, Cursor, and Grok logs.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -16,6 +16,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Claude Code support (`~/.claude/projects/`)
 - OpenAI Codex support (`~/.codex/sessions/`)
 - Experimental Cursor support (`Cursor/User/globalStorage/state.vscdb`)
+- Grok support (`~/.grok/sessions/`)
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
@@ -81,6 +82,24 @@ ccstats daily --source cursor
 
 # Same source via alias
 ccstats daily --source cur
+```
+
+## Quick Start (Grok)
+
+Grok support reads local session `signals.json` and `summary.json` files under `~/.grok/sessions/`. These files expose context token usage, not precise provider input/output billable usage, so ccstats reports Grok context tokens as input tokens.
+
+```bash
+# Install
+brew install majiayu000/tap/ccstats
+
+# Today
+ccstats today --source grok
+
+# Daily trend
+ccstats daily --source grok
+
+# Same source via alias
+ccstats daily --source gx
 ```
 
 ## Crate Documentation
@@ -211,6 +230,46 @@ Current limitations:
 - Project aggregation and 5-hour billing blocks are not supported for Cursor.
 - Cache creation, cache read, and reasoning token fields are reported as zero unless Cursor exposes them directly in a supported local record.
 
+### Grok
+
+Grok uses the unified source flag rather than a dedicated subcommand.
+
+```bash
+# Today's Grok context-token usage
+ccstats today --source grok
+
+# Daily Grok breakdown
+ccstats daily --source grok
+
+# Weekly Grok summary
+ccstats weekly --source grok
+
+# By session
+ccstats session --source grok
+
+# By project
+ccstats project --source grok
+
+# Grok alias
+ccstats daily --source gx
+```
+
+By default, ccstats checks Grok session files under:
+
+- `~/.grok/sessions/**/signals.json`
+
+You can override the Grok home directory with `GROK_HOME`:
+
+```bash
+GROK_HOME="/path/to/.grok" ccstats daily --source grok
+```
+
+Current limitations:
+
+- Grok local session files expose context token usage, not exact provider input/output usage.
+- ccstats reports Grok context tokens as input tokens and leaves output, cache creation, cache read, and reasoning token fields at zero.
+- Grok 5-hour billing blocks are not supported.
+
 ### Common Options
 
 ```bash
@@ -237,6 +296,10 @@ ccstats daily --source cursor
 
 # Cursor alias
 ccstats daily --source cur
+
+# Grok source and alias
+ccstats daily --source grok
+ccstats daily --source gx
 
 # Offline mode (use cached pricing)
 ccstats today -O
@@ -272,6 +335,7 @@ Warning: ignored <N> malformed records
 | OpenAI Codex | `~/.codex/sessions/` | Reasoning Tokens |
 | All Sources | Multiple | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor (experimental) | Cursor `User/globalStorage/state.vscdb` | Local SQLite `tokenCount` fields only |
+| Grok | `~/.grok/sessions/` | Context-token session summaries, Projects |
 
 ## Architecture
 

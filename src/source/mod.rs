@@ -6,6 +6,7 @@
 mod claude;
 mod codex;
 mod cursor;
+mod grok;
 mod loader;
 mod registry;
 

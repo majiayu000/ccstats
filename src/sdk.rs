@@ -24,6 +24,8 @@ pub enum UsageSource {
     Codex,
     /// Cursor composer usage data.
     Cursor,
+    /// Grok session signal summaries under `~/.grok/sessions`, or `GROK_HOME`.
+    Grok,
 }
 
 impl UsageSource {
@@ -33,6 +35,7 @@ impl UsageSource {
             UsageSource::Claude => "claude",
             UsageSource::Codex => "codex",
             UsageSource::Cursor => "cursor",
+            UsageSource::Grok => "grok",
         }
     }
 }
@@ -45,6 +48,7 @@ impl FromStr for UsageSource {
             "claude" | "cc" => Ok(UsageSource::Claude),
             "codex" | "cx" => Ok(UsageSource::Codex),
             "cursor" | "cur" => Ok(UsageSource::Cursor),
+            "grok" | "gx" => Ok(UsageSource::Grok),
             source => Err(SdkError::InvalidSource {
                 name: source.to_string(),
             }),
@@ -355,6 +359,8 @@ mod tests {
         assert_eq!("cc".parse::<UsageSource>().unwrap(), UsageSource::Claude);
         assert_eq!("codex".parse::<UsageSource>().unwrap(), UsageSource::Codex);
         assert_eq!("cx".parse::<UsageSource>().unwrap(), UsageSource::Codex);
+        assert_eq!("grok".parse::<UsageSource>().unwrap(), UsageSource::Grok);
+        assert_eq!("gx".parse::<UsageSource>().unwrap(), UsageSource::Grok);
         assert!("unknown".parse::<UsageSource>().is_err());
     }
 

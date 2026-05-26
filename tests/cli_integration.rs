@@ -50,6 +50,31 @@ fn write_cursor_state_db(path: &Path) {
     .expect("insert bubble");
 }
 
+fn write_grok_session(grok_home: &Path) {
+    let session_dir = grok_home
+        .join("sessions")
+        .join("%2Ftmp%2Fgrok-project")
+        .join("grok-session-1");
+    write_file(
+        &session_dir.join("signals.json"),
+        r#"{
+  "contextTokensUsed": 1200,
+  "totalTokensBeforeCompaction": 300,
+  "primaryModelId": "grok-build",
+  "modelsUsed": ["grok-build"]
+}"#,
+    );
+    write_file(
+        &session_dir.join("summary.json"),
+        r#"{
+  "created_at": "2026-02-06T09:00:00Z",
+  "updated_at": "2026-02-06T10:00:00Z",
+  "current_model_id": "grok-build",
+  "git_root_dir": "/tmp/grok-project/"
+}"#,
+    );
+}
+
 fn resolve_ccstats_binary() -> PathBuf {
     if let Some(bin) = std::env::var_os("CARGO_BIN_EXE_ccstats") {
         return PathBuf::from(bin);
@@ -273,6 +298,80 @@ fn source_flag_can_select_cursor_without_subcommand() {
         arr[0]["models"].as_array().unwrap()[0].as_str(),
         Some("claude-4-sonnet")
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn source_flag_can_select_grok_without_subcommand() {
+    let root = unique_temp_dir("source-flag-grok");
+    let grok_home = root.join("grok-home");
+    write_grok_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "grok",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("GROK_HOME", &grok_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["input_tokens"].as_i64(), Some(1500));
+    assert_eq!(arr[0]["output_tokens"].as_i64(), Some(0));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1500));
+    assert_eq!(
+        arr[0]["models"].as_array().unwrap()[0].as_str(),
+        Some("grok-build")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn grok_project_json_uses_summary_git_root() {
+    let root = unique_temp_dir("grok-project");
+    let grok_home = root.join("grok-home");
+    write_grok_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "project",
+            "--source",
+            "grok",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("GROK_HOME", &grok_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["project_path"].as_str(), Some("/tmp/grok-project/"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1500));
 
     let _ = fs::remove_dir_all(root);
 }
