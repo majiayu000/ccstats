@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.64] - 2026-05-26
+
+### Added
+- Add Grok local context-token statistics from `~/.grok/sessions`, available through `ccstats grok`, `--source grok`, and alias `gx`.
+- Add Grok daily, weekly, monthly, today, session, project, and statusline views using the existing output formats.
+- Add xAI/Grok pricing resolution for `grok-build` and `grok-*` models.
+- Add Rust SDK source selection for Grok usage summaries.
+
+### Changed
+- Document Grok support as local context-token trend reporting, not exact provider input/output billing or Grok account quota usage.
+- Track exact Grok usage support separately until Grok exposes stable `usage`, `cost_in_usd_ticks`, `input_tokens`, `output_tokens`, `cached_tokens`, and `reasoning_tokens` fields.
+
 ## [0.2.63] - 2026-05-09
 
 ### Added
