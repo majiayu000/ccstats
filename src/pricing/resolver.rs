@@ -12,18 +12,29 @@ fn openai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     }
 }
 
+fn xai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
+    ModelPricing {
+        input,
+        output,
+        reasoning_output: output,
+        cache_create: 0.0,
+        cache_read,
+    }
+}
+
 pub(super) fn parse_litellm_data(
     data: HashMap<String, serde_json::Value>,
 ) -> HashMap<String, ModelPricing> {
     let mut models = HashMap::new();
 
     for (name, value) in data {
-        // Load Claude models and direct OpenAI GPT/Codex model names.
+        // Load Claude, OpenAI GPT/Codex, and xAI Grok model names.
         let is_claude = name.contains("claude");
         let is_openai =
             name.starts_with("openai/") || name.starts_with("gpt-") || name.starts_with("codex");
+        let is_xai = name.starts_with("xai/") || name.starts_with("grok-");
 
-        if !is_claude && !is_openai {
+        if !is_claude && !is_openai && !is_xai {
             continue;
         }
 
@@ -66,6 +77,11 @@ pub(super) fn parse_litellm_data(
             // Store without openai/ prefix
             if let Some(stripped) = name.strip_prefix("openai/") {
                 models.insert(stripped.to_string(), pricing);
+            }
+        } else if is_xai && let Some(stripped) = name.strip_prefix("xai/") {
+            models.insert(stripped.to_string(), pricing.clone());
+            if stripped == "grok-build-0.1" {
+                models.insert("grok-build".to_string(), pricing);
             }
         }
     }
@@ -143,6 +159,10 @@ pub(super) fn fallback_pricing(model: &str) -> ModelPricing {
             cache_create: 1e-6,
             cache_read: 0.08e-6,
         }
+    } else if model_lower.contains("grok-build") {
+        xai_pricing(1e-6, 2e-6, 0.2e-6)
+    } else if model_lower.contains("grok") {
+        xai_pricing(1.25e-6, 2.5e-6, 0.2e-6)
     } else if model_lower.contains("gpt-5.4-mini") {
         openai_pricing(0.75e-6, 4.5e-6, 0.075e-6)
     } else if model_lower.contains("gpt-5.4-nano") {
@@ -257,6 +277,41 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_xai_model() {
+        let mut data = HashMap::new();
+        data.insert(
+            "xai/grok-4.3".to_string(),
+            json!({
+                "input_cost_per_token": 1.25e-6,
+                "output_cost_per_token": 2.5e-6,
+                "cache_read_input_token_cost": 0.2e-6,
+            }),
+        );
+
+        let result = parse_litellm_data(data);
+        assert!(result.contains_key("xai/grok-4.3"));
+        assert!(result.contains_key("grok-4.3"));
+        let pricing = &result["grok-4.3"];
+        assert_eq!(pricing.input, 1.25e-6);
+        assert_eq!(pricing.output, 2.5e-6);
+        assert_eq!(pricing.cache_read, 0.2e-6);
+    }
+
+    #[test]
+    fn test_parse_xai_grok_build_alias() {
+        let mut data = HashMap::new();
+        data.insert(
+            "xai/grok-build-0.1".to_string(),
+            make_litellm_entry(1e-6, 2e-6),
+        );
+
+        let result = parse_litellm_data(data);
+        assert!(result.contains_key("grok-build-0.1"));
+        assert!(result.contains_key("grok-build"));
+        assert_eq!(result["grok-build"].input, 1e-6);
+    }
+
+    #[test]
     fn test_parse_reasoning_cost_fallback() {
         let mut data = HashMap::new();
         data.insert(
@@ -362,6 +417,22 @@ mod tests {
         let p = fallback_pricing("claude-haiku-3.5");
         assert_eq!(p.input, 0.8e-6);
         assert_eq!(p.output, 4e-6);
+    }
+
+    #[test]
+    fn test_fallback_grok_build() {
+        let p = fallback_pricing("grok-build");
+        assert_eq!(p.input, 1e-6);
+        assert_eq!(p.output, 2e-6);
+        assert_eq!(p.cache_read, 0.2e-6);
+    }
+
+    #[test]
+    fn test_fallback_grok_4_3() {
+        let p = fallback_pricing("grok-4.3");
+        assert_eq!(p.input, 1.25e-6);
+        assert_eq!(p.output, 2.5e-6);
+        assert_eq!(p.cache_read, 0.2e-6);
     }
 
     #[test]

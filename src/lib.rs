@@ -1,5 +1,5 @@
 //! `ccstats` is a local-first library and CLI for token and cost analytics from
-//! Claude Code, `OpenAI` Codex, and Cursor session logs.
+//! Claude Code, `OpenAI` Codex, Cursor, and Grok session logs.
 //!
 //! The public SDK entry points are [`summarize_cost`] for explicit options and
 //! [`summarize_cost_with_cli_config`] for CLI-aligned config defaults. The binary

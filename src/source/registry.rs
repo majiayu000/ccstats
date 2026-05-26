@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use super::claude::ClaudeSource;
 use super::codex::CodexSource;
 use super::cursor::CursorSource;
+use super::grok::GrokSource;
 use super::{BoxedSource, Source};
 
 /// Pseudo-source that aggregates every registered source.
@@ -18,6 +19,7 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(ClaudeSource::new()),
         Box::new(CodexSource::new()),
         Box::new(CursorSource::new()),
+        Box::new(GrokSource::new()),
         // Add new sources here:
         // Box::new(WindsurfSource::new()),
     ]
@@ -124,6 +126,7 @@ mod tests {
         assert!(get_source("claude").is_some());
         assert!(get_source("codex").is_some());
         assert!(get_source("cursor").is_some());
+        assert!(get_source("grok").is_some());
         assert!(get_source("unknown").is_none());
     }
 
@@ -132,6 +135,7 @@ mod tests {
         assert!(get_source("cc").is_some());
         assert!(get_source("cx").is_some());
         assert!(get_source("cur").is_some());
+        assert!(get_source("gx").is_some());
     }
 
     #[test]
@@ -140,6 +144,7 @@ mod tests {
         assert!(get_source("CLAUDE").is_some());
         assert!(get_source("Codex").is_some());
         assert!(get_source("Cursor").is_some());
+        assert!(get_source("Grok").is_some());
         assert!(get_source("CC").is_some());
     }
 
@@ -165,6 +170,14 @@ mod tests {
         assert_eq!(source.name(), "cursor");
         assert_eq!(source.display_name(), "Cursor");
         assert!(source.aliases().contains(&"cur"));
+    }
+
+    #[test]
+    fn test_grok_source_properties() {
+        let source = get_source("grok").unwrap();
+        assert_eq!(source.name(), "grok");
+        assert_eq!(source.display_name(), "Grok");
+        assert!(source.aliases().contains(&"gx"));
     }
 
     #[test]
@@ -201,9 +214,20 @@ mod tests {
     }
 
     #[test]
+    fn test_grok_capabilities() {
+        let source = get_source("grok").unwrap();
+        let caps = source.capabilities();
+        assert!(caps.has_projects);
+        assert!(!caps.has_billing_blocks);
+        assert!(!caps.has_cache_creation);
+        assert!(!caps.needs_dedup);
+        assert!(!caps.has_reasoning_tokens);
+    }
+
+    #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 3);
+        assert_eq!(SOURCES.len(), 4);
     }
 
     #[test]
@@ -219,6 +243,10 @@ mod tests {
         let by_name = get_source("cursor").unwrap();
         let by_alias = get_source("cur").unwrap();
         assert_eq!(by_name.name(), by_alias.name());
+
+        let by_name = get_source("grok").unwrap();
+        let by_alias = get_source("gx").unwrap();
+        assert_eq!(by_name.name(), by_alias.name());
     }
 
     #[test]
@@ -228,9 +256,11 @@ mod tests {
         assert!(choices.contains(&"claude"));
         assert!(choices.contains(&"codex"));
         assert!(choices.contains(&"cursor"));
+        assert!(choices.contains(&"grok"));
         assert!(choices.contains(&"cc"));
         assert!(choices.contains(&"cx"));
         assert!(choices.contains(&"cur"));
+        assert!(choices.contains(&"gx"));
     }
 
     #[test]
@@ -238,6 +268,7 @@ mod tests {
         assert_eq!(suggest_source("clau"), Some("claude"));
         assert_eq!(suggest_source("code"), Some("codex"));
         assert_eq!(suggest_source("curs"), Some("cursor"));
+        assert_eq!(suggest_source("gro"), Some("grok"));
         assert_eq!(suggest_source("claud"), Some("claude"));
         assert_eq!(suggest_source("al"), Some("all"));
         assert_eq!(suggest_source("cx"), Some("cx"));

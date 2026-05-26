@@ -51,6 +51,11 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: Option<CodexCommands>,
     },
+    /// Grok CLI local context-token statistics
+    Grok {
+        #[command(subcommand)]
+        command: Option<GrokCommands>,
+    },
 }
 
 /// Codex-specific subcommands
@@ -66,6 +71,25 @@ pub(crate) enum CodexCommands {
     Today,
     /// Show Codex usage by session
     Session,
+    /// Output single line for statusline/tmux integration
+    Statusline,
+}
+
+/// Grok-specific subcommands
+#[derive(Subcommand)]
+pub(crate) enum GrokCommands {
+    /// Show daily Grok local context-token stats (default)
+    Daily,
+    /// Show weekly Grok local context-token stats
+    Weekly,
+    /// Show monthly Grok local context-token stats
+    Monthly,
+    /// Show today's Grok local context-token stats
+    Today,
+    /// Show Grok local context-token stats by session
+    Session,
+    /// Show Grok local context-token stats by project
+    Project,
     /// Output single line for statusline/tmux integration
     Statusline,
 }
@@ -116,7 +140,7 @@ impl From<&Commands> for SourceCommand {
                 dim: *dim,
                 limit: *limit,
             },
-            Commands::Codex { .. } => SourceCommand::Daily, // Default, handled separately
+            Commands::Codex { .. } | Commands::Grok { .. } => SourceCommand::Daily, // Default, handled separately
         }
     }
 }
@@ -134,6 +158,20 @@ impl From<&Option<CodexCommands>> for SourceCommand {
     }
 }
 
+impl From<&Option<GrokCommands>> for SourceCommand {
+    fn from(cmd: &Option<GrokCommands>) -> Self {
+        match cmd {
+            Some(GrokCommands::Daily) | None => SourceCommand::Daily,
+            Some(GrokCommands::Weekly) => SourceCommand::Weekly,
+            Some(GrokCommands::Monthly) => SourceCommand::Monthly,
+            Some(GrokCommands::Today) => SourceCommand::Today,
+            Some(GrokCommands::Session) => SourceCommand::Session,
+            Some(GrokCommands::Project) => SourceCommand::Project,
+            Some(GrokCommands::Statusline) => SourceCommand::Statusline,
+        }
+    }
+}
+
 /// Parsed command with optional source hint from subcommand routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ParsedCommand {
@@ -146,6 +184,10 @@ pub(crate) fn parse_command(cmd: Option<&Commands>) -> ParsedCommand {
     match cmd {
         Some(Commands::Codex { command }) => ParsedCommand {
             source_hint: Some("codex"),
+            command: SourceCommand::from(command),
+        },
+        Some(Commands::Grok { command }) => ParsedCommand {
+            source_hint: Some("grok"),
             command: SourceCommand::from(command),
         },
         Some(cmd) => ParsedCommand {
@@ -177,6 +219,15 @@ mod tests {
         }));
         assert_eq!(parsed.command, SourceCommand::Session);
         assert_eq!(parsed.source_hint, Some("codex"));
+    }
+
+    #[test]
+    fn parse_command_grok_sets_source_hint() {
+        let parsed = parse_command(Some(&Commands::Grok {
+            command: Some(GrokCommands::Project),
+        }));
+        assert_eq!(parsed.command, SourceCommand::Project);
+        assert_eq!(parsed.source_hint, Some("grok"));
     }
 
     #[test]
