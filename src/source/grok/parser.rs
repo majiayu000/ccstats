@@ -1,9 +1,9 @@
 //! Grok session signal parser
 //!
 //! Grok persists session metadata under `~/.grok/sessions/<cwd>/<session>/`.
-//! Local files currently expose context token usage rather than precise
-//! provider input/output billing usage, so this parser reports those context
-//! tokens as input tokens.
+//! Local files currently expose context-token snapshots rather than precise
+//! provider input/output billing or remote account quota usage, so this parser
+//! reports those context tokens as input tokens.
 
 use std::collections::HashMap;
 use std::env;

@@ -86,16 +86,16 @@ ccstats daily --source cur
 
 ## Quick Start (Grok)
 
-Grok support reads local session `summary.json`, `signals.json`, and fallback `updates.jsonl` metadata under `~/.grok/sessions/`. These files expose context token usage, not precise provider input/output billable usage, so ccstats reports Grok context tokens as input tokens.
+Grok support reads local session `summary.json`, `signals.json`, and fallback `updates.jsonl` metadata under `~/.grok/sessions/`. These files expose local context-token snapshots, not precise provider input/output billable usage or Grok account quota usage, so ccstats reports Grok context tokens as input tokens.
 
 ```bash
 # Install
 brew install majiayu000/tap/ccstats
 
-# Today
+# Today's local context-token trend
 ccstats grok today
 
-# Daily trend
+# Daily local context-token trend
 ccstats grok
 
 # Same source via alias
@@ -233,13 +233,13 @@ Current limitations:
 ### Grok
 
 ```bash
-# Today's Grok context-token usage
+# Today's Grok local context-token trend
 ccstats grok today
 
-# Daily Grok breakdown
+# Daily Grok local context-token breakdown
 ccstats grok
 
-# Weekly Grok summary
+# Weekly Grok local context-token summary
 ccstats grok weekly
 
 # By session
@@ -267,6 +267,7 @@ GROK_HOME="/path/to/.grok" ccstats grok
 Current limitations:
 
 - Grok local session files expose context token usage, not exact provider input/output usage.
+- These local context-token totals may not match Grok account, quota, or 5-hour usage UI totals when those views use server-side accounting.
 - ccstats reports Grok context tokens as input tokens and leaves output, cache creation, cache read, and reasoning token fields at zero.
 - Grok 5-hour billing blocks are not supported.
 

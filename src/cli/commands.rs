@@ -51,7 +51,7 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: Option<CodexCommands>,
     },
-    /// Grok CLI usage statistics
+    /// Grok CLI local context-token statistics
     Grok {
         #[command(subcommand)]
         command: Option<GrokCommands>,
@@ -78,17 +78,17 @@ pub(crate) enum CodexCommands {
 /// Grok-specific subcommands
 #[derive(Subcommand)]
 pub(crate) enum GrokCommands {
-    /// Show daily Grok usage (default)
+    /// Show daily Grok local context-token stats (default)
     Daily,
-    /// Show weekly Grok usage
+    /// Show weekly Grok local context-token stats
     Weekly,
-    /// Show monthly Grok usage
+    /// Show monthly Grok local context-token stats
     Monthly,
-    /// Show today's Grok usage
+    /// Show today's Grok local context-token stats
     Today,
-    /// Show Grok usage by session
+    /// Show Grok local context-token stats by session
     Session,
-    /// Show Grok usage by project
+    /// Show Grok local context-token stats by project
     Project,
     /// Output single line for statusline/tmux integration
     Statusline,
