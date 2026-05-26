@@ -42,7 +42,7 @@ pub(crate) enum CostMode {
 #[derive(Parser)]
 #[command(name = "ccstats")]
 #[command(
-    about = "Fast token and cost usage statistics for Claude Code, OpenAI Codex, and Cursor",
+    about = "Fast token and cost usage statistics for Claude Code, OpenAI Codex, Cursor, and Grok",
     version
 )]
 #[allow(clippy::struct_excessive_bools)]

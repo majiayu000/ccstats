@@ -75,6 +75,28 @@ fn write_grok_session(grok_home: &Path) {
     );
 }
 
+fn write_grok_update_only_session(grok_home: &Path) {
+    let session_dir = grok_home
+        .join("sessions")
+        .join("%2Ftmp%2Fgrok-project")
+        .join("grok-update-only");
+    write_file(
+        &session_dir.join("summary.json"),
+        r#"{
+  "created_at": "2026-02-06T09:00:00Z",
+  "updated_at": "2026-02-06T10:30:00Z",
+  "current_model_id": "grok-build",
+  "git_root_dir": "/tmp/grok-project/"
+}"#,
+    );
+    write_file(
+        &session_dir.join("updates.jsonl"),
+        r#"{"timestamp":1779096277,"params":{"sessionId":"grok-update-only","_meta":{"updateType":"AvailableCommandsUpdate","totalTokens":100}}}
+{"timestamp":1779096277,"params":{"sessionId":"grok-update-only","_meta":{"updateType":"AvailableCommandsUpdate","totalTokens":250}}}
+"#,
+    );
+}
+
 fn resolve_ccstats_binary() -> PathBuf {
     if let Some(bin) = std::env::var_os("CARGO_BIN_EXE_ccstats") {
         return PathBuf::from(bin);
@@ -343,6 +365,107 @@ fn source_flag_can_select_grok_without_subcommand() {
 }
 
 #[test]
+fn grok_subcommand_defaults_to_daily() {
+    let root = unique_temp_dir("grok-subcommand");
+    let grok_home = root.join("grok-home");
+    write_grok_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("GROK_HOME", &grok_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1500));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn grok_subcommand_supports_project_view() {
+    let root = unique_temp_dir("grok-subcommand-project");
+    let grok_home = root.join("grok-home");
+    write_grok_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "project",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("GROK_HOME", &grok_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["project_path"].as_str(), Some("/tmp/grok-project/"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1500));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn grok_source_falls_back_to_updates_when_signals_missing() {
+    let root = unique_temp_dir("grok-updates-fallback");
+    let grok_home = root.join("grok-home");
+    write_grok_update_only_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("GROK_HOME", &grok_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["input_tokens"].as_i64(), Some(250));
+    assert_eq!(
+        arr[0]["models"].as_array().unwrap()[0].as_str(),
+        Some("grok-build")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn grok_project_json_uses_summary_git_root() {
     let root = unique_temp_dir("grok-project");
     let grok_home = root.join("grok-home");
@@ -497,6 +620,20 @@ fn codex_subcommand_conflicts_with_source_all() {
     assert!(!ok, "expected conflict failure");
     let stderr = String::from_utf8_lossy(&stderr);
     assert!(stderr.contains("conflicts with --source all"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn grok_subcommand_conflicts_with_different_source_flag() {
+    let root = unique_temp_dir("grok-source-flag-conflict");
+    let (ok, _stdout, stderr) = run_ccstats(
+        &["grok", "daily", "--source", "claude", "-O", "--no-cost"],
+        &[("HOME", &root)],
+    );
+    assert!(!ok, "expected conflict failure");
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(stderr.contains("conflicts with --source"));
 
     let _ = fs::remove_dir_all(root);
 }

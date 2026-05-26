@@ -86,17 +86,17 @@ ccstats daily --source cur
 
 ## Quick Start (Grok)
 
-Grok support reads local session `signals.json` and `summary.json` files under `~/.grok/sessions/`. These files expose context token usage, not precise provider input/output billable usage, so ccstats reports Grok context tokens as input tokens.
+Grok support reads local session `summary.json`, `signals.json`, and fallback `updates.jsonl` metadata under `~/.grok/sessions/`. These files expose context token usage, not precise provider input/output billable usage, so ccstats reports Grok context tokens as input tokens.
 
 ```bash
 # Install
 brew install majiayu000/tap/ccstats
 
 # Today
-ccstats today --source grok
+ccstats grok today
 
 # Daily trend
-ccstats daily --source grok
+ccstats grok
 
 # Same source via alias
 ccstats daily --source gx
@@ -232,23 +232,21 @@ Current limitations:
 
 ### Grok
 
-Grok uses the unified source flag rather than a dedicated subcommand.
-
 ```bash
 # Today's Grok context-token usage
-ccstats today --source grok
+ccstats grok today
 
 # Daily Grok breakdown
-ccstats daily --source grok
+ccstats grok
 
 # Weekly Grok summary
-ccstats weekly --source grok
+ccstats grok weekly
 
 # By session
-ccstats session --source grok
+ccstats grok session
 
 # By project
-ccstats project --source grok
+ccstats grok project
 
 # Grok alias
 ccstats daily --source gx
@@ -256,12 +254,14 @@ ccstats daily --source gx
 
 By default, ccstats checks Grok session files under:
 
+- `~/.grok/sessions/**/summary.json`
 - `~/.grok/sessions/**/signals.json`
+- `~/.grok/sessions/**/updates.jsonl` when `signals.json` is missing
 
 You can override the Grok home directory with `GROK_HOME`:
 
 ```bash
-GROK_HOME="/path/to/.grok" ccstats daily --source grok
+GROK_HOME="/path/to/.grok" ccstats grok
 ```
 
 Current limitations:

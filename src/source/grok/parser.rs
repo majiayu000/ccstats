@@ -5,6 +5,7 @@
 //! provider input/output billing usage, so this parser reports those context
 //! tokens as input tokens.
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,6 +23,7 @@ const GROK_HOME_ENV: &str = "GROK_HOME";
 const SESSIONS_SUBDIR: &str = "sessions";
 const SIGNALS_FILE: &str = "signals.json";
 const SUMMARY_FILE: &str = "summary.json";
+const UPDATES_FILE: &str = "updates.jsonl";
 const GROK_MODEL: &str = "grok";
 
 #[derive(Debug, Deserialize, Default)]
@@ -40,6 +42,27 @@ struct Summary {
     last_active_at: Option<String>,
     current_model_id: Option<String>,
     git_root_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct UpdateMeta {
+    total_tokens: Option<i64>,
+    prompt_id: Option<String>,
+    turn_start_ms: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct UpdateParams {
+    #[serde(rename = "_meta")]
+    meta: Option<UpdateMeta>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct UpdateEnvelope {
+    params: Option<UpdateParams>,
 }
 
 fn get_grok_sessions_dir() -> Option<PathBuf> {
@@ -61,7 +84,7 @@ pub(super) fn find_grok_files() -> Vec<PathBuf> {
     };
 
     let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&format!("{}/**/{SIGNALS_FILE}", sessions_dir.display())) {
+    if let Ok(entries) = glob::glob(&format!("{}/**/{SUMMARY_FILE}", sessions_dir.display())) {
         files.extend(entries.flatten().filter(|path| path.is_file()));
     }
     files.sort();
@@ -83,6 +106,26 @@ where
             eprintln!("Invalid JSON in {}: {}", path.display(), err);
         }
     })
+}
+
+fn read_optional_json<T>(path: &Path, debug: bool) -> Result<Option<T>, ()>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    match fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str(&content).map(Some).map_err(|err| {
+            if debug {
+                eprintln!("Invalid JSON in {}: {}", path.display(), err);
+            }
+        }),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => {
+            if debug {
+                eprintln!("Failed to read {}: {}", path.display(), err);
+            }
+            Err(())
+        }
+    }
 }
 
 fn first_non_empty(values: &[Option<&str>]) -> Option<String> {
@@ -108,11 +151,75 @@ fn total_context_tokens(signals: &Signals) -> i64 {
         + signals.total_tokens_before_compaction.unwrap_or(0).max(0)
 }
 
-fn model_name(signals: &Signals, summary: &Summary) -> String {
+fn total_update_tokens(path: &Path, debug: bool) -> (i64, usize) {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return (0, 0),
+        Err(err) => {
+            if debug {
+                eprintln!("Failed to read {}: {}", path.display(), err);
+            }
+            return (0, 1);
+        }
+    };
+
+    let mut keyed_maxes: HashMap<String, i64> = HashMap::new();
+    let mut session_max = 0;
+    let mut errors = 0;
+
+    for (line_index, line) in content.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let envelope: UpdateEnvelope = match serde_json::from_str(line) {
+            Ok(envelope) => envelope,
+            Err(err) => {
+                errors += 1;
+                if debug {
+                    eprintln!(
+                        "Invalid JSON in {} line {}: {}",
+                        path.display(),
+                        line_index + 1,
+                        err
+                    );
+                }
+                continue;
+            }
+        };
+        let Some(meta) = envelope.params.and_then(|params| params.meta) else {
+            continue;
+        };
+        let Some(total_tokens) = meta.total_tokens.map(|tokens| tokens.max(0)) else {
+            continue;
+        };
+        session_max = session_max.max(total_tokens);
+
+        let group_key = first_non_empty(&[meta.prompt_id.as_deref()])
+            .map(|prompt_id| format!("prompt:{prompt_id}"))
+            .or_else(|| {
+                meta.turn_start_ms
+                    .filter(|turn_start_ms| *turn_start_ms > 0)
+                    .map(|turn_start_ms| format!("turn:{turn_start_ms}"))
+            });
+        if let Some(group_key) = group_key {
+            let group_max = keyed_maxes.entry(group_key).or_default();
+            *group_max = (*group_max).max(total_tokens);
+        }
+    }
+
+    let total = if keyed_maxes.is_empty() {
+        session_max
+    } else {
+        keyed_maxes.values().sum()
+    };
+    (total, errors)
+}
+
+fn model_name(signals: Option<&Signals>, summary: &Summary) -> String {
     first_non_empty(&[
-        signals.primary_model_id.as_deref(),
+        signals.and_then(|value| value.primary_model_id.as_deref()),
         summary.current_model_id.as_deref(),
-        signals.models_used.first().map(String::as_str),
+        signals.and_then(|value| value.models_used.first().map(String::as_str)),
     ])
     .unwrap_or_else(|| GROK_MODEL.to_string())
 }
@@ -168,23 +275,24 @@ pub(super) fn parse_grok_signal_file_with_debug(
     timezone: Timezone,
     debug: bool,
 ) -> ParseOutput {
-    let signals: Signals = match read_json(path, debug) {
-        Ok(signals) => signals,
-        Err(()) => {
+    let summary_path = if path.file_name().and_then(|name| name.to_str()) == Some(SUMMARY_FILE) {
+        path.to_path_buf()
+    } else {
+        let Some(session_dir) = path.parent() else {
             return ParseOutput {
                 entries: Vec::new(),
                 errors: 1,
             };
-        }
+        };
+        session_dir.join(SUMMARY_FILE)
     };
 
-    let Some(session_dir) = path.parent() else {
+    let Some(session_dir) = summary_path.parent() else {
         return ParseOutput {
             entries: Vec::new(),
             errors: 1,
         };
     };
-    let summary_path = session_dir.join(SUMMARY_FILE);
     let summary: Summary = match read_json(&summary_path, debug) {
         Ok(summary) => summary,
         Err(()) => {
@@ -195,9 +303,25 @@ pub(super) fn parse_grok_signal_file_with_debug(
         }
     };
 
-    let total_tokens = total_context_tokens(&signals);
+    let signals_path = session_dir.join(SIGNALS_FILE);
+    let (signals, mut errors) = match read_optional_json::<Signals>(&signals_path, debug) {
+        Ok(signals) => (signals, 0),
+        Err(()) => (None, 1),
+    };
+    let signal_tokens = signals.as_ref().map_or(0, total_context_tokens);
+    let total_tokens = if signal_tokens > 0 {
+        signal_tokens
+    } else {
+        let (update_tokens, update_errors) =
+            total_update_tokens(&session_dir.join(UPDATES_FILE), debug);
+        errors += update_errors;
+        update_tokens
+    };
     if total_tokens == 0 {
-        return ParseOutput::default();
+        return ParseOutput {
+            entries: Vec::new(),
+            errors,
+        };
     }
 
     let Some(utc_dt) = parse_timestamp(&summary) else {
@@ -225,7 +349,7 @@ pub(super) fn parse_grok_signal_file_with_debug(
             session_key: session_dir.display().to_string(),
             session_id,
             project_path: project_path(path, &summary),
-            model: model_name(&signals, &summary),
+            model: model_name(signals.as_ref(), &summary),
             input_tokens: total_tokens,
             output_tokens: 0,
             cache_creation: 0,
@@ -233,7 +357,7 @@ pub(super) fn parse_grok_signal_file_with_debug(
             reasoning_tokens: 0,
             stop_reason: Some("context_snapshot".to_string()),
         }],
-        errors: 0,
+        errors,
     }
 }
 
@@ -316,5 +440,32 @@ mod tests {
         let parsed = parse_grok_signal_file_with_debug(&session_dir.join(SIGNALS_FILE), tz(), true);
         assert_eq!(parsed.entries[0].project_path, "/repo/from-summary/");
         assert_eq!(parsed.entries[0].model, "grok-4.3");
+    }
+
+    #[test]
+    fn parse_grok_signal_file_falls_back_to_update_metadata() -> std::io::Result<()> {
+        let root = tempdir()?;
+        let session_dir = root.path().join("%2Fencoded").join("session-1");
+        fs::create_dir_all(&session_dir)?;
+        fs::write(
+            session_dir.join(SUMMARY_FILE),
+            r#"{
+  "updated_at": "2026-05-26T03:35:24Z",
+  "current_model_id": "grok-build"
+}"#,
+        )?;
+        fs::write(
+            session_dir.join(UPDATES_FILE),
+            r#"{"params":{"_meta":{"totalTokens":100}}}
+{"params":{"_meta":{"totalTokens":250}}}
+"#,
+        )?;
+
+        let parsed = parse_grok_signal_file_with_debug(&session_dir.join(SUMMARY_FILE), tz(), true);
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].input_tokens, 250);
+        assert_eq!(parsed.entries[0].model, "grok-build");
+        Ok(())
     }
 }
