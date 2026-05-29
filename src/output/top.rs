@@ -384,6 +384,7 @@ pub(crate) fn output_top_csv(
     dim: TopDimension,
     limit: usize,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let limited = take_top(rows, limit);
     let total_cost = sum_cost(&limited);
@@ -401,6 +402,9 @@ pub(crate) fn output_top_csv(
     );
     if show_cost {
         out.push_str(",cost_usd");
+        if currency.is_some() {
+            out.push_str(",cost_local");
+        }
     }
     out.push('\n');
 
@@ -423,8 +427,14 @@ pub(crate) fn output_top_csv(
         if show_cost {
             if row.cost.is_nan() {
                 out.push(',');
+                if currency.is_some() {
+                    out.push(',');
+                }
             } else {
                 let _ = write!(out, ",{:.6}", row.cost);
+                if let Some(conv) = currency {
+                    let _ = write!(out, ",{}", csv_escape(&conv.format(row.cost)));
+                }
             }
         }
         out.push('\n');
@@ -593,7 +603,7 @@ mod tests {
                 cost: f64::NAN,
             })
             .collect();
-        let csv = output_top_csv(&rows, TopDimension::Model, 5, false);
+        let csv = output_top_csv(&rows, TopDimension::Model, 5, false, None);
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 6); // header + 5 rows
     }
@@ -647,14 +657,31 @@ mod tests {
             stats: stats_of(10, 0, 1),
             cost: f64::NAN,
         }];
-        let csv = output_top_csv(&rows, TopDimension::Project, 1, false);
+        let csv = output_top_csv(&rows, TopDimension::Project, 1, false, None);
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[1].contains("\"weird,name\""), "csv: {}", lines[1]);
     }
 
     #[test]
+    fn csv_includes_local_cost_when_currency_is_set() {
+        let rows = vec![TopRow {
+            name: "model".into(),
+            count: 1,
+            stats: stats_of(10, 0, 1),
+            cost: 1.5,
+        }];
+        let converter = CurrencyConverter::from_rate_for_test("CNY", 7.0, "CNY ");
+
+        let csv = output_top_csv(&rows, TopDimension::Model, 1, true, Some(&converter));
+
+        let lines: Vec<&str> = csv.lines().collect();
+        assert!(lines[0].ends_with(",cost_usd,cost_local"));
+        assert!(lines[1].ends_with(",1.500000,CNY 10.50"));
+    }
+
+    #[test]
     fn empty_rows_produce_header_only_csv() {
-        let csv = output_top_csv(&[], TopDimension::Model, 10, false);
+        let csv = output_top_csv(&[], TopDimension::Model, 10, false, None);
         assert_eq!(csv.lines().count(), 1);
     }
 }

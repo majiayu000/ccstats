@@ -120,7 +120,7 @@ pub struct SummaryOptions {
     pub offline: bool,
     /// Return unknown model costs as `None` instead of using fallback pricing.
     pub strict_pricing: bool,
-    /// Optional display currency. Falls back to USD if rates are unavailable.
+    /// Optional display currency. Returns an error if rates are unavailable.
     pub currency: Option<String>,
 }
 
@@ -206,10 +206,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
         name: options.source.as_str().to_string(),
     })?;
     let pricing_db = PricingDb::load_quiet(options.offline, options.strict_pricing);
-    let currency = options
-        .currency
-        .as_deref()
-        .and_then(|code| CurrencyConverter::load(code, options.offline));
+    let currency = load_requested_currency(options.currency.as_deref(), options.offline)?;
     let currency_code = currency.as_ref().map_or_else(
         || "USD".to_string(),
         |conv| conv.currency_code().to_string(),
@@ -310,6 +307,20 @@ fn convert_cost(cost_usd: Option<f64>, currency: Option<&CurrencyConverter>) -> 
         (Some(cost), None) => Some(cost),
         (None, _) => None,
     }
+}
+
+fn load_requested_currency(
+    currency: Option<&str>,
+    offline: bool,
+) -> Result<Option<CurrencyConverter>, SdkError> {
+    let Some(code) = currency else {
+        return Ok(None);
+    };
+    CurrencyConverter::load(code, offline).map(Some).ok_or_else(|| {
+        SdkError::Configuration(format!(
+            "failed to load exchange rate for '{code}'; use a supported currency with cached rates, refresh rates online, or omit currency"
+        ))
+    })
 }
 
 fn summarize_models(
@@ -457,5 +468,11 @@ mod tests {
 
         assert_eq!(options.timezone.as_deref(), Some("UTC"));
         assert_eq!(options.currency.as_deref(), Some("EUR"));
+    }
+
+    #[test]
+    fn requested_currency_requires_available_rate() {
+        let err = load_requested_currency(Some("ZZZ"), true).expect_err("currency should fail");
+        assert!(err.to_string().contains("failed to load exchange rate"));
     }
 }

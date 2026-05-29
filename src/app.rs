@@ -65,6 +65,7 @@ fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             ctx.cli.sort_order(),
             ctx.cli.show_cost(),
+            ctx.currency,
         );
         print!("{csv}");
     } else if ctx.cli.json {
@@ -106,6 +107,7 @@ fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             ctx.cli.sort_order(),
             ctx.cli.show_cost(),
+            ctx.currency,
         );
         print!("{csv}");
     } else if ctx.cli.json {
@@ -146,6 +148,7 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             ctx.cli.sort_order(),
             ctx.cli.show_cost(),
+            ctx.currency,
         );
         print!("{csv}");
     } else if ctx.cli.json {
@@ -186,7 +189,7 @@ fn handle_top(
         return;
     }
     if ctx.cli.csv {
-        let csv = output_top_csv(rows, dim, limit, ctx.cli.show_cost());
+        let csv = output_top_csv(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
         print!("{csv}");
     } else if ctx.cli.json {
         let json = output_top_json(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
@@ -359,6 +362,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             source.display_name(),
             ctx.number_format,
+            ctx.currency,
         );
         print_json(&json, ctx.jq_filter);
     } else {
@@ -367,6 +371,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.pricing_db,
             source.display_name(),
             ctx.number_format,
+            ctx.currency,
         );
     }
 }
@@ -403,6 +408,7 @@ fn render_period_result(
                 ctx.cli.sort_order(),
                 ctx.cli.breakdown,
                 ctx.cli.show_cost(),
+                ctx.currency,
             )
         };
         print!("{csv}");
@@ -605,6 +611,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     ctx.pricing_db,
                     "All Sources",
                     ctx.number_format,
+                    ctx.currency,
                 );
                 print_json(&json, ctx.jq_filter);
             } else {
@@ -613,6 +620,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     ctx.pricing_db,
                     "All Sources",
                     ctx.number_format,
+                    ctx.currency,
                 );
             }
             return;
