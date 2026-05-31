@@ -14,7 +14,7 @@ pub(crate) use dedup::DedupAccumulator;
 pub(crate) use tool_aggregator::aggregate_tools;
 #[cfg(test)]
 pub(crate) use tool_types::ToolStats;
-pub(crate) use tool_types::{ToolCall, ToolSummary};
+pub(crate) use tool_types::{ToolCall, ToolCallIdentity, ToolSummary};
 pub(crate) use types::{
     BlockStats, DateFilter, DayStats, LoadResult, ProjectStats, RawEntry, SessionStats, Stats,
 };

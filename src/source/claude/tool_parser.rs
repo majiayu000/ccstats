@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::ToolCall;
+use crate::core::{ToolCall, ToolCallIdentity};
 use crate::utils::Timezone;
 
 /// Parse a single JSONL file and extract tool calls
@@ -18,6 +18,7 @@ pub(crate) fn parse_tool_calls(path: &Path, timezone: Timezone) -> Vec<ToolCall>
         return Vec::new();
     };
     let reader = BufReader::new(file);
+    let session_key = path.display().to_string();
 
     let mut calls = Vec::new();
     for line in reader.lines() {
@@ -46,12 +47,12 @@ pub(crate) fn parse_tool_calls(path: &Path, timezone: Timezone) -> Vec<ToolCall>
             .pointer("/message/content")
             .and_then(serde_json::Value::as_array)
         {
+            let message_id = val
+                .pointer("/message/id")
+                .and_then(serde_json::Value::as_str);
             for item in content {
-                if let Some(name) = extract_tool_name(item) {
-                    calls.push(ToolCall {
-                        name,
-                        date_str: date_str.clone(),
-                    });
+                if let Some(call) = extract_tool_call(item, &session_key, message_id, &date_str) {
+                    calls.push(call);
                 }
             }
         }
@@ -61,12 +62,13 @@ pub(crate) fn parse_tool_calls(path: &Path, timezone: Timezone) -> Vec<ToolCall>
             .pointer("/data/message/message/content")
             .and_then(serde_json::Value::as_array)
         {
+            let message_id = val
+                .pointer("/data/message/message/id")
+                .or_else(|| val.pointer("/data/message/id"))
+                .and_then(serde_json::Value::as_str);
             for item in content {
-                if let Some(name) = extract_tool_name(item) {
-                    calls.push(ToolCall {
-                        name,
-                        date_str: date_str.clone(),
-                    });
+                if let Some(call) = extract_tool_call(item, &session_key, message_id, &date_str) {
+                    calls.push(call);
                 }
             }
         }
@@ -75,9 +77,24 @@ pub(crate) fn parse_tool_calls(path: &Path, timezone: Timezone) -> Vec<ToolCall>
     calls
 }
 
-fn extract_tool_name(item: &serde_json::Value) -> Option<String> {
+fn extract_tool_call(
+    item: &serde_json::Value,
+    session_key: &str,
+    message_id: Option<&str>,
+    date_str: &str,
+) -> Option<ToolCall> {
     if item.get("type")?.as_str()? == "tool_use" {
-        Some(item.get("name")?.as_str()?.to_string())
+        let name = item.get("name")?.as_str()?.to_string();
+        let identity = message_id.and_then(|msg_id| {
+            item.get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(|tool_id| ToolCallIdentity::new(session_key, msg_id, tool_id))
+        });
+        Some(ToolCall {
+            name,
+            date_str: date_str.to_string(),
+            identity,
+        })
     } else {
         None
     }
@@ -107,6 +124,7 @@ fn extract_date(val: &serde_json::Value, timezone: Timezone) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::aggregate_tools;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -144,11 +162,25 @@ mod tests {
 
     #[test]
     fn parse_progress_tool_use() {
-        let line = r#"{"type":"progress","data":{"message":{"timestamp":"2025-03-01T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Grep","id":"t1","input":{}}]}}},"toolUseID":"agent_123"}"#;
+        let line = r#"{"type":"progress","data":{"message":{"timestamp":"2025-03-01T10:00:00Z","message":{"id":"msg_1","content":[{"type":"tool_use","name":"Grep","id":"t1","input":{}}]}}},"toolUseID":"agent_123"}"#;
         let f = write_jsonl(&[line]);
         let calls = parse_tool_calls(f.path(), tz());
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "Grep");
+    }
+
+    #[test]
+    fn repeated_tool_use_records_are_deduplicated_by_identity() {
+        let line = r#"{"type":"assistant","timestamp":"2025-03-01T10:00:00Z","message":{"id":"msg_1","content":[{"type":"tool_use","name":"Read","id":"toolu_1","input":{}}]}}"#;
+        let f = write_jsonl(&[line, line]);
+        let calls = parse_tool_calls(f.path(), tz());
+        let summary = aggregate_tools(&calls);
+
+        assert_eq!(calls.len(), 2);
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.tools.len(), 1);
+        assert_eq!(summary.tools[0].name, "Read");
+        assert_eq!(summary.tools[0].calls, 1);
     }
 
     #[test]
