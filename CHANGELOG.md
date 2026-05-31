@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.65] - 2026-05-31
+
+### Fixed
+- Deduplicate repeated Claude tool-use records in `ccstats tools` so streaming progress entries with the same tool identity count once.
+
 ## [0.2.64] - 2026-05-26
 
 ### Added
