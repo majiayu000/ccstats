@@ -194,21 +194,13 @@ pub fn run_cli() {
         }
     };
 
-    let currency_converter = if show_cost {
+    let currency_converter = if needs_pricing {
         cli.currency.as_ref().map(|code| {
-            let conv = if let Some(conv) = CurrencyConverter::load(code, cli.offline) {
-                conv
-            } else {
-                if !is_statusline {
-                    eprintln!(
-                        "Warning: failed to load exchange rate for '{code}', showing USD costs."
-                    );
-                }
-                let Some(conv) = CurrencyConverter::load("USD", true) else {
-                    eprintln!("Error: failed to initialize USD currency converter");
-                    std::process::exit(1);
-                };
-                conv
+            let Some(conv) = CurrencyConverter::load(code, cli.offline) else {
+                eprintln!(
+                    "Error: failed to load exchange rate for '{code}'. Use a supported currency with cached rates, refresh rates without --offline, or omit --currency."
+                );
+                std::process::exit(1);
             };
             if !is_statusline && conv.currency_code() != "USD" {
                 eprintln!(

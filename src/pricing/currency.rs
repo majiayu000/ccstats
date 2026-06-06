@@ -68,6 +68,15 @@ impl CurrencyConverter {
     pub(crate) fn currency_code(&self) -> &str {
         &self.currency
     }
+
+    #[cfg(test)]
+    pub(crate) fn from_rate_for_test(currency: &str, rate: f64, symbol: &str) -> Self {
+        Self {
+            currency: currency.to_string(),
+            rate,
+            symbol: symbol.to_string(),
+        }
+    }
 }
 
 fn currency_symbol(code: &str) -> String {

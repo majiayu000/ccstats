@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::core::{DayStats, Stats};
 use crate::output::format::{NumberFormat, cost_json_value, format_compact, format_cost};
-use crate::pricing::{PricingDb, sum_model_costs};
+use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
 
 struct Totals {
     stats: Stats,
@@ -26,11 +26,12 @@ pub(crate) fn print_statusline(
     pricing_db: &PricingDb,
     source_label: &str,
     number_format: NumberFormat,
+    currency: Option<&CurrencyConverter>,
 ) {
     let t = aggregate_totals(day_stats, pricing_db);
 
     let mut parts = vec![
-        format!("{}: {}", source_label, format_cost(t.cost, None)),
+        format!("{}: {}", source_label, format_cost(t.cost, currency)),
         format!(
             "In: {} Out: {}",
             format_compact(t.stats.input_tokens, number_format),
@@ -52,6 +53,7 @@ pub(crate) fn print_statusline_json(
     pricing_db: &PricingDb,
     source_label: &str,
     number_format: NumberFormat,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let t = aggregate_totals(day_stats, pricing_db);
 
@@ -63,9 +65,9 @@ pub(crate) fn print_statusline_json(
         "cache_creation_tokens": t.stats.cache_creation,
         "cache_read_tokens": t.stats.cache_read,
         "total_tokens": t.stats.total_tokens(),
-        "cost": cost_json_value(t.cost, None),
+        "cost": cost_json_value(t.cost, currency),
         "formatted": {
-            "cost": format_cost(t.cost, None),
+            "cost": format_cost(t.cost, currency),
             "input": format_compact(t.stats.input_tokens, number_format),
             "output": format_compact(t.stats.output_tokens, number_format),
             "reasoning": format_compact(t.stats.reasoning_tokens, number_format),
@@ -123,6 +125,7 @@ mod tests {
             &PricingDb::default(),
             "OpenAI Codex",
             NumberFormat::default(),
+            None,
         );
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["reasoning_tokens"].as_i64(), Some(50));
@@ -138,6 +141,7 @@ mod tests {
             &PricingDb::default(),
             "Claude Code",
             NumberFormat::default(),
+            None,
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["input_tokens"].as_i64(), Some(0));
@@ -160,6 +164,7 @@ mod tests {
             &PricingDb::default(),
             "CC",
             NumberFormat::default(),
+            None,
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["input_tokens"].as_i64(), Some(4000));
@@ -180,6 +185,7 @@ mod tests {
             &PricingDb::default(),
             "CC",
             NumberFormat::default(),
+            None,
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["reasoning_tokens"].as_i64(), Some(0));
@@ -199,6 +205,7 @@ mod tests {
             &PricingDb::default(),
             "CC",
             NumberFormat::default(),
+            None,
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["formatted"]["input"].as_str(), Some("1.5M"));
@@ -213,9 +220,32 @@ mod tests {
             &PricingDb::default(),
             "CC",
             NumberFormat::default(),
+            None,
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         // Cost should be a number (0.0), not null
         assert!(v["cost"].is_number());
+    }
+
+    #[test]
+    fn statusline_json_converts_cost_when_currency_is_set() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert(
+            "2026-02-12".to_string(),
+            make_day(1_000_000, 100_000, 0, 0, 0),
+        );
+        let converter = CurrencyConverter::from_rate_for_test("CNY", 7.0, "CNY ");
+
+        let json = print_statusline_json(
+            &day_stats,
+            &PricingDb::default(),
+            "CC",
+            NumberFormat::default(),
+            Some(&converter),
+        );
+
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["cost"].as_f64(), Some(31.5));
+        assert_eq!(v["formatted"]["cost"].as_str(), Some("CNY 31.50"));
     }
 }

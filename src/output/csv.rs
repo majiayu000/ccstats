@@ -7,7 +7,7 @@ use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
 use crate::output::budget::{MonthlyBudgetOptions, MonthlyBudgetReport, monthly_budget_reports};
 use crate::output::format::{compare_cost, csv_escape};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
+use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
 
 pub(crate) fn output_period_csv(
     day_stats: &HashMap<String, DayStats>,
@@ -16,6 +16,7 @@ pub(crate) fn output_period_csv(
     order: SortOrder,
     breakdown: bool,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let aggregated;
     let stats_ref = if period == Period::Day {
@@ -62,7 +63,7 @@ pub(crate) fn output_period_csv(
                 );
                 if show_cost {
                     let cost = calculate_cost(model_stats, model, pricing_db);
-                    let _ = write!(out, ",{cost:.6}");
+                    let _ = write!(out, ",{}", csv_cost(cost, currency));
                 }
                 out.push('\n');
             }
@@ -92,7 +93,7 @@ pub(crate) fn output_period_csv(
             );
             if show_cost {
                 let cost = sum_model_costs(&stats.models, pricing_db);
-                let _ = write!(out, ",{cost:.6}");
+                let _ = write!(out, ",{}", csv_cost(cost, currency));
             }
             out.push('\n');
         }
@@ -107,6 +108,11 @@ fn csv_float(value: f64) -> String {
     } else {
         format!("{value:.6}")
     }
+}
+
+fn csv_cost(usd: f64, currency: Option<&CurrencyConverter>) -> String {
+    let amount = currency.map_or(usd, |conv| conv.convert(usd));
+    csv_float(amount)
 }
 
 fn write_budget_header(out: &mut String) {
@@ -180,7 +186,7 @@ pub(crate) fn output_monthly_budget_csv(
                 );
                 if options.show_cost {
                     let cost = calculate_cost(model_stats, model, pricing_db);
-                    let _ = write!(out, ",{cost:.6}");
+                    let _ = write!(out, ",{}", csv_cost(cost, options.currency));
                 }
                 write_budget_fields(&mut out, report);
                 out.push('\n');
@@ -214,7 +220,7 @@ pub(crate) fn output_monthly_budget_csv(
             );
             if options.show_cost {
                 let cost = sum_model_costs(&stats.models, pricing_db);
-                let _ = write!(out, ",{cost:.6}");
+                let _ = write!(out, ",{}", csv_cost(cost, options.currency));
             }
             write_budget_fields(&mut out, report);
             out.push('\n');
@@ -229,6 +235,7 @@ pub(crate) fn output_session_csv(
     pricing_db: &PricingDb,
     order: SortOrder,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let mut sorted: Vec<_> = sessions.iter().collect();
     match order {
@@ -263,7 +270,7 @@ pub(crate) fn output_session_csv(
         );
         if show_cost {
             let cost = sum_model_costs(&s.models, pricing_db);
-            let _ = write!(out, ",{cost:.6}");
+            let _ = write!(out, ",{}", csv_cost(cost, currency));
         }
         out.push('\n');
     }
@@ -275,6 +282,7 @@ pub(crate) fn output_project_csv(
     pricing_db: &PricingDb,
     order: SortOrder,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let mut sorted: Vec<_> = projects.iter().collect();
     match order {
@@ -315,7 +323,7 @@ pub(crate) fn output_project_csv(
         );
         if show_cost {
             let cost = sum_model_costs(&p.models, pricing_db);
-            let _ = write!(out, ",{cost:.6}");
+            let _ = write!(out, ",{}", csv_cost(cost, currency));
         }
         out.push('\n');
     }
@@ -328,6 +336,7 @@ pub(crate) fn output_block_csv(
     pricing_db: &PricingDb,
     order: SortOrder,
     show_cost: bool,
+    currency: Option<&CurrencyConverter>,
 ) -> String {
     let mut sorted: Vec<_> = blocks.iter().collect();
     match order {
@@ -359,7 +368,7 @@ pub(crate) fn output_block_csv(
         );
         if show_cost {
             let cost = sum_model_costs(&b.models, pricing_db);
-            let _ = write!(out, ",{cost:.6}");
+            let _ = write!(out, ",{}", csv_cost(cost, currency));
         }
         out.push('\n');
     }
@@ -410,7 +419,15 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let csv = output_period_csv(&day_stats, Period::Day, &db, SortOrder::Asc, false, false);
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            false,
+            false,
+            None,
+        );
 
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
@@ -430,11 +447,46 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let csv = output_period_csv(&day_stats, Period::Day, &db, SortOrder::Asc, false, true);
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            false,
+            true,
+            None,
+        );
 
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].ends_with(",cost"));
         assert_eq!(lines.len(), 2); // header + 1 row
+    }
+
+    #[test]
+    fn period_csv_converts_cost_when_currency_is_set() {
+        let mut day_stats = HashMap::new();
+        day_stats.insert(
+            "2025-01-01".to_string(),
+            make_day_stats(&[("sonnet", 1_000_000)]),
+        );
+        let converter = CurrencyConverter::from_rate_for_test("CNY", 7.0, "CNY ");
+
+        let db = PricingDb::default();
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            false,
+            true,
+            Some(&converter),
+        );
+
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(
+            lines[1],
+            "2025-01-01,1000000,500000,0,0,0,1500000,73.500000"
+        );
     }
 
     #[test]
@@ -444,7 +496,15 @@ mod tests {
         day_stats.insert("2025-01-02".to_string(), make_day_stats(&[("sonnet", 200)]));
 
         let db = PricingDb::default();
-        let csv = output_period_csv(&day_stats, Period::Day, &db, SortOrder::Desc, false, false);
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Desc,
+            false,
+            false,
+            None,
+        );
 
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[1].starts_with("2025-01-02"));
@@ -469,7 +529,7 @@ mod tests {
         }];
 
         let db = PricingDb::default();
-        let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false);
+        let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false, None);
 
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
@@ -500,7 +560,7 @@ mod tests {
         }];
 
         let db = PricingDb::default();
-        let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false);
+        let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false, None);
         let lines: Vec<&str> = csv.lines().collect();
 
         assert_eq!(
@@ -525,7 +585,7 @@ mod tests {
         }];
 
         let db = PricingDb::default();
-        let csv = output_project_csv(&projects, &db, SortOrder::Asc, true);
+        let csv = output_project_csv(&projects, &db, SortOrder::Asc, true, None);
 
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].ends_with(",cost"));
@@ -548,7 +608,7 @@ mod tests {
         }];
 
         let db = PricingDb::default();
-        let csv = output_block_csv(&blocks, &db, SortOrder::Asc, false);
+        let csv = output_block_csv(&blocks, &db, SortOrder::Asc, false, None);
 
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
@@ -569,6 +629,7 @@ mod tests {
             SortOrder::Asc,
             false,
             false,
+            None,
         );
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 1); // header only
@@ -583,7 +644,15 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let csv = output_period_csv(&day_stats, Period::Day, &db, SortOrder::Asc, true, false);
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            true,
+            false,
+            None,
+        );
 
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
@@ -601,7 +670,15 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let csv = output_period_csv(&day_stats, Period::Day, &db, SortOrder::Asc, true, false);
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            true,
+            false,
+            None,
+        );
 
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 3); // header + 2 model rows
@@ -619,7 +696,15 @@ mod tests {
         );
 
         let db = PricingDb::default();
-        let csv = output_period_csv(&day_stats, Period::Day, &db, SortOrder::Asc, true, true);
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            true,
+            true,
+            None,
+        );
 
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].ends_with(",cost"));
@@ -638,6 +723,7 @@ mod tests {
             SortOrder::Asc,
             true,
             false,
+            None,
         );
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 1); // header only
@@ -652,7 +738,15 @@ mod tests {
         day_stats.insert("2025-01-08".to_string(), make_day_stats(&[("sonnet", 200)]));
 
         let db = PricingDb::default();
-        let csv = output_period_csv(&day_stats, Period::Week, &db, SortOrder::Asc, true, false);
+        let csv = output_period_csv(
+            &day_stats,
+            Period::Week,
+            &db,
+            SortOrder::Asc,
+            true,
+            false,
+            None,
+        );
 
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 2); // header + 1 aggregated model row
