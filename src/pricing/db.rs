@@ -143,7 +143,7 @@ impl PricingDb {
             if self.strict_unknown {
                 None
             } else {
-                Some(fallback_pricing(model))
+                fallback_pricing(model)
             }
         });
 
@@ -282,9 +282,17 @@ mod tests {
 
     #[test]
     fn calculate_cost_zero_tokens() {
-        let db = PricingDb::default();
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                ..Default::default()
+            },
+        );
         let stats = Stats::default();
-        let cost = calculate_cost(&stats, "unknown-model", &db);
+        let cost = calculate_cost(&stats, "sonnet-4", &db);
         assert_eq!(cost, 0.0);
     }
 
