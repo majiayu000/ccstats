@@ -1,5 +1,7 @@
 #![allow(clippy::module_name_repetitions)]
 
+mod batch;
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -9,10 +11,15 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::config::Config;
-use crate::core::{DateFilter, DayStats, Stats};
+use crate::core::{DateFilter, DayStats, LoadResult, Stats};
 use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
-use crate::source::{get_source, load_daily};
+use crate::source::{Source, get_source, load_daily};
 use crate::utils::Timezone;
+
+pub use batch::{
+    MultiCostSummary, MultiSummaryOptions, summarize_cost_ranges,
+    summarize_cost_ranges_with_cli_config,
+};
 
 /// Supported local usage sources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,7 +82,7 @@ pub enum UsageRange {
 }
 
 impl UsageRange {
-    fn resolve(
+    pub(in crate::sdk) fn resolve(
         &self,
         today: NaiveDate,
     ) -> Result<(Option<NaiveDate>, Option<NaiveDate>), SdkError> {
@@ -213,26 +220,17 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
     );
 
     let result = load_daily(source, &filter, timezone, true, false);
-    let (stats, models) = merge_days(&result.day_stats);
-    let cost_usd = finite_cost(sum_model_costs(&models, &pricing_db));
-    let model_summaries = summarize_models(&models, &pricing_db, currency.as_ref());
-
-    Ok(CostSummary {
-        source: options.source,
-        source_name: source.name().to_string(),
-        display_name: source.display_name().to_string(),
-        range: options.range,
+    Ok(build_cost_summary(
+        options.source,
+        source,
+        options.range,
         since,
         until,
-        currency: currency_code,
-        cost: convert_cost(cost_usd, currency.as_ref()),
-        cost_usd,
-        tokens: TokenBreakdown::from_stats(&stats),
-        models: model_summaries,
-        valid_entries: result.valid,
-        skipped_entries: result.skipped,
-        elapsed_ms: result.elapsed_ms,
-    })
+        &result,
+        &pricing_db,
+        currency.as_ref(),
+        &currency_code,
+    ))
 }
 
 /// Summarize local token usage using the same reusable config defaults as the CLI.
@@ -280,6 +278,39 @@ impl TokenBreakdown {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(in crate::sdk) fn build_cost_summary(
+    usage_source: UsageSource,
+    source: &dyn Source,
+    range: UsageRange,
+    since: Option<NaiveDate>,
+    until: Option<NaiveDate>,
+    result: &LoadResult,
+    pricing_db: &PricingDb,
+    currency: Option<&CurrencyConverter>,
+    currency_code: &str,
+) -> CostSummary {
+    let (stats, models) = merge_days(&result.day_stats);
+    let cost_usd = finite_cost(sum_model_costs(&models, pricing_db));
+
+    CostSummary {
+        source: usage_source,
+        source_name: source.name().to_string(),
+        display_name: source.display_name().to_string(),
+        range,
+        since,
+        until,
+        currency: currency_code.to_string(),
+        cost: convert_cost(cost_usd, currency),
+        cost_usd,
+        tokens: TokenBreakdown::from_stats(&stats),
+        models: summarize_models(&models, pricing_db, currency),
+        valid_entries: result.valid,
+        skipped_entries: result.skipped,
+        elapsed_ms: result.elapsed_ms,
+    }
+}
+
 fn merge_days(day_stats: &HashMap<String, DayStats>) -> (Stats, HashMap<String, Stats>) {
     let mut stats = Stats::default();
     let mut models = HashMap::new();
@@ -309,7 +340,7 @@ fn convert_cost(cost_usd: Option<f64>, currency: Option<&CurrencyConverter>) -> 
     }
 }
 
-fn load_requested_currency(
+pub(in crate::sdk) fn load_requested_currency(
     currency: Option<&str>,
     offline: bool,
 ) -> Result<Option<CurrencyConverter>, SdkError> {
