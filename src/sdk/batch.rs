@@ -104,8 +104,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         |conv| conv.currency_code().to_string(),
     );
 
-    let union_filter = union_filter(&resolved_ranges);
-    let results = load_daily_ranges(source, &union_filter, &resolved_ranges, timezone);
+    let results = load_daily_ranges(source, &resolved_ranges, timezone);
     let summaries = resolved_ranges
         .into_iter()
         .zip(results.iter())
@@ -192,24 +191,12 @@ fn resolve_ranges(ranges: &[UsageRange], today: NaiveDate) -> Result<Vec<Resolve
         .collect()
 }
 
-fn union_filter(ranges: &[ResolvedRange]) -> DateFilter {
-    let since = if ranges.iter().any(|range| range.since.is_none()) {
-        None
-    } else {
-        ranges.iter().filter_map(|range| range.since).min()
-    };
-    let until = if ranges.iter().any(|range| range.until.is_none()) {
-        None
-    } else {
-        ranges.iter().filter_map(|range| range.until).max()
-    };
-
-    DateFilter::new(since, until)
+fn contains_any_range(date: NaiveDate, ranges: &[ResolvedRange]) -> bool {
+    ranges.iter().any(|range| range.filter.contains(date))
 }
 
 fn load_daily_ranges(
     source: &dyn Source,
-    union_filter: &DateFilter,
     ranges: &[ResolvedRange],
     timezone: Timezone,
 ) -> Vec<LoadResult> {
@@ -228,7 +215,7 @@ fn load_daily_ranges(
                 .into_iter()
                 .filter_map(|mut entry| {
                     let date = normalize_entry_date(&mut entry, timezone)?;
-                    union_filter.contains(date).then_some(entry)
+                    contains_any_range(date, ranges).then_some(entry)
                 })
                 .collect::<Vec<_>>()
         })
@@ -386,30 +373,29 @@ mod tests {
     }
 
     #[test]
-    fn batch_union_filter_uses_min_since_and_max_until() {
+    fn range_membership_keeps_requested_days_and_excludes_gaps() {
         let ranges = resolve_ranges(
             &[
                 UsageRange::DateRange {
-                    since: Some(d(2026, 5, 5)),
-                    until: Some(d(2026, 5, 6)),
+                    since: Some(d(2026, 1, 10)),
+                    until: Some(d(2026, 1, 10)),
                 },
                 UsageRange::DateRange {
-                    since: Some(d(2026, 5, 1)),
-                    until: Some(d(2026, 5, 12)),
+                    since: Some(d(2026, 12, 10)),
+                    until: Some(d(2026, 12, 10)),
                 },
             ],
-            d(2026, 5, 9),
+            d(2026, 12, 10),
         )
         .unwrap();
 
-        let filter = union_filter(&ranges);
-
-        assert_eq!(filter.since, Some(d(2026, 5, 1)));
-        assert_eq!(filter.until, Some(d(2026, 5, 12)));
+        assert!(contains_any_range(d(2026, 1, 10), &ranges));
+        assert!(!contains_any_range(d(2026, 6, 1), &ranges));
+        assert!(contains_any_range(d(2026, 12, 10), &ranges));
     }
 
     #[test]
-    fn batch_union_filter_keeps_any_unbounded_side() {
+    fn range_membership_honors_unbounded_sides() {
         let ranges = resolve_ranges(
             &[
                 UsageRange::DateRange {
@@ -417,7 +403,7 @@ mod tests {
                     until: Some(d(2026, 5, 6)),
                 },
                 UsageRange::DateRange {
-                    since: Some(d(2026, 5, 1)),
+                    since: Some(d(2026, 5, 10)),
                     until: None,
                 },
             ],
@@ -425,10 +411,9 @@ mod tests {
         )
         .unwrap();
 
-        let filter = union_filter(&ranges);
-
-        assert_eq!(filter.since, None);
-        assert_eq!(filter.until, None);
+        assert!(contains_any_range(d(2020, 1, 1), &ranges));
+        assert!(!contains_any_range(d(2026, 5, 7), &ranges));
+        assert!(contains_any_range(d(2026, 12, 31), &ranges));
     }
 
     #[test]
@@ -449,9 +434,8 @@ mod tests {
             d(2026, 5, 9),
         )
         .unwrap();
-        let filter = union_filter(&ranges);
 
-        let results = load_daily_ranges(&source, &filter, &ranges, Timezone::Named(chrono_tz::UTC));
+        let results = load_daily_ranges(&source, &ranges, Timezone::Named(chrono_tz::UTC));
 
         assert_eq!(source.find_calls.load(Ordering::SeqCst), 1);
         assert_eq!(source.parse_calls.load(Ordering::SeqCst), 2);
