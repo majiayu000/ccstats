@@ -200,11 +200,7 @@ pub(crate) fn sum_model_costs(models: &HashMap<String, Stats>, pricing_db: &Pric
         total += cost;
         any_known = true;
     }
-    if any_known {
-        total
-    } else {
-        f64::NAN
-    }
+    if any_known { total } else { f64::NAN }
 }
 
 /// Borrowed item with precomputed total cost.

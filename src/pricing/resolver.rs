@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::types::{dot_version_variant, ModelPricing};
+use super::types::{ModelPricing, dot_version_variant};
 
 fn openai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
@@ -154,65 +154,67 @@ pub(super) fn resolve_pricing_known(
 
 pub(super) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
     let model_lower = model.to_lowercase();
-    Some(if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
-        ModelPricing {
-            input: 5e-6,   // $5/M
-            output: 25e-6, // $25/M
-            reasoning_output: 25e-6,
-            cache_create: 6.25e-6, // $6.25/M
-            cache_read: 0.5e-6,    // $0.5/M
-        }
-    } else if model_lower.contains("opus") {
-        ModelPricing {
-            input: 15e-6,
-            output: 75e-6,
-            reasoning_output: 75e-6,
-            cache_create: 18.75e-6,
-            cache_read: 1.5e-6,
-        }
-    } else if model_lower.contains("sonnet") {
-        ModelPricing {
-            input: 3e-6,
-            output: 15e-6,
-            reasoning_output: 15e-6,
-            cache_create: 3.75e-6,
-            cache_read: 0.3e-6,
-        }
-    } else if model_lower.contains("haiku") {
-        ModelPricing {
-            input: 0.8e-6,
-            output: 4e-6,
-            reasoning_output: 4e-6,
-            cache_create: 1e-6,
-            cache_read: 0.08e-6,
-        }
-    } else if model_lower.contains("grok-build") {
-        xai_pricing(1e-6, 2e-6, 0.2e-6)
-    } else if model_lower.contains("grok") {
-        xai_pricing(1.25e-6, 2.5e-6, 0.2e-6)
-    } else if model_lower.contains("gpt-5.4-mini") {
-        openai_pricing(0.75e-6, 4.5e-6, 0.075e-6)
-    } else if model_lower.contains("gpt-5.4-nano") {
-        openai_pricing(0.2e-6, 1.25e-6, 0.02e-6)
-    } else if model_lower.contains("gpt-5.4") {
-        openai_pricing(2.5e-6, 15e-6, 0.25e-6)
-    } else if model_lower.contains("gpt-5.1-codex-mini") {
-        openai_pricing(0.25e-6, 2e-6, 0.025e-6)
-    } else if model_lower.contains("gpt-5.2-codex") || model_lower.contains("gpt-5.3-codex") {
-        openai_pricing(1.75e-6, 14e-6, 0.175e-6)
-    } else if model_lower.contains("gpt-5-codex") || model_lower.contains("gpt-5.1-codex") {
-        openai_pricing(1.25e-6, 10e-6, 0.125e-6)
-    } else if model_lower.contains("codex-mini") {
-        openai_pricing(1.5e-6, 6e-6, 0.375e-6)
-    } else if model_lower.contains("codex") || model_lower.contains("gpt-5") {
-        openai_pricing(1.25e-6, 10e-6, 0.125e-6)
-    } else if model_lower.contains("gpt-4") {
-        openai_pricing(2.5e-6, 10e-6, 0.0)
-    } else {
-        // Unknown model: no fallback estimate. The caller surfaces N/A instead
-        // of silently applying a sonnet-shaped guess.
-        return None;
-    })
+    Some(
+        if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
+            ModelPricing {
+                input: 5e-6,   // $5/M
+                output: 25e-6, // $25/M
+                reasoning_output: 25e-6,
+                cache_create: 6.25e-6, // $6.25/M
+                cache_read: 0.5e-6,    // $0.5/M
+            }
+        } else if model_lower.contains("opus") {
+            ModelPricing {
+                input: 15e-6,
+                output: 75e-6,
+                reasoning_output: 75e-6,
+                cache_create: 18.75e-6,
+                cache_read: 1.5e-6,
+            }
+        } else if model_lower.contains("sonnet") {
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                reasoning_output: 15e-6,
+                cache_create: 3.75e-6,
+                cache_read: 0.3e-6,
+            }
+        } else if model_lower.contains("haiku") {
+            ModelPricing {
+                input: 0.8e-6,
+                output: 4e-6,
+                reasoning_output: 4e-6,
+                cache_create: 1e-6,
+                cache_read: 0.08e-6,
+            }
+        } else if model_lower.contains("grok-build") {
+            xai_pricing(1e-6, 2e-6, 0.2e-6)
+        } else if model_lower.contains("grok") {
+            xai_pricing(1.25e-6, 2.5e-6, 0.2e-6)
+        } else if model_lower.contains("gpt-5.4-mini") {
+            openai_pricing(0.75e-6, 4.5e-6, 0.075e-6)
+        } else if model_lower.contains("gpt-5.4-nano") {
+            openai_pricing(0.2e-6, 1.25e-6, 0.02e-6)
+        } else if model_lower.contains("gpt-5.4") {
+            openai_pricing(2.5e-6, 15e-6, 0.25e-6)
+        } else if model_lower.contains("gpt-5.1-codex-mini") {
+            openai_pricing(0.25e-6, 2e-6, 0.025e-6)
+        } else if model_lower.contains("gpt-5.2-codex") || model_lower.contains("gpt-5.3-codex") {
+            openai_pricing(1.75e-6, 14e-6, 0.175e-6)
+        } else if model_lower.contains("gpt-5-codex") || model_lower.contains("gpt-5.1-codex") {
+            openai_pricing(1.25e-6, 10e-6, 0.125e-6)
+        } else if model_lower.contains("codex-mini") {
+            openai_pricing(1.5e-6, 6e-6, 0.375e-6)
+        } else if model_lower.contains("codex") || model_lower.contains("gpt-5") {
+            openai_pricing(1.25e-6, 10e-6, 0.125e-6)
+        } else if model_lower.contains("gpt-4") {
+            openai_pricing(2.5e-6, 10e-6, 0.0)
+        } else {
+            // Unknown model: no fallback estimate. The caller surfaces N/A instead
+            // of silently applying a sonnet-shaped guess.
+            return None;
+        },
+    )
 }
 
 #[cfg(test)]
@@ -786,7 +788,10 @@ mod tests {
         // `glm-5.2` matches Fireworks `glm-5p2` (p == point) over older `glm-5`.
         let mut data = HashMap::new();
         data.insert("fireworks_ai/glm-5p2".to_string(), json!({"input_cost_per_token": 1.4e-6, "output_cost_per_token": 4.4e-6, "cache_read_input_token_cost": 0.26e-6}));
-        data.insert("zai/glm-5".to_string(), json!({"input_cost_per_token": 1e-6, "output_cost_per_token": 3.2e-6}));
+        data.insert(
+            "zai/glm-5".to_string(),
+            json!({"input_cost_per_token": 1e-6, "output_cost_per_token": 3.2e-6}),
+        );
         let pricing = resolve_pricing_known("glm-5.2", &parse_litellm_data(data)).unwrap();
         assert_eq!(pricing.input, 1.4e-6);
     }
