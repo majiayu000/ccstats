@@ -98,7 +98,10 @@ mod tests {
             stats: stats.clone(),
             ..Default::default()
         };
-        day.models.insert("test-model".to_string(), stats);
+        // Use a model name that resolves via fallback (sonnet) even with an
+        // empty PricingDb, so cost-bearing tests get a real value instead of
+        // the None/NaN that unknown models now produce.
+        day.models.insert("sonnet-4".to_string(), stats);
         day
     }
 
