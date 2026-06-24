@@ -126,6 +126,30 @@ println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
 
 The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
 
+Apps that need several windows at once can use the batch API so source logs,
+pricing, and currency are loaded once for the request:
+
+```rust
+use ccstats::{MultiSummaryOptions, UsageRange, UsageSource, summarize_cost_ranges};
+
+let overview = summarize_cost_ranges(MultiSummaryOptions {
+    source: UsageSource::Claude,
+    ranges: vec![
+        UsageRange::Today,
+        UsageRange::ThisWeek,
+        UsageRange::ThisMonth,
+    ],
+    timezone: None,
+    offline: true,
+    strict_pricing: false,
+    currency: Some("USD".to_string()),
+})?;
+
+for summary in overview.summaries {
+    println!("{:?}: ${:.2}", summary.range, summary.cost_usd.unwrap_or(0.0));
+}
+```
+
 ## Usage
 
 ### Claude Code

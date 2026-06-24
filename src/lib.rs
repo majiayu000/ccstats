@@ -1,9 +1,12 @@
 //! `ccstats` is a local-first library and CLI for token and cost analytics from
 //! Claude Code, `OpenAI` Codex, Cursor, and Grok session logs.
 //!
-//! The public SDK entry points are [`summarize_cost`] for explicit options and
-//! [`summarize_cost_with_cli_config`] for CLI-aligned config defaults. The binary
-//! target calls [`run_cli`] to preserve the existing command-line behavior.
+//! The public SDK entry points are [`summarize_cost`] and
+//! [`summarize_cost_ranges`] for explicit options, plus
+//! [`summarize_cost_with_cli_config`] and
+//! [`summarize_cost_ranges_with_cli_config`] for CLI-aligned config defaults.
+//! The binary target calls [`run_cli`] to preserve the existing command-line
+//! behavior.
 
 #![warn(clippy::pedantic)]
 #![allow(
@@ -26,8 +29,9 @@ mod source;
 mod utils;
 
 pub use sdk::{
-    CostSummary, ModelCostSummary, SdkError, SummaryOptions, TokenBreakdown, UsageRange,
-    UsageSource, summarize_cost, summarize_cost_with_cli_config,
+    CostSummary, ModelCostSummary, MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions,
+    TokenBreakdown, UsageRange, UsageSource, summarize_cost, summarize_cost_ranges,
+    summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
 };
 
 use chrono::Utc;
@@ -50,8 +54,8 @@ enum TimezoneSource {
 /// Run the `ccstats` CLI using process arguments.
 ///
 /// This is intended for the binary target. SDK consumers should prefer
-/// [`summarize_cost`] or [`summarize_cost_with_cli_config`] so they receive
-/// structured data instead of rendered CLI output.
+/// [`summarize_cost`], [`summarize_cost_ranges`], or their CLI-config variants
+/// so they receive structured data instead of rendered CLI output.
 #[allow(clippy::too_many_lines)] // CLI setup intentionally stays in one dispatch function.
 pub fn run_cli() {
     let raw_cli = Cli::parse();
