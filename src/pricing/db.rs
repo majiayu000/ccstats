@@ -180,16 +180,31 @@ pub(crate) fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb)
 }
 
 /// Sum total cost across model breakdown map.
+///
+/// Unknown models (`calculate_cost` returns NaN because pricing did not
+/// resolve) are skipped, so a single unpriced model does not erase the total
+/// of every other model in the same row. An empty map returns 0.0; a map where
+/// every model is unknown returns NaN so the caller surfaces N/A instead of a
+/// misleading $0.00.
 pub(crate) fn sum_model_costs(models: &HashMap<String, Stats>, pricing_db: &PricingDb) -> f64 {
+    if models.is_empty() {
+        return 0.0;
+    }
     let mut total = 0.0;
+    let mut any_known = false;
     for (model, stats) in models {
         let cost = calculate_cost(stats, model, pricing_db);
         if cost.is_nan() {
-            return f64::NAN;
+            continue;
         }
         total += cost;
+        any_known = true;
     }
-    total
+    if any_known {
+        total
+    } else {
+        f64::NAN
+    }
 }
 
 /// Borrowed item with precomputed total cost.
@@ -398,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn sum_model_costs_returns_nan_if_any_unknown_strict() {
+    fn sum_model_costs_returns_nan_when_all_unknown() {
         let db = PricingDb {
             strict_unknown: true,
             ..PricingDb::default()
@@ -415,6 +430,41 @@ mod tests {
 
         let total = sum_model_costs(&models, &db);
         assert!(total.is_nan());
+    }
+
+    #[test]
+    fn sum_model_costs_skips_unknown_keeps_known() {
+        let mut db = PricingDb::default();
+        db.models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                output: 15e-6,
+                ..Default::default()
+            },
+        );
+
+        let mut models = HashMap::new();
+        models.insert(
+            "sonnet-4".to_string(),
+            Stats {
+                input_tokens: 1_000_000,
+                output_tokens: 0,
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "totally-unknown-xyz".to_string(),
+            Stats {
+                input_tokens: 999_999_999, // would dominate the total if mispriced
+                ..Default::default()
+            },
+        );
+
+        // Unknown model is skipped; total reflects only sonnet-4 ($3.0),
+        // not NaN and not a Sonnet-fallback guess on the unknown volume.
+        let total = sum_model_costs(&models, &db);
+        assert!((total - 3.0).abs() < 0.001);
     }
 
     #[test]
