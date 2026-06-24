@@ -755,4 +755,12 @@ mod tests {
         // Verify aggregated input tokens: 100 + 200 = 300
         assert!(lines[1].contains(",300,"));
     }
+
+    #[test]
+    fn csv_float_and_cost_handle_nan() {
+        // Unknown models yield NaN cost; CSV must emit N/A, not the literal "NaN".
+        assert_eq!(csv_float(f64::NAN), "N/A");
+        assert_eq!(csv_float(1.5), "1.500000");
+        assert_eq!(csv_cost(f64::NAN, None), "N/A");
+    }
 }

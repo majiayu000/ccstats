@@ -46,12 +46,16 @@ pub(super) fn parse_litellm_data(
 
         let input = value
             .get("input_cost_per_token")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(0.0);
+            .and_then(serde_json::Value::as_f64);
         let output = value
             .get("output_cost_per_token")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(0.0);
+            .and_then(serde_json::Value::as_f64);
+        // Skip metadata-only entries; missing pricing must not load as $0 known.
+        if input.is_none() && output.is_none() {
+            continue;
+        }
+        let input = input.unwrap_or(0.0);
+        let output = output.unwrap_or(0.0);
         let reasoning_output = value
             .get("reasoning_output_cost_per_token")
             .or_else(|| value.get("reasoning_cost_per_token"))
@@ -712,15 +716,18 @@ mod tests {
     #[test]
     fn test_parse_missing_cost_fields_default_to_zero() {
         let mut data = HashMap::new();
-        data.insert("claude-test".to_string(), json!({}));
+        // input present, output/cache missing -> 0. Fully price-less entries are skipped.
+        data.insert(
+            "claude-test".to_string(),
+            json!({"input_cost_per_token": 15e-6}),
+        );
 
         let result = parse_litellm_data(data);
         let pricing = &result["claude-test"];
-        assert_eq!(pricing.input, 0.0);
+        assert_eq!(pricing.input, 15e-6);
         assert_eq!(pricing.output, 0.0);
         assert_eq!(pricing.cache_read, 0.0);
         assert_eq!(pricing.cache_create, 0.0);
-        // reasoning_output defaults to output (which is 0.0)
         assert_eq!(pricing.reasoning_output, 0.0);
     }
 
@@ -774,6 +781,7 @@ mod tests {
             "moonshot/moonshot-v1".to_string(),
             json!({"input_cost_per_token": 1e-6, "output_cost_per_token": 3e-6}),
         );
+        data.insert("zai/glm-meta".to_string(), json!({"mode": "chat"})); // priceless -> skip
 
         let result = parse_litellm_data(data);
         // Not filtered; bare names normalized; official zai/ wins over hoster
@@ -781,6 +789,7 @@ mod tests {
         assert_eq!(result["deepseek-chat"].input, 1e-6);
         assert_eq!(result["qwen-max"].input, 2e-6);
         assert_eq!(result["moonshot-v1"].input, 1e-6);
+        assert!(result.iter().all(|(k, _)| !k.contains("glm-meta"))); // not loaded as $0
     }
 
     #[test]
