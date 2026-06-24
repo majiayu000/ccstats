@@ -80,16 +80,25 @@ struct ResolvedRange {
 /// invalid, or when any explicit date range has `since` after `until`.
 pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
     let start = Instant::now();
-    let timezone = Timezone::parse(options.timezone.as_deref())
+    let MultiSummaryOptions {
+        source: usage_source,
+        ranges,
+        timezone,
+        offline,
+        strict_pricing,
+        currency: requested_currency,
+    } = options;
+
+    let timezone = Timezone::parse(timezone.as_deref())
         .map_err(|err| SdkError::Configuration(err.to_string()))?;
     let today = timezone.to_fixed_offset(Utc::now()).date_naive();
-    let resolved_ranges = resolve_ranges(&options.ranges, today)?;
+    let resolved_ranges = resolve_ranges(&ranges, today)?;
 
-    let source = get_source(options.source.as_str()).ok_or_else(|| SdkError::InvalidSource {
-        name: options.source.as_str().to_string(),
+    let source = get_source(usage_source.as_str()).ok_or_else(|| SdkError::InvalidSource {
+        name: usage_source.as_str().to_string(),
     })?;
-    let pricing_db = PricingDb::load_quiet(options.offline, options.strict_pricing);
-    let currency = load_requested_currency(options.currency.as_deref(), options.offline)?;
+    let pricing_db = PricingDb::load_quiet(offline, strict_pricing);
+    let currency = load_requested_currency(requested_currency.as_deref(), offline)?;
     let currency_code = currency.as_ref().map_or_else(
         || "USD".to_string(),
         |conv| conv.currency_code().to_string(),
@@ -102,7 +111,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         .zip(results.iter())
         .map(|(range, result)| {
             build_cost_summary(
-                options.source,
+                usage_source,
                 source,
                 range.range,
                 range.since,
@@ -116,7 +125,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         .collect();
 
     Ok(MultiCostSummary {
-        source: options.source,
+        source: usage_source,
         source_name: source.name().to_string(),
         display_name: source.display_name().to_string(),
         currency: currency_code,
