@@ -18,6 +18,8 @@ use crate::utils::Timezone;
 const DEFAULT_CODEX_DIR: &str = ".codex";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
 const SESSION_SUBDIR: &str = "sessions";
+const CODEX_USAGE_MESSAGE_PREFIX: &str = "source-wide:codex-token-count";
+const SESSION_USAGE_MESSAGE_PREFIX: &str = "codex-token-count";
 
 // ============================================================================
 // Internal types for JSONL parsing
@@ -36,6 +38,7 @@ struct RawJsonEntry<'a> {
 struct Payload<'a> {
     #[serde(rename = "type")]
     payload_type: Option<&'a str>,
+    id: Option<&'a str>,
     info: Option<TokenInfo<'a>>,
     model: Option<&'a str>,
 }
@@ -104,7 +107,7 @@ impl TokenUsage {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 #[allow(clippy::struct_field_names)] // field names mirror normalized token fields
 struct UsageTotals {
     input_tokens: i64,
@@ -207,6 +210,32 @@ fn extract_model_ref<'a>(payload: &'a Payload<'a>) -> Option<&'a str> {
     non_empty_model(payload.model)
 }
 
+fn usage_message_id(
+    model: &str,
+    logical_session_key: &str,
+    total: UsageTotals,
+    delta: UsageTotals,
+) -> String {
+    let prefix = if total == delta {
+        SESSION_USAGE_MESSAGE_PREFIX
+    } else {
+        CODEX_USAGE_MESSAGE_PREFIX
+    };
+    format!(
+        "{prefix}:{logical_session_key}:{model}:total={},{},{},{},{}:delta={},{},{},{},{}",
+        total.input_tokens,
+        total.cached_input_tokens,
+        total.output_tokens,
+        total.reasoning_output_tokens,
+        total.total_tokens,
+        delta.input_tokens,
+        delta.cached_input_tokens,
+        delta.output_tokens,
+        delta.reasoning_output_tokens,
+        delta.total_tokens
+    )
+}
+
 #[cfg(test)]
 fn extract_model(payload: &Payload<'_>) -> Option<String> {
     extract_model_ref(payload).map(std::string::ToString::to_string)
@@ -244,6 +273,7 @@ pub(super) fn parse_codex_file_with_debug(
     let mut parse_errors = 0usize;
     let mut previous_totals: Option<UsageTotals> = None;
     let mut current_model: Option<String> = None;
+    let mut logical_session_key = session_key.clone();
     let mut line = String::new();
     let mut line_no = 0usize;
     let mut reader = reader;
@@ -289,6 +319,15 @@ pub(super) fn parse_codex_file_with_debug(
         let Some(entry_type) = raw_entry.entry_type else {
             continue;
         };
+
+        if entry_type == "session_meta" {
+            if let Some(payload) = &raw_entry.payload
+                && let Some(id) = non_empty_model(payload.id)
+            {
+                logical_session_key = format!("codex-session:{id}");
+            }
+            continue;
+        }
 
         // Handle turn_context to get model info
         if entry_type == "turn_context" {
@@ -388,12 +427,13 @@ pub(super) fn parse_codex_file_with_debug(
         let raw_output = delta.output_tokens;
         let reasoning = delta.reasoning_output_tokens;
         let non_reasoning_output = (raw_output - reasoning).max(0);
+        let message_id = usage_message_id(&model, &logical_session_key, total, delta);
 
         entries.push(RawEntry {
             timestamp: timestamp.to_string(),
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: date.format(DATE_FORMAT).to_string(),
-            message_id: None, // Codex doesn't use message IDs for dedup
+            message_id: Some(message_id),
             session_key: session_key.clone(),
             session_id: session_id.clone(),
             project_path: String::new(), // Codex doesn't track projects
@@ -560,6 +600,7 @@ mod tests {
     fn test_extract_model_from_info_model() {
         let payload = Payload {
             payload_type: None,
+            id: None,
             model: Some("fallback-model"),
             info: Some(TokenInfo {
                 total_token_usage: None,
@@ -578,6 +619,7 @@ mod tests {
     fn test_extract_model_falls_back_to_model_name() {
         let payload = Payload {
             payload_type: None,
+            id: None,
             model: Some("fallback"),
             info: Some(TokenInfo {
                 total_token_usage: None,
@@ -594,6 +636,7 @@ mod tests {
     fn test_extract_model_falls_back_to_metadata() {
         let payload = Payload {
             payload_type: None,
+            id: None,
             model: Some("fallback"),
             info: Some(TokenInfo {
                 total_token_usage: None,
@@ -612,6 +655,7 @@ mod tests {
     fn test_extract_model_falls_back_to_payload_model() {
         let payload = Payload {
             payload_type: None,
+            id: None,
             model: Some("payload-model"),
             info: Some(TokenInfo {
                 total_token_usage: None,
@@ -628,6 +672,7 @@ mod tests {
     fn test_extract_model_no_info_uses_payload() {
         let payload = Payload {
             payload_type: None,
+            id: None,
             model: Some("payload-only"),
             info: None,
         };
@@ -638,6 +683,7 @@ mod tests {
     fn test_extract_model_all_none_returns_none() {
         let payload = Payload {
             payload_type: None,
+            id: None,
             model: None,
             info: None,
         };
@@ -648,6 +694,7 @@ mod tests {
     fn test_extract_model_empty_strings_skipped() {
         let payload = Payload {
             payload_type: None,
+            id: None,
             model: Some("real-model"),
             info: Some(TokenInfo {
                 total_token_usage: None,

@@ -166,6 +166,61 @@ fn sdk_batch_summarizes_codex_ranges_like_repeated_single_calls() {
 }
 
 #[test]
+fn sdk_batch_deduplicates_replayed_codex_token_counts_across_files() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    let replay_a = codex_home.join("sessions").join("replay-a.jsonl");
+    let replay_b = codex_home.join("sessions").join("replay-b.jsonl");
+    let parent_meta = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"session_meta","payload":{"id":"parent-session"}}"#;
+    let fork_meta = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"session_meta","payload":{"id":"forked-session"}}"#;
+    let replayed = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":220,"cached_input_tokens":40,"output_tokens":80,"reasoning_output_tokens":20,"total_tokens":300},"last_token_usage":{"input_tokens":120,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":10,"total_tokens":160},"model":"gpt-5"}}}"#;
+    write_file(&replay_a, &format!("{parent_meta}\n{replayed}\n"));
+    write_file(
+        &replay_b,
+        &format!(
+            r#"{fork_meta}
+{parent_meta}
+{replayed}
+{{"timestamp":"2026-02-06T10:01:00Z","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":360,"cached_input_tokens":70,"output_tokens":140,"reasoning_output_tokens":40,"total_tokens":500}},"last_token_usage":{{"input_tokens":140,"cached_input_tokens":30,"output_tokens":60,"reasoning_output_tokens":20,"total_tokens":200}},"model":"gpt-5"}}}}}}
+"#
+        ),
+    );
+
+    let previous_codex_home = std::env::var_os("CODEX_HOME");
+    unsafe {
+        std::env::set_var("CODEX_HOME", &codex_home);
+    }
+
+    let batch = summarize_cost_ranges(MultiSummaryOptions {
+        source: UsageSource::Codex,
+        ranges: vec![UsageRange::DateRange {
+            since: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+            until: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+        }],
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        strict_pricing: false,
+        currency: None,
+    })
+    .expect("summarize codex ranges");
+
+    match previous_codex_home {
+        Some(value) => unsafe {
+            std::env::set_var("CODEX_HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("CODEX_HOME");
+        },
+    }
+
+    let summary = &batch.summaries[0];
+    assert_eq!(summary.valid_entries, 2);
+    assert_eq!(summary.skipped_entries, 1);
+    assert_eq!(summary.tokens.total_tokens, 370);
+}
+
+#[test]
 fn sdk_batch_respects_timezone_boundaries_like_single_range() {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let root = tempfile::tempdir().expect("temp dir");
