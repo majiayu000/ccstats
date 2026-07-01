@@ -6,6 +6,8 @@
 use crate::core::types::RawEntry;
 use std::collections::HashMap;
 
+const SOURCE_WIDE_DEDUP_PREFIX: &str = "source-wide:";
+
 /// Trait for entries that can be deduplicated
 pub(crate) trait Deduplicatable {
     fn timestamp_ms(&self) -> i64;
@@ -30,6 +32,13 @@ impl Deduplicatable for RawEntry {
     }
 
     fn dedup_scope(&self) -> Option<&str> {
+        if self
+            .message_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with(SOURCE_WIDE_DEDUP_PREFIX))
+        {
+            return None;
+        }
         Some(&self.session_key)
     }
 }

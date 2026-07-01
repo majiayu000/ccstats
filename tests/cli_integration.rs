@@ -194,6 +194,93 @@ fn codex_daily_json_reads_session_data() {
 }
 
 #[test]
+fn codex_daily_json_deduplicates_replayed_token_counts_across_files() {
+    let root = unique_temp_dir("codex-replay-dedup");
+    let codex_home = root.join("codex-home");
+    let replay_a = codex_home.join("sessions").join("replay-a.jsonl");
+    let replay_b = codex_home.join("sessions").join("replay-b.jsonl");
+    let parent_meta = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"session_meta","payload":{"id":"parent-session"}}"#;
+    let fork_meta = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"session_meta","payload":{"id":"forked-session"}}"#;
+    let replayed = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":220,"cached_input_tokens":40,"output_tokens":80,"reasoning_output_tokens":20,"total_tokens":300},"last_token_usage":{"input_tokens":120,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":10,"total_tokens":160},"model":"gpt-5"}}}"#;
+    write_file(&replay_a, &format!("{parent_meta}\n{replayed}\n"));
+    write_file(
+        &replay_b,
+        &format!(
+            r#"{fork_meta}
+{parent_meta}
+{replayed}
+{{"timestamp":"2026-02-06T10:01:00Z","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":360,"cached_input_tokens":70,"output_tokens":140,"reasoning_output_tokens":40,"total_tokens":500}},"last_token_usage":{{"input_tokens":140,"cached_input_tokens":30,"output_tokens":60,"reasoning_output_tokens":20,"total_tokens":200}},"model":"gpt-5"}}}}}}
+"#
+        ),
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(370));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_daily_json_keeps_identical_token_count_sequences_per_session() {
+    let root = unique_temp_dir("codex-initial-session-scope");
+    let codex_home = root.join("codex-home");
+    let session_a = codex_home.join("sessions").join("session-a.jsonl");
+    let session_b = codex_home.join("sessions").join("session-b.jsonl");
+    let meta_a = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"session_meta","payload":{"id":"session-a"}}"#;
+    let meta_b = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"session_meta","payload":{"id":"session-b"}}"#;
+    let initial = r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":30,"reasoning_output_tokens":10,"total_tokens":130},"last_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":30,"reasoning_output_tokens":10,"total_tokens":130},"model":"gpt-5"}}}"#;
+    let second = r#"{"timestamp":"2026-02-06T10:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":220,"cached_input_tokens":40,"output_tokens":80,"reasoning_output_tokens":20,"total_tokens":300},"last_token_usage":{"input_tokens":120,"cached_input_tokens":20,"output_tokens":50,"reasoning_output_tokens":10,"total_tokens":160},"model":"gpt-5"}}}"#;
+    write_file(&session_a, &format!("{meta_a}\n{initial}\n{second}\n"));
+    write_file(&session_b, &format!("{meta_b}\n{initial}\n{second}\n"));
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(600));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn source_flag_can_select_codex_without_subcommand() {
     let root = unique_temp_dir("source-flag-codex");
     let codex_home = root.join("codex-home");
