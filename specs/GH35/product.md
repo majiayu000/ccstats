@@ -10,8 +10,9 @@ Grok 源报出的 "input tokens" 实为上下文规模代理（`context_tokens_u
 
 ## 目标
 
-- `--source all` 的成本总数只包含同一计费语义的数字，或明确区分两种语义
+- `--source all` 的成本总数只包含真实账单语义的数字，并把估算成本独立呈现
 - 单独 `ccstats grok` 视图保持现有信息量（上下文规模仍有观察价值）
+- CLI 与 SDK 消费者都能区分 real cost 与 estimated/proxy cost
 
 ## 非目标
 
@@ -20,22 +21,24 @@ Grok 源报出的 "input tokens" 实为上下文规模代理（`context_tokens_u
 
 ## Behavior Invariants
 
-1. `--source all` 的聚合总成本行不再混入 Grok 的合成成本；Grok 的估算以独立行/字段呈现并带 `estimated` 标记。
-2. 单源 `ccstats grok` 输出行为不变，但成本列标注为估算（表格列头或脚注、JSON 字段 `cost_estimated: true`）。
+1. `--source all` 的聚合总成本行不再混入 Grok 的合成成本；Grok 的估算以现有输出 shape 的独立字段/列/行呈现并带 `estimated` 标记。
+2. 单源 `ccstats grok` 输出行为不变，但成本列标注为估算（表格列头或脚注、JSON 字段、CSV 列、SDK 字段均可区分）。
 3. Grok token 计数（非成本）在 all 聚合中的呈现方式保持不变。
-4. JSON/CSV 中真实成本与估算成本可由机器区分。
+4. JSON/CSV 中真实成本与估算成本可由机器区分，且 JSON array-root 输出不得被替换为顶层 object envelope。
+5. `statusline --source all` 和 `top --source all` 不得把 Grok 估算成本当作真实成本。
+6. 成本语义不能只存在于 source-wide capability；未来 GH18 使 Grok 同时存在历史 proxy records 与新 real records 时，entry/aggregate provenance 必须能表达混合状态。
 
 ## 验收标准
 
 - [ ] `all monthly` 总成本 = Claude+Codex+Cursor 真实语义之和，Grok 估算独立可见
-- [ ] 三种输出格式一致区分两种语义
+- [ ] JSON/CSV/table/statusline/top/SDK 一致区分两种语义
 - [ ] 现有 Grok 单源测试仅追加标注断言
 - [ ] 预算/预测（monthly-budget）不把 Grok 估算计入真实开销
 
 ## 边界情况
 
 - 只有 Grok 一个源有数据时 `all` 的总成本行 → 显示 0 真实成本 + 独立估算行，而非空白
-- Grok 未来提供真实 usage（GH-18 落地）→ 标注机制按源能力位切换，而非硬编码 grok 名字
+- Grok 未来提供真实 usage（GH-18 落地）→ 同一日期范围内历史 proxy records 与新 real records 可以共存，标注机制按 record/aggregate cost kind 合成，而非 source-wide boolean 直接翻转
 
 ## 发布说明
 
