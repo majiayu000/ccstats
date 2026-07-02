@@ -23,10 +23,14 @@ PR_VIEW_FIELDS = [
 ]
 
 REVIEW_THREADS_QUERY = """
-query SpecRailReviewThreads($owner: String!, $name: String!, $number: Int!) {
+query SpecRailReviewThreads($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           id
           isResolved
@@ -113,21 +117,65 @@ def collect_pr_view(github_repo: str, pr_number: int) -> dict[str, Any]:
     )
 
 
+def collect_review_thread_page(
+    owner: str,
+    name: str,
+    pr_number: int,
+    after: str | None,
+) -> dict[str, Any]:
+    args = [
+        "api",
+        "graphql",
+        "-F",
+        f"owner={owner}",
+        "-F",
+        f"name={name}",
+        "-F",
+        f"number={pr_number}",
+        "-f",
+        f"query={REVIEW_THREADS_QUERY}",
+    ]
+    if after:
+        args.extend(["-F", f"after={after}"])
+    return run_gh_json(args)
+
+
 def collect_review_threads(owner: str, name: str, pr_number: int) -> dict[str, Any]:
-    return run_gh_json(
-        [
-            "api",
-            "graphql",
-            "-F",
-            f"owner={owner}",
-            "-F",
-            f"name={name}",
-            "-F",
-            f"number={pr_number}",
-            "-f",
-            f"query={REVIEW_THREADS_QUERY}",
-        ]
-    )
+    combined: dict[str, Any] | None = None
+    all_nodes: list[Any] = []
+    after: str | None = None
+
+    while True:
+        page = collect_review_thread_page(owner, name, pr_number, after)
+        data = _require_mapping(page.get("data"), "data")
+        repository = _require_mapping(data.get("repository"), "data.repository")
+        pull_request = _require_mapping(
+            repository.get("pullRequest"), "data.repository.pullRequest"
+        )
+        review_threads = _require_mapping(
+            pull_request.get("reviewThreads"), "data.repository.pullRequest.reviewThreads"
+        )
+        nodes = _require_list(
+            review_threads.get("nodes"), "data.repository.pullRequest.reviewThreads.nodes"
+        )
+        all_nodes.extend(nodes)
+
+        page_info = _require_mapping(
+            review_threads.get("pageInfo"),
+            "data.repository.pullRequest.reviewThreads.pageInfo",
+        )
+        has_next_page = page_info.get("hasNextPage")
+        if has_next_page is not True:
+            combined = page
+            review_threads["nodes"] = all_nodes
+            page_info["hasNextPage"] = False
+            break
+        end_cursor = page_info.get("endCursor")
+        if not isinstance(end_cursor, str) or not end_cursor.strip():
+            raise EvidenceError("reviewThreads pageInfo.endCursor is required for pagination")
+        after = end_cursor.strip()
+
+    return combined
 
 
 def _require_mapping(value: Any, field: str) -> dict[str, Any]:
@@ -261,6 +309,11 @@ def normalize_review_threads(graphql_payload: dict[str, Any]) -> list[dict[str, 
     review_threads = _require_mapping(
         pull_request.get("reviewThreads"), "data.repository.pullRequest.reviewThreads"
     )
+    page_info = _require_mapping(
+        review_threads.get("pageInfo"), "data.repository.pullRequest.reviewThreads.pageInfo"
+    )
+    if page_info.get("hasNextPage") is True:
+        raise EvidenceError("reviewThreads pagination is incomplete")
     nodes = _require_list(
         review_threads.get("nodes"), "data.repository.pullRequest.reviewThreads.nodes"
     )
@@ -315,10 +368,30 @@ def build_human_authorization(
     return authorization
 
 
+def build_human_review(
+    actor: str | None,
+    source: str | None,
+    summary: str | None,
+) -> dict[str, str] | None:
+    provided = [value for value in [actor, source, summary] if value is not None and value.strip()]
+    if not provided:
+        return None
+    if not actor or not actor.strip() or not source or not source.strip():
+        raise EvidenceError("--review-actor and --review-source must be provided together")
+    review = {
+        "actor": actor.strip(),
+        "source": source.strip(),
+    }
+    if summary and summary.strip():
+        review["summary"] = summary.strip()
+    return review
+
+
 def build_evidence(
     pr_payload: dict[str, Any],
     threads_payload: dict[str, Any],
     authorization: dict[str, str] | None = None,
+    human_review: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     evidence: dict[str, Any] = {
         "pr": _require_positive_int(pr_payload, "number"),
@@ -333,6 +406,8 @@ def build_evidence(
     }
     if authorization is not None:
         evidence["human_authorization"] = authorization
+    if human_review is not None:
+        evidence["human_review"] = human_review
     return evidence
 
 
@@ -340,11 +415,12 @@ def collect_evidence(
     github_repo: str,
     pr_number: int,
     authorization: dict[str, str] | None,
+    human_review: dict[str, str] | None,
 ) -> dict[str, Any]:
     owner, name = parse_github_repo(github_repo)
     pr_payload = collect_pr_view(github_repo, pr_number)
     threads_payload = collect_review_threads(owner, name, pr_number)
-    return build_evidence(pr_payload, threads_payload, authorization)
+    return build_evidence(pr_payload, threads_payload, authorization, human_review)
 
 
 def main() -> int:
@@ -356,6 +432,9 @@ def main() -> int:
     parser.add_argument("--authorization-actor", help="Human authorizing merge")
     parser.add_argument("--authorization-source", help="Where authorization was recorded")
     parser.add_argument("--authorization-summary", help="Short authorization summary")
+    parser.add_argument("--review-actor", help="Human providing final review")
+    parser.add_argument("--review-source", help="Where final review was recorded")
+    parser.add_argument("--review-summary", help="Short final review summary")
     parser.add_argument("--json", action="store_true", help="Print JSON output")
     args = parser.parse_args()
 
@@ -365,7 +444,12 @@ def main() -> int:
             args.authorization_source,
             args.authorization_summary,
         )
-        evidence = collect_evidence(args.github_repo, args.pr, authorization)
+        human_review = build_human_review(
+            args.review_actor,
+            args.review_source,
+            args.review_summary,
+        )
+        evidence = collect_evidence(args.github_repo, args.pr, authorization, human_review)
     except EvidenceError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

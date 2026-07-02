@@ -80,6 +80,34 @@ def artifact_exists(repo: Path, artifact_path: str | None) -> bool:
     return (repo / artifact_path).is_file()
 
 
+def positive_int_or_none(value: Any) -> int | None:
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
+def is_safe_repo_relative_path(raw: str) -> bool:
+    path = Path(raw)
+    return not path.is_absolute() and ".." not in path.parts
+
+
+def validate_artifact_path(
+    repo: Path,
+    artifact: str,
+    provided: str,
+    expected: str | None,
+) -> tuple[bool, str | None]:
+    if not is_safe_repo_relative_path(provided):
+        return False, "artifact path must be repo-relative and must not contain '..'"
+    if expected is None:
+        return False, "artifact has no expected path for this route"
+    if provided != expected:
+        return False, f"artifact path must be {expected}"
+    if not (repo / provided).is_file():
+        return False, "artifact file does not exist"
+    return True, None
+
+
 def required_artifact_path(config: Any, artifact: str, issue: int | None) -> str | None:
     if artifact == "linked_issue":
         return None
@@ -105,6 +133,18 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         config_errors.append(f"unknown route: {route}")
 
     evidence = load_evidence(Path(args.evidence) if args.evidence else None)
+    evidence_issue = positive_int_or_none(evidence.get("issue"))
+    issue_number = args.issue
+    if args.issue is not None and evidence_issue is not None and args.issue != evidence_issue:
+        return blocked_result(
+            route,
+            None,
+            args,
+            [f"issue evidence mismatch: --issue {args.issue} but evidence is GH-{evidence_issue}"],
+        )
+    if issue_number is None:
+        issue_number = evidence_issue
+
     labels = list(args.label or [])
     labels.extend(str(label) for label in evidence.get("labels", []) if str(label).strip())
     evidence_state = evidence.get("state")
@@ -113,7 +153,11 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
     state_from_cli = args.state is not None
     state_from_evidence = not state_from_cli and evidence_state is not None
     state_source = str(evidence.get("state_source") or "none")
-    state_trusted = state_source == "label" and evidence.get("state_trusted") is True
+    state_trusted = (
+        state_source == "label"
+        and evidence.get("state_trusted") is True
+        and evidence_state == explicit_state
+    )
 
     reasons: list[str] = []
     satisfied: list[str] = []
@@ -128,7 +172,7 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
             "decision": "blocked",
             "route": route,
             "current_state": explicit_state,
-            "issue": args.issue,
+            "issue": issue_number,
             "pr": args.pr,
             "reasons": config_errors,
             "satisfied": [],
@@ -190,13 +234,13 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
     if (
         route in READINESS_GATED_ROUTES
         and "readiness_label" in human_gates
-        and state_from_evidence
         and current_state in allowed_from
         and not state_trusted
     ):
         missing.append("trusted_state")
+        source = state_source if state_from_evidence else "explicit state"
         reasons.append(
-            f"state {current_state} came from untrusted {state_source} evidence; "
+            f"state {current_state} came from untrusted {source}; "
             "maintainer readiness label required"
         )
 
@@ -206,12 +250,12 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         provided_artifacts[name] = value
 
     for artifact in required:
-        path = required_artifact_path(config, artifact, args.issue)
+        path = required_artifact_path(config, artifact, issue_number)
         if artifact == "linked_issue":
-            if args.issue is None:
+            if issue_number is None:
                 missing.append("linked_issue")
             else:
-                satisfied.append(f"linked_issue: GH-{args.issue}")
+                satisfied.append(f"linked_issue: GH-{issue_number}")
             continue
         if artifact == "linked_pr":
             if args.pr is None:
@@ -229,10 +273,17 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         required_artifacts.append(path or artifact)
         provided = provided_artifacts.get(artifact)
         if provided:
-            if artifact in ARTIFACT_FILES and not (repo / str(provided)).is_file():
-                missing.append(f"{artifact}:{provided}")
+            provided_path = str(provided)
+            if artifact in ARTIFACT_FILES:
+                valid, error = validate_artifact_path(repo, artifact, provided_path, path)
+                if not valid:
+                    missing.append(f"{artifact}:{provided_path}")
+                    if error:
+                        reasons.append(f"{artifact} {error}: {provided_path}")
+                else:
+                    satisfied.append(f"{artifact}: {provided_path}")
             else:
-                satisfied.append(f"{artifact}: {provided}")
+                satisfied.append(f"{artifact}: {provided_path}")
             continue
         if artifact in ARTIFACT_FILES:
             if artifact_exists(repo, path):
@@ -260,13 +311,13 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         ):
             decision = "needs_human" if human_gates else "blocked"
         else:
-            decision = "warn" if args.mode in {"dry_run", "advisory"} else "blocked"
+            decision = "needs_human" if human_gates else ("warn" if args.mode in {"dry_run", "advisory"} else "blocked")
     else:
         decision = "allowed"
         reasons.append(f"route {route} passed local SpecRail gates")
 
     for artifact in creates:
-        path = render_artifact_path(config, artifact, args.issue)
+        path = render_artifact_path(config, artifact, issue_number)
         if path:
             required_artifacts.append(path)
 
@@ -275,7 +326,7 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         "route": route,
         "mode": args.mode,
         "current_state": current_state,
-        "issue": args.issue,
+        "issue": issue_number,
         "pr": args.pr,
         "reasons": reasons,
         "satisfied": sorted(set(satisfied)),
@@ -287,8 +338,8 @@ def evaluate_route(args: argparse.Namespace) -> dict[str, Any]:
         "verification_commands": [
             "python3 checks/check_workflow.py --repo .",
             *(
-                [f"python3 checks/check_workflow.py --repo . --spec-dir specs/GH{args.issue}"]
-                if args.issue
+                [f"python3 checks/check_workflow.py --repo . --spec-dir specs/GH{issue_number}"]
+                if issue_number
                 else []
             ),
         ],

@@ -23,6 +23,11 @@
       "url": "https://example.invalid/thread"
     }
   ],
-  "reviews": [],
+  "reviews": [
+    {
+      "author": "maintainer",
+      "state": "APPROVED"
+    }
+  ],
   "state": "OPEN"
 }

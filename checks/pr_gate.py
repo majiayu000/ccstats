@@ -17,6 +17,14 @@ from typing import Any
 CHECK_PASS_CONCLUSIONS = {"SUCCESS"}
 CLEAN_MERGE_STATES = {"CLEAN"}
 ACTIVE_CHANGE_REQUESTS = {"CHANGES_REQUESTED"}
+APPROVAL_STATES = {"APPROVED"}
+
+
+def _is_bot_author(author: Any) -> bool:
+    if not isinstance(author, str):
+        return False
+    value = author.lower()
+    return value.endswith("[bot]") or "code-assist" in value or "codex-connector" in value
 
 
 def _as_bool(value: Any) -> bool:
@@ -83,6 +91,7 @@ def _review_items(evidence: dict[str, Any]) -> tuple[list[str], list[str], list[
         reasons.append("reviews must be a list")
         return satisfied, missing, reasons
 
+    approved_human_reviewers: list[str] = []
     for index, review in enumerate(reviews, start=1):
         if not isinstance(review, dict):
             reasons.append(f"review #{index} is not an object")
@@ -91,8 +100,14 @@ def _review_items(evidence: dict[str, Any]) -> tuple[list[str], list[str], list[
         author = review.get("author") or f"review #{index}"
         if state in ACTIVE_CHANGE_REQUESTS:
             reasons.append(f"changes requested by {author}")
+        if state in APPROVAL_STATES and isinstance(author, str) and not _is_bot_author(author):
+            approved_human_reviewers.append(author)
     if not any(reason.startswith("changes requested") for reason in reasons):
         satisfied.append("no active changes-requested review evidence")
+    if approved_human_reviewers:
+        satisfied.append("human review approved by " + ", ".join(sorted(approved_human_reviewers)))
+    else:
+        missing.append("human_review")
     return satisfied, missing, reasons
 
 
@@ -135,6 +150,19 @@ def _authorization_item(evidence: dict[str, Any]) -> tuple[list[str], list[str]]
     if missing:
         return [], missing
     return [f"human authorization from {authorization['actor']} via {authorization['source']}"], []
+
+
+def _explicit_human_review_item(evidence: dict[str, Any]) -> tuple[list[str], list[str]]:
+    review = evidence.get("human_review")
+    if not isinstance(review, dict):
+        return [], ["human_review"]
+    missing = []
+    for key in ["actor", "source"]:
+        if not _non_empty_string(review.get(key)):
+            missing.append(f"human_review.{key}")
+    if missing:
+        return [], missing
+    return [f"human review from {review['actor']} via {review['source']}"], []
 
 
 def evaluate_pr_gate(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -182,20 +210,41 @@ def evaluate_pr_gate(evidence: dict[str, Any]) -> dict[str, Any]:
     else:
         missing.append("merge_state")
 
-    for checker in [_check_items, _review_items, _thread_items]:
-        checker_satisfied, checker_missing, checker_reasons = checker(evidence)
-        satisfied.extend(checker_satisfied)
-        missing.extend(checker_missing)
-        reasons.extend(checker_reasons)
+    check_satisfied, check_missing, check_reasons = _check_items(evidence)
+    satisfied.extend(check_satisfied)
+    missing.extend(check_missing)
+    reasons.extend(check_reasons)
+
+    review_satisfied, review_missing, review_reasons = _review_items(evidence)
+    if "human_review" in review_missing:
+        explicit_review_satisfied, explicit_review_missing = _explicit_human_review_item(evidence)
+        if explicit_review_satisfied:
+            review_satisfied.extend(explicit_review_satisfied)
+            review_missing = [item for item in review_missing if item != "human_review"]
+        else:
+            review_missing.extend(explicit_review_missing)
+    satisfied.extend(review_satisfied)
+    missing.extend(review_missing)
+    reasons.extend(review_reasons)
+
+    thread_satisfied, thread_missing, thread_reasons = _thread_items(evidence)
+    satisfied.extend(thread_satisfied)
+    missing.extend(thread_missing)
+    reasons.extend(thread_reasons)
 
     auth_satisfied, auth_missing = _authorization_item(evidence)
     satisfied.extend(auth_satisfied)
     missing.extend(auth_missing)
 
-    deterministic_missing = [item for item in missing if not item.startswith("human_authorization")]
+    human_gate_missing = [
+        item
+        for item in missing
+        if item.startswith("human_review") or item.startswith("human_authorization")
+    ]
+    deterministic_missing = [item for item in missing if item not in human_gate_missing]
     if reasons or deterministic_missing:
         decision = "blocked"
-    elif auth_missing:
+    elif human_gate_missing:
         decision = "needs_human"
     else:
         decision = "allowed"

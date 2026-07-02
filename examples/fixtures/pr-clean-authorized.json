@@ -27,6 +27,10 @@
     {
       "author": "gemini-code-assist",
       "state": "COMMENTED"
+    },
+    {
+      "author": "maintainer",
+      "state": "APPROVED"
     }
   ],
   "state": "OPEN"

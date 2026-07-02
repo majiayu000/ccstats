@@ -18,7 +18,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+      - name: Install test dependencies
+        run: python3 -m pip install pytest
       - name: Check workflow pack and spec packets
         run: python3 checks/check_workflow.py --repo . --all-specs
+      - name: Run SpecRail gate tests
+        run: python3 -m pytest -q tests/test_specrail_gates.py
       - name: Check whitespace
         run: git diff --check
