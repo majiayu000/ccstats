@@ -1,3 +1,4 @@
 /target
+__pycache__/
 src/**/CLAUDE.md
 tests/CLAUDE.md
