@@ -1,0 +1,28 @@
+{
+  "checks": [
+    {
+      "conclusion": "SUCCESS",
+      "name": "Compile-check all features",
+      "status": "COMPLETED"
+    }
+  ],
+  "head_sha": "e36d97517d8d0b27faca1abe5e5c63f9f88684d9",
+  "is_draft": false,
+  "linked_issue": 716,
+  "merge_state": "CLEAN",
+  "pr": 718,
+  "review_threads": [
+    {
+      "is_outdated": false,
+      "is_resolved": true,
+      "url": "https://example.invalid/resolved-thread"
+    }
+  ],
+  "reviews": [
+    {
+      "author": "maintainer",
+      "state": "APPROVED"
+    }
+  ],
+  "state": "OPEN"
+}
