@@ -10,9 +10,10 @@ GH-45
 
 ## 目标
 
-- 源名与别名单一事实来源（registry）
-- 新增源只需 `src/source/<name>/` + registry 注册一处
+- 源名与别名单一事实来源（registry），SDK 不再维护第二份 alias 表
+- 新增源若需要 SDK enum 暴露，必须有测试期一致性保证捕获漏改；不允许静默缺源
 - tools 能力与其他能力同构（能力位门控）
+- tool-call discovery 与 parsing 都通过 Source trait 边界，不再由 loader 硬编码 Claude schema/path
 
 ## 非目标
 
@@ -21,14 +22,15 @@ GH-45
 
 ## Behavior Invariants
 
-1. SDK 与 CLI 接受完全相同的源名与别名集合；任一侧新增源自动在另一侧可用或产生编译错误（禁止静默缺源）。
-2. `UsageSource::from_str` 对 registry 中每个源及其别名解析成功，对未知名返回与现在相同的错误类型。
+1. SDK 与 CLI 对 concrete sources 接受相同的源名与别名集合；任一 concrete source 新增后，SDK enum 未更新时一致性测试必须失败（禁止静默缺源）。
+2. `UsageSource::from_str` 对 registry 中每个 concrete source 及其别名解析成功，对 pseudo-source `all` 不要求成功，对未知名返回与现在相同的错误类型。
 3. `ccstats tools` 对无 tool-call 能力的源报错文案与现有一致；对 Claude 行为不变。
-4. `load_tool_calls` 尊重 GH-42 引入的路径覆盖逻辑（若已合并），不再独立硬编码路径。
+4. `UsageSource::from_str` 保持现有大小写/空白处理：先 trim，再通过 registry lookup 或等价逻辑解析。
+5. `load_tool_calls` 尊重 GH-42 引入的路径覆盖逻辑（若已合并），且 tool-call 文件发现与解析都由 source trait 拥有，不再独立硬编码 Claude 路径或 parser。
 
 ## 验收标准
 
-- [ ] 存在一个编译期或测试期的一致性保证：registry 源集 == SDK 可解析集（如测试遍历 `source_choices()` 断言 `UsageSource::from_str` 全部成功）
+- [ ] 存在一个编译期或测试期的一致性保证：registry concrete source set == SDK 可解析 concrete source set；`all` 被明确排除
 - [ ] 别名字符串在仓库中只出现一处（各源 `config.rs` 的 `aliases()`）
 - [ ] `rg '"claude"' src/app.rs` 中不再有能力判断用途的匹配
 - [ ] SDK 现有集成测试不改断言通过
