@@ -11,7 +11,7 @@ GH-38
 
 ## 实现任务
 
-- [ ] `SP38-T1` Owner: implementation. Done when: a single `OutputFormat` enum represents table/json/csv selection and CLI flags derive that enum in one place. Verify: unit test for default, json, csv, and json+csv precedence/error behavior.
+- [ ] `SP38-T1` Owner: implementation. Done when: a single `OutputFormat` enum represents table/json/csv selection and CLI flags derive that enum in one place while preserving CSV-over-JSON behavior when both flags are present. Verify: unit test for default, json, csv, and json+csv precedence.
 - [ ] `SP38-T2` Owner: implementation. Done when: session, project, blocks, top, tools, sources, and period rendering each have one format-dispatch entry point instead of repeated `if cli.csv` / `else if cli.json` branches in handlers. Verify: `rg "if cli\\.csv|else if cli\\.json" src/app.rs` returns no handler-level matches.
 - [ ] `SP38-T3` Owner: implementation. Done when: `handle_sources` table/CSV/JSON expose the same capability column set, including `has_cache_creation` and `needs_dedup`. Verify: integration tests comparing source output columns across formats.
 - [ ] `SP38-T4` Owner: implementation. Done when: statusline remains on its existing special path and is documented/isolated from the generic `OutputFormat` abstraction. Verify: existing statusline tests pass unchanged.
@@ -28,7 +28,7 @@ GH-38
 ## 验证
 
 - [ ] `SP38-T7` Owner: verification. Done when: daily/session/project/top/tools/sources representative commands are checked in table, JSON, and CSV where supported. Verify: existing plus new CLI integration tests.
-- [ ] `SP38-T8` Owner: verification. Done when: implementation does not introduce a trait or plugin layer until a real fourth format exists. Verify: code review against tech spec non-goal.
+- [ ] `SP38-T8` Owner: verification. Done when: implementation does not introduce a trait or plugin layer until a real fourth format exists, and PR docs do not claim O(1) new-format support from this slice. Verify: code review against tech spec non-goal.
 
 ## Handoff Notes
 
