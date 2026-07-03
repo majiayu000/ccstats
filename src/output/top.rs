@@ -77,7 +77,7 @@ pub(crate) fn rank_by_model_with_cost_mode(
             let cost_kind = stats.cost_kind();
             let pricing_source = pricing_db
                 .pricing_source_for_model(&model)
-                .unwrap_or_else(|| pricing_db.source());
+                .unwrap_or(crate::pricing::PricingSource::Unknown);
             let (pricing_cache_age_seconds, pricing_cache_mtime_epoch_seconds) =
                 top_cache_metadata(pricing_source, pricing_db);
             TopRow {
@@ -410,6 +410,9 @@ fn top_pricing_note(rows: &[TopRow]) -> Option<String> {
         )),
         crate::pricing::PricingSource::Fallback => {
             Some("Pricing source: fallback estimates.".to_string())
+        }
+        crate::pricing::PricingSource::Unknown => {
+            Some("Pricing source: unknown unpriced models.".to_string())
         }
         crate::pricing::PricingSource::Mixed => {
             Some(format!("Pricing source: mixed{}.", top_cache_suffix(rows)))

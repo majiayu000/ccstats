@@ -144,19 +144,27 @@ pub(crate) fn pricing_source_for_models(
     models: &HashMap<String, Stats>,
     pricing_db: &PricingDb,
 ) -> PricingSource {
+    pricing_source_for_models_with_cost(models, pricing_db).unwrap_or_else(|| pricing_db.source())
+}
+
+fn pricing_source_for_models_with_cost(
+    models: &HashMap<String, Stats>,
+    pricing_db: &PricingDb,
+) -> Option<PricingSource> {
     let mut source: Option<PricingSource> = None;
     for (model, stats) in models {
         if !stats.cost_tokens().has_entries() {
             continue;
         }
-        if let Some(model_source) = pricing_db.pricing_source_for_model(model) {
-            source = Some(match source {
-                Some(current) => current.combine(model_source),
-                None => model_source,
-            });
-        }
+        let model_source = pricing_db
+            .pricing_source_for_model(model)
+            .unwrap_or(PricingSource::Unknown);
+        source = Some(match source {
+            Some(current) => current.combine(model_source),
+            None => model_source,
+        });
     }
-    source.unwrap_or_else(|| pricing_db.source())
+    source
 }
 
 pub(crate) fn pricing_source_for_model_maps<'a>(
@@ -165,11 +173,12 @@ pub(crate) fn pricing_source_for_model_maps<'a>(
 ) -> PricingSource {
     let mut source: Option<PricingSource> = None;
     for map in maps {
-        let map_source = pricing_source_for_models(map, pricing_db);
-        source = Some(match source {
-            Some(current) => current.combine(map_source),
-            None => map_source,
-        });
+        if let Some(map_source) = pricing_source_for_models_with_cost(map, pricing_db) {
+            source = Some(match source {
+                Some(current) => current.combine(map_source),
+                None => map_source,
+            });
+        }
     }
     source.unwrap_or_else(|| pricing_db.source())
 }

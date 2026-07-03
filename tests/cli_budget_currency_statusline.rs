@@ -159,6 +159,83 @@ fn strict_pricing_sets_unknown_cost_to_null() {
     let arr = json.as_array().expect("array output");
     assert_eq!(arr.len(), 1);
     assert!(arr[0]["cost"].is_null());
+    assert_eq!(arr[0]["pricing_source"].as_str(), Some("unknown"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn strict_pricing_csv_marks_unknown_source() {
+    let root = unique_temp_dir("strict-pricing-csv");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("strict-session.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":60},"last_token_usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":60},"model":"mystery-model"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "--csv",
+            "-O",
+            "--strict-pricing",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8 stdout");
+    let lines: Vec<&str> = output.lines().collect();
+    assert!(lines[0].ends_with(",cost,pricing_source"));
+    assert!(lines[1].ends_with(",N/A,unknown"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn strict_pricing_table_marks_unknown_source() {
+    let root = unique_temp_dir("strict-pricing-table");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("strict-session.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T11:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":60},"last_token_usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":60},"model":"mystery-model"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "-O",
+            "--strict-pricing",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8 stdout");
+    assert!(output.contains("N/A"), "stdout: {output}");
+    assert!(
+        output.contains("Pricing source: unknown unpriced models."),
+        "stdout: {output}"
+    );
+    assert!(!output.contains("fallback estimates"), "stdout: {output}");
 
     let _ = fs::remove_dir_all(root);
 }

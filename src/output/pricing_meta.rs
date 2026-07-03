@@ -27,7 +27,7 @@ pub(super) fn add_json(
 pub(super) fn add_model_json(obj: &mut serde_json::Value, model: &str, pricing_db: &PricingDb) {
     let source = pricing_db
         .pricing_source_for_model(model)
-        .unwrap_or_else(|| pricing_db.source());
+        .unwrap_or(PricingSource::Unknown);
     add_source_json(obj, source, pricing_db);
 }
 
@@ -96,7 +96,7 @@ pub(super) fn append_model_csv_fields(
 ) {
     let source = pricing_db
         .pricing_source_for_model(model)
-        .unwrap_or_else(|| pricing_db.source());
+        .unwrap_or(PricingSource::Unknown);
     append_source_csv_fields(out, source, pricing_db, include_cache_fields);
 }
 
@@ -134,6 +134,7 @@ pub(super) fn note(source: PricingSource, pricing_db: &PricingDb) -> Option<Stri
             cache_age_suffix(pricing_db)
         )),
         PricingSource::Fallback => Some("Pricing source: fallback estimates.".to_string()),
+        PricingSource::Unknown => Some("Pricing source: unknown unpriced models.".to_string()),
         PricingSource::Mixed => Some(format!(
             "Pricing source: mixed{}.",
             cache_age_suffix(pricing_db)

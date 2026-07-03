@@ -6,6 +6,7 @@ pub(crate) enum PricingSource {
     Cache,
     CacheStale,
     Fallback,
+    Unknown,
     Mixed,
 }
 
@@ -16,6 +17,7 @@ impl PricingSource {
             PricingSource::Cache => "cache",
             PricingSource::CacheStale => "cache_stale",
             PricingSource::Fallback => "fallback",
+            PricingSource::Unknown => "unknown",
             PricingSource::Mixed => "mixed",
         }
     }
