@@ -39,6 +39,9 @@ impl Source for CursorSource {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
+            // Cursor project metadata is only present in some experimental rows.
+            // Keep project aggregation disabled until every parsed table can
+            // provide a trustworthy project path.
             has_projects: false,
             has_billing_blocks: false,
             has_reasoning_tokens: false,
