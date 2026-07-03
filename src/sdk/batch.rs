@@ -98,7 +98,8 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
     let source = get_source(usage_source.as_str()).ok_or_else(|| SdkError::InvalidSource {
         name: usage_source.as_str().to_string(),
     })?;
-    let pricing_db = PricingDb::load_quiet(offline, strict_pricing);
+    let pricing_db = PricingDb::try_load_quiet(offline, strict_pricing)
+        .map_err(|err| SdkError::Configuration(err.to_string()))?;
     let currency = load_requested_currency(requested_currency.as_deref(), offline)?;
     let currency_code = currency.as_ref().map_or_else(
         || "USD".to_string(),
