@@ -10,7 +10,7 @@ pub(crate) use aggregator::{
     aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
     aggregate_sessions_map, format_project_name, merge_day_stats,
 };
-pub(crate) use dedup::DedupAccumulator;
+pub(crate) use dedup::{DedupAccumulator, source_wide_message_id};
 pub(crate) use tool_aggregator::aggregate_tools;
 #[cfg(test)]
 pub(crate) use tool_types::ToolStats;

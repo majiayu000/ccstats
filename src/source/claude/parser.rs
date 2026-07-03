@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::RawEntry;
+use crate::core::{RawEntry, source_wide_message_id};
 use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
@@ -304,7 +304,7 @@ fn parse_entry_with_debug(
         timestamp: ts,
         timestamp_ms: utc_dt.timestamp_millis(),
         date_str: date.format(DATE_FORMAT).to_string(),
-        message_id: msg.id,
+        message_id: msg.id.map(|id| source_wide_message_id("claude", &id)),
         session_key: session_key.to_string(),
         session_id: session_id.to_string(),
         project_path: project_path.to_string(),

@@ -8,6 +8,10 @@ use std::collections::HashMap;
 
 const SOURCE_WIDE_DEDUP_PREFIX: &str = "source-wide:";
 
+pub(crate) fn source_wide_message_id(source: &str, message_id: &str) -> String {
+    format!("{SOURCE_WIDE_DEDUP_PREFIX}{source}:{message_id}")
+}
+
 /// Trait for entries that can be deduplicated
 pub(crate) trait Deduplicatable {
     fn timestamp_ms(&self) -> i64;
@@ -240,6 +244,33 @@ mod tests {
         }
         fn message_id(&self) -> Option<&str> {
             self.id.as_deref()
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct ScopedTestEntry {
+        id: String,
+        scope: String,
+        ts: i64,
+        value: i32,
+    }
+
+    impl Deduplicatable for ScopedTestEntry {
+        fn timestamp_ms(&self) -> i64 {
+            self.ts
+        }
+        fn has_stop_reason(&self) -> bool {
+            true
+        }
+        fn message_id(&self) -> Option<&str> {
+            Some(&self.id)
+        }
+        fn dedup_scope(&self) -> Option<&str> {
+            if self.id.starts_with(SOURCE_WIDE_DEDUP_PREFIX) {
+                None
+            } else {
+                Some(&self.scope)
+            }
         }
     }
 
@@ -523,5 +554,30 @@ mod tests {
         assert_eq!(result[0].value, 2); // msg1 chooses completed entry from right chunk
         assert_eq!(result[1].value, 10); // msg2 keeps completed entry from left chunk
         assert_eq!(skipped, 2);
+    }
+
+    #[test]
+    fn source_wide_message_ids_ignore_session_scope() {
+        let id = source_wide_message_id("claude", "msg_1");
+        let entries = vec![
+            ScopedTestEntry {
+                id: id.clone(),
+                scope: "file-a".to_string(),
+                ts: 100,
+                value: 1,
+            },
+            ScopedTestEntry {
+                id,
+                scope: "file-b".to_string(),
+                ts: 200,
+                value: 2,
+            },
+        ];
+
+        let (result, skipped) = deduplicate(entries);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].value, 2);
+        assert_eq!(skipped, 1);
     }
 }
