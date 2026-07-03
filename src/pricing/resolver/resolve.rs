@@ -11,13 +11,64 @@ pub(crate) fn resolve_pricing_known(
         return None;
     }
 
-    for key in exact_candidate_keys(model, &model_lower) {
-        if let Some(pricing) = models.get(&key) {
-            return Some(pricing.clone());
-        }
+    match resolve_direct_exact(model, &model_lower, models) {
+        PricingResolution::Resolved(pricing) => return Some(pricing),
+        PricingResolution::Ambiguous => return None,
+        PricingResolution::NoMatch => {}
+    }
+
+    match resolve_normalized_exact(model, &model_lower, models) {
+        PricingResolution::Resolved(pricing) => return Some(pricing),
+        PricingResolution::Ambiguous => return None,
+        PricingResolution::NoMatch => {}
     }
 
     resolve_dated_claude_variant(&model_lower, models)
+}
+
+enum PricingResolution {
+    NoMatch,
+    Resolved(ModelPricing),
+    Ambiguous,
+}
+
+fn resolve_direct_exact(
+    model: &str,
+    model_lower: &str,
+    models: &HashMap<String, ModelPricing>,
+) -> PricingResolution {
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    for key in [model, model_lower] {
+        if seen.insert(key)
+            && let Some(pricing) = models.get(key)
+        {
+            candidates.push((key.to_lowercase(), pricing_signature(pricing), pricing));
+        }
+    }
+
+    resolve_unique_pricing(candidates)
+}
+
+fn resolve_normalized_exact(
+    model: &str,
+    model_lower: &str,
+    models: &HashMap<String, ModelPricing>,
+) -> PricingResolution {
+    let candidates = exact_candidate_keys(model, model_lower)
+        .into_iter()
+        .filter_map(|key| {
+            models.get(&key).map(|pricing| {
+                (
+                    canonical_lookup_key(&key),
+                    pricing_signature(pricing),
+                    pricing,
+                )
+            })
+        })
+        .collect();
+
+    resolve_unique_pricing(candidates)
 }
 
 fn exact_candidate_keys(model: &str, model_lower: &str) -> Vec<String> {
@@ -48,7 +99,7 @@ fn exact_candidate_keys(model: &str, model_lower: &str) -> Vec<String> {
 
     let base_keys = keys.clone();
     for key in base_keys {
-        if !key.as_bytes().iter().any(|character| *character == b'/')
+        if !key.as_bytes().contains(&b'/')
             && is_claude_family_alias(&key)
             && !key.starts_with("claude-")
         {
@@ -93,7 +144,7 @@ fn resolve_dated_claude_variant(
     for (key, pricing) in models {
         let key_lower = key.to_lowercase();
         let canonical = canonical_claude_key(&key_lower);
-        if strip_yyyymmdd_suffix(&canonical).is_some_and(|base| bases.get(base).is_some()) {
+        if strip_yyyymmdd_suffix(&canonical).is_some_and(|base| bases.contains(base)) {
             candidates.push((canonical, pricing_signature(pricing), pricing));
         }
     }
@@ -115,6 +166,17 @@ fn canonical_claude_key(key: &str) -> String {
     key.strip_prefix("claude-").unwrap_or(key).to_string()
 }
 
+fn canonical_lookup_key(key: &str) -> String {
+    let lower = key.to_lowercase();
+    let without_provider = lower
+        .strip_prefix("anthropic.")
+        .or_else(|| lower.strip_prefix("openai/"))
+        .or_else(|| lower.strip_prefix("xai/"))
+        .unwrap_or(&lower);
+
+    canonical_claude_key(without_provider)
+}
+
 fn is_claude_family_alias(key: &str) -> bool {
     key.split(['-', '.', '/', '_'])
         .any(|segment| matches!(segment, "sonnet" | "opus" | "haiku"))
@@ -129,11 +191,18 @@ fn strip_yyyymmdd_suffix(key: &str) -> Option<&str> {
 }
 
 fn unique_pricing(candidates: Vec<(String, [u64; 5], &ModelPricing)>) -> Option<ModelPricing> {
+    match resolve_unique_pricing(candidates) {
+        PricingResolution::Resolved(pricing) => Some(pricing),
+        PricingResolution::NoMatch | PricingResolution::Ambiguous => None,
+    }
+}
+
+fn resolve_unique_pricing(candidates: Vec<(String, [u64; 5], &ModelPricing)>) -> PricingResolution {
     let mut unique = HashMap::new();
     for (canonical, signature, pricing) in candidates {
         match unique.get(&canonical) {
             Some((existing_signature, _)) if *existing_signature != signature => {
-                return None;
+                return PricingResolution::Ambiguous;
             }
             Some(_) => {}
             None => {
@@ -142,11 +211,17 @@ fn unique_pricing(candidates: Vec<(String, [u64; 5], &ModelPricing)>) -> Option<
         }
     }
 
-    if unique.len() != 1 {
-        return None;
+    if unique.is_empty() {
+        return PricingResolution::NoMatch;
     }
-    let (_, pricing) = unique.into_values().next()?;
-    Some(pricing.clone())
+    if unique.len() != 1 {
+        return PricingResolution::Ambiguous;
+    }
+    let (_, pricing) = unique
+        .into_values()
+        .next()
+        .expect("unique pricing contains one value");
+    PricingResolution::Resolved(pricing.clone())
 }
 
 fn pricing_signature(pricing: &ModelPricing) -> [u64; 5] {
@@ -330,6 +405,28 @@ mod tests {
         let result = resolve_pricing_known("anthropic.claude-sonnet-4", &models);
         assert!(result.is_some());
         assert_eq!(result.unwrap().input, 3e-6);
+    }
+
+    #[test]
+    fn test_resolve_provider_normalized_ambiguity_returns_none() {
+        let mut models = HashMap::new();
+        models.insert(
+            "sonnet-4".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+        models.insert(
+            "claude-sonnet-4".to_string(),
+            ModelPricing {
+                input: 4e-6,
+                ..Default::default()
+            },
+        );
+
+        let result = resolve_pricing_known("anthropic.claude-sonnet-4", &models);
+        assert!(result.is_none());
     }
 
     #[test]
