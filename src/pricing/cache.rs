@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 const APP_CACHE_DIR: &str = "ccstats";
@@ -13,21 +13,18 @@ struct CachePaths {
     read_paths: Vec<PathBuf>,
 }
 
-fn pricing_cache_file(root: PathBuf) -> PathBuf {
+fn pricing_cache_file(root: &Path) -> PathBuf {
     root.join(APP_CACHE_DIR).join(PRICING_CACHE_FILE)
 }
 
-fn legacy_cache_file(home_dir: PathBuf) -> PathBuf {
+fn legacy_cache_file(home_dir: &Path) -> PathBuf {
     home_dir
         .join(".cache")
         .join(APP_CACHE_DIR)
         .join(PRICING_CACHE_FILE)
 }
 
-fn select_cache_paths(
-    platform_cache_dir: Option<PathBuf>,
-    home_dir: Option<PathBuf>,
-) -> CachePaths {
+fn select_cache_paths(platform_cache_dir: Option<&Path>, home_dir: Option<&Path>) -> CachePaths {
     let preferred_path = platform_cache_dir.map(pricing_cache_file);
     let legacy_path = home_dir.map(legacy_cache_file);
     let write_path = preferred_path.clone().or_else(|| legacy_path.clone());
@@ -49,25 +46,21 @@ fn select_cache_paths(
 }
 
 fn cache_paths() -> CachePaths {
-    select_cache_paths(dirs::cache_dir(), dirs::home_dir())
+    let platform_cache_dir = dirs::cache_dir();
+    let home_dir = dirs::home_dir();
+    select_cache_paths(platform_cache_dir.as_deref(), home_dir.as_deref())
 }
 
 pub(super) fn get_cache_path() -> Option<PathBuf> {
     cache_paths().write_path
 }
 
-fn open_cache_file(path: &PathBuf) -> Option<Option<File>> {
-    match File::open(path) {
-        Ok(file) => Some(Some(file)),
-        Err(error) if error.kind() == ErrorKind::NotFound => Some(None),
-        Err(_) => None,
-    }
-}
-
 fn load_raw_cache_from_paths(paths: &[PathBuf]) -> Option<HashMap<String, serde_json::Value>> {
     for path in paths {
-        let Some(file) = open_cache_file(path)? else {
-            continue;
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(_) => return None,
         };
         return serde_json::from_reader(file).ok();
     }
@@ -115,7 +108,7 @@ pub(super) fn save_raw_cache(raw_data: &HashMap<String, serde_json::Value>) {
     save_raw_cache_to_path(raw_data, &path);
 }
 
-fn save_raw_cache_to_path(raw_data: &HashMap<String, serde_json::Value>, path: &PathBuf) {
+fn save_raw_cache_to_path(raw_data: &HashMap<String, serde_json::Value>, path: &Path) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -138,7 +131,7 @@ mod tests {
     fn cache_paths_prefer_platform_cache_dir() {
         let platform = PathBuf::from("platform-cache");
         let home = PathBuf::from("home-dir");
-        let paths = select_cache_paths(Some(platform.clone()), Some(home.clone()));
+        let paths = select_cache_paths(Some(platform.as_path()), Some(home.as_path()));
 
         assert_eq!(
             paths.write_path,
@@ -161,7 +154,7 @@ mod tests {
     #[test]
     fn cache_paths_use_legacy_as_explicit_fallback() {
         let home = PathBuf::from("home-dir");
-        let paths = select_cache_paths(None, Some(home.clone()));
+        let paths = select_cache_paths(None, Some(home.as_path()));
         let legacy_path = home
             .join(".cache")
             .join(APP_CACHE_DIR)
@@ -175,11 +168,8 @@ mod tests {
     fn load_raw_cache_reads_legacy_when_preferred_absent() {
         let platform_root = TempDir::new().unwrap();
         let home_root = TempDir::new().unwrap();
-        let paths = select_cache_paths(
-            Some(platform_root.path().to_path_buf()),
-            Some(home_root.path().to_path_buf()),
-        );
-        let legacy_path = legacy_cache_file(home_root.path().to_path_buf());
+        let paths = select_cache_paths(Some(platform_root.path()), Some(home_root.path()));
+        let legacy_path = legacy_cache_file(home_root.path());
         save_raw_cache_to_path(&sample_raw_data("legacy-model"), &legacy_path);
 
         let data = load_raw_cache_from_paths(&paths.read_paths).unwrap();
@@ -191,12 +181,9 @@ mod tests {
     fn load_raw_cache_prefers_current_when_both_exist() {
         let platform_root = TempDir::new().unwrap();
         let home_root = TempDir::new().unwrap();
-        let paths = select_cache_paths(
-            Some(platform_root.path().to_path_buf()),
-            Some(home_root.path().to_path_buf()),
-        );
+        let paths = select_cache_paths(Some(platform_root.path()), Some(home_root.path()));
         let current_path = paths.write_path.as_ref().unwrap();
-        let legacy_path = legacy_cache_file(home_root.path().to_path_buf());
+        let legacy_path = legacy_cache_file(home_root.path());
         save_raw_cache_to_path(&sample_raw_data("current-model"), current_path);
         save_raw_cache_to_path(&sample_raw_data("legacy-model"), &legacy_path);
 
@@ -210,11 +197,8 @@ mod tests {
     fn load_raw_cache_if_fresh_reads_legacy_when_preferred_absent() {
         let platform_root = TempDir::new().unwrap();
         let home_root = TempDir::new().unwrap();
-        let paths = select_cache_paths(
-            Some(platform_root.path().to_path_buf()),
-            Some(home_root.path().to_path_buf()),
-        );
-        let legacy_path = legacy_cache_file(home_root.path().to_path_buf());
+        let paths = select_cache_paths(Some(platform_root.path()), Some(home_root.path()));
+        let legacy_path = legacy_cache_file(home_root.path());
         save_raw_cache_to_path(&sample_raw_data("legacy-model"), &legacy_path);
 
         let (data, _age) =
@@ -227,12 +211,9 @@ mod tests {
     fn save_raw_cache_writes_current_path_not_legacy() {
         let platform_root = TempDir::new().unwrap();
         let home_root = TempDir::new().unwrap();
-        let paths = select_cache_paths(
-            Some(platform_root.path().to_path_buf()),
-            Some(home_root.path().to_path_buf()),
-        );
+        let paths = select_cache_paths(Some(platform_root.path()), Some(home_root.path()));
         let current_path = paths.write_path.as_ref().unwrap();
-        let legacy_path = legacy_cache_file(home_root.path().to_path_buf());
+        let legacy_path = legacy_cache_file(home_root.path());
 
         save_raw_cache_to_path(&sample_raw_data("current-model"), current_path);
 
