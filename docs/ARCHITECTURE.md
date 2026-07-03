@@ -153,6 +153,51 @@ pub struct RawEntry {
 
 SDK 调用通过 `summarize_cost(SummaryOptions)` 复用同一套 source registry、loader、聚合和 pricing 逻辑，但返回结构化 `CostSummary`，不经过 table/JSON 输出层。需要和 CLI 持久化配置同口径时，SDK 使用 `summarize_cost_with_cli_config` 复用 timezone、offline pricing、strict pricing 和 currency 默认值。
 
+### CLI 配置加载
+
+CLI 启动时先读取可选的 TOML 配置，再合并命令行参数。命令行参数优先级高于配置文件。
+
+配置搜索顺序：
+
+1. `~/.config/ccstats/config.toml`
+2. 平台配置目录，例如 macOS 的 `~/Library/Application Support/ccstats/config.toml`
+3. `~/.ccstats.toml`
+
+第一个存在的配置文件是权威配置。如果它无法读取、TOML 语法错误或字段类型错误，CLI 直接返回错误；normal、quiet/statusline 路径都不能回落默认值继续输出。只有所有路径都不存在时才使用 `Config::default()`。
+
+配置键保持简单，且不定义 source 根目录路径：
+
+| 键 | 类型 | 取值 |
+|----|------|------|
+| `offline`, `compact`, `no_cost`, `no_color`, `breakdown`, `debug`, `strict_pricing` | boolean | `true` / `false` |
+| `order` | string | `asc` / `desc` |
+| `color` | string | `auto` / `always` / `never` |
+| `cost` | string | `show` / `hide` |
+| `timezone`, `locale`, `currency`, `source` | string | 对应 CLI 参数的字符串值 |
+
+示例：
+
+```toml
+source = "codex"
+timezone = "Asia/Shanghai"
+currency = "USD"
+offline = true
+strict_pricing = true
+compact = true
+order = "desc"
+color = "auto"
+cost = "show"
+```
+
+Source 根目录仍由环境变量覆盖：
+
+| Source | Env var | Value | Default |
+|--------|---------|-------|---------|
+| Claude Code | `CLAUDE_CONFIG_DIR` | Claude config root containing `projects/` | `~/.claude` |
+| OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
+| Cursor | `CURSOR_HOME` | Cursor `User` directory | Platform Cursor `User` directory |
+| Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
+
 ## 添加新数据源
 
 ### 1. 创建目录结构

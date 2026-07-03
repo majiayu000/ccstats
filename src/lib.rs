@@ -64,10 +64,17 @@ pub fn run_cli() {
     let source_cmd = parsed_command.command;
     let is_statusline = source_cmd.is_statusline();
 
-    let config = if is_statusline {
-        Config::load_quiet()
+    let config_result = if is_statusline {
+        Config::try_load_quiet()
     } else {
-        Config::load()
+        Config::try_load()
+    };
+    let config = match config_result {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Error: {err}");
+            std::process::exit(1);
+        }
     };
 
     let cli = raw_cli.with_config(&config);

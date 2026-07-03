@@ -6,6 +6,59 @@ ccstats 从本地 JSONL 日志中统计 token 用量和费用。不同 AI 工具
 
 ---
 
+## 配置与数据源根目录
+
+ccstats 启动时先读取可选的 TOML 配置文件，再根据命令行参数和数据源环境变量寻找本地日志。配置文件搜索顺序：
+
+1. `~/.config/ccstats/config.toml`
+2. 平台配置目录，例如 macOS 的 `~/Library/Application Support/ccstats/config.toml`
+3. `~/.ccstats.toml`
+
+第一个存在的配置文件生效。如果该文件无法读取、TOML 语法错误或字段类型错误，命令直接报错退出，不会继续尝试低优先级配置，也不会回落默认值。没有配置文件时使用默认值。
+
+支持的配置键：
+
+| 键 | 类型 | 取值 |
+|----|------|------|
+| `offline` | boolean | `true` / `false` |
+| `compact` | boolean | `true` / `false` |
+| `no_cost` | boolean | `true` / `false` |
+| `no_color` | boolean | `true` / `false` |
+| `breakdown` | boolean | `true` / `false` |
+| `debug` | boolean | `true` / `false` |
+| `strict_pricing` | boolean | `true` / `false` |
+| `order` | string | `asc` / `desc` |
+| `color` | string | `auto` / `always` / `never` |
+| `cost` | string | `show` / `hide` |
+| `timezone` | string | IANA 时区，例如 `UTC` / `Asia/Shanghai` |
+| `locale` | string | 数字格式 locale，例如 `en` / `de` |
+| `currency` | string | 货币代码，例如 `USD` / `CNY` / `EUR` |
+| `source` | string | `claude` / `codex` / `cursor` / `grok` / `all` 或别名 |
+
+示例：
+
+```toml
+source = "codex"
+timezone = "Asia/Shanghai"
+currency = "USD"
+offline = true
+strict_pricing = true
+order = "desc"
+color = "auto"
+cost = "show"
+```
+
+数据源根目录由环境变量覆盖，不属于 TOML 配置键：
+
+| 数据源 | 环境变量 | 含义 | 默认值 |
+|--------|----------|------|--------|
+| Claude Code | `CLAUDE_CONFIG_DIR` | 包含 `projects/` 的 Claude 配置根目录 | `~/.claude` |
+| OpenAI Codex | `CODEX_HOME` | 包含 `sessions/` 的 Codex 根目录 | `~/.codex` |
+| Cursor | `CURSOR_HOME` | Cursor `User` 目录 | 平台 app/config data 目录下的 Cursor `User` |
+| Grok | `GROK_HOME` | 包含 `sessions/` 的 Grok 根目录 | `~/.grok` |
+
+---
+
 ## 统一数据模型
 
 所有数据源解析后输出统一的 `RawEntry`，其中 token 字段**互不重叠**：
