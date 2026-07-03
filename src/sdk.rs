@@ -212,7 +212,8 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
     let source = get_source(options.source.as_str()).ok_or_else(|| SdkError::InvalidSource {
         name: options.source.as_str().to_string(),
     })?;
-    let pricing_db = PricingDb::load_quiet(options.offline, options.strict_pricing);
+    let pricing_db = PricingDb::try_load_quiet(options.offline, options.strict_pricing)
+        .map_err(|err| SdkError::Configuration(err.to_string()))?;
     let currency = load_requested_currency(options.currency.as_deref(), options.offline)?;
     let currency_code = currency.as_ref().map_or_else(
         || "USD".to_string(),

@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use crate::core::Stats;
 
-use super::cache::{load_raw_cache, load_raw_cache_if_fresh, save_raw_cache};
+use super::cache::{
+    CacheReadError, CacheWriteError, load_raw_cache, load_raw_cache_if_fresh, save_raw_cache,
+};
 use super::provider::fetch_litellm_raw;
 use super::resolver::{fallback_pricing, parse_litellm_data, resolve_pricing_known};
 use super::types::ModelPricing;
@@ -13,6 +15,12 @@ use super::types::ModelPricing;
 enum ResolvedPricing {
     Known(ModelPricing),
     Unknown,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PricingLoadError {
+    #[error("failed to load pricing cache: {0}")]
+    Cache(#[from] CacheReadError),
 }
 
 /// Pricing database loaded from `LiteLLM` or cache
@@ -26,6 +34,14 @@ pub(crate) struct PricingDb {
 const PRICING_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 impl PricingDb {
+    fn empty(strict_unknown: bool) -> Self {
+        Self {
+            models: HashMap::new(),
+            resolved: RefCell::new(HashMap::new()),
+            strict_unknown,
+        }
+    }
+
     fn from_raw_data(data: HashMap<String, serde_json::Value>, strict_unknown: bool) -> Self {
         Self {
             models: parse_litellm_data(data),
@@ -34,58 +50,73 @@ impl PricingDb {
         }
     }
 
-    fn load_from_cache(strict_unknown: bool) -> Option<Self> {
-        let raw_data = load_raw_cache()?;
-        Some(Self::from_raw_data(raw_data, strict_unknown))
+    fn load_from_cache(strict_unknown: bool) -> Result<Option<Self>, CacheReadError> {
+        Ok(load_raw_cache()?.map(|raw_data| Self::from_raw_data(raw_data, strict_unknown)))
     }
 
-    fn load_from_cache_if_fresh(ttl: Duration, strict_unknown: bool) -> Option<(Self, Duration)> {
-        let (raw_data, age) = load_raw_cache_if_fresh(ttl)?;
-        Some((Self::from_raw_data(raw_data, strict_unknown), age))
+    fn load_from_cache_if_fresh(
+        ttl: Duration,
+        strict_unknown: bool,
+    ) -> Result<Option<(Self, Duration)>, CacheReadError> {
+        Ok(load_raw_cache_if_fresh(ttl)?
+            .map(|(raw_data, age)| (Self::from_raw_data(raw_data, strict_unknown), age)))
     }
 
     pub(crate) fn load(offline: bool, strict_unknown: bool) -> Self {
-        Self::load_internal(offline, strict_unknown, false)
+        Self::try_load(offline, strict_unknown).unwrap_or_else(|error| {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        })
     }
 
     pub(crate) fn load_quiet(offline: bool, strict_unknown: bool) -> Self {
+        Self::try_load_quiet(offline, strict_unknown).unwrap_or_else(|error| {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        })
+    }
+
+    pub(crate) fn try_load(offline: bool, strict_unknown: bool) -> Result<Self, PricingLoadError> {
+        Self::load_internal(offline, strict_unknown, false)
+    }
+
+    pub(crate) fn try_load_quiet(
+        offline: bool,
+        strict_unknown: bool,
+    ) -> Result<Self, PricingLoadError> {
         Self::load_internal(offline, strict_unknown, true)
     }
 
-    fn load_internal(offline: bool, strict_unknown: bool, quiet: bool) -> Self {
+    fn load_internal(
+        offline: bool,
+        strict_unknown: bool,
+        quiet: bool,
+    ) -> Result<Self, PricingLoadError> {
         let start = Instant::now();
 
         if offline {
-            if let Some(db) = Self::load_from_cache(strict_unknown) {
-                if !quiet {
-                    eprintln!(
-                        "Using cached pricing ({:.2}ms)",
-                        start.elapsed().as_secs_f64() * 1000.0
-                    );
-                }
-                return db;
-            }
-            if !quiet {
-                eprintln!(
-                    "No cached pricing, using defaults ({:.2}ms)",
-                    start.elapsed().as_secs_f64() * 1000.0
-                );
-            }
-            return Self {
-                models: HashMap::new(),
-                resolved: RefCell::new(HashMap::new()),
+            return Self::finish_offline_cache_load(
+                Self::load_from_cache(strict_unknown),
                 strict_unknown,
-            };
+                quiet,
+                start,
+            );
         }
 
-        if let Some((db, age)) = Self::load_from_cache_if_fresh(PRICING_CACHE_TTL, strict_unknown) {
-            if !quiet {
-                eprintln!(
-                    "Using cached pricing ({:.1}h old)",
-                    age.as_secs_f64() / 3600.0
-                );
+        match Self::load_from_cache_if_fresh(PRICING_CACHE_TTL, strict_unknown) {
+            Ok(Some((db, age))) => {
+                if !quiet {
+                    eprintln!(
+                        "Using cached pricing ({:.1}h old)",
+                        age.as_secs_f64() / 3600.0
+                    );
+                }
+                return Ok(db);
             }
-            return db;
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("Warning: ignoring invalid pricing cache before refresh: {error}");
+            }
         }
 
         if !quiet {
@@ -93,7 +124,7 @@ impl PricingDb {
         }
         if let Some(raw_data) = fetch_litellm_raw() {
             let fetch_time = start.elapsed();
-            save_raw_cache(&raw_data);
+            let save_result = save_raw_cache(&raw_data);
             let db = Self::from_raw_data(raw_data, strict_unknown);
             if !quiet {
                 eprintln!(
@@ -102,20 +133,25 @@ impl PricingDb {
                     fetch_time.as_secs_f64() * 1000.0
                 );
             }
-            return db;
+            warn_cache_write_error(save_result);
+            return Ok(db);
         }
 
         if !quiet {
             eprintln!(" failed, trying cache...");
         }
-        if let Some(db) = Self::load_from_cache(strict_unknown) {
-            if !quiet {
-                eprintln!(
-                    "Using cached pricing ({:.2}ms)",
-                    start.elapsed().as_secs_f64() * 1000.0
-                );
+        match Self::load_from_cache(strict_unknown) {
+            Ok(Some(db)) => {
+                if !quiet {
+                    eprintln!(
+                        "Using cached pricing ({:.2}ms)",
+                        start.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
+                return Ok(db);
             }
-            return db;
+            Ok(None) => {}
+            Err(error) => return Err(error.into()),
         }
 
         if !quiet {
@@ -124,10 +160,35 @@ impl PricingDb {
                 start.elapsed().as_secs_f64() * 1000.0
             );
         }
-        Self {
-            models: HashMap::new(),
-            resolved: RefCell::new(HashMap::new()),
-            strict_unknown,
+        Ok(Self::empty(strict_unknown))
+    }
+
+    fn finish_offline_cache_load(
+        cache_result: Result<Option<Self>, CacheReadError>,
+        strict_unknown: bool,
+        quiet: bool,
+        start: Instant,
+    ) -> Result<Self, PricingLoadError> {
+        match cache_result {
+            Ok(Some(db)) => {
+                if !quiet {
+                    eprintln!(
+                        "Using cached pricing ({:.2}ms)",
+                        start.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
+                Ok(db)
+            }
+            Ok(None) => {
+                if !quiet {
+                    eprintln!(
+                        "No cached pricing, using defaults ({:.2}ms)",
+                        start.elapsed().as_secs_f64() * 1000.0
+                    );
+                }
+                Ok(Self::empty(strict_unknown))
+            }
+            Err(error) => Err(error.into()),
         }
     }
 
@@ -153,6 +214,12 @@ impl PricingDb {
         };
         self.resolved.borrow_mut().insert(model.to_string(), cached);
         pricing
+    }
+}
+
+fn warn_cache_write_error(result: Result<(), CacheWriteError>) {
+    if let Err(error) = result {
+        eprintln!("Warning: failed to save pricing cache: {error}");
     }
 }
 
@@ -232,6 +299,83 @@ where
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn sample_raw_pricing(model: &str) -> HashMap<String, serde_json::Value> {
+        HashMap::from([(
+            model.to_string(),
+            json!({
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 2e-6,
+            }),
+        )])
+    }
+
+    fn malformed_cache_error() -> CacheReadError {
+        let source =
+            serde_json::from_str::<HashMap<String, serde_json::Value>>("{not json").unwrap_err();
+        CacheReadError::Malformed {
+            path: PathBuf::from("pricing.json"),
+            source,
+        }
+    }
+
+    #[test]
+    fn offline_missing_cache_keeps_default_pricing_behavior() {
+        let db = PricingDb::finish_offline_cache_load(Ok(None), true, true, Instant::now())
+            .expect("missing cache should use defaults");
+
+        assert!(db.models.is_empty());
+        assert!(db.strict_unknown);
+    }
+
+    #[test]
+    fn offline_malformed_cache_fails_closed() {
+        let error = PricingDb::finish_offline_cache_load(
+            Err(malformed_cache_error()),
+            false,
+            true,
+            Instant::now(),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("malformed"));
+    }
+
+    #[test]
+    fn cache_read_distinguishes_missing_from_malformed_for_db_load() {
+        let root = TempDir::new().unwrap();
+        let missing_path = root.path().join("missing-pricing.json");
+        assert!(
+            super::super::cache::load_raw_cache_from_paths(&[missing_path])
+                .unwrap()
+                .is_none()
+        );
+
+        let malformed_path = root.path().join("pricing.json");
+        fs::write(&malformed_path, "{not json").unwrap();
+        let error = super::super::cache::load_raw_cache_from_paths(&[malformed_path]).unwrap_err();
+
+        assert!(matches!(error, CacheReadError::Malformed { .. }));
+    }
+
+    #[test]
+    fn fetched_pricing_remains_usable_after_cache_save_failure() {
+        let root = TempDir::new().unwrap();
+        let blocker = root.path().join("not-a-directory");
+        fs::write(&blocker, "file").unwrap();
+        let cache_path = blocker.join("pricing.json");
+        let raw_data = sample_raw_pricing("gpt-5");
+
+        let save_result = super::super::cache::save_raw_cache_to_path(&raw_data, &cache_path);
+        let db = PricingDb::from_raw_data(raw_data, false);
+
+        assert!(save_result.is_err());
+        assert!(db.get_pricing("gpt-5").is_some());
+    }
 
     #[test]
     fn calculate_cost_basic() {

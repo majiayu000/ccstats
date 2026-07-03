@@ -17,6 +17,12 @@ fn write_file(path: &Path, content: &str) {
     fs::write(path, content).expect("write test file");
 }
 
+fn write_pricing_cache(home: &Path, xdg_cache: &Path, contents: &str) {
+    write_file(&xdg_cache.join("ccstats/pricing.json"), contents);
+    write_file(&home.join("Library/Caches/ccstats/pricing.json"), contents);
+    write_file(&home.join(".cache/ccstats/pricing.json"), contents);
+}
+
 fn assert_stable_summary_eq(actual: &CostSummary, expected: &CostSummary) {
     assert_eq!(actual.source, expected.source);
     assert_eq!(actual.source_name, expected.source_name);
@@ -32,6 +38,60 @@ fn assert_stable_summary_eq(actual: &CostSummary, expected: &CostSummary) {
     assert_eq!(actual.valid_entries, expected.valid_entries);
     assert_eq!(actual.skipped_entries, expected.skipped_entries);
     assert!(actual.elapsed_ms.is_finite());
+}
+
+#[test]
+fn sdk_offline_corrupt_pricing_cache_returns_error() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let root = tempfile::tempdir().expect("temp dir");
+    let xdg_cache = root.path().join("xdg-cache");
+    let codex_home = root.path().join("codex-home");
+    write_pricing_cache(root.path(), &xdg_cache, "{not json");
+
+    let previous_home = std::env::var_os("HOME");
+    let previous_xdg_cache = std::env::var_os("XDG_CACHE_HOME");
+    let previous_codex_home = std::env::var_os("CODEX_HOME");
+    unsafe {
+        std::env::set_var("HOME", root.path());
+        std::env::set_var("XDG_CACHE_HOME", &xdg_cache);
+        std::env::set_var("CODEX_HOME", &codex_home);
+    }
+
+    let error = summarize_cost(SummaryOptions {
+        source: UsageSource::Codex,
+        offline: true,
+        ..SummaryOptions::default()
+    })
+    .expect_err("corrupt offline pricing cache should return SDK error");
+
+    match previous_home {
+        Some(value) => unsafe {
+            std::env::set_var("HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("HOME");
+        },
+    }
+    match previous_xdg_cache {
+        Some(value) => unsafe {
+            std::env::set_var("XDG_CACHE_HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("XDG_CACHE_HOME");
+        },
+    }
+    match previous_codex_home {
+        Some(value) => unsafe {
+            std::env::set_var("CODEX_HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("CODEX_HOME");
+        },
+    }
+
+    let message = error.to_string();
+    assert!(message.contains("pricing cache"), "{message}");
+    assert!(message.contains("malformed"), "{message}");
 }
 
 #[test]
