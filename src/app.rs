@@ -7,8 +7,8 @@ use crate::core::{
 };
 use crate::output::NumberFormat;
 use crate::output::{
-    BlockTableOptions, MonthlyBudgetOptions, OutputFormat, Period, ProjectTableOptions,
-    SessionTableOptions, SummaryOptions, TokenTableOptions, TopRow, TopTableOptions,
+    BlockTableOptions, MonthlyBudgetOptions, OutputFormat, Period, PeriodSummaryFooter,
+    ProjectTableOptions, SessionTableOptions, TokenTableOptions, TopRow, TopTableOptions,
     add_monthly_budget_to_json, monthly_budget_reports, output_block_csv, output_block_json,
     output_monthly_budget_csv, output_period_csv, output_period_json, output_project_csv,
     output_project_json, output_session_csv, output_session_json, output_tools_csv,
@@ -507,7 +507,7 @@ fn render_period_result(
                 &result.day_stats,
                 period,
                 ctx.cli.breakdown,
-                SummaryOptions {
+                PeriodSummaryFooter {
                     skipped: result.skipped,
                     valid: result.valid,
                     elapsed_ms: Some(result.elapsed_ms),

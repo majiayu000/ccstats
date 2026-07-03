@@ -24,7 +24,7 @@ pub(crate) struct TokenTableOptions<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct SummaryOptions {
+pub(crate) struct PeriodSummaryFooter {
     pub(crate) skipped: i64,
     pub(crate) valid: i64,
     pub(crate) elapsed_ms: Option<f64>,
@@ -396,7 +396,7 @@ pub(crate) fn print_period_table(
     day_stats: &HashMap<String, DayStats>,
     period: Period,
     breakdown: bool,
-    summary: SummaryOptions,
+    summary: PeriodSummaryFooter,
     pricing_db: &PricingDb,
     options: TokenTableOptions<'_>,
 ) {
