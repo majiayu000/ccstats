@@ -114,6 +114,10 @@ fn derive_project_path(path: &Path) -> String {
         .to_string()
 }
 
+fn non_negative_tokens(tokens: Option<i64>) -> i64 {
+    tokens.unwrap_or(0).max(0)
+}
+
 pub(super) fn parse_claude_file_with_debug(
     path: &Path,
     timezone: Timezone,
@@ -289,10 +293,10 @@ fn parse_entry_with_debug(
         session_id: session_id.to_string(),
         project_path: project_path.to_string(),
         model,
-        input_tokens: usage.input_tokens.unwrap_or(0),
-        output_tokens: usage.output_tokens.unwrap_or(0),
-        cache_creation: usage.cache_creation_input_tokens.unwrap_or(0),
-        cache_read: usage.cache_read_input_tokens.unwrap_or(0),
+        input_tokens: non_negative_tokens(usage.input_tokens),
+        output_tokens: non_negative_tokens(usage.output_tokens),
+        cache_creation: non_negative_tokens(usage.cache_creation_input_tokens),
+        cache_read: non_negative_tokens(usage.cache_read_input_tokens),
         reasoning_tokens: 0, // Claude doesn't have reasoning tokens
         stop_reason: msg.stop_reason,
     })
@@ -542,6 +546,31 @@ mod tests {
                     output_tokens: None,
                     cache_creation_input_tokens: None,
                     cache_read_input_tokens: None,
+                }),
+            }),
+        };
+        let tz = make_timezone();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
+        assert_eq!(raw.input_tokens, 0);
+        assert_eq!(raw.output_tokens, 0);
+        assert_eq!(raw.cache_creation, 0);
+        assert_eq!(raw.cache_read, 0);
+    }
+
+    #[test]
+    fn test_parse_entry_clamps_negative_tokens_to_zero() {
+        let entry = UsageEntry {
+            is_sidechain: false,
+            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
+            message: Some(Message {
+                id: Some("msg_004".to_string()),
+                model: Some("claude-3-5-sonnet-20241022".to_string()),
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(Usage {
+                    input_tokens: Some(-100),
+                    output_tokens: Some(-50),
+                    cache_creation_input_tokens: Some(-30),
+                    cache_read_input_tokens: Some(-20),
                 }),
             }),
         };

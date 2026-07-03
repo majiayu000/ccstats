@@ -121,6 +121,14 @@ fn integer_at(value: &Value, path: &[&str]) -> Option<i64> {
         .or_else(|| current.as_u64().and_then(|n| i64::try_from(n).ok()))
 }
 
+fn token_count_at(value: &Value, paths: &[&[&str]]) -> i64 {
+    paths
+        .iter()
+        .find_map(|path| integer_at(value, path))
+        .unwrap_or(0)
+        .max(0)
+}
+
 fn first_string(value: &Value, paths: &[&[&str]]) -> Option<String> {
     paths
         .iter()
@@ -144,16 +152,24 @@ fn timestamp_from_value(value: &Value) -> Option<DateTime<Utc>> {
 }
 
 fn token_counts(value: &Value) -> Option<(i64, i64)> {
-    let input = integer_at(value, &["tokenCount", "inputTokens"])
-        .or_else(|| integer_at(value, &["tokenCount", "input_tokens"]))
-        .or_else(|| integer_at(value, &["usage", "inputTokens"]))
-        .or_else(|| integer_at(value, &["inputTokens"]))
-        .unwrap_or(0);
-    let output = integer_at(value, &["tokenCount", "outputTokens"])
-        .or_else(|| integer_at(value, &["tokenCount", "output_tokens"]))
-        .or_else(|| integer_at(value, &["usage", "outputTokens"]))
-        .or_else(|| integer_at(value, &["outputTokens"]))
-        .unwrap_or(0);
+    let input = token_count_at(
+        value,
+        &[
+            &["tokenCount", "inputTokens"],
+            &["tokenCount", "input_tokens"],
+            &["usage", "inputTokens"],
+            &["inputTokens"],
+        ],
+    );
+    let output = token_count_at(
+        value,
+        &[
+            &["tokenCount", "outputTokens"],
+            &["tokenCount", "output_tokens"],
+            &["usage", "outputTokens"],
+            &["outputTokens"],
+        ],
+    );
 
     (input > 0 || output > 0).then_some((input, output))
 }
@@ -448,6 +464,44 @@ mod tests {
     }
 
     #[test]
+    fn entry_from_bubble_clamps_negative_token_counts() {
+        let value = json!({
+            "createdAt": "2026-02-06T10:00:00Z",
+            "tokenCount": {"inputTokens": -100, "outputTokens": 40}
+        });
+        let entry = entry_from_bubble(
+            "bubbleId:composer-1:bubble-1",
+            &value,
+            &HashMap::new(),
+            Path::new("/tmp/state.vscdb"),
+            tz(),
+        )
+        .unwrap();
+
+        assert_eq!(entry.input_tokens, 0);
+        assert_eq!(entry.output_tokens, 40);
+    }
+
+    #[test]
+    fn entry_from_bubble_skips_all_negative_token_counts() {
+        let value = json!({
+            "createdAt": "2026-02-06T10:00:00Z",
+            "tokenCount": {"inputTokens": -100, "outputTokens": -40}
+        });
+
+        assert!(
+            entry_from_bubble(
+                "bubbleId:composer-1:bubble-1",
+                &value,
+                &HashMap::new(),
+                Path::new("/tmp/state.vscdb"),
+                tz(),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn entry_from_bubble_uses_composer_model_fallback() {
         let mut composers = HashMap::new();
         composers.insert(
@@ -474,5 +528,33 @@ mod tests {
         assert_eq!(entry.model, "gpt-5");
         assert_eq!(entry.project_path, "/tmp/project");
         assert_eq!(entry.timestamp, "2026-02-06T10:00:00+00:00");
+    }
+
+    #[test]
+    fn entry_from_generation_clamps_negative_token_counts() {
+        let generation = json!({
+            "createdAt": "2026-02-06T10:00:00Z",
+            "inputTokens": 25,
+            "outputTokens": -5,
+            "generationUUID": "generation-1"
+        });
+        let entry =
+            entry_from_generation(&generation, Path::new("/tmp/state.vscdb"), tz()).unwrap();
+
+        assert_eq!(entry.session_id, "generation-1");
+        assert_eq!(entry.input_tokens, 25);
+        assert_eq!(entry.output_tokens, 0);
+    }
+
+    #[test]
+    fn entry_from_generation_skips_all_negative_token_counts() {
+        let generation = json!({
+            "createdAt": "2026-02-06T10:00:00Z",
+            "inputTokens": -25,
+            "outputTokens": -5,
+            "generationUUID": "generation-1"
+        });
+
+        assert!(entry_from_generation(&generation, Path::new("/tmp/state.vscdb"), tz()).is_none());
     }
 }
