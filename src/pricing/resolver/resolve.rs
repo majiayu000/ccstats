@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::super::types::{dot_version_variant, ModelPricing};
+use super::super::types::{ModelPricing, dot_version_variant};
 
 pub(crate) fn resolve_pricing_known(
     model: &str,
