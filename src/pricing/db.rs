@@ -299,10 +299,13 @@ impl Default for PricingDb {
 mod tests {
     use super::*;
     use crate::core::Stats;
-    use crate::pricing::{attach_costs, calculate_cost, sum_model_costs};
+    use crate::pricing::{
+        attach_costs, calculate_cost, pricing_source_for_models, sum_model_costs,
+    };
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
+    use std::time::SystemTime;
     use tempfile::TempDir;
 
     fn sample_raw_pricing(model: &str) -> HashMap<String, serde_json::Value> {
@@ -686,6 +689,72 @@ mod tests {
         // Second call hits cache
         let p2 = db.get_pricing("sonnet-4");
         assert_eq!(p1.unwrap().input, p2.unwrap().input);
+    }
+
+    #[test]
+    fn pricing_source_tracks_live_known_model() {
+        let db = PricingDb::from_raw_data(
+            sample_raw_pricing("claude-3-5-sonnet-20241022"),
+            false,
+            PricingSource::Live,
+            None,
+        );
+
+        assert_eq!(
+            db.pricing_source_for_model("claude-3-5-sonnet-20241022"),
+            Some(PricingSource::Live)
+        );
+    }
+
+    #[test]
+    fn pricing_source_tracks_stale_cache_known_model() {
+        let metadata = CacheMetadata {
+            age: Duration::from_secs(2 * 24 * 60 * 60),
+            modified: SystemTime::now() - Duration::from_secs(2 * 24 * 60 * 60),
+        };
+        let db = PricingDb::from_raw_data(
+            sample_raw_pricing("claude-3-5-sonnet-20241022"),
+            false,
+            PricingSource::CacheStale,
+            Some(metadata),
+        );
+
+        assert_eq!(
+            db.pricing_source_for_model("claude-3-5-sonnet-20241022"),
+            Some(PricingSource::CacheStale)
+        );
+        assert!(matches!(db.cache_age_seconds(), Some(age) if age >= 24 * 60 * 60));
+    }
+
+    #[test]
+    fn pricing_source_combines_known_and_fallback_as_mixed() {
+        let db = PricingDb::from_raw_data(
+            sample_raw_pricing("claude-3-5-sonnet-20241022"),
+            false,
+            PricingSource::Cache,
+            None,
+        );
+        let models = HashMap::from([
+            (
+                "claude-3-5-sonnet-20241022".to_string(),
+                Stats {
+                    input_tokens: 100,
+                    ..Default::default()
+                },
+            ),
+            (
+                "gpt-5".to_string(),
+                Stats {
+                    input_tokens: 100,
+                    ..Default::default()
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            pricing_source_for_models(&models, &db),
+            PricingSource::Mixed
+        );
     }
 
     #[test]
