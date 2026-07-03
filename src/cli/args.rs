@@ -7,6 +7,7 @@ use std::io::IsTerminal;
 use clap::{Parser, ValueEnum};
 
 use crate::config::{Config, ConfigColorMode, ConfigCostMode, ConfigSortOrder};
+use crate::output::OutputFormat;
 
 use super::commands::Commands;
 
@@ -134,6 +135,16 @@ pub(crate) struct Cli {
 impl Cli {
     pub(crate) fn sort_order(&self) -> SortOrder {
         self.order.unwrap_or_default()
+    }
+
+    pub(crate) fn output_format(&self) -> OutputFormat {
+        if self.csv {
+            OutputFormat::Csv
+        } else if self.json {
+            OutputFormat::Json
+        } else {
+            OutputFormat::Table
+        }
     }
 
     fn color_mode(&self) -> ColorMode {
@@ -495,6 +506,30 @@ mod tests {
     fn default_sort_order_is_asc() {
         let cli = Cli::parse_from(["ccstats", "daily"]);
         assert_eq!(cli.sort_order(), SortOrder::Asc);
+    }
+
+    #[test]
+    fn output_format_defaults_to_table() {
+        let cli = Cli::parse_from(["ccstats", "daily"]);
+        assert_eq!(cli.output_format(), OutputFormat::Table);
+    }
+
+    #[test]
+    fn output_format_uses_json_flag() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--json"]);
+        assert_eq!(cli.output_format(), OutputFormat::Json);
+    }
+
+    #[test]
+    fn output_format_uses_csv_flag() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--csv"]);
+        assert_eq!(cli.output_format(), OutputFormat::Csv);
+    }
+
+    #[test]
+    fn output_format_csv_wins_over_json_flag() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--json", "--csv"]);
+        assert_eq!(cli.output_format(), OutputFormat::Csv);
     }
 
     #[test]

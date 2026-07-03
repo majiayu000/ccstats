@@ -1,17 +1,21 @@
 use std::time::Instant;
 
 use crate::cli::{Cli, SourceCommand, TopDimension};
-use crate::core::{DateFilter, LoadResult, aggregate_tools, merge_day_stats};
+use crate::core::{
+    BlockStats, DateFilter, LoadResult, ProjectStats, SessionStats, ToolSummary, aggregate_tools,
+    merge_day_stats,
+};
 use crate::output::NumberFormat;
 use crate::output::{
-    BlockTableOptions, MonthlyBudgetOptions, Period, ProjectTableOptions, SessionTableOptions,
-    SummaryOptions, TokenTableOptions, TopRow, TopTableOptions, add_monthly_budget_to_json,
-    monthly_budget_reports, output_block_csv, output_block_json, output_monthly_budget_csv,
-    output_period_csv, output_period_json, output_project_csv, output_project_json,
-    output_session_csv, output_session_json, output_tools_csv, output_tools_json, output_top_csv,
-    output_top_json, print_block_table, print_monthly_budget_table, print_period_table,
-    print_project_table, print_session_table, print_statusline, print_statusline_json,
-    print_tools_table, print_top_table, rank_by_model, rank_by_project,
+    BlockTableOptions, MonthlyBudgetOptions, OutputFormat, Period, ProjectTableOptions,
+    SessionTableOptions, SummaryOptions, TokenTableOptions, TopRow, TopTableOptions,
+    add_monthly_budget_to_json, monthly_budget_reports, output_block_csv, output_block_json,
+    output_monthly_budget_csv, output_period_csv, output_period_json, output_project_csv,
+    output_project_json, output_session_csv, output_session_json, output_tools_csv,
+    output_tools_json, output_top_csv, output_top_json, print_block_table,
+    print_monthly_budget_table, print_period_table, print_project_table, print_session_table,
+    print_statusline, print_statusline_json, print_tools_table, print_top_table, rank_by_model,
+    rank_by_project,
 };
 use crate::pricing::PricingDb;
 use crate::source::{
@@ -58,27 +62,34 @@ fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
         print_no_data_hint(source.display_name(), "session");
         return;
     }
-    if ctx.cli.csv {
-        let csv = output_session_csv(
-            &sessions,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let json = output_session_json(
-            &sessions,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_session_table(
-            &sessions,
+
+    render_session(&sessions, source, ctx);
+}
+
+fn render_session(sessions: &[SessionStats], source: &dyn Source, ctx: &CommandContext<'_>) {
+    match ctx.cli.output_format() {
+        OutputFormat::Csv => {
+            let csv = output_session_csv(
+                sessions,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                ctx.cli.show_cost(),
+                ctx.currency,
+            );
+            print!("{csv}");
+        }
+        OutputFormat::Json => {
+            let json = output_session_json(
+                sessions,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                ctx.cli.show_cost(),
+                ctx.currency,
+            );
+            print_json(&json, ctx.jq_filter);
+        }
+        OutputFormat::Table => print_session_table(
+            sessions,
             ctx.pricing_db,
             SessionTableOptions {
                 order: ctx.cli.sort_order(),
@@ -90,7 +101,7 @@ fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
                 timezone: ctx.timezone,
                 currency: ctx.currency,
             },
-        );
+        ),
     }
 }
 
@@ -100,27 +111,34 @@ fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
         print_no_data_hint(source.display_name(), "project");
         return;
     }
-    if ctx.cli.csv {
-        let csv = output_project_csv(
-            &projects,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let json = output_project_json(
-            &projects,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_project_table(
-            &projects,
+
+    render_project(&projects, source, ctx);
+}
+
+fn render_project(projects: &[ProjectStats], source: &dyn Source, ctx: &CommandContext<'_>) {
+    match ctx.cli.output_format() {
+        OutputFormat::Csv => {
+            let csv = output_project_csv(
+                projects,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                ctx.cli.show_cost(),
+                ctx.currency,
+            );
+            print!("{csv}");
+        }
+        OutputFormat::Json => {
+            let json = output_project_json(
+                projects,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                ctx.cli.show_cost(),
+                ctx.currency,
+            );
+            print_json(&json, ctx.jq_filter);
+        }
+        OutputFormat::Table => print_project_table(
+            projects,
             ctx.pricing_db,
             ProjectTableOptions {
                 order: ctx.cli.sort_order(),
@@ -131,7 +149,7 @@ fn handle_project(source: &dyn Source, ctx: &CommandContext<'_>) {
                 number_format: ctx.number_format,
                 currency: ctx.currency,
             },
-        );
+        ),
     }
 }
 
@@ -141,27 +159,34 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
         print_no_data_hint(source.display_name(), "billing block");
         return;
     }
-    if ctx.cli.csv {
-        let csv = output_block_csv(
-            &blocks,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let json = output_block_json(
-            &blocks,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_block_table(
-            &blocks,
+
+    render_blocks(&blocks, source, ctx);
+}
+
+fn render_blocks(blocks: &[BlockStats], source: &dyn Source, ctx: &CommandContext<'_>) {
+    match ctx.cli.output_format() {
+        OutputFormat::Csv => {
+            let csv = output_block_csv(
+                blocks,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                ctx.cli.show_cost(),
+                ctx.currency,
+            );
+            print!("{csv}");
+        }
+        OutputFormat::Json => {
+            let json = output_block_json(
+                blocks,
+                ctx.pricing_db,
+                ctx.cli.sort_order(),
+                ctx.cli.show_cost(),
+                ctx.currency,
+            );
+            print_json(&json, ctx.jq_filter);
+        }
+        OutputFormat::Table => print_block_table(
+            blocks,
             ctx.pricing_db,
             BlockTableOptions {
                 order: ctx.cli.sort_order(),
@@ -172,7 +197,7 @@ fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
                 number_format: ctx.number_format,
                 currency: ctx.currency,
             },
-        );
+        ),
     }
 }
 
@@ -187,14 +212,27 @@ fn handle_top(
         print_no_data_hint(source_label, "usage");
         return;
     }
-    if ctx.cli.csv {
-        let csv = output_top_csv(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let json = output_top_json(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_top_table(
+
+    render_top(rows, dim, limit, source_label, ctx);
+}
+
+fn render_top(
+    rows: &[TopRow],
+    dim: TopDimension,
+    limit: usize,
+    source_label: &str,
+    ctx: &CommandContext<'_>,
+) {
+    match ctx.cli.output_format() {
+        OutputFormat::Csv => {
+            let csv = output_top_csv(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
+            print!("{csv}");
+        }
+        OutputFormat::Json => {
+            let json = output_top_json(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
+            print_json(&json, ctx.jq_filter);
+        }
+        OutputFormat::Table => print_top_table(
             rows,
             TopTableOptions {
                 use_color: ctx.cli.use_color(),
@@ -206,7 +244,7 @@ fn handle_top(
                 dim,
                 limit,
             },
-        );
+        ),
     }
 }
 
@@ -250,14 +288,21 @@ fn validate_top_limit(limit: usize) -> Result<usize, String> {
 fn handle_tools(source: &dyn Source, ctx: &CommandContext<'_>) {
     let calls = load_tool_calls(source, ctx.filter, ctx.timezone);
     let summary = aggregate_tools(&calls);
-    if ctx.cli.csv {
-        let csv = output_tools_csv(&summary);
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let json = output_tools_json(&summary);
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_tools_table(&summary, ctx.cli.use_color());
+
+    render_tools(&summary, ctx);
+}
+
+fn render_tools(summary: &ToolSummary, ctx: &CommandContext<'_>) {
+    match ctx.cli.output_format() {
+        OutputFormat::Csv => {
+            let csv = output_tools_csv(summary);
+            print!("{csv}");
+        }
+        OutputFormat::Json => {
+            let json = output_tools_json(summary);
+            print_json(&json, ctx.jq_filter);
+        }
+        OutputFormat::Table => print_tools_table(summary, ctx.cli.use_color()),
     }
 }
 
@@ -267,71 +312,89 @@ fn handle_sources(ctx: &CommandContext<'_>) {
     all_caps.has_projects = false;
     all_caps.has_billing_blocks = false;
 
-    if ctx.cli.csv {
-        println!("name,display_name,aliases,has_projects,has_billing_blocks,has_reasoning_tokens");
-        println!(
-            "{},All Sources,,{},{},{}",
-            ALL_SOURCES,
-            all_caps.has_projects,
-            all_caps.has_billing_blocks,
-            all_caps.has_reasoning_tokens
-        );
-        for source in sources {
-            let caps = source.capabilities();
-            let aliases = source.aliases().join("|");
-            println!(
-                "{},{},{},{},{},{}",
-                source.name(),
-                source.display_name(),
-                aliases,
-                caps.has_projects,
-                caps.has_billing_blocks,
-                caps.has_reasoning_tokens
-            );
-        }
-        return;
-    }
+    render_sources(&sources, &all_caps, ctx);
+}
 
-    if ctx.cli.json {
-        let mut payload = vec![json!({
-            "name": ALL_SOURCES,
-            "display_name": "All Sources",
-            "aliases": [],
-            "capabilities": {
-                "has_projects": all_caps.has_projects,
-                "has_billing_blocks": all_caps.has_billing_blocks,
-                "has_reasoning_tokens": all_caps.has_reasoning_tokens,
-                "has_cache_creation": all_caps.has_cache_creation,
-                "needs_dedup": all_caps.needs_dedup
-            }
-        })];
-        payload.extend(sources.iter().map(|source| {
-            let caps = source.capabilities();
-            json!({
-                "name": source.name(),
-                "display_name": source.display_name(),
-                "aliases": source.aliases(),
-                "capabilities": {
-                    "has_projects": caps.has_projects,
-                    "has_billing_blocks": caps.has_billing_blocks,
-                    "has_reasoning_tokens": caps.has_reasoning_tokens,
-                    "has_cache_creation": caps.has_cache_creation,
-                    "needs_dedup": caps.needs_dedup
-                }
-            })
-        }));
-        let json = serde_json::to_string(&payload).unwrap_or_else(|_| "[]".to_string());
-        print_json(&json, ctx.jq_filter);
-        return;
+fn render_sources(sources: &[&dyn Source], all_caps: &Capabilities, ctx: &CommandContext<'_>) {
+    match ctx.cli.output_format() {
+        OutputFormat::Csv => render_sources_csv(sources, all_caps),
+        OutputFormat::Json => render_sources_json(sources, all_caps, ctx),
+        OutputFormat::Table => print_sources_table(sources, all_caps),
     }
+}
 
-    println!("Available sources:");
+fn render_sources_csv(sources: &[&dyn Source], all_caps: &Capabilities) {
     println!(
-        "- {} (All Sources) aliases: - | projects={} blocks={} reasoning={}",
+        "name,display_name,aliases,has_projects,has_billing_blocks,has_reasoning_tokens,has_cache_creation,needs_dedup"
+    );
+    println!(
+        "{},All Sources,,{},{},{},{},{}",
         ALL_SOURCES,
         all_caps.has_projects,
         all_caps.has_billing_blocks,
-        all_caps.has_reasoning_tokens
+        all_caps.has_reasoning_tokens,
+        all_caps.has_cache_creation,
+        all_caps.needs_dedup
+    );
+    for source in sources {
+        let caps = source.capabilities();
+        let aliases = source.aliases().join("|");
+        println!(
+            "{},{},{},{},{},{},{},{}",
+            source.name(),
+            source.display_name(),
+            aliases,
+            caps.has_projects,
+            caps.has_billing_blocks,
+            caps.has_reasoning_tokens,
+            caps.has_cache_creation,
+            caps.needs_dedup
+        );
+    }
+}
+
+fn render_sources_json(sources: &[&dyn Source], all_caps: &Capabilities, ctx: &CommandContext<'_>) {
+    let mut payload = vec![json!({
+        "name": ALL_SOURCES,
+        "display_name": "All Sources",
+        "aliases": [],
+        "capabilities": {
+            "has_projects": all_caps.has_projects,
+            "has_billing_blocks": all_caps.has_billing_blocks,
+            "has_reasoning_tokens": all_caps.has_reasoning_tokens,
+            "has_cache_creation": all_caps.has_cache_creation,
+            "needs_dedup": all_caps.needs_dedup
+        }
+    })];
+    payload.extend(sources.iter().map(|source| {
+        let caps = source.capabilities();
+        json!({
+            "name": source.name(),
+            "display_name": source.display_name(),
+            "aliases": source.aliases(),
+            "capabilities": {
+                "has_projects": caps.has_projects,
+                "has_billing_blocks": caps.has_billing_blocks,
+                "has_reasoning_tokens": caps.has_reasoning_tokens,
+                "has_cache_creation": caps.has_cache_creation,
+                "needs_dedup": caps.needs_dedup
+            }
+        })
+    }));
+    let json = serde_json::to_string(&payload).unwrap_or_else(|_| "[]".to_string());
+    print_json(&json, ctx.jq_filter);
+}
+
+fn print_sources_table(sources: &[&dyn Source], all_caps: &Capabilities) {
+    println!("Available sources:");
+    println!(
+        "- {} (All Sources) aliases: - | has_projects={} has_billing_blocks={} has_reasoning_tokens={} has_cache_creation={} needs_dedup={}",
+        ALL_SOURCES,
+        all_caps.has_projects,
+        all_caps.has_billing_blocks,
+        all_caps.has_reasoning_tokens,
+        all_caps.has_cache_creation,
+        all_caps.needs_dedup
     );
     for source in sources {
         let caps = source.capabilities();
@@ -341,18 +404,21 @@ fn handle_sources(ctx: &CommandContext<'_>) {
             source.aliases().join(", ")
         };
         println!(
-            "- {} ({}) aliases: {} | projects={} blocks={} reasoning={}",
+            "- {} ({}) aliases: {} | has_projects={} has_billing_blocks={} has_reasoning_tokens={} has_cache_creation={} needs_dedup={}",
             source.name(),
             source.display_name(),
             aliases,
             caps.has_projects,
             caps.has_billing_blocks,
-            caps.has_reasoning_tokens
+            caps.has_reasoning_tokens,
+            caps.has_cache_creation,
+            caps.needs_dedup
         );
     }
     println!("Hint: use `--source <name|alias>` (e.g. `--source codex` or `--source cx`).");
 }
 
+/// Statusline keeps its compact single-line semantics outside generic output dispatch.
 fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
     let result = load_daily(source, ctx.filter, ctx.timezone, true, false);
     if ctx.cli.json {
@@ -385,22 +451,36 @@ fn render_period_result(
         .then_some(ctx.cli.monthly_budget)
         .flatten();
 
-    if ctx.cli.csv {
-        let csv = if let Some(budget) = monthly_budget {
-            output_monthly_budget_csv(
-                &result.day_stats,
-                ctx.pricing_db,
-                MonthlyBudgetOptions {
-                    order: ctx.cli.sort_order(),
-                    breakdown: ctx.cli.breakdown,
-                    show_cost: ctx.cli.show_cost(),
-                    limit: budget,
-                    as_of: ctx.budget_as_of,
-                    currency: ctx.currency,
-                },
-            )
-        } else {
-            output_period_csv(
+    match ctx.cli.output_format() {
+        OutputFormat::Csv => {
+            let csv = if let Some(budget) = monthly_budget {
+                output_monthly_budget_csv(
+                    &result.day_stats,
+                    ctx.pricing_db,
+                    MonthlyBudgetOptions {
+                        order: ctx.cli.sort_order(),
+                        breakdown: ctx.cli.breakdown,
+                        show_cost: ctx.cli.show_cost(),
+                        limit: budget,
+                        as_of: ctx.budget_as_of,
+                        currency: ctx.currency,
+                    },
+                )
+            } else {
+                output_period_csv(
+                    &result.day_stats,
+                    period,
+                    ctx.pricing_db,
+                    ctx.cli.sort_order(),
+                    ctx.cli.breakdown,
+                    ctx.cli.show_cost(),
+                    ctx.currency,
+                )
+            };
+            print!("{csv}");
+        }
+        OutputFormat::Json => {
+            let mut json = output_period_json(
                 &result.day_stats,
                 period,
                 ctx.pricing_db,
@@ -408,63 +488,53 @@ fn render_period_result(
                 ctx.cli.breakdown,
                 ctx.cli.show_cost(),
                 ctx.currency,
-            )
-        };
-        print!("{csv}");
-    } else if ctx.cli.json {
-        let mut json = output_period_json(
-            &result.day_stats,
-            period,
-            ctx.pricing_db,
-            ctx.cli.sort_order(),
-            ctx.cli.breakdown,
-            ctx.cli.show_cost(),
-            ctx.currency,
-        );
-        if let Some(budget) = monthly_budget {
-            let reports = monthly_budget_reports(
-                &result.day_stats,
-                ctx.pricing_db,
-                ctx.cli.sort_order(),
-                budget,
-                ctx.budget_as_of,
-                ctx.currency,
             );
-            json = add_monthly_budget_to_json(&json, &reports);
+            if let Some(budget) = monthly_budget {
+                let reports = monthly_budget_reports(
+                    &result.day_stats,
+                    ctx.pricing_db,
+                    ctx.cli.sort_order(),
+                    budget,
+                    ctx.budget_as_of,
+                    ctx.currency,
+                );
+                json = add_monthly_budget_to_json(&json, &reports);
+            }
+            print_json(&json, ctx.jq_filter);
         }
-        print_json(&json, ctx.jq_filter);
-    } else {
-        print_period_table(
-            &result.day_stats,
-            period,
-            ctx.cli.breakdown,
-            SummaryOptions {
-                skipped: result.skipped,
-                valid: result.valid,
-                elapsed_ms: Some(result.elapsed_ms),
-            },
-            ctx.pricing_db,
-            TokenTableOptions {
-                order: ctx.cli.sort_order(),
-                use_color: ctx.cli.use_color(),
-                compact: ctx.cli.compact,
-                show_cost: ctx.cli.show_cost(),
-                number_format: ctx.number_format,
-                show_reasoning: caps.has_reasoning_tokens,
-                show_cache_creation: caps.has_cache_creation,
-                currency: ctx.currency,
-            },
-        );
-        if let Some(budget) = monthly_budget {
-            let reports = monthly_budget_reports(
+        OutputFormat::Table => {
+            print_period_table(
                 &result.day_stats,
+                period,
+                ctx.cli.breakdown,
+                SummaryOptions {
+                    skipped: result.skipped,
+                    valid: result.valid,
+                    elapsed_ms: Some(result.elapsed_ms),
+                },
                 ctx.pricing_db,
-                ctx.cli.sort_order(),
-                budget,
-                ctx.budget_as_of,
-                ctx.currency,
+                TokenTableOptions {
+                    order: ctx.cli.sort_order(),
+                    use_color: ctx.cli.use_color(),
+                    compact: ctx.cli.compact,
+                    show_cost: ctx.cli.show_cost(),
+                    number_format: ctx.number_format,
+                    show_reasoning: caps.has_reasoning_tokens,
+                    show_cache_creation: caps.has_cache_creation,
+                    currency: ctx.currency,
+                },
             );
-            print_monthly_budget_table(&reports, ctx.cli.use_color(), ctx.currency);
+            if let Some(budget) = monthly_budget {
+                let reports = monthly_budget_reports(
+                    &result.day_stats,
+                    ctx.pricing_db,
+                    ctx.cli.sort_order(),
+                    budget,
+                    ctx.budget_as_of,
+                    ctx.currency,
+                );
+                print_monthly_budget_table(&reports, ctx.cli.use_color(), ctx.currency);
+            }
         }
     }
 }

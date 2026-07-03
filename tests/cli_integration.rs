@@ -422,6 +422,48 @@ fn source_all_daily_json_merges_registered_sources() {
 }
 
 #[test]
+fn sources_outputs_expose_same_capability_columns() {
+    let expected = [
+        "has_projects",
+        "has_billing_blocks",
+        "has_reasoning_tokens",
+        "has_cache_creation",
+        "needs_dedup",
+    ];
+
+    let (ok, stdout, stderr) = run_ccstats(&["sources"], &[]);
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let table = String::from_utf8(stdout).expect("utf8 table");
+    for column in expected {
+        assert!(
+            table.contains(column),
+            "table output missing {column}: {table}"
+        );
+    }
+
+    let (ok, stdout, stderr) = run_ccstats(&["sources", "--csv"], &[]);
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let csv = String::from_utf8(stdout).expect("utf8 csv");
+    let header = csv.lines().next().expect("csv header");
+    let columns: Vec<&str> = header.split(',').skip(3).collect();
+    assert_eq!(columns, expected);
+
+    let (ok, stdout, stderr) = run_ccstats(&["sources", "--json"], &[]);
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let rows = json.as_array().expect("array output");
+    assert!(!rows.is_empty());
+    for row in rows {
+        let capabilities = row["capabilities"].as_object().expect("capabilities");
+        let mut columns: Vec<&str> = capabilities.keys().map(String::as_str).collect();
+        columns.sort_unstable();
+        let mut sorted_expected = expected.to_vec();
+        sorted_expected.sort_unstable();
+        assert_eq!(columns, sorted_expected);
+    }
+}
+
+#[test]
 fn source_flag_can_select_cursor_without_subcommand() {
     let root = unique_temp_dir("source-flag-cursor");
     let cursor_home = root.join("cursor-user");
