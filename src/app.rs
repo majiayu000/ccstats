@@ -1,8 +1,7 @@
-use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::cli::{Cli, SourceCommand, TopDimension};
-use crate::core::{DateFilter, DayStats, LoadResult, aggregate_tools};
+use crate::core::{DateFilter, LoadResult, aggregate_tools, merge_day_stats};
 use crate::output::NumberFormat;
 use crate::output::{
     BlockTableOptions, MonthlyBudgetOptions, Period, ProjectTableOptions, SessionTableOptions,
@@ -564,16 +563,6 @@ fn all_sources_capabilities() -> Capabilities {
         combined.needs_dedup |= caps.needs_dedup;
     }
     combined
-}
-
-fn merge_day_stats(target: &mut HashMap<String, DayStats>, source: HashMap<String, DayStats>) {
-    for (date, stats) in source {
-        let day = target.entry(date).or_default();
-        day.stats.add(&stats.stats);
-        for (model, model_stats) in stats.models {
-            day.models.entry(model).or_default().add(&model_stats);
-        }
-    }
 }
 
 fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabilities) {

@@ -6,9 +6,9 @@ use std::time::Instant;
 
 use crate::consts::DATE_FORMAT;
 use crate::core::{
-    BlockStats, DateFilter, DayStats, DedupAccumulator, LoadResult, ProjectStats, RawEntry,
-    SessionStats, aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
-    aggregate_sessions_map,
+    BlockStats, DateFilter, DedupAccumulator, LoadResult, ProjectStats, RawEntry, SessionStats,
+    aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
+    aggregate_sessions_map, merge_day_stats,
 };
 use crate::source::Source;
 use crate::utils::Timezone;
@@ -218,16 +218,6 @@ impl<'a> DataLoader<'a> {
         }
     }
 
-    fn merge_day_stats(target: &mut HashMap<String, DayStats>, source: HashMap<String, DayStats>) {
-        for (date, stats) in source {
-            let day = target.entry(date).or_default();
-            day.stats.add(&stats.stats);
-            for (model, model_stats) in stats.models {
-                day.models.entry(model).or_default().add(&model_stats);
-            }
-        }
-    }
-
     fn load_daily_incremental(&self, filter: &DateFilter, timezone: Timezone) -> LoadResult {
         let load_start = Instant::now();
 
@@ -237,7 +227,7 @@ impl<'a> DataLoader<'a> {
             aggregate_daily,
             HashMap::new,
             |mut acc, partial| {
-                Self::merge_day_stats(&mut acc, partial);
+                merge_day_stats(&mut acc, partial);
                 acc
             },
         );
@@ -646,75 +636,6 @@ mod tests {
         let filter = DateFilter::new(None, None);
         let result = DataLoader::filter_entries(Vec::new(), &filter, tz());
         assert!(result.is_empty());
-    }
-
-    // ========================================================================
-    // merge_day_stats
-    // ========================================================================
-
-    fn make_day_stats(model: &str, input: i64, count: i64) -> DayStats {
-        let mut ds = DayStats::default();
-        let stats = Stats {
-            input_tokens: input,
-            count,
-            ..Default::default()
-        };
-        ds.stats.add(&stats);
-        ds.models.entry(model.to_string()).or_default().add(&stats);
-        ds
-    }
-
-    #[test]
-    fn merge_day_stats_disjoint_dates() {
-        let mut target = HashMap::new();
-        target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
-
-        let mut source = HashMap::new();
-        source.insert("2025-01-02".to_string(), make_day_stats("gpt-4", 200, 2));
-
-        DataLoader::merge_day_stats(&mut target, source);
-        assert_eq!(target.len(), 2);
-        assert_eq!(target["2025-01-01"].stats.input_tokens, 100);
-        assert_eq!(target["2025-01-02"].stats.input_tokens, 200);
-    }
-
-    #[test]
-    fn merge_day_stats_overlapping_dates_accumulates() {
-        let mut target = HashMap::new();
-        target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
-
-        let mut source = HashMap::new();
-        source.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 200, 2));
-
-        DataLoader::merge_day_stats(&mut target, source);
-        assert_eq!(target.len(), 1);
-        assert_eq!(target["2025-01-01"].stats.input_tokens, 300);
-        assert_eq!(target["2025-01-01"].stats.count, 3);
-        assert_eq!(target["2025-01-01"].models["gpt-4"].input_tokens, 300);
-    }
-
-    #[test]
-    fn merge_day_stats_different_models_preserved() {
-        let mut target = HashMap::new();
-        target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
-
-        let mut source = HashMap::new();
-        source.insert("2025-01-01".to_string(), make_day_stats("claude", 200, 2));
-
-        DataLoader::merge_day_stats(&mut target, source);
-        assert_eq!(target["2025-01-01"].models.len(), 2);
-        assert_eq!(target["2025-01-01"].models["gpt-4"].input_tokens, 100);
-        assert_eq!(target["2025-01-01"].models["claude"].input_tokens, 200);
-        assert_eq!(target["2025-01-01"].stats.input_tokens, 300);
-    }
-
-    #[test]
-    fn merge_day_stats_empty_source() {
-        let mut target = HashMap::new();
-        target.insert("2025-01-01".to_string(), make_day_stats("m", 100, 1));
-
-        DataLoader::merge_day_stats(&mut target, HashMap::new());
-        assert_eq!(target.len(), 1);
     }
 
     // ========================================================================

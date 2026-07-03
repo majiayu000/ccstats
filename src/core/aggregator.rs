@@ -20,6 +20,19 @@ pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStat
     day_stats
 }
 
+pub(crate) fn merge_day_stats(
+    target: &mut HashMap<String, DayStats>,
+    source: HashMap<String, DayStats>,
+) {
+    for (date, stats) in source {
+        let day = target.entry(date).or_default();
+        day.stats.add(&stats.stats);
+        for (model, model_stats) in stats.models {
+            day.models.entry(model).or_default().add(&model_stats);
+        }
+    }
+}
+
 /// Session accumulator for building session stats
 #[derive(Debug, Default)]
 struct SessionAccumulator {
@@ -261,6 +274,77 @@ mod tests {
             cache_read: 0,
             reasoning_tokens: 0,
             stop_reason: Some("end_turn".to_string()),
+        }
+    }
+
+    // --- merge_day_stats ---
+
+    mod merge_day_stats {
+        use super::*;
+
+        fn make_day_stats(model: &str, input: i64, count: i64) -> DayStats {
+            let mut ds = DayStats::default();
+            let stats = Stats {
+                input_tokens: input,
+                count,
+                ..Default::default()
+            };
+            ds.stats.add(&stats);
+            ds.models.entry(model.to_string()).or_default().add(&stats);
+            ds
+        }
+
+        #[test]
+        fn disjoint_dates() {
+            let mut target = HashMap::new();
+            target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
+
+            let mut source = HashMap::new();
+            source.insert("2025-01-02".to_string(), make_day_stats("gpt-4", 200, 2));
+
+            super::merge_day_stats(&mut target, source);
+            assert_eq!(target.len(), 2);
+            assert_eq!(target["2025-01-01"].stats.input_tokens, 100);
+            assert_eq!(target["2025-01-02"].stats.input_tokens, 200);
+        }
+
+        #[test]
+        fn overlapping_dates_accumulates() {
+            let mut target = HashMap::new();
+            target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
+
+            let mut source = HashMap::new();
+            source.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 200, 2));
+
+            super::merge_day_stats(&mut target, source);
+            assert_eq!(target.len(), 1);
+            assert_eq!(target["2025-01-01"].stats.input_tokens, 300);
+            assert_eq!(target["2025-01-01"].stats.count, 3);
+            assert_eq!(target["2025-01-01"].models["gpt-4"].input_tokens, 300);
+        }
+
+        #[test]
+        fn different_models_preserved() {
+            let mut target = HashMap::new();
+            target.insert("2025-01-01".to_string(), make_day_stats("gpt-4", 100, 1));
+
+            let mut source = HashMap::new();
+            source.insert("2025-01-01".to_string(), make_day_stats("claude", 200, 2));
+
+            super::merge_day_stats(&mut target, source);
+            assert_eq!(target["2025-01-01"].models.len(), 2);
+            assert_eq!(target["2025-01-01"].models["gpt-4"].input_tokens, 100);
+            assert_eq!(target["2025-01-01"].models["claude"].input_tokens, 200);
+            assert_eq!(target["2025-01-01"].stats.input_tokens, 300);
+        }
+
+        #[test]
+        fn empty_source() {
+            let mut target = HashMap::new();
+            target.insert("2025-01-01".to_string(), make_day_stats("m", 100, 1));
+
+            super::merge_day_stats(&mut target, HashMap::new());
+            assert_eq!(target.len(), 1);
         }
     }
 
