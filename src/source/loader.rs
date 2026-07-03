@@ -496,12 +496,12 @@ pub(crate) fn load_tool_calls(
     filter: &DateFilter,
     timezone: Timezone,
 ) -> Vec<crate::core::ToolCall> {
+    use crate::source::claude::claude_projects_dir;
     use crate::source::claude::tool_parser::parse_tool_calls;
 
-    let Some(home) = dirs::home_dir() else {
+    let Some(claude_path) = claude_projects_dir() else {
         return Vec::new();
     };
-    let claude_path = home.join(".claude").join("projects");
     let mut files = Vec::new();
     if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", claude_path.display())) {
         for entry in entries.flatten() {

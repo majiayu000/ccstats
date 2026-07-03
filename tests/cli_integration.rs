@@ -1529,6 +1529,85 @@ fn claude_daily_json_reads_home_projects() {
 }
 
 #[test]
+fn claude_daily_json_reads_claude_config_dir_before_home() {
+    let root = unique_temp_dir("claude-config-dir");
+    let claude_config_dir = root.join("custom-claude");
+    let home_file = root.join(".claude/projects/home-project/session-a.jsonl");
+    let config_file = claude_config_dir.join("projects/config-project/session-a.jsonl");
+    write_file(
+        &home_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_home","model":"anthropic.claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":900,"output_tokens":90,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+    write_file(
+        &config_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_config","model":"anthropic.claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root), ("CLAUDE_CONFIG_DIR", &claude_config_dir)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(180));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn claude_daily_json_missing_claude_config_dir_returns_no_data() {
+    let root = unique_temp_dir("claude-config-dir-missing");
+    let missing_config_dir = root.join("missing-claude");
+    let home_file = root.join(".claude/projects/home-project/session-a.jsonl");
+    write_file(
+        &home_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_home","model":"anthropic.claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":900,"output_tokens":90,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root), ("CLAUDE_CONFIG_DIR", &missing_config_dir)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    assert!(
+        String::from_utf8_lossy(&stdout).contains("No Claude Code usage data found"),
+        "stdout: {}",
+        String::from_utf8_lossy(&stdout)
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn claude_daily_ignores_sidechains_and_subagent_logs() {
     let root = unique_temp_dir("claude-ignore-sidechains");
     let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");

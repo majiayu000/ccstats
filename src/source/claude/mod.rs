@@ -7,3 +7,4 @@ mod parser;
 pub(crate) mod tool_parser;
 
 pub(crate) use config::ClaudeSource;
+pub(crate) use parser::claude_projects_dir;
