@@ -5,8 +5,11 @@ use crate::cli::SortOrder;
 use crate::core::{DataQuality, DayStats};
 use crate::output::format::cost_json_value;
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::pricing::CurrencyConverter;
-use crate::pricing::{PricingDb, calculate_cost, sum_model_costs};
+use crate::pricing::{
+    CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost,
+    calculate_estimated_proxy_cost, model_cost_kind, sum_display_model_costs,
+    sum_estimated_proxy_model_costs,
+};
 
 fn sort_output(output: &mut [serde_json::Value], key: &str, order: SortOrder) {
     match order {
@@ -49,12 +52,9 @@ fn build_period_entry(
     label: &str,
     key: &str,
     stats: &DayStats,
-    pricing_db: &PricingDb,
-    breakdown: bool,
-    show_cost: bool,
-    currency: Option<&CurrencyConverter>,
+    options: &PeriodJsonOptions<'_>,
 ) -> serde_json::Value {
-    if breakdown {
+    if options.breakdown {
         let mut models_breakdown: Vec<serde_json::Value> = Vec::new();
         let mut period_cost = 0.0;
 
@@ -68,15 +68,26 @@ fn build_period_entry(
                 "cache_read_tokens": model_stats.cache_read,
                 "total_tokens": model_stats.total_tokens(),
             });
-            if show_cost {
-                let cost = calculate_cost(model_stats, model, pricing_db);
+            if options.show_cost {
+                let cost = calculate_display_cost(
+                    model_stats,
+                    model,
+                    options.pricing_db,
+                    options.cost_mode,
+                );
                 period_cost += cost;
-                model_obj["cost"] = cost_json_value(cost, currency);
+                model_obj["cost"] = cost_json_value(cost, options.currency);
+                let estimated_cost =
+                    calculate_estimated_proxy_cost(model_stats, model, options.pricing_db);
+                if estimated_cost > 0.0 {
+                    model_obj["cost_kind"] = serde_json::json!(model_stats.cost_kind().as_str());
+                    model_obj["estimated_cost"] = cost_json_value(estimated_cost, options.currency);
+                }
             }
             models_breakdown.push(model_obj);
         }
 
-        sort_models_breakdown(&mut models_breakdown, show_cost);
+        sort_models_breakdown(&mut models_breakdown, options.show_cost);
 
         let mut obj = serde_json::json!({
             (label): key,
@@ -88,13 +99,22 @@ fn build_period_entry(
             "total_tokens": stats.stats.total_tokens(),
             "breakdown": models_breakdown,
         });
-        if show_cost {
-            obj["cost"] = cost_json_value(period_cost, currency);
+        if options.show_cost {
+            obj["cost"] = cost_json_value(period_cost, options.currency);
+            let estimated_cost = sum_estimated_proxy_model_costs(&stats.models, options.pricing_db);
+            if estimated_cost > 0.0 {
+                obj["cost_kind"] = serde_json::json!(model_cost_kind(&stats.models).as_str());
+                obj["estimated_cost"] = cost_json_value(estimated_cost, options.currency);
+            }
         }
         obj
     } else {
-        let period_cost = if show_cost {
-            Some(sum_model_costs(&stats.models, pricing_db))
+        let period_cost = if options.show_cost {
+            Some(sum_display_model_costs(
+                &stats.models,
+                options.pricing_db,
+                options.cost_mode,
+            ))
         } else {
             None
         };
@@ -110,11 +130,24 @@ fn build_period_entry(
             "total_tokens": stats.stats.total_tokens(),
             "models": models,
         });
-        if show_cost {
-            obj["cost"] = cost_json_value(period_cost.unwrap_or(0.0), currency);
+        if options.show_cost {
+            obj["cost"] = cost_json_value(period_cost.unwrap_or(0.0), options.currency);
+            let estimated_cost = sum_estimated_proxy_model_costs(&stats.models, options.pricing_db);
+            if estimated_cost > 0.0 {
+                obj["cost_kind"] = serde_json::json!(model_cost_kind(&stats.models).as_str());
+                obj["estimated_cost"] = cost_json_value(estimated_cost, options.currency);
+            }
         }
         obj
     }
+}
+
+struct PeriodJsonOptions<'a> {
+    pricing_db: &'a PricingDb,
+    breakdown: bool,
+    show_cost: bool,
+    currency: Option<&'a CurrencyConverter>,
+    cost_mode: CostDisplayMode,
 }
 
 fn data_quality_json(data_quality: DataQuality) -> serde_json::Value {
@@ -136,7 +169,15 @@ pub(crate) fn output_period_json(
     currency: Option<&CurrencyConverter>,
 ) -> String {
     output_period_json_with_quality(
-        day_stats, period, pricing_db, order, breakdown, show_cost, currency, None,
+        day_stats,
+        period,
+        pricing_db,
+        order,
+        breakdown,
+        show_cost,
+        currency,
+        None,
+        CostDisplayMode::Total,
     )
 }
 
@@ -150,6 +191,7 @@ pub(crate) fn output_period_json_with_quality(
     show_cost: bool,
     currency: Option<&CurrencyConverter>,
     data_quality: Option<DataQuality>,
+    cost_mode: CostDisplayMode,
 ) -> String {
     let label = period.label();
     let aggregated;
@@ -161,12 +203,17 @@ pub(crate) fn output_period_json_with_quality(
     };
 
     let data_quality = data_quality.map(data_quality_json);
+    let options = PeriodJsonOptions {
+        pricing_db,
+        breakdown,
+        show_cost,
+        currency,
+        cost_mode,
+    };
     let mut output: Vec<serde_json::Value> = stats_ref
         .iter()
         .map(|(key, stats)| {
-            let mut entry = build_period_entry(
-                label, key, stats, pricing_db, breakdown, show_cost, currency,
-            );
+            let mut entry = build_period_entry(label, key, stats, &options);
             if let Some(data_quality) = &data_quality {
                 entry["data_quality"] = data_quality.clone();
             }

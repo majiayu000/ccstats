@@ -8,7 +8,7 @@ use crate::cli::SortOrder;
 use crate::core::DayStats;
 use crate::output::format::{create_styled_table, header_cell, right_cell, styled_cell};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
+use crate::pricing::{CostDisplayMode, CurrencyConverter, PricingDb, sum_display_model_costs};
 
 #[derive(Debug, Clone)]
 pub(crate) struct MonthlyBudgetReport {
@@ -32,6 +32,7 @@ pub(crate) struct MonthlyBudgetOptions<'a> {
     pub(crate) limit: f64,
     pub(crate) as_of: NaiveDate,
     pub(crate) currency: Option<&'a CurrencyConverter>,
+    pub(crate) cost_mode: CostDisplayMode,
 }
 
 fn display_cost(usd: f64, currency: Option<&CurrencyConverter>) -> f64 {
@@ -126,6 +127,7 @@ pub(crate) fn monthly_budget_reports(
     monthly_budget: f64,
     as_of: NaiveDate,
     currency: Option<&CurrencyConverter>,
+    cost_mode: CostDisplayMode,
 ) -> Vec<MonthlyBudgetReport> {
     let monthly = aggregate_day_stats_by_period(day_stats, Period::Month);
     let mut months: Vec<_> = monthly.keys().collect();
@@ -138,7 +140,10 @@ pub(crate) fn monthly_budget_reports(
         .into_iter()
         .filter_map(|month| {
             monthly.get(month).map(|stats| {
-                let spent = display_cost(sum_model_costs(&stats.models, pricing_db), currency);
+                let spent = display_cost(
+                    sum_display_model_costs(&stats.models, pricing_db, cost_mode),
+                    currency,
+                );
                 budget_report(month.clone(), spent, monthly_budget, as_of)
             })
         })
@@ -298,6 +303,7 @@ mod tests {
             10.0,
             NaiveDate::from_ymd_opt(2026, 2, 10).unwrap(),
             None,
+            CostDisplayMode::Total,
         );
 
         assert_eq!(reports.len(), 1);

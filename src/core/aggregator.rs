@@ -68,28 +68,11 @@ impl SessionAccumulator {
         }
     }
 
-    fn add_entry(&mut self, entry: RawEntry) {
-        let RawEntry {
-            timestamp,
-            timestamp_ms,
-            model,
-            input_tokens,
-            output_tokens,
-            cache_creation,
-            cache_read,
-            reasoning_tokens,
-            ..
-        } = entry;
-
-        let stats = Stats {
-            input_tokens,
-            output_tokens,
-            cache_creation,
-            cache_read,
-            reasoning_tokens,
-            count: 1,
-            skipped_chunks: 0,
-        };
+    fn add_entry(&mut self, entry: &RawEntry) {
+        let timestamp = entry.timestamp.clone();
+        let timestamp_ms = entry.timestamp_ms;
+        let model = entry.model.clone();
+        let stats = entry.to_stats();
         self.stats.add(&stats);
         self.models.entry(model).or_default().add(&stats);
         self.update_timestamps(timestamp, timestamp_ms);
@@ -147,7 +130,7 @@ pub(crate) fn aggregate_sessions_map(entries: Vec<RawEntry>) -> HashMap<String, 
                 entry.timestamp_ms,
             )
         });
-        session.add_entry(entry);
+        session.add_entry(&entry);
     }
 
     sessions
@@ -274,6 +257,7 @@ mod tests {
             cache_read: 0,
             reasoning_tokens: 0,
             stop_reason: Some("end_turn".to_string()),
+            cost_kind: crate::core::CostKind::Real,
         }
     }
 
@@ -499,6 +483,7 @@ mod tests {
                 cache_read: 0,
                 reasoning_tokens: 0,
                 stop_reason: None,
+                cost_kind: crate::core::CostKind::Real,
             },
             RawEntry {
                 timestamp: "2025-01-01T08:00:00Z".to_string(),
@@ -515,6 +500,7 @@ mod tests {
                 cache_read: 0,
                 reasoning_tokens: 0,
                 stop_reason: None,
+                cost_kind: crate::core::CostKind::Real,
             },
             RawEntry {
                 timestamp: "2025-01-01T20:00:00Z".to_string(),
@@ -531,6 +517,7 @@ mod tests {
                 cache_read: 0,
                 reasoning_tokens: 0,
                 stop_reason: None,
+                cost_kind: crate::core::CostKind::Real,
             },
         ];
         let result = aggregate_sessions(entries);

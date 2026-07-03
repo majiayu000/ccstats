@@ -42,5 +42,5 @@ pub(crate) use table::{PeriodSummaryFooter, TokenTableOptions, print_period_tabl
 pub(crate) use tools::{output_tools_csv, output_tools_json, print_tools_table};
 pub(crate) use top::{
     TopRow, TopTableOptions, output_top_csv, output_top_json, print_top_table, rank_by_model,
-    rank_by_project,
+    rank_by_model_with_cost_mode, rank_by_project,
 };

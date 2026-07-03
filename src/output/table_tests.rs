@@ -2,6 +2,7 @@ use super::*;
 use crate::cli::SortOrder;
 use crate::output::format::NumberFormat;
 use crate::output::period::Period;
+use crate::pricing::CostDisplayMode;
 
 fn default_opts() -> TokenTableOptions<'static> {
     TokenTableOptions {
@@ -13,6 +14,7 @@ fn default_opts() -> TokenTableOptions<'static> {
         show_reasoning: false,
         show_cache_creation: false,
         currency: None,
+        cost_mode: CostDisplayMode::Total,
     }
 }
 
@@ -137,6 +139,7 @@ fn make_day_stats() -> DayStats {
         cache_read: 200,
         count: 3,
         skipped_chunks: 0,
+        estimated_proxy: crate::core::CostTokens::default(),
     };
     day.stats = stats.clone();
     day.models.insert("claude-sonnet".to_string(), stats);

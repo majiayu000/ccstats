@@ -33,6 +33,9 @@ fn assert_stable_summary_eq(actual: &CostSummary, expected: &CostSummary) {
     assert_eq!(actual.currency, expected.currency);
     assert_eq!(actual.cost, expected.cost);
     assert_eq!(actual.cost_usd, expected.cost_usd);
+    assert_eq!(actual.estimated_cost, expected.estimated_cost);
+    assert_eq!(actual.estimated_cost_usd, expected.estimated_cost_usd);
+    assert_eq!(actual.cost_kind, expected.cost_kind);
     assert_eq!(actual.tokens, expected.tokens);
     assert_eq!(actual.models, expected.models);
     assert_eq!(actual.valid_entries, expected.valid_entries);
@@ -399,4 +402,11 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     assert_eq!(summary.models.len(), 1);
     assert_eq!(summary.models[0].model, "grok-build");
     assert!(summary.cost_usd.is_some_and(|cost| cost > 0.0));
+    assert_eq!(summary.cost_kind, "estimated_proxy");
+    assert_eq!(summary.estimated_cost_usd, summary.cost_usd);
+    assert_eq!(summary.models[0].cost_kind, "estimated_proxy");
+    assert_eq!(
+        summary.models[0].estimated_cost_usd,
+        summary.models[0].cost_usd
+    );
 }

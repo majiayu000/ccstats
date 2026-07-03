@@ -359,6 +359,7 @@ mod tests {
                     cache_read: 0,
                     reasoning_tokens: 0,
                     stop_reason: Some("complete".to_string()),
+                    cost_kind: crate::core::CostKind::Real,
                 }],
                 errors: 0,
             }

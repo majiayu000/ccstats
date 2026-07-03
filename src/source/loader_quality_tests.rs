@@ -58,6 +58,7 @@ fn entry(id: &str, input_tokens: i64) -> RawEntry {
         cache_read: 0,
         reasoning_tokens: 0,
         stop_reason: Some("end_turn".to_string()),
+        cost_kind: crate::core::CostKind::Real,
     }
 }
 

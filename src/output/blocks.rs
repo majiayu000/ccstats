@@ -6,7 +6,9 @@ use crate::output::format::{
     NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
     header_cell, right_cell, styled_cell,
 };
-use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
+use crate::pricing::{
+    CurrencyConverter, PricingDb, model_cost_kind, sum_estimated_proxy_model_costs, sum_model_costs,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BlockTableOptions<'a> {
@@ -69,10 +71,17 @@ pub(crate) fn print_block_table(
 
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
+    let mut total_estimated_cost = 0.0;
+    let mut has_estimated_cost = false;
 
     for block in &sorted_blocks {
         let block_cost = sum_model_costs(&block.models, pricing_db);
         total_cost += block_cost;
+        let estimated_cost = sum_estimated_proxy_model_costs(&block.models, pricing_db);
+        if estimated_cost > 0.0 {
+            total_estimated_cost += estimated_cost;
+            has_estimated_cost = true;
+        }
         total_stats.add(&block.stats);
 
         let block_label = format!("{} - {}", block.block_start, block.block_end);
@@ -196,6 +205,12 @@ pub(crate) fn print_block_table(
 
     println!("\n  {source_label} 5-Hour Billing Blocks\n");
     println!("{table}");
+    if show_cost && has_estimated_cost {
+        println!(
+            "\n  Cost includes estimated proxy values: {}",
+            format_cost(total_estimated_cost, options.currency)
+        );
+    }
     println!(
         "\n  {} blocks\n",
         format_number(sorted_blocks.len() as i64, number_format)
@@ -235,6 +250,11 @@ pub(crate) fn output_block_json(
             });
             if show_cost {
                 obj["cost"] = cost_json_value(block_cost, currency);
+                let estimated_cost = sum_estimated_proxy_model_costs(&block.models, pricing_db);
+                if estimated_cost > 0.0 {
+                    obj["cost_kind"] = serde_json::json!(model_cost_kind(&block.models).as_str());
+                    obj["estimated_cost"] = cost_json_value(estimated_cost, currency);
+                }
             }
             obj
         })

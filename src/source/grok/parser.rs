@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::RawEntry;
+use crate::core::{CostKind, RawEntry};
 use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
@@ -356,6 +356,7 @@ pub(super) fn parse_grok_signal_file_with_debug(
             cache_read: 0,
             reasoning_tokens: 0,
             stop_reason: Some("context_snapshot".to_string()),
+            cost_kind: CostKind::EstimatedProxy,
         }],
         errors,
     }

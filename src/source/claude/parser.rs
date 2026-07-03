@@ -315,6 +315,7 @@ fn parse_entry_with_debug(
         cache_read: non_negative_tokens(usage.cache_read_input_tokens),
         reasoning_tokens: 0, // Claude doesn't have reasoning tokens
         stop_reason: msg.stop_reason,
+        cost_kind: crate::core::CostKind::Real,
     })
 }
 
