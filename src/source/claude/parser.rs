@@ -1,9 +1,10 @@
 //! Claude Code JSONL parser
 //!
-//! Parses JSONL logs from ~/.claude/projects/ directory.
+//! Parses JSONL logs from the Claude config projects directory.
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -46,11 +47,26 @@ struct Usage {
 // File discovery
 // ============================================================================
 
+const CLAUDE_CONFIG_DIR_ENV: &str = "CLAUDE_CONFIG_DIR";
+const DEFAULT_CLAUDE_CONFIG_DIR: &str = ".claude";
+const PROJECTS_SUBDIR: &str = "projects";
+
+fn claude_config_root() -> Option<PathBuf> {
+    match env::var_os(CLAUDE_CONFIG_DIR_ENV) {
+        Some(path) if !path.is_empty() => Some(PathBuf::from(path)),
+        Some(_) => None,
+        None => dirs::home_dir().map(|home| home.join(DEFAULT_CLAUDE_CONFIG_DIR)),
+    }
+}
+
+pub(crate) fn claude_projects_dir() -> Option<PathBuf> {
+    claude_config_root().map(|root| root.join(PROJECTS_SUBDIR))
+}
+
 pub(super) fn find_claude_files() -> Vec<PathBuf> {
-    let Some(home) = dirs::home_dir() else {
+    let Some(claude_path) = claude_projects_dir() else {
         return Vec::new();
     };
-    let claude_path = home.join(".claude").join("projects");
 
     let mut files = Vec::new();
     if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", claude_path.display())) {

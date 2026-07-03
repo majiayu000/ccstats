@@ -47,6 +47,12 @@ cost = input_tokens   × input_price
 ~/.claude/projects/<project>/subagents/*.jsonl
 ```
 
+可通过 `CLAUDE_CONFIG_DIR` 覆盖 Claude 配置根目录：
+
+```
+CLAUDE_CONFIG_DIR=/path/to/claude-config ccstats daily --source claude
+```
+
 ### 原始字段
 
 Anthropic API 的 `message.usage` 中，**每个字段独立、互不包含**：

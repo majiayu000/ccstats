@@ -190,6 +190,14 @@ ccstats today -j
 ccstats today --debug
 ```
 
+By default, ccstats checks Claude Code logs under `~/.claude/projects/`.
+If Claude Code uses a moved config directory, set `CLAUDE_CONFIG_DIR` to the
+Claude config root:
+
+```bash
+CLAUDE_CONFIG_DIR="/path/to/claude-config" ccstats daily --source claude
+```
+
 ### OpenAI Codex
 
 ```bash
@@ -213,6 +221,13 @@ ccstats codex session
 
 # With model breakdown
 ccstats codex today -b
+```
+
+By default, ccstats checks Codex sessions under `~/.codex/sessions/`. You can
+override the Codex home directory with `CODEX_HOME`:
+
+```bash
+CODEX_HOME="/path/to/.codex" ccstats codex daily
 ```
 
 ### Cursor (Experimental)
@@ -354,13 +369,13 @@ Warning: ignored <N> malformed records
 
 ## Supported Data Sources
 
-| Source | Directory | Features |
-|--------|-----------|----------|
-| Claude Code | `~/.claude/projects/` | Projects, Billing Blocks, Deduplication |
-| OpenAI Codex | `~/.codex/sessions/` | Reasoning Tokens |
-| All Sources | Multiple | Combined daily/weekly/monthly/today/statusline summaries |
-| Cursor (experimental) | Cursor `User/globalStorage/state.vscdb` | Local SQLite `tokenCount` fields only |
-| Grok | `~/.grok/sessions/` | Context-token session summaries, Projects |
+| Source | Directory | Override | Features |
+|--------|-----------|----------|----------|
+| Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Billing Blocks, Deduplication |
+| OpenAI Codex | `~/.codex/sessions/` | `CODEX_HOME` | Reasoning Tokens |
+| All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
+| Cursor (experimental) | Cursor `User/globalStorage/state.vscdb` | `CURSOR_HOME` | Local SQLite `tokenCount` fields only |
+| Grok | `~/.grok/sessions/` | `GROK_HOME` | Context-token session summaries, Projects |
 
 ## Architecture
 
