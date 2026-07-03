@@ -15,9 +15,9 @@ use crate::output::{
     output_session_json, output_tools_csv, output_tools_json, output_top_csv, output_top_json,
     print_block_table, print_monthly_budget_table, print_period_table, print_project_table,
     print_session_table, print_statusline, print_statusline_json_with_quality, print_tools_table,
-    print_top_table, rank_by_model, rank_by_project,
+    print_top_table, rank_by_model, rank_by_model_with_cost_mode, rank_by_project,
 };
-use crate::pricing::PricingDb;
+use crate::pricing::{CostDisplayMode, PricingDb};
 use crate::source::{
     ALL_SOURCES, Capabilities, Source, all_sources, load_blocks, load_daily, load_projects,
     load_sessions, load_tool_calls,
@@ -216,13 +216,14 @@ fn handle_top(
     limit: usize,
     source_label: &str,
     ctx: &CommandContext<'_>,
+    cost_mode: CostDisplayMode,
 ) {
     if rows.is_empty() {
         print_no_data_hint(source_label, "usage");
         return;
     }
 
-    render_top(rows, dim, limit, source_label, ctx);
+    render_top(rows, dim, limit, source_label, ctx, cost_mode);
 }
 
 fn render_top(
@@ -231,6 +232,7 @@ fn render_top(
     limit: usize,
     source_label: &str,
     ctx: &CommandContext<'_>,
+    cost_mode: CostDisplayMode,
 ) {
     match ctx.cli.output_format() {
         OutputFormat::Csv => {
@@ -252,6 +254,7 @@ fn render_top(
                 currency: ctx.currency,
                 dim,
                 limit,
+                cost_mode,
             },
         ),
     }
@@ -267,7 +270,14 @@ fn handle_top_for_source(
         TopDimension::Model => {
             let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
             let rows = rank_by_model(&result.day_stats, ctx.pricing_db);
-            handle_top(&rows, dim, limit, source.display_name(), ctx);
+            handle_top(
+                &rows,
+                dim,
+                limit,
+                source.display_name(),
+                ctx,
+                CostDisplayMode::Total,
+            );
         }
         TopDimension::Project => {
             if !source.capabilities().has_projects {
@@ -279,7 +289,14 @@ fn handle_top_for_source(
             }
             let projects = load_projects(source, ctx.filter, ctx.timezone, false);
             let rows = rank_by_project(&projects, ctx.pricing_db);
-            handle_top(&rows, dim, limit, source.display_name(), ctx);
+            handle_top(
+                &rows,
+                dim,
+                limit,
+                source.display_name(),
+                ctx,
+                CostDisplayMode::Total,
+            );
         }
     }
 }
@@ -438,6 +455,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.number_format,
             ctx.currency,
             Some(result.data_quality()),
+            CostDisplayMode::Total,
         );
         print_json(&json, ctx.jq_filter);
     } else {
@@ -447,6 +465,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             source.display_name(),
             ctx.number_format,
             ctx.currency,
+            CostDisplayMode::Total,
         );
     }
 }
@@ -456,6 +475,7 @@ fn render_period_result(
     period: Period,
     caps: &Capabilities,
     ctx: &CommandContext<'_>,
+    cost_mode: CostDisplayMode,
 ) {
     let monthly_budget = (period == Period::Month)
         .then_some(ctx.cli.monthly_budget)
@@ -474,6 +494,7 @@ fn render_period_result(
                         limit: budget,
                         as_of: ctx.budget_as_of,
                         currency: ctx.currency,
+                        cost_mode,
                     },
                 );
                 append_data_quality_csv_comment(&mut csv, Some(result.data_quality()));
@@ -488,6 +509,7 @@ fn render_period_result(
                     ctx.cli.show_cost(),
                     ctx.currency,
                     Some(result.data_quality()),
+                    cost_mode,
                 )
             };
             print!("{csv}");
@@ -502,6 +524,7 @@ fn render_period_result(
                 ctx.cli.show_cost(),
                 ctx.currency,
                 Some(result.data_quality()),
+                cost_mode,
             );
             if let Some(budget) = monthly_budget {
                 let reports = monthly_budget_reports(
@@ -511,6 +534,7 @@ fn render_period_result(
                     budget,
                     ctx.budget_as_of,
                     ctx.currency,
+                    cost_mode,
                 );
                 json = add_monthly_budget_to_json(&json, &reports);
             }
@@ -536,6 +560,7 @@ fn render_period_result(
                     show_reasoning: caps.has_reasoning_tokens,
                     show_cache_creation: caps.has_cache_creation,
                     currency: ctx.currency,
+                    cost_mode,
                 },
             );
             if let Some(budget) = monthly_budget {
@@ -546,6 +571,7 @@ fn render_period_result(
                     budget,
                     ctx.budget_as_of,
                     ctx.currency,
+                    cost_mode,
                 );
                 print_monthly_budget_table(&reports, ctx.cli.use_color(), ctx.currency);
             }
@@ -571,7 +597,7 @@ fn handle_period(
         print_no_data_hint(source.display_name(), "usage");
         return;
     }
-    render_period_result(&result, period, caps, ctx);
+    render_period_result(&result, period, caps, ctx, CostDisplayMode::Total);
 }
 
 /// Handle commands for a specific data source
@@ -689,6 +715,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     ctx.number_format,
                     ctx.currency,
                     Some(result.data_quality()),
+                    CostDisplayMode::RealOnly,
                 );
                 print_json(&json, ctx.jq_filter);
             } else {
@@ -698,6 +725,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     "All Sources",
                     ctx.number_format,
                     ctx.currency,
+                    CostDisplayMode::RealOnly,
                 );
             }
             return;
@@ -720,8 +748,19 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                 return;
             }
             let (result, _) = load_all_daily(ctx, false);
-            let rows = rank_by_model(&result.day_stats, ctx.pricing_db);
-            handle_top(&rows, dim, limit, "All Sources", ctx);
+            let rows = rank_by_model_with_cost_mode(
+                &result.day_stats,
+                ctx.pricing_db,
+                CostDisplayMode::RealOnly,
+            );
+            handle_top(
+                &rows,
+                dim,
+                limit,
+                "All Sources",
+                ctx,
+                CostDisplayMode::RealOnly,
+            );
             return;
         }
         SourceCommand::Session
@@ -751,5 +790,5 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
         print_no_data_hint("All Sources", "usage");
         return;
     }
-    render_period_result(&result, period, &caps, ctx);
+    render_period_result(&result, period, &caps, ctx, CostDisplayMode::RealOnly);
 }

@@ -540,6 +540,7 @@ fn push_codex_entry(
         cache_read,
         reasoning_tokens,
         stop_reason: Some("complete".to_string()), // Codex events are always complete
+        cost_kind: crate::core::CostKind::Real,
     });
 }
 

@@ -12,7 +12,10 @@ use thiserror::Error;
 
 use crate::config::Config;
 use crate::core::{DateFilter, DayStats, LoadResult, Stats};
-use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
+use crate::pricing::{
+    CurrencyConverter, PricingDb, calculate_cost, calculate_estimated_proxy_cost, model_cost_kind,
+    sum_estimated_proxy_model_costs, sum_model_costs,
+};
 use crate::source::{Source, get_source, load_daily};
 use crate::utils::Timezone;
 
@@ -179,6 +182,9 @@ pub struct ModelCostSummary {
     pub model: String,
     pub cost: Option<f64>,
     pub cost_usd: Option<f64>,
+    pub estimated_cost: Option<f64>,
+    pub estimated_cost_usd: Option<f64>,
+    pub cost_kind: String,
     pub tokens: TokenBreakdown,
 }
 
@@ -194,6 +200,9 @@ pub struct CostSummary {
     pub currency: String,
     pub cost: Option<f64>,
     pub cost_usd: Option<f64>,
+    pub estimated_cost: Option<f64>,
+    pub estimated_cost_usd: Option<f64>,
+    pub cost_kind: String,
     pub tokens: TokenBreakdown,
     pub models: Vec<ModelCostSummary>,
     pub valid_entries: i64,
@@ -317,6 +326,8 @@ pub(in crate::sdk) fn build_cost_summary(
 ) -> CostSummary {
     let (stats, models) = merge_days(&result.day_stats);
     let cost_usd = finite_cost(sum_model_costs(&models, pricing_db));
+    let estimated_cost_usd =
+        finite_positive_cost(sum_estimated_proxy_model_costs(&models, pricing_db));
 
     CostSummary {
         source: usage_source,
@@ -328,6 +339,9 @@ pub(in crate::sdk) fn build_cost_summary(
         currency: currency_code.to_string(),
         cost: convert_cost(cost_usd, currency),
         cost_usd,
+        estimated_cost: convert_cost(estimated_cost_usd, currency),
+        estimated_cost_usd,
+        cost_kind: model_cost_kind(&models).as_str().to_string(),
         tokens: TokenBreakdown::from_stats(&stats),
         models: summarize_models(&models, pricing_db, currency),
         valid_entries: result.valid,
@@ -356,6 +370,10 @@ fn merge_days(day_stats: &HashMap<String, DayStats>) -> (Stats, HashMap<String, 
 
 fn finite_cost(cost: f64) -> Option<f64> {
     cost.is_finite().then_some(cost)
+}
+
+fn finite_positive_cost(cost: f64) -> Option<f64> {
+    (cost.is_finite() && cost > 0.0).then_some(cost)
 }
 
 fn convert_cost(cost_usd: Option<f64>, currency: Option<&CurrencyConverter>) -> Option<f64> {
@@ -389,10 +407,15 @@ fn summarize_models(
         .iter()
         .map(|(model, stats)| {
             let cost_usd = finite_cost(calculate_cost(stats, model, pricing_db));
+            let estimated_cost_usd =
+                finite_positive_cost(calculate_estimated_proxy_cost(stats, model, pricing_db));
             ModelCostSummary {
                 model: model.clone(),
                 cost: convert_cost(cost_usd, currency),
                 cost_usd,
+                estimated_cost: convert_cost(estimated_cost_usd, currency),
+                estimated_cost_usd,
+                cost_kind: stats.cost_kind().as_str().to_string(),
                 tokens: TokenBreakdown::from_stats(stats),
             }
         })

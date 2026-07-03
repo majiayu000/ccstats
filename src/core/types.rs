@@ -16,6 +16,7 @@ pub(crate) struct Stats {
     pub(crate) reasoning_tokens: i64,
     pub(crate) count: i64,
     pub(crate) skipped_chunks: i64,
+    pub(crate) estimated_proxy: CostTokens,
 }
 
 impl Stats {
@@ -27,6 +28,7 @@ impl Stats {
         self.reasoning_tokens += other.reasoning_tokens;
         self.count += other.count;
         self.skipped_chunks += other.skipped_chunks;
+        self.estimated_proxy.add(&other.estimated_proxy);
     }
 
     /// Total tokens for display purposes
@@ -36,6 +38,93 @@ impl Stats {
             + self.reasoning_tokens
             + self.cache_creation
             + self.cache_read
+    }
+
+    pub(crate) fn cost_tokens(&self) -> CostTokens {
+        CostTokens {
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+            cache_creation: self.cache_creation,
+            cache_read: self.cache_read,
+            reasoning_tokens: self.reasoning_tokens,
+            count: self.count,
+        }
+    }
+
+    pub(crate) fn real_cost_tokens(&self) -> CostTokens {
+        self.cost_tokens().saturating_sub(&self.estimated_proxy)
+    }
+
+    pub(crate) fn cost_kind(&self) -> CostKind {
+        let estimated_count = self.estimated_proxy.count.max(0);
+        if estimated_count == 0 {
+            CostKind::Real
+        } else if estimated_count >= self.count.max(0) {
+            CostKind::EstimatedProxy
+        } else {
+            CostKind::Mixed
+        }
+    }
+}
+
+/// Cost provenance for token records.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CostKind {
+    #[default]
+    Real,
+    EstimatedProxy,
+    Mixed,
+}
+
+impl CostKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            CostKind::Real => "real",
+            CostKind::EstimatedProxy => "estimated_proxy",
+            CostKind::Mixed => "mixed",
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CostTokens {
+    pub(crate) input_tokens: i64,
+    pub(crate) output_tokens: i64,
+    pub(crate) cache_creation: i64,
+    pub(crate) cache_read: i64,
+    pub(crate) reasoning_tokens: i64,
+    pub(crate) count: i64,
+}
+
+impl CostTokens {
+    pub(crate) fn add(&mut self, other: &Self) {
+        self.input_tokens += other.input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.cache_creation += other.cache_creation;
+        self.cache_read += other.cache_read;
+        self.reasoning_tokens += other.reasoning_tokens;
+        self.count += other.count;
+    }
+
+    fn saturating_sub(self, other: &Self) -> Self {
+        Self {
+            input_tokens: (self.input_tokens - other.input_tokens).max(0),
+            output_tokens: (self.output_tokens - other.output_tokens).max(0),
+            cache_creation: (self.cache_creation - other.cache_creation).max(0),
+            cache_read: (self.cache_read - other.cache_read).max(0),
+            reasoning_tokens: (self.reasoning_tokens - other.reasoning_tokens).max(0),
+            count: (self.count - other.count).max(0),
+        }
+    }
+
+    pub(crate) fn has_entries(self) -> bool {
+        self.count > 0
+            || self.input_tokens > 0
+            || self.output_tokens > 0
+            || self.cache_creation > 0
+            || self.cache_read > 0
+            || self.reasoning_tokens > 0
     }
 }
 
@@ -113,11 +202,13 @@ pub(crate) struct RawEntry {
     pub(crate) reasoning_tokens: i64,
     /// Stop reason for completion detection
     pub(crate) stop_reason: Option<String>,
+    #[serde(default)]
+    pub(crate) cost_kind: CostKind,
 }
 
 impl RawEntry {
     pub(crate) fn to_stats(&self) -> Stats {
-        Stats {
+        let mut stats = Stats {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             cache_creation: self.cache_creation,
@@ -125,7 +216,12 @@ impl RawEntry {
             reasoning_tokens: self.reasoning_tokens,
             count: 1,
             skipped_chunks: 0,
+            estimated_proxy: CostTokens::default(),
+        };
+        if self.cost_kind == CostKind::EstimatedProxy {
+            stats.estimated_proxy = stats.cost_tokens();
         }
+        stats
     }
 }
 
@@ -205,6 +301,7 @@ mod tests {
             reasoning_tokens: reason,
             count: 1,
             skipped_chunks: 0,
+            estimated_proxy: CostTokens::default(),
         }
     }
 
@@ -238,6 +335,7 @@ mod tests {
             reasoning_tokens: 0,
             count: 999,
             skipped_chunks: 42,
+            estimated_proxy: CostTokens::default(),
         };
         assert_eq!(s.total_tokens(), 15);
     }
@@ -259,6 +357,7 @@ mod tests {
             reasoning_tokens: 10,
             count: 3,
             skipped_chunks: 5,
+            estimated_proxy: CostTokens::default(),
         };
         a.add(&b);
         assert_eq!(a.input_tokens, 110);
@@ -335,6 +434,7 @@ mod tests {
             cache_read: 30,
             reasoning_tokens: 10,
             stop_reason: None,
+            cost_kind: CostKind::Real,
         };
         let s = entry.to_stats();
         assert_eq!(s.input_tokens, 100);

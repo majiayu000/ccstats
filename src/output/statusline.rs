@@ -2,21 +2,35 @@ use std::collections::HashMap;
 
 use crate::core::{DataQuality, DayStats, Stats};
 use crate::output::format::{NumberFormat, cost_json_value, format_compact, format_cost};
-use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
+use crate::pricing::{
+    CostDisplayMode, CurrencyConverter, PricingDb, sum_display_model_costs,
+    sum_estimated_proxy_model_costs,
+};
 
 struct Totals {
     stats: Stats,
     cost: f64,
+    estimated_proxy_cost: f64,
 }
 
-fn aggregate_totals(day_stats: &HashMap<String, DayStats>, pricing_db: &PricingDb) -> Totals {
+fn aggregate_totals(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    cost_mode: CostDisplayMode,
+) -> Totals {
     let mut stats = Stats::default();
     let mut cost = 0.0;
+    let mut estimated_proxy_cost = 0.0;
     for day in day_stats.values() {
         stats.add(&day.stats);
-        cost += sum_model_costs(&day.models, pricing_db);
+        cost += sum_display_model_costs(&day.models, pricing_db, cost_mode);
+        estimated_proxy_cost += sum_estimated_proxy_model_costs(&day.models, pricing_db);
     }
-    Totals { stats, cost }
+    Totals {
+        stats,
+        cost,
+        estimated_proxy_cost,
+    }
 }
 
 /// Output a single line suitable for statusline/tmux integration
@@ -27,8 +41,9 @@ pub(crate) fn print_statusline(
     source_label: &str,
     number_format: NumberFormat,
     currency: Option<&CurrencyConverter>,
+    cost_mode: CostDisplayMode,
 ) {
-    let t = aggregate_totals(day_stats, pricing_db);
+    let t = aggregate_totals(day_stats, pricing_db, cost_mode);
 
     let mut parts = vec![
         format!("{}: {}", source_label, format_cost(t.cost, currency)),
@@ -63,6 +78,7 @@ pub(crate) fn print_statusline_json(
         number_format,
         currency,
         None,
+        CostDisplayMode::Total,
     )
 }
 
@@ -73,8 +89,9 @@ pub(crate) fn print_statusline_json_with_quality(
     number_format: NumberFormat,
     currency: Option<&CurrencyConverter>,
     data_quality: Option<DataQuality>,
+    cost_mode: CostDisplayMode,
 ) -> String {
-    let t = aggregate_totals(day_stats, pricing_db);
+    let t = aggregate_totals(day_stats, pricing_db, cost_mode);
 
     let mut output = serde_json::json!({
         "source": source_label,
@@ -99,6 +116,10 @@ pub(crate) fn print_statusline_json_with_quality(
             "parse_errors": data_quality.parse_errors,
         });
     }
+    if t.estimated_proxy_cost > 0.0 {
+        output["cost_kind"] = serde_json::json!(t.stats.cost_kind().as_str());
+        output["estimated_cost"] = cost_json_value(t.estimated_proxy_cost, currency);
+    }
 
     serde_json::to_string(&output).unwrap_or_else(|e| {
         eprintln!("Failed to serialize JSON output: {e}");
@@ -119,6 +140,7 @@ mod tests {
             cache_read: cache_r,
             count: 1,
             skipped_chunks: 0,
+            estimated_proxy: crate::core::CostTokens::default(),
         };
         let mut day = DayStats {
             stats: stats.clone(),
@@ -143,6 +165,7 @@ mod tests {
                 cache_read: 20,
                 count: 1,
                 skipped_chunks: 0,
+                estimated_proxy: crate::core::CostTokens::default(),
             },
             ..Default::default()
         };

@@ -9,7 +9,9 @@ use crate::output::format::{
     NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
     header_cell, right_cell, styled_cell,
 };
-use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
+use crate::pricing::{
+    CurrencyConverter, PricingDb, model_cost_kind, sum_estimated_proxy_model_costs, sum_model_costs,
+};
 use crate::utils::Timezone;
 
 /// Truncate session ID for display
@@ -119,11 +121,18 @@ pub(crate) fn print_session_table(
 
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
+    let mut total_estimated_cost = 0.0;
+    let mut has_estimated_cost = false;
 
     for session in &sorted_sessions {
         let session_cost = if show_cost {
             let cost = sum_model_costs(&session.models, pricing_db);
             total_cost += cost;
+            let estimated_cost = sum_estimated_proxy_model_costs(&session.models, pricing_db);
+            if estimated_cost > 0.0 {
+                total_estimated_cost += estimated_cost;
+                has_estimated_cost = true;
+            }
             Some(cost)
         } else {
             None
@@ -241,6 +250,12 @@ pub(crate) fn print_session_table(
 
     println!("\n  {source_label} Session Usage\n");
     println!("{table}");
+    if show_cost && has_estimated_cost {
+        println!(
+            "\n  Cost includes estimated proxy values: {}",
+            format_cost(total_estimated_cost, options.currency)
+        );
+    }
     println!(
         "\n  {} sessions\n",
         format_number(sorted_sessions.len() as i64, number_format)
@@ -288,6 +303,11 @@ pub(crate) fn output_session_json(
             });
             if show_cost {
                 obj["cost"] = cost_json_value(session_cost.unwrap_or(0.0), currency);
+                let estimated_cost = sum_estimated_proxy_model_costs(&session.models, pricing_db);
+                if estimated_cost > 0.0 {
+                    obj["cost_kind"] = serde_json::json!(model_cost_kind(&session.models).as_str());
+                    obj["estimated_cost"] = cost_json_value(estimated_cost, currency);
+                }
             }
             obj
         })

@@ -2,8 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::core::Stats;
-
 use super::cache::{
     CacheReadError, CacheWriteError, load_raw_cache, load_raw_cache_if_fresh, save_raw_cache,
 };
@@ -192,7 +190,7 @@ impl PricingDb {
         }
     }
 
-    fn get_pricing(&self, model: &str) -> Option<ModelPricing> {
+    pub(super) fn get_pricing(&self, model: &str) -> Option<ModelPricing> {
         if let Some(cached) = self.resolved.borrow().get(model) {
             return match cached {
                 ResolvedPricing::Known(pricing) => Some(pricing.clone()),
@@ -233,72 +231,12 @@ impl Default for PricingDb {
     }
 }
 
-pub(crate) fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb) -> f64 {
-    match pricing_db.get_pricing(model) {
-        Some(pricing) => {
-            stats.input_tokens as f64 * pricing.input
-                + stats.output_tokens as f64 * pricing.output
-                + stats.reasoning_tokens as f64 * pricing.reasoning_output
-                + stats.cache_creation as f64 * pricing.cache_create
-                + stats.cache_read as f64 * pricing.cache_read
-        }
-        None => f64::NAN,
-    }
-}
-
-/// Sum total cost across model breakdown map.
-///
-/// Unknown models (`calculate_cost` returns NaN because pricing did not
-/// resolve) are skipped, so a single unpriced model does not erase the total
-/// of every other model in the same row. An empty map returns 0.0; a map where
-/// every model is unknown returns NaN so the caller surfaces N/A instead of a
-/// misleading $0.00.
-pub(crate) fn sum_model_costs(models: &HashMap<String, Stats>, pricing_db: &PricingDb) -> f64 {
-    if models.is_empty() {
-        return 0.0;
-    }
-    let mut total = 0.0;
-    let mut any_known = false;
-    for (model, stats) in models {
-        let cost = calculate_cost(stats, model, pricing_db);
-        if cost.is_nan() {
-            continue;
-        }
-        total += cost;
-        any_known = true;
-    }
-    if any_known { total } else { f64::NAN }
-}
-
-/// Borrowed item with precomputed total cost.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CostedRef<'a, T> {
-    pub(crate) item: &'a T,
-    pub(crate) cost: f64,
-}
-
-/// Attach precomputed costs to a slice of items.
-pub(crate) fn attach_costs<'a, T, F>(
-    items: &'a [T],
-    mut models_of: F,
-    pricing_db: &PricingDb,
-) -> Vec<CostedRef<'a, T>>
-where
-    F: FnMut(&T) -> &HashMap<String, Stats>,
-{
-    items
-        .iter()
-        .map(|item| CostedRef {
-            item,
-            cost: sum_model_costs(models_of(item), pricing_db),
-        })
-        .collect()
-}
-
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
+    use crate::core::Stats;
+    use crate::pricing::{attach_costs, calculate_cost, sum_model_costs};
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
@@ -399,6 +337,7 @@ mod tests {
             reasoning_tokens: 0,
             count: 1,
             skipped_chunks: 0,
+            estimated_proxy: crate::core::CostTokens::default(),
         };
 
         let cost = calculate_cost(&stats, "sonnet-4", &db);
@@ -428,6 +367,7 @@ mod tests {
             reasoning_tokens: 0,
             count: 1,
             skipped_chunks: 0,
+            estimated_proxy: crate::core::CostTokens::default(),
         };
 
         let cost = calculate_cost(&stats, "sonnet-4", &db);

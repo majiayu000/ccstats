@@ -8,7 +8,10 @@ use crate::output::format::{
     right_cell, styled_cell,
 };
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
+use crate::pricing::{
+    CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost, model_cost_kind,
+    sum_display_model_costs, sum_estimated_proxy_model_costs,
+};
 
 #[derive(Debug, Clone, Copy)]
 #[allow(clippy::struct_excessive_bools)]
@@ -21,6 +24,7 @@ pub(crate) struct TokenTableOptions<'a> {
     pub(crate) show_reasoning: bool,
     pub(crate) show_cache_creation: bool,
     pub(crate) currency: Option<&'a CurrencyConverter>,
+    pub(crate) cost_mode: CostDisplayMode,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -150,7 +154,7 @@ fn add_compact_rows(
     cost_color: Option<Color>,
     pricing_db: &PricingDb,
 ) -> f64 {
-    let cost = sum_model_costs(&data.models, pricing_db);
+    let cost = sum_display_model_costs(&data.models, pricing_db, opts.cost_mode);
     let nf = opts.number_format;
     let mut row = vec![Cell::new(key)];
     if cfg.show_calls {
@@ -192,7 +196,7 @@ fn add_breakdown_rows(
 
     for (i, model) in models.iter().enumerate() {
         let stats = &data.models[*model];
-        let cost = calculate_cost(stats, model, pricing_db);
+        let cost = calculate_display_cost(stats, model, pricing_db, opts.cost_mode);
         period_cost += cost;
 
         let mut row = vec![Cell::new(if i == 0 { key } else { "" }), Cell::new(*model)];
@@ -250,7 +254,7 @@ fn add_standard_rows(
         .map(|s| s.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let cost = sum_model_costs(&data.models, pricing_db);
+    let cost = sum_display_model_costs(&data.models, pricing_db, opts.cost_mode);
     let nf = opts.number_format;
 
     let mut row = vec![Cell::new(key), Cell::new(&models_str)];
@@ -422,9 +426,19 @@ pub(crate) fn print_period_table(
     };
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
+    let mut estimated_proxy_cost = 0.0;
+    let mut has_estimated_proxy = false;
 
     for key in &keys {
         let data = &stats_ref[*key];
+        let row_estimated_cost = sum_estimated_proxy_model_costs(&data.models, pricing_db);
+        if row_estimated_cost > 0.0 {
+            has_estimated_proxy = true;
+            estimated_proxy_cost += row_estimated_cost;
+        }
+        if model_cost_kind(&data.models).as_str() != "real" {
+            has_estimated_proxy = true;
+        }
         let cost = if options.compact {
             add_compact_rows(
                 &mut table, key, data, &cfg, &options, cost_color, pricing_db,
@@ -453,6 +467,18 @@ pub(crate) fn print_period_table(
 
     println!("\n  {}\n", cfg.title);
     println!("{table}");
+    if options.show_cost && has_estimated_proxy {
+        match options.cost_mode {
+            CostDisplayMode::RealOnly => println!(
+                "\n  Estimated proxy cost excluded from Cost total: {}",
+                format_cost(estimated_proxy_cost, options.currency)
+            ),
+            CostDisplayMode::Total => println!(
+                "\n  Cost includes estimated proxy values: {}",
+                format_cost(estimated_proxy_cost, options.currency)
+            ),
+        }
+    }
     print_summary_line(
         summary.valid,
         summary.skipped,

@@ -259,6 +259,7 @@ mod tests {
             reasoning_tokens: 5,
             count: 1,
             skipped_chunks: 0,
+            estimated_proxy: crate::core::CostTokens::default(),
         };
         ds.add_stats("model-a".to_string(), &stats);
         day_stats.insert("2025-03-01".to_string(), ds);
@@ -272,6 +273,7 @@ mod tests {
             reasoning_tokens: 15,
             count: 2,
             skipped_chunks: 1,
+            estimated_proxy: crate::core::CostTokens::default(),
         };
         ds2.add_stats("model-a".to_string(), &stats2);
         day_stats.insert("2025-03-10".to_string(), ds2);

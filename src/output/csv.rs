@@ -7,7 +7,11 @@ use crate::core::{BlockStats, DataQuality, DayStats, ProjectStats, SessionStats}
 use crate::output::budget::{MonthlyBudgetOptions, MonthlyBudgetReport, monthly_budget_reports};
 use crate::output::format::{compare_cost, csv_escape};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
+use crate::pricing::{
+    CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost,
+    calculate_estimated_proxy_cost, model_cost_kind, sum_display_model_costs,
+    sum_estimated_proxy_model_costs, sum_model_costs,
+};
 
 #[cfg(test)]
 pub(crate) fn output_period_csv(
@@ -20,7 +24,15 @@ pub(crate) fn output_period_csv(
     currency: Option<&CurrencyConverter>,
 ) -> String {
     output_period_csv_with_quality(
-        day_stats, period, pricing_db, order, breakdown, show_cost, currency, None,
+        day_stats,
+        period,
+        pricing_db,
+        order,
+        breakdown,
+        show_cost,
+        currency,
+        None,
+        CostDisplayMode::Total,
     )
 }
 
@@ -34,6 +46,7 @@ pub(crate) fn output_period_csv_with_quality(
     show_cost: bool,
     currency: Option<&CurrencyConverter>,
     data_quality: Option<DataQuality>,
+    cost_mode: CostDisplayMode,
 ) -> String {
     let aggregated;
     let stats_ref = if period == Period::Day {
@@ -50,74 +63,148 @@ pub(crate) fn output_period_csv_with_quality(
     }
     let label = period.label();
     let mut out = String::new();
-
+    let ctx = PeriodCsvContext {
+        label,
+        pricing_db,
+        show_cost,
+        currency,
+        include_cost_kind: period_csv_includes_cost_kind(&rows, breakdown, show_cost),
+        cost_mode,
+    };
     if breakdown {
-        // Breakdown: one row per model per period
-        let _ = write!(
-            out,
-            "{label},model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
-        );
-        if show_cost {
-            let _ = write!(out, ",cost");
-        }
-        out.push('\n');
-
-        for (key, stats) in &rows {
-            let mut models: Vec<_> = stats.models.iter().collect();
-            models.sort_by_key(|(name, _)| name.as_str());
-            for (model, model_stats) in &models {
-                let _ = write!(
-                    out,
-                    "{},{},{},{},{},{},{},{}",
-                    csv_escape(key),
-                    csv_escape(model),
-                    model_stats.input_tokens,
-                    model_stats.output_tokens,
-                    model_stats.reasoning_tokens,
-                    model_stats.cache_creation,
-                    model_stats.cache_read,
-                    model_stats.total_tokens(),
-                );
-                if show_cost {
-                    let cost = calculate_cost(model_stats, model, pricing_db);
-                    let _ = write!(out, ",{}", csv_cost(cost, currency));
-                }
-                out.push('\n');
-            }
-        }
+        write_period_csv_breakdown(&mut out, &rows, &ctx);
     } else {
-        // Standard: one row per period
-        let _ = write!(
-            out,
-            "{label},input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
-        );
-        if show_cost {
-            let _ = write!(out, ",cost");
-        }
-        out.push('\n');
-
-        for (key, stats) in &rows {
-            let _ = write!(
-                out,
-                "{},{},{},{},{},{},{}",
-                csv_escape(key),
-                stats.stats.input_tokens,
-                stats.stats.output_tokens,
-                stats.stats.reasoning_tokens,
-                stats.stats.cache_creation,
-                stats.stats.cache_read,
-                stats.stats.total_tokens(),
-            );
-            if show_cost {
-                let cost = sum_model_costs(&stats.models, pricing_db);
-                let _ = write!(out, ",{}", csv_cost(cost, currency));
-            }
-            out.push('\n');
-        }
+        write_period_csv_standard(&mut out, &rows, &ctx);
     }
 
     append_data_quality_csv_comment(&mut out, data_quality);
     out
+}
+
+struct PeriodCsvContext<'a> {
+    label: &'a str,
+    pricing_db: &'a PricingDb,
+    show_cost: bool,
+    currency: Option<&'a CurrencyConverter>,
+    include_cost_kind: bool,
+    cost_mode: CostDisplayMode,
+}
+
+fn period_csv_includes_cost_kind(
+    rows: &[(&String, &DayStats)],
+    breakdown: bool,
+    show_cost: bool,
+) -> bool {
+    show_cost
+        && rows.iter().any(|(_, stats)| {
+            if breakdown {
+                stats
+                    .models
+                    .values()
+                    .any(|model| model.cost_kind().as_str() != "real")
+            } else {
+                model_cost_kind(&stats.models).as_str() != "real"
+            }
+        })
+}
+
+fn write_period_cost_header(out: &mut String, ctx: &PeriodCsvContext<'_>) {
+    if ctx.show_cost {
+        let _ = write!(out, ",cost");
+        if ctx.include_cost_kind {
+            let _ = write!(out, ",cost_kind,estimated_cost");
+        }
+    }
+    out.push('\n');
+}
+
+fn write_period_csv_breakdown(
+    out: &mut String,
+    rows: &[(&String, &DayStats)],
+    ctx: &PeriodCsvContext<'_>,
+) {
+    let _ = write!(
+        out,
+        "{},model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens",
+        ctx.label
+    );
+    write_period_cost_header(out, ctx);
+
+    for &(key, stats) in rows {
+        let mut models: Vec<_> = stats.models.iter().collect();
+        models.sort_by_key(|(name, _)| name.as_str());
+        for (model, model_stats) in &models {
+            let _ = write!(
+                out,
+                "{},{},{},{},{},{},{},{}",
+                csv_escape(key),
+                csv_escape(model),
+                model_stats.input_tokens,
+                model_stats.output_tokens,
+                model_stats.reasoning_tokens,
+                model_stats.cache_creation,
+                model_stats.cache_read,
+                model_stats.total_tokens(),
+            );
+            if ctx.show_cost {
+                let cost =
+                    calculate_display_cost(model_stats, model, ctx.pricing_db, ctx.cost_mode);
+                let _ = write!(out, ",{}", csv_cost(cost, ctx.currency));
+                if ctx.include_cost_kind {
+                    let estimated_cost =
+                        calculate_estimated_proxy_cost(model_stats, model, ctx.pricing_db);
+                    let _ = write!(
+                        out,
+                        ",{},{}",
+                        model_stats.cost_kind().as_str(),
+                        csv_cost(estimated_cost, ctx.currency)
+                    );
+                }
+            }
+            out.push('\n');
+        }
+    }
+}
+
+fn write_period_csv_standard(
+    out: &mut String,
+    rows: &[(&String, &DayStats)],
+    ctx: &PeriodCsvContext<'_>,
+) {
+    let _ = write!(
+        out,
+        "{},input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens",
+        ctx.label
+    );
+    write_period_cost_header(out, ctx);
+
+    for &(key, stats) in rows {
+        let _ = write!(
+            out,
+            "{},{},{},{},{},{},{}",
+            csv_escape(key),
+            stats.stats.input_tokens,
+            stats.stats.output_tokens,
+            stats.stats.reasoning_tokens,
+            stats.stats.cache_creation,
+            stats.stats.cache_read,
+            stats.stats.total_tokens(),
+        );
+        if ctx.show_cost {
+            let cost = sum_display_model_costs(&stats.models, ctx.pricing_db, ctx.cost_mode);
+            let _ = write!(out, ",{}", csv_cost(cost, ctx.currency));
+            if ctx.include_cost_kind {
+                let estimated_cost = sum_estimated_proxy_model_costs(&stats.models, ctx.pricing_db);
+                let _ = write!(
+                    out,
+                    ",{},{}",
+                    model_cost_kind(&stats.models).as_str(),
+                    csv_cost(estimated_cost, ctx.currency)
+                );
+            }
+        }
+        out.push('\n');
+    }
 }
 
 pub(crate) fn append_data_quality_csv_comment(out: &mut String, data_quality: Option<DataQuality>) {
@@ -188,6 +275,7 @@ pub(crate) fn output_monthly_budget_csv(
         options.limit,
         options.as_of,
         options.currency,
+        options.cost_mode,
     );
     let mut out = String::new();
 
@@ -222,7 +310,8 @@ pub(crate) fn output_monthly_budget_csv(
                     model_stats.total_tokens(),
                 );
                 if options.show_cost {
-                    let cost = calculate_cost(model_stats, model, pricing_db);
+                    let cost =
+                        calculate_display_cost(model_stats, model, pricing_db, options.cost_mode);
                     let _ = write!(out, ",{}", csv_cost(cost, options.currency));
                 }
                 write_budget_fields(&mut out, report);
@@ -256,7 +345,7 @@ pub(crate) fn output_monthly_budget_csv(
                 stats.stats.total_tokens(),
             );
             if options.show_cost {
-                let cost = sum_model_costs(&stats.models, pricing_db);
+                let cost = sum_display_model_costs(&stats.models, pricing_db, options.cost_mode);
                 let _ = write!(out, ",{}", csv_cost(cost, options.currency));
             }
             write_budget_fields(&mut out, report);
@@ -281,12 +370,19 @@ pub(crate) fn output_session_csv(
     }
 
     let mut out = String::new();
+    let include_cost_kind = show_cost
+        && sorted
+            .iter()
+            .any(|session| sum_estimated_proxy_model_costs(&session.models, pricing_db) > 0.0);
     let _ = write!(
         out,
         "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
     );
     if show_cost {
         let _ = write!(out, ",cost");
+        if include_cost_kind {
+            let _ = write!(out, ",cost_kind,estimated_cost");
+        }
     }
     out.push('\n');
 
@@ -308,6 +404,15 @@ pub(crate) fn output_session_csv(
         if show_cost {
             let cost = sum_model_costs(&s.models, pricing_db);
             let _ = write!(out, ",{}", csv_cost(cost, currency));
+            if include_cost_kind {
+                let estimated_cost = sum_estimated_proxy_model_costs(&s.models, pricing_db);
+                let _ = write!(
+                    out,
+                    ",{},{}",
+                    model_cost_kind(&s.models).as_str(),
+                    csv_cost(estimated_cost, currency)
+                );
+            }
         }
         out.push('\n');
     }
@@ -338,12 +443,19 @@ pub(crate) fn output_project_csv(
     }
 
     let mut out = String::new();
+    let include_cost_kind = show_cost
+        && sorted
+            .iter()
+            .any(|project| sum_estimated_proxy_model_costs(&project.models, pricing_db) > 0.0);
     let _ = write!(
         out,
         "project_name,project_path,sessions,input_tokens,output_tokens,total_tokens"
     );
     if show_cost {
         let _ = write!(out, ",cost");
+        if include_cost_kind {
+            let _ = write!(out, ",cost_kind,estimated_cost");
+        }
     }
     out.push('\n');
 
@@ -361,6 +473,15 @@ pub(crate) fn output_project_csv(
         if show_cost {
             let cost = sum_model_costs(&p.models, pricing_db);
             let _ = write!(out, ",{}", csv_cost(cost, currency));
+            if include_cost_kind {
+                let estimated_cost = sum_estimated_proxy_model_costs(&p.models, pricing_db);
+                let _ = write!(
+                    out,
+                    ",{},{}",
+                    model_cost_kind(&p.models).as_str(),
+                    csv_cost(estimated_cost, currency)
+                );
+            }
         }
         out.push('\n');
     }
@@ -382,12 +503,19 @@ pub(crate) fn output_block_csv(
     }
 
     let mut out = String::new();
+    let include_cost_kind = show_cost
+        && sorted
+            .iter()
+            .any(|block| sum_estimated_proxy_model_costs(&block.models, pricing_db) > 0.0);
     let _ = write!(
         out,
         "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
     );
     if show_cost {
         let _ = write!(out, ",cost");
+        if include_cost_kind {
+            let _ = write!(out, ",cost_kind,estimated_cost");
+        }
     }
     out.push('\n');
 
@@ -406,6 +534,15 @@ pub(crate) fn output_block_csv(
         if show_cost {
             let cost = sum_model_costs(&b.models, pricing_db);
             let _ = write!(out, ",{}", csv_cost(cost, currency));
+            if include_cost_kind {
+                let estimated_cost = sum_estimated_proxy_model_costs(&b.models, pricing_db);
+                let _ = write!(
+                    out,
+                    ",{},{}",
+                    model_cost_kind(&b.models).as_str(),
+                    csv_cost(estimated_cost, currency)
+                );
+            }
         }
         out.push('\n');
     }

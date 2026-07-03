@@ -6,7 +6,9 @@ use crate::output::format::{
     NumberFormat, compare_cost, cost_json_value, create_styled_table, format_compact, format_cost,
     format_number, header_cell, right_cell, styled_cell,
 };
-use crate::pricing::{CurrencyConverter, PricingDb, attach_costs};
+use crate::pricing::{
+    CurrencyConverter, PricingDb, attach_costs, model_cost_kind, sum_estimated_proxy_model_costs,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ProjectTableOptions<'a> {
@@ -70,12 +72,19 @@ pub(crate) fn print_project_table(
 
     let mut total_stats = Stats::default();
     let mut total_cost = 0.0;
+    let mut total_estimated_cost = 0.0;
+    let mut has_estimated_cost = false;
     let mut total_sessions = 0usize;
 
     for costed in &sorted_projects {
         let project = costed.item;
         let project_cost = costed.cost;
         total_cost += project_cost;
+        let estimated_cost = sum_estimated_proxy_model_costs(&project.models, pricing_db);
+        if estimated_cost > 0.0 {
+            total_estimated_cost += estimated_cost;
+            has_estimated_cost = true;
+        }
         total_stats.add(&project.stats);
         total_sessions += project.session_count;
 
@@ -198,6 +207,12 @@ pub(crate) fn print_project_table(
 
     println!("\n  {source_label} Project Usage\n");
     println!("{table}");
+    if show_cost && has_estimated_cost {
+        println!(
+            "\n  Cost includes estimated proxy values: {}",
+            format_cost(total_estimated_cost, options.currency)
+        );
+    }
     println!(
         "\n  {} projects, {} sessions\n",
         format_number(sorted_projects.len() as i64, number_format),
@@ -240,6 +255,11 @@ pub(crate) fn output_project_json(
             });
             if show_cost {
                 obj["cost"] = cost_json_value(project_cost, currency);
+                let estimated_cost = sum_estimated_proxy_model_costs(&project.models, pricing_db);
+                if estimated_cost > 0.0 {
+                    obj["cost_kind"] = serde_json::json!(model_cost_kind(&project.models).as_str());
+                    obj["estimated_cost"] = cost_json_value(estimated_cost, currency);
+                }
             }
             obj
         })

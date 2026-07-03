@@ -12,12 +12,15 @@ use comfy_table::{Attribute, Cell, CellAlignment, Color};
 use serde_json::json;
 
 use crate::cli::TopDimension;
-use crate::core::{DayStats, ProjectStats, Stats};
+use crate::core::{CostKind, DayStats, ProjectStats, Stats};
 use crate::output::format::{
     NumberFormat, create_styled_table, csv_escape, format_compact, format_cost, format_number,
     header_cell, right_cell, styled_cell,
 };
-use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
+use crate::pricing::{
+    CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost, model_cost_kind,
+    sum_display_model_costs, sum_estimated_proxy_model_costs,
+};
 
 /// One row in the leaderboard.
 #[derive(Debug, Clone)]
@@ -26,6 +29,8 @@ pub(crate) struct TopRow {
     pub(crate) count: i64,
     pub(crate) stats: Stats,
     pub(crate) cost: f64,
+    pub(crate) estimated_cost: f64,
+    pub(crate) cost_kind: CostKind,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,12 +43,21 @@ pub(crate) struct TopTableOptions<'a> {
     pub(crate) currency: Option<&'a CurrencyConverter>,
     pub(crate) dim: TopDimension,
     pub(crate) limit: usize,
+    pub(crate) cost_mode: CostDisplayMode,
 }
 
 /// Aggregate per-model rows from a daily-stats map.
 pub(crate) fn rank_by_model(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
+) -> Vec<TopRow> {
+    rank_by_model_with_cost_mode(day_stats, pricing_db, CostDisplayMode::Total)
+}
+
+pub(crate) fn rank_by_model_with_cost_mode(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    cost_mode: CostDisplayMode,
 ) -> Vec<TopRow> {
     let mut totals: HashMap<String, Stats> = HashMap::new();
     for day in day_stats.values() {
@@ -55,12 +69,18 @@ pub(crate) fn rank_by_model(
     let mut rows: Vec<TopRow> = totals
         .into_iter()
         .map(|(model, stats)| {
-            let cost = calculate_cost(&stats, &model, pricing_db);
+            let cost = calculate_display_cost(&stats, &model, pricing_db, cost_mode);
+            let estimated_cost =
+                calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::Total)
+                    - calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::RealOnly);
+            let cost_kind = stats.cost_kind();
             TopRow {
                 name: model,
                 count: stats.count,
                 stats,
                 cost,
+                estimated_cost,
+                cost_kind,
             }
         })
         .collect();
@@ -74,7 +94,9 @@ pub(crate) fn rank_by_project(projects: &[ProjectStats], pricing_db: &PricingDb)
     let mut rows: Vec<TopRow> = projects
         .iter()
         .map(|project| {
-            let cost = sum_model_costs(&project.models, pricing_db);
+            let cost = sum_display_model_costs(&project.models, pricing_db, CostDisplayMode::Total);
+            let estimated_cost = sum_estimated_proxy_model_costs(&project.models, pricing_db);
+            let cost_kind = model_cost_kind(&project.models);
             TopRow {
                 name: if project.project_name.is_empty() {
                     project.project_path.clone()
@@ -84,6 +106,8 @@ pub(crate) fn rank_by_project(projects: &[ProjectStats], pricing_db: &PricingDb)
                 count: project.session_count as i64,
                 stats: project.stats.clone(),
                 cost,
+                estimated_cost,
+                cost_kind,
             }
         })
         .collect();
@@ -284,6 +308,11 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
         ));
     }
     table.add_row(total_row);
+    let estimated_proxy_cost: f64 = limited
+        .iter()
+        .filter(|row| row.estimated_cost.is_finite())
+        .map(|row| row.estimated_cost)
+        .sum();
 
     if rows.len() > limited.len() {
         println!(
@@ -312,6 +341,18 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
         );
     }
     println!("{table}");
+    if options.show_cost && estimated_proxy_cost > 0.0 {
+        match options.cost_mode {
+            CostDisplayMode::RealOnly => println!(
+                "\nEstimated proxy cost excluded from Cost ranking: {}",
+                format_cost(estimated_proxy_cost, options.currency)
+            ),
+            CostDisplayMode::Total => println!(
+                "\nCost includes estimated proxy values: {}",
+                format_cost(estimated_proxy_cost, options.currency)
+            ),
+        }
+    }
 }
 
 /// JSON output. Always includes share, basis, and full stats so downstream
@@ -327,6 +368,7 @@ pub(crate) fn output_top_json(
     let total_cost = sum_cost(&limited);
     let total_tokens = sum_tokens(&limited);
     let basis = share_basis(&limited);
+    let include_estimated = show_cost && limited.iter().any(|row| row.estimated_cost > 0.0);
 
     let entries: Vec<serde_json::Value> = limited
         .iter()
@@ -355,6 +397,19 @@ pub(crate) fn output_top_json(
                     && !row.cost.is_nan()
                 {
                     obj["cost_local"] = json!(conv.format(row.cost));
+                }
+                if include_estimated {
+                    obj["cost_kind"] = json!(row.cost_kind.as_str());
+                    obj["estimated_cost_usd"] = if row.estimated_cost.is_nan() {
+                        serde_json::Value::Null
+                    } else {
+                        json!((row.estimated_cost * 100_000.0).round() / 100_000.0)
+                    };
+                    if let Some(conv) = currency
+                        && !row.estimated_cost.is_nan()
+                    {
+                        obj["estimated_cost_local"] = json!(conv.format(row.estimated_cost));
+                    }
                 }
             }
             obj
@@ -405,8 +460,15 @@ pub(crate) fn output_top_csv(
         if currency.is_some() {
             out.push_str(",cost_local");
         }
+        if limited.iter().any(|row| row.estimated_cost > 0.0) {
+            out.push_str(",cost_kind,estimated_cost_usd");
+            if currency.is_some() {
+                out.push_str(",estimated_cost_local");
+            }
+        }
     }
     out.push('\n');
+    let include_estimated = show_cost && limited.iter().any(|row| row.estimated_cost > 0.0);
 
     for (idx, row) in limited.iter().enumerate() {
         let share = share_of(row, total_cost, total_tokens, basis);
@@ -434,6 +496,21 @@ pub(crate) fn output_top_csv(
                 let _ = write!(out, ",{:.6}", row.cost);
                 if let Some(conv) = currency {
                     let _ = write!(out, ",{}", csv_escape(&conv.format(row.cost)));
+                }
+            }
+            if include_estimated {
+                let _ = write!(out, ",{}", row.cost_kind.as_str());
+                if row.estimated_cost.is_nan() {
+                    out.push(',');
+                } else {
+                    let _ = write!(out, ",{:.6}", row.estimated_cost);
+                }
+                if let Some(conv) = currency {
+                    if row.estimated_cost.is_nan() {
+                        out.push(',');
+                    } else {
+                        let _ = write!(out, ",{}", csv_escape(&conv.format(row.estimated_cost)));
+                    }
                 }
             }
         }
@@ -476,6 +553,7 @@ mod tests {
             reasoning_tokens: 0,
             count,
             skipped_chunks: 0,
+            estimated_proxy: crate::core::CostTokens::default(),
         }
     }
 
@@ -530,12 +608,16 @@ mod tests {
                 count: 1,
                 stats: stats_of(100, 0, 1),
                 cost: f64::NAN,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
             TopRow {
                 name: "b".into(),
                 count: 1,
                 stats: stats_of(300, 0, 1),
                 cost: f64::NAN,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
         ];
         assert_eq!(share_basis(&rows), ShareBasis::Tokens);
@@ -551,12 +633,16 @@ mod tests {
                 count: 1,
                 stats: stats_of(100, 0, 1),
                 cost: 0.25,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
             TopRow {
                 name: "b".into(),
                 count: 1,
                 stats: stats_of(100, 0, 1),
                 cost: 0.75,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
         ];
         assert_eq!(share_basis(&rows), ShareBasis::Cost);
@@ -573,18 +659,24 @@ mod tests {
                 count: 1,
                 stats: stats_of(100, 0, 1),
                 cost: f64::NAN,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
             TopRow {
                 name: "high-cost".into(),
                 count: 1,
                 stats: stats_of(10, 0, 1),
                 cost: 5.0,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
             TopRow {
                 name: "low-cost".into(),
                 count: 1,
                 stats: stats_of(10, 0, 1),
                 cost: 1.0,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
         ];
         sort_rows(&mut rows);
@@ -601,6 +693,8 @@ mod tests {
                 count: 1,
                 stats: stats_of(100 - i, 0, 1),
                 cost: f64::NAN,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             })
             .collect();
         let csv = output_top_csv(&rows, TopDimension::Model, 5, false, None);
@@ -615,6 +709,8 @@ mod tests {
             count: 1,
             stats: stats_of(100, 50, 1),
             cost: 1.5,
+            estimated_cost: 0.0,
+            cost_kind: CostKind::Real,
         }];
         let json = output_top_json(&rows, TopDimension::Model, 10, true, None);
         let val: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -634,12 +730,16 @@ mod tests {
                 count: 1,
                 stats: stats_of(100, 0, 1),
                 cost: f64::NAN,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
             TopRow {
                 name: "b".into(),
                 count: 1,
                 stats: stats_of(300, 0, 1),
                 cost: f64::NAN,
+                estimated_cost: 0.0,
+                cost_kind: CostKind::Real,
             },
         ];
         let json = output_top_json(&rows, TopDimension::Model, 10, true, None);
@@ -656,6 +756,8 @@ mod tests {
             count: 1,
             stats: stats_of(10, 0, 1),
             cost: f64::NAN,
+            estimated_cost: 0.0,
+            cost_kind: CostKind::Real,
         }];
         let csv = output_top_csv(&rows, TopDimension::Project, 1, false, None);
         let lines: Vec<&str> = csv.lines().collect();
@@ -669,6 +771,8 @@ mod tests {
             count: 1,
             stats: stats_of(10, 0, 1),
             cost: 1.5,
+            estimated_cost: 0.0,
+            cost_kind: CostKind::Real,
         }];
         let converter = CurrencyConverter::from_rate_for_test("CNY", 7.0, "CNY ");
 
