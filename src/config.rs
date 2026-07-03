@@ -1,6 +1,21 @@
 use serde::Deserialize;
 use std::fs;
+use std::io;
 use std::path::PathBuf;
+
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub(crate) enum ConfigError {
+    #[error("failed to read config {}: {source}", path.display())]
+    Read { path: PathBuf, source: io::Error },
+
+    #[error("failed to parse config {}: {source}", path.display())]
+    Parse {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+}
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -58,40 +73,46 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub(crate) fn load() -> Self {
-        Self::load_internal(false)
+    pub(crate) fn try_load() -> Result<Self, ConfigError> {
+        Self::try_load_internal(false)
     }
 
-    pub(crate) fn load_quiet() -> Self {
-        Self::load_internal(true)
+    pub(crate) fn try_load_quiet() -> Result<Self, ConfigError> {
+        Self::try_load_internal(true)
     }
 
-    fn load_internal(quiet: bool) -> Self {
+    fn try_load_internal(quiet: bool) -> Result<Self, ConfigError> {
         Self::load_from_paths(&Self::get_config_paths(), quiet)
     }
 
-    fn load_from_paths(paths: &[PathBuf], quiet: bool) -> Self {
+    fn load_from_paths(paths: &[PathBuf], quiet: bool) -> Result<Self, ConfigError> {
         for path in paths {
-            if path.exists()
-                && let Ok(content) = fs::read_to_string(path)
-            {
-                match toml::from_str::<Config>(&content) {
+            match fs::read_to_string(path) {
+                Ok(content) => match toml::from_str::<Config>(&content) {
                     Ok(config) => {
                         if !quiet {
                             eprintln!("Loaded config from {}", path.display());
                         }
-                        return config;
+                        return Ok(config);
                     }
-                    Err(e) => {
-                        if !quiet {
-                            eprintln!("Warning: Failed to parse {}: {}", path.display(), e);
-                        }
+                    Err(source) => {
+                        return Err(ConfigError::Parse {
+                            path: path.clone(),
+                            source,
+                        });
                     }
+                },
+                Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(ConfigError::Read {
+                        path: path.clone(),
+                        source,
+                    });
                 }
             }
         }
 
-        Self::default()
+        Ok(Self::default())
     }
 
     fn get_config_paths() -> Vec<PathBuf> {
@@ -311,7 +332,7 @@ source = "codex"
     #[test]
     fn test_load_from_valid_file() {
         let f = write_temp_config("compact = true\noffline = true");
-        let config = Config::load_from_paths(&[f.path().to_path_buf()], true);
+        let config = Config::load_from_paths(&[f.path().to_path_buf()], true).unwrap();
         assert!(config.compact);
         assert!(config.offline);
     }
@@ -319,14 +340,15 @@ source = "codex"
     #[test]
     fn test_load_from_nonexistent_path_returns_default() {
         let config =
-            Config::load_from_paths(&[PathBuf::from("/nonexistent/path/config.toml")], true);
+            Config::load_from_paths(&[PathBuf::from("/nonexistent/path/config.toml")], true)
+                .unwrap();
         assert!(!config.offline);
         assert!(!config.compact);
     }
 
     #[test]
     fn test_load_from_empty_paths_returns_default() {
-        let config = Config::load_from_paths(&[], true);
+        let config = Config::load_from_paths(&[], true).unwrap();
         assert!(!config.offline);
         assert!(config.order.is_none());
     }
@@ -336,7 +358,8 @@ source = "codex"
         let f1 = write_temp_config("compact = true");
         let f2 = write_temp_config("compact = false\noffline = true");
         let config =
-            Config::load_from_paths(&[f1.path().to_path_buf(), f2.path().to_path_buf()], true);
+            Config::load_from_paths(&[f1.path().to_path_buf(), f2.path().to_path_buf()], true)
+                .unwrap();
         // First file wins
         assert!(config.compact);
         // Second file's offline=true is NOT loaded
@@ -344,12 +367,10 @@ source = "codex"
     }
 
     #[test]
-    fn test_load_skips_invalid_toml_tries_next() {
+    fn test_load_invalid_toml_returns_error() {
         let bad = write_temp_config("this is not valid toml [[[");
-        let good = write_temp_config("debug = true");
-        let config =
-            Config::load_from_paths(&[bad.path().to_path_buf(), good.path().to_path_buf()], true);
-        assert!(config.debug);
+        let err = Config::load_from_paths(&[bad.path().to_path_buf()], true).unwrap_err();
+        assert!(err.to_string().contains("failed to parse config"));
     }
 
     #[test]
@@ -361,20 +382,27 @@ source = "codex"
                 good.path().to_path_buf(),
             ],
             true,
-        );
+        )
+        .unwrap();
         assert!(config.breakdown);
     }
 
     #[test]
-    fn test_load_all_invalid_returns_default() {
-        let bad1 = write_temp_config("not valid [[[");
-        let bad2 = write_temp_config("also bad {{{");
-        let config = Config::load_from_paths(
-            &[bad1.path().to_path_buf(), bad2.path().to_path_buf()],
-            true,
-        );
-        assert!(!config.offline);
-        assert!(!config.compact);
+    fn test_load_wrong_field_type_returns_error() {
+        let bad = write_temp_config("strict_pricing = \"yes\"");
+        let err = Config::load_from_paths(&[bad.path().to_path_buf()], true).unwrap_err();
+        assert!(err.to_string().contains("failed to parse config"));
+        assert!(err.to_string().contains("strict_pricing"));
+    }
+
+    #[test]
+    fn test_load_priority_invalid_config_does_not_fall_back() {
+        let bad = write_temp_config("offline = \"yes\"");
+        let good = write_temp_config("debug = true");
+        let err =
+            Config::load_from_paths(&[bad.path().to_path_buf(), good.path().to_path_buf()], true)
+                .unwrap_err();
+        assert!(err.to_string().contains("failed to parse config"));
     }
 
     // --- Default trait ---

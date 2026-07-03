@@ -351,6 +351,67 @@ ccstats today -c
 ccstats today --no-cost
 ```
 
+### Configuration
+
+ccstats reads an optional TOML config file before command execution. CLI flags
+override config values.
+
+Search order:
+
+1. `~/.config/ccstats/config.toml`
+2. Platform config directory: for example
+   `~/Library/Application Support/ccstats/config.toml` on macOS
+3. `~/.ccstats.toml`
+
+The first existing config file wins. If that file exists but cannot be read,
+has invalid TOML, or has a wrong field type, ccstats exits with an error. It
+does not fall back to defaults or lower-priority config paths. If no config file
+exists, defaults are used.
+
+Example `config.toml`:
+
+```toml
+source = "codex"
+timezone = "Asia/Shanghai"
+locale = "en"
+currency = "USD"
+offline = true
+strict_pricing = true
+compact = true
+breakdown = false
+order = "desc"
+color = "auto"
+cost = "show"
+```
+
+Supported keys:
+
+| Key | Type | Values |
+|-----|------|--------|
+| `offline` | boolean | `true` or `false` |
+| `compact` | boolean | `true` or `false` |
+| `no_cost` | boolean | `true` or `false` |
+| `no_color` | boolean | `true` or `false` |
+| `breakdown` | boolean | `true` or `false` |
+| `debug` | boolean | `true` or `false` |
+| `strict_pricing` | boolean | `true` or `false` |
+| `order` | string | `asc`, `desc` |
+| `color` | string | `auto`, `always`, `never` |
+| `cost` | string | `show`, `hide` |
+| `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
+| `locale` | string | Locale used for number formatting, such as `en` or `de` |
+| `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `cursor`, `grok`, or `all` |
+
+Source root env overrides are independent of config keys:
+
+| Source | Env var | Value | Default when unset |
+|--------|---------|-------|--------------------|
+| Claude Code | `CLAUDE_CONFIG_DIR` | Claude config root containing `projects/` | `~/.claude` |
+| OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
+| Cursor | `CURSOR_HOME` | Cursor `User` directory | Cursor `User` under platform app/config data dirs |
+| Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
+
 ### Session CSV Columns
 
 `ccstats session --csv` now includes:
