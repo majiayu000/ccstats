@@ -38,7 +38,7 @@ pub(crate) use period::Period;
 pub(crate) use project::{ProjectTableOptions, output_project_json, print_project_table};
 pub(crate) use session::{SessionTableOptions, output_session_json, print_session_table};
 pub(crate) use statusline::{print_statusline, print_statusline_json};
-pub(crate) use table::{SummaryOptions, TokenTableOptions, print_period_table};
+pub(crate) use table::{PeriodSummaryFooter, TokenTableOptions, print_period_table};
 pub(crate) use tools::{output_tools_csv, output_tools_json, print_tools_table};
 pub(crate) use top::{
     TopRow, TopTableOptions, output_top_csv, output_top_json, print_top_table, rank_by_model,
