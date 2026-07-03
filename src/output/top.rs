@@ -6,20 +6,18 @@
 //! consumer is dominating spend or token volume.
 
 use std::collections::HashMap;
-use std::fmt::Write;
 
 use comfy_table::{Attribute, Cell, CellAlignment, Color};
-use serde_json::json;
 
 use crate::cli::TopDimension;
 use crate::core::{CostKind, DayStats, ProjectStats, Stats};
 use crate::output::format::{
-    NumberFormat, create_styled_table, csv_escape, format_compact, format_cost, format_number,
-    header_cell, right_cell, styled_cell,
+    NumberFormat, create_styled_table, format_compact, format_cost, format_number, header_cell,
+    right_cell, styled_cell,
 };
 use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost, model_cost_kind,
-    sum_display_model_costs, sum_estimated_proxy_model_costs,
+    pricing_source_for_models, sum_display_model_costs, sum_estimated_proxy_model_costs,
 };
 
 /// One row in the leaderboard.
@@ -31,6 +29,9 @@ pub(crate) struct TopRow {
     pub(crate) cost: f64,
     pub(crate) estimated_cost: f64,
     pub(crate) cost_kind: CostKind,
+    pub(crate) pricing_source: crate::pricing::PricingSource,
+    pub(crate) pricing_cache_age_seconds: Option<u64>,
+    pub(crate) pricing_cache_mtime_epoch_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -74,6 +75,11 @@ pub(crate) fn rank_by_model_with_cost_mode(
                 calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::Total)
                     - calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::RealOnly);
             let cost_kind = stats.cost_kind();
+            let pricing_source = pricing_db
+                .pricing_source_for_model(&model)
+                .unwrap_or_else(|| pricing_db.source());
+            let (pricing_cache_age_seconds, pricing_cache_mtime_epoch_seconds) =
+                top_cache_metadata(pricing_source, pricing_db);
             TopRow {
                 name: model,
                 count: stats.count,
@@ -81,6 +87,9 @@ pub(crate) fn rank_by_model_with_cost_mode(
                 cost,
                 estimated_cost,
                 cost_kind,
+                pricing_source,
+                pricing_cache_age_seconds,
+                pricing_cache_mtime_epoch_seconds,
             }
         })
         .collect();
@@ -97,6 +106,9 @@ pub(crate) fn rank_by_project(projects: &[ProjectStats], pricing_db: &PricingDb)
             let cost = sum_display_model_costs(&project.models, pricing_db, CostDisplayMode::Total);
             let estimated_cost = sum_estimated_proxy_model_costs(&project.models, pricing_db);
             let cost_kind = model_cost_kind(&project.models);
+            let pricing_source = pricing_source_for_models(&project.models, pricing_db);
+            let (pricing_cache_age_seconds, pricing_cache_mtime_epoch_seconds) =
+                top_cache_metadata(pricing_source, pricing_db);
             TopRow {
                 name: if project.project_name.is_empty() {
                     project.project_path.clone()
@@ -108,12 +120,34 @@ pub(crate) fn rank_by_project(projects: &[ProjectStats], pricing_db: &PricingDb)
                 cost,
                 estimated_cost,
                 cost_kind,
+                pricing_source,
+                pricing_cache_age_seconds,
+                pricing_cache_mtime_epoch_seconds,
             }
         })
         .collect();
 
     sort_rows(&mut rows);
     rows
+}
+
+fn top_cache_metadata(
+    source: crate::pricing::PricingSource,
+    pricing_db: &PricingDb,
+) -> (Option<u64>, Option<u64>) {
+    if matches!(
+        source,
+        crate::pricing::PricingSource::Cache
+            | crate::pricing::PricingSource::CacheStale
+            | crate::pricing::PricingSource::Mixed
+    ) {
+        (
+            pricing_db.cache_age_seconds(),
+            pricing_db.cache_modified_epoch_seconds(),
+        )
+    } else {
+        (None, None)
+    }
 }
 
 /// Sort rows by cost desc, falling back to token total when cost is unknown
@@ -141,7 +175,7 @@ fn sort_rows(rows: &mut [TopRow]) {
 /// Decide how to compute share-of-total. Use cost when every row has a
 /// numeric cost so percentages stay consistent with the sort order; fall
 /// back to token totals otherwise.
-fn share_basis(rows: &[TopRow]) -> ShareBasis {
+pub(super) fn share_basis(rows: &[TopRow]) -> ShareBasis {
     if !rows.is_empty() && rows.iter().all(|r| !r.cost.is_nan() && r.cost > 0.0) {
         ShareBasis::Cost
     } else {
@@ -150,12 +184,12 @@ fn share_basis(rows: &[TopRow]) -> ShareBasis {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ShareBasis {
+pub(super) enum ShareBasis {
     Cost,
     Tokens,
 }
 
-fn share_of(row: &TopRow, total_cost: f64, total_tokens: i64, basis: ShareBasis) -> f64 {
+pub(super) fn share_of(row: &TopRow, total_cost: f64, total_tokens: i64, basis: ShareBasis) -> f64 {
     match basis {
         ShareBasis::Cost if total_cost > 0.0 => (row.cost / total_cost) * 100.0,
         ShareBasis::Tokens if total_tokens > 0 => {
@@ -353,178 +387,56 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
             ),
         }
     }
+    if options.show_cost
+        && let Some(note) = top_pricing_note(&limited)
+    {
+        println!("\n{note}");
+    }
 }
 
-/// JSON output. Always includes share, basis, and full stats so downstream
-/// tooling does not have to recompute them.
-pub(crate) fn output_top_json(
-    rows: &[TopRow],
-    dim: TopDimension,
-    limit: usize,
-    show_cost: bool,
-    currency: Option<&CurrencyConverter>,
-) -> String {
-    let limited = take_top(rows, limit);
-    let total_cost = sum_cost(&limited);
-    let total_tokens = sum_tokens(&limited);
-    let basis = share_basis(&limited);
-    let include_estimated = show_cost && limited.iter().any(|row| row.estimated_cost > 0.0);
-
-    let entries: Vec<serde_json::Value> = limited
+fn top_pricing_note(rows: &[TopRow]) -> Option<String> {
+    let source = rows
         .iter()
-        .enumerate()
-        .map(|(idx, row)| {
-            let share = share_of(row, total_cost, total_tokens, basis);
-            let mut obj = json!({
-                "rank": idx + 1,
-                "name": row.name,
-                "count": row.count,
-                "input_tokens": row.stats.input_tokens,
-                "output_tokens": row.stats.output_tokens,
-                "cache_creation": row.stats.cache_creation,
-                "cache_read": row.stats.cache_read,
-                "reasoning_tokens": row.stats.reasoning_tokens,
-                "total_tokens": row.stats.total_tokens(),
-                "share_percent": (share * 100.0).round() / 100.0,
-            });
-            if show_cost {
-                obj["cost_usd"] = if row.cost.is_nan() {
-                    serde_json::Value::Null
-                } else {
-                    json!((row.cost * 100_000.0).round() / 100_000.0)
-                };
-                if let Some(conv) = currency
-                    && !row.cost.is_nan()
-                {
-                    obj["cost_local"] = json!(conv.format(row.cost));
-                }
-                if include_estimated {
-                    obj["cost_kind"] = json!(row.cost_kind.as_str());
-                    obj["estimated_cost_usd"] = if row.estimated_cost.is_nan() {
-                        serde_json::Value::Null
-                    } else {
-                        json!((row.estimated_cost * 100_000.0).round() / 100_000.0)
-                    };
-                    if let Some(conv) = currency
-                        && !row.estimated_cost.is_nan()
-                    {
-                        obj["estimated_cost_local"] = json!(conv.format(row.estimated_cost));
-                    }
-                }
-            }
-            obj
-        })
-        .collect();
-
-    json!({
-        "dimension": match dim {
-            TopDimension::Model => "model",
-            TopDimension::Project => "project",
-        },
-        "limit": limit,
-        "displayed": limited.len(),
-        "total_rows": rows.len(),
-        "share_basis": match basis {
-            ShareBasis::Cost => "cost",
-            ShareBasis::Tokens => "tokens",
-        },
-        "entries": entries,
-    })
-    .to_string()
+        .map(|row| row.pricing_source)
+        .reduce(crate::pricing::PricingSource::combine)?;
+    match source {
+        crate::pricing::PricingSource::Live => None,
+        crate::pricing::PricingSource::Cache => {
+            Some(format!("Pricing source: cache{}.", top_cache_suffix(rows)))
+        }
+        crate::pricing::PricingSource::CacheStale => Some(format!(
+            "Pricing source: stale cache{}.",
+            top_cache_suffix(rows)
+        )),
+        crate::pricing::PricingSource::Fallback => {
+            Some("Pricing source: fallback estimates.".to_string())
+        }
+        crate::pricing::PricingSource::Mixed => {
+            Some(format!("Pricing source: mixed{}.", top_cache_suffix(rows)))
+        }
+    }
 }
 
-/// CSV output. Header columns mirror the JSON keys.
-pub(crate) fn output_top_csv(
-    rows: &[TopRow],
-    dim: TopDimension,
-    limit: usize,
-    show_cost: bool,
-    currency: Option<&CurrencyConverter>,
-) -> String {
-    let limited = take_top(rows, limit);
-    let total_cost = sum_cost(&limited);
-    let total_tokens = sum_tokens(&limited);
-    let basis = share_basis(&limited);
-
-    let mut out = String::new();
-    let dim_col = match dim {
-        TopDimension::Model => "model",
-        TopDimension::Project => "project",
+fn top_cache_suffix(rows: &[TopRow]) -> String {
+    let Some(age) = rows.iter().find_map(|row| row.pricing_cache_age_seconds) else {
+        return String::new();
     };
-    let _ = write!(
-        out,
-        "rank,{dim_col},count,input_tokens,output_tokens,cache_creation,cache_read,reasoning_tokens,total_tokens,share_percent"
-    );
-    if show_cost {
-        out.push_str(",cost_usd");
-        if currency.is_some() {
-            out.push_str(",cost_local");
-        }
-        if limited.iter().any(|row| row.estimated_cost > 0.0) {
-            out.push_str(",cost_kind,estimated_cost_usd");
-            if currency.is_some() {
-                out.push_str(",estimated_cost_local");
-            }
-        }
+    let hours = age as f64 / 3600.0;
+    match rows
+        .iter()
+        .find_map(|row| row.pricing_cache_mtime_epoch_seconds)
+    {
+        Some(mtime) => format!(" ({hours:.1}h old, mtime {mtime})"),
+        None => format!(" ({hours:.1}h old)"),
     }
-    out.push('\n');
-    let include_estimated = show_cost && limited.iter().any(|row| row.estimated_cost > 0.0);
-
-    for (idx, row) in limited.iter().enumerate() {
-        let share = share_of(row, total_cost, total_tokens, basis);
-        let _ = write!(
-            out,
-            "{},{},{},{},{},{},{},{},{},{:.2}",
-            idx + 1,
-            csv_escape(&row.name),
-            row.count,
-            row.stats.input_tokens,
-            row.stats.output_tokens,
-            row.stats.cache_creation,
-            row.stats.cache_read,
-            row.stats.reasoning_tokens,
-            row.stats.total_tokens(),
-            share,
-        );
-        if show_cost {
-            if row.cost.is_nan() {
-                out.push(',');
-                if currency.is_some() {
-                    out.push(',');
-                }
-            } else {
-                let _ = write!(out, ",{:.6}", row.cost);
-                if let Some(conv) = currency {
-                    let _ = write!(out, ",{}", csv_escape(&conv.format(row.cost)));
-                }
-            }
-            if include_estimated {
-                let _ = write!(out, ",{}", row.cost_kind.as_str());
-                if row.estimated_cost.is_nan() {
-                    out.push(',');
-                } else {
-                    let _ = write!(out, ",{:.6}", row.estimated_cost);
-                }
-                if let Some(conv) = currency {
-                    if row.estimated_cost.is_nan() {
-                        out.push(',');
-                    } else {
-                        let _ = write!(out, ",{}", csv_escape(&conv.format(row.estimated_cost)));
-                    }
-                }
-            }
-        }
-        out.push('\n');
-    }
-    out
 }
 
-fn take_top(rows: &[TopRow], limit: usize) -> Vec<TopRow> {
+pub(super) fn take_top(rows: &[TopRow], limit: usize) -> Vec<TopRow> {
     let n = limit.min(rows.len());
     rows.iter().take(n).cloned().collect()
 }
 
-fn sum_cost(rows: &[TopRow]) -> f64 {
+pub(super) fn sum_cost(rows: &[TopRow]) -> f64 {
     let mut total = 0.0;
     for row in rows {
         if row.cost.is_nan() {
@@ -535,14 +447,15 @@ fn sum_cost(rows: &[TopRow]) -> f64 {
     total
 }
 
-fn sum_tokens(rows: &[TopRow]) -> i64 {
+pub(super) fn sum_tokens(rows: &[TopRow]) -> i64 {
     rows.iter().map(|r| r.stats.total_tokens()).sum()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pricing::PricingDb;
+    use crate::output::{output_top_csv, output_top_json};
+    use crate::pricing::{PricingDb, PricingSource};
 
     fn stats_of(input: i64, output: i64, count: i64) -> Stats {
         Stats {
@@ -610,6 +523,9 @@ mod tests {
                 cost: f64::NAN,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
             TopRow {
                 name: "b".into(),
@@ -618,6 +534,9 @@ mod tests {
                 cost: f64::NAN,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
         ];
         assert_eq!(share_basis(&rows), ShareBasis::Tokens);
@@ -635,6 +554,9 @@ mod tests {
                 cost: 0.25,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
             TopRow {
                 name: "b".into(),
@@ -643,6 +565,9 @@ mod tests {
                 cost: 0.75,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
         ];
         assert_eq!(share_basis(&rows), ShareBasis::Cost);
@@ -661,6 +586,9 @@ mod tests {
                 cost: f64::NAN,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
             TopRow {
                 name: "high-cost".into(),
@@ -669,6 +597,9 @@ mod tests {
                 cost: 5.0,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
             TopRow {
                 name: "low-cost".into(),
@@ -677,6 +608,9 @@ mod tests {
                 cost: 1.0,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
         ];
         sort_rows(&mut rows);
@@ -695,6 +629,9 @@ mod tests {
                 cost: f64::NAN,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             })
             .collect();
         let csv = output_top_csv(&rows, TopDimension::Model, 5, false, None);
@@ -711,6 +648,9 @@ mod tests {
             cost: 1.5,
             estimated_cost: 0.0,
             cost_kind: CostKind::Real,
+            pricing_source: PricingSource::Fallback,
+            pricing_cache_age_seconds: None,
+            pricing_cache_mtime_epoch_seconds: None,
         }];
         let json = output_top_json(&rows, TopDimension::Model, 10, true, None);
         let val: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -720,6 +660,7 @@ mod tests {
         assert_eq!(val["entries"][0]["rank"], 1);
         assert_eq!(val["entries"][0]["share_percent"], 100.0);
         assert_eq!(val["entries"][0]["cost_usd"], 1.5);
+        assert_eq!(val["entries"][0]["pricing_source"], "fallback");
     }
 
     #[test]
@@ -732,6 +673,9 @@ mod tests {
                 cost: f64::NAN,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
             TopRow {
                 name: "b".into(),
@@ -740,6 +684,9 @@ mod tests {
                 cost: f64::NAN,
                 estimated_cost: 0.0,
                 cost_kind: CostKind::Real,
+                pricing_source: PricingSource::Fallback,
+                pricing_cache_age_seconds: None,
+                pricing_cache_mtime_epoch_seconds: None,
             },
         ];
         let json = output_top_json(&rows, TopDimension::Model, 10, true, None);
@@ -758,6 +705,9 @@ mod tests {
             cost: f64::NAN,
             estimated_cost: 0.0,
             cost_kind: CostKind::Real,
+            pricing_source: PricingSource::Fallback,
+            pricing_cache_age_seconds: None,
+            pricing_cache_mtime_epoch_seconds: None,
         }];
         let csv = output_top_csv(&rows, TopDimension::Project, 1, false, None);
         let lines: Vec<&str> = csv.lines().collect();
@@ -773,14 +723,17 @@ mod tests {
             cost: 1.5,
             estimated_cost: 0.0,
             cost_kind: CostKind::Real,
+            pricing_source: PricingSource::Fallback,
+            pricing_cache_age_seconds: None,
+            pricing_cache_mtime_epoch_seconds: None,
         }];
         let converter = CurrencyConverter::from_rate_for_test("CNY", 7.0, "CNY ");
 
         let csv = output_top_csv(&rows, TopDimension::Model, 1, true, Some(&converter));
 
         let lines: Vec<&str> = csv.lines().collect();
-        assert!(lines[0].ends_with(",cost_usd,cost_local"));
-        assert!(lines[1].ends_with(",1.500000,CNY 10.50"));
+        assert!(lines[0].ends_with(",cost_usd,cost_local,pricing_source"));
+        assert!(lines[1].ends_with(",1.500000,CNY 10.50,fallback"));
     }
 
     #[test]

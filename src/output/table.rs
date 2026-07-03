@@ -8,6 +8,7 @@ use crate::output::format::{
     right_cell, styled_cell,
 };
 use crate::output::period::{Period, aggregate_day_stats_by_period};
+use crate::output::pricing_meta;
 use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost, model_cost_kind,
     sum_display_model_costs, sum_estimated_proxy_model_costs,
@@ -478,6 +479,12 @@ pub(crate) fn print_period_table(
                 format_cost(estimated_proxy_cost, options.currency)
             ),
         }
+    }
+    if options.show_cost
+        && let Some(note) =
+            pricing_meta::note_for_maps(stats_ref.values().map(|data| &data.models), pricing_db)
+    {
+        println!("\n  {note}");
     }
     print_summary_line(
         summary.valid,

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::core::{CostKind, CostTokens, Stats};
 
 use super::db::PricingDb;
+use super::source::PricingSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CostDisplayMode {
@@ -137,6 +138,40 @@ pub(crate) fn model_cost_kind(models: &HashMap<String, Stats>) -> CostKind {
         (false, true) => CostKind::EstimatedProxy,
         _ => CostKind::Real,
     }
+}
+
+pub(crate) fn pricing_source_for_models(
+    models: &HashMap<String, Stats>,
+    pricing_db: &PricingDb,
+) -> PricingSource {
+    let mut source: Option<PricingSource> = None;
+    for (model, stats) in models {
+        if !stats.cost_tokens().has_entries() {
+            continue;
+        }
+        if let Some(model_source) = pricing_db.pricing_source_for_model(model) {
+            source = Some(match source {
+                Some(current) => current.combine(model_source),
+                None => model_source,
+            });
+        }
+    }
+    source.unwrap_or_else(|| pricing_db.source())
+}
+
+pub(crate) fn pricing_source_for_model_maps<'a>(
+    maps: impl IntoIterator<Item = &'a HashMap<String, Stats>>,
+    pricing_db: &PricingDb,
+) -> PricingSource {
+    let mut source: Option<PricingSource> = None;
+    for map in maps {
+        let map_source = pricing_source_for_models(map, pricing_db);
+        source = Some(match source {
+            Some(current) => current.combine(map_source),
+            None => map_source,
+        });
+    }
+    source.unwrap_or_else(|| pricing_db.source())
 }
 
 /// Borrowed item with precomputed total cost.

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::core::{DataQuality, DayStats, Stats};
 use crate::output::format::{NumberFormat, cost_json_value, format_compact, format_cost};
+use crate::output::pricing_meta;
 use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, sum_display_model_costs,
     sum_estimated_proxy_model_costs,
@@ -116,6 +117,11 @@ pub(crate) fn print_statusline_json_with_quality(
             "parse_errors": data_quality.parse_errors,
         });
     }
+    pricing_meta::add_json_for_maps(
+        &mut output,
+        day_stats.values().map(|day| &day.models),
+        pricing_db,
+    );
     if t.estimated_proxy_cost > 0.0 {
         output["cost_kind"] = serde_json::json!(t.stats.cost_kind().as_str());
         output["estimated_cost"] = cost_json_value(t.estimated_proxy_cost, currency);

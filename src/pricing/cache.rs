@@ -4,11 +4,19 @@ use std::io::{BufWriter, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use super::source::CacheMetadata;
+
 const APP_CACHE_DIR: &str = "ccstats";
 const PRICING_CACHE_FILE: &str = "pricing.json";
 
 pub(super) type RawPricingCache = HashMap<String, serde_json::Value>;
-type FreshRawPricingCache = (RawPricingCache, Duration);
+#[derive(Debug)]
+pub(super) struct RawPricingCacheSnapshot {
+    pub(super) data: RawPricingCache,
+    pub(super) metadata: CacheMetadata,
+}
+
+type FreshRawPricingCache = RawPricingCacheSnapshot;
 type CacheReadResult<T> = Result<Option<T>, CacheReadError>;
 
 #[derive(Debug)]
@@ -128,25 +136,50 @@ pub(super) fn get_cache_path() -> Option<PathBuf> {
     cache_paths().write_path
 }
 
+#[cfg(test)]
 pub(super) fn load_raw_cache_from_paths(paths: &[PathBuf]) -> CacheReadResult<RawPricingCache> {
+    Ok(load_raw_cache_snapshot_from_paths(paths)?.map(|snapshot| snapshot.data))
+}
+
+pub(super) fn load_raw_cache_snapshot_from_paths(
+    paths: &[PathBuf],
+) -> CacheReadResult<RawPricingCacheSnapshot> {
     for path in paths {
-        let file = match File::open(path) {
-            Ok(file) => file,
+        let meta = match fs::metadata(path) {
+            Ok(meta) => meta,
             Err(error) if error.kind() == ErrorKind::NotFound => continue,
             Err(source) => {
-                return Err(CacheReadError::Open {
+                return Err(CacheReadError::Metadata {
                     path: path.clone(),
                     source,
                 });
             }
         };
+        let modified = meta.modified().map_err(|source| CacheReadError::Modified {
+            path: path.clone(),
+            source,
+        })?;
+        let file = File::open(path).map_err(|source| CacheReadError::Open {
+            path: path.clone(),
+            source,
+        })?;
         let data = serde_json::from_reader(file).map_err(|source| CacheReadError::Malformed {
             path: path.clone(),
             source,
         })?;
-        return Ok(Some(data));
+        return Ok(Some(RawPricingCacheSnapshot {
+            data,
+            metadata: cache_metadata(modified),
+        }));
     }
     Ok(None)
+}
+
+fn cache_metadata(modified: SystemTime) -> CacheMetadata {
+    let age = SystemTime::now()
+        .duration_since(modified)
+        .unwrap_or(Duration::MAX);
+    CacheMetadata { age, modified }
 }
 
 pub(super) fn load_raw_cache_if_fresh_from_paths(
@@ -168,10 +201,8 @@ pub(super) fn load_raw_cache_if_fresh_from_paths(
             path: path.clone(),
             source,
         })?;
-        let age = SystemTime::now()
-            .duration_since(modified)
-            .unwrap_or(Duration::ZERO);
-        if age > ttl {
+        let metadata = cache_metadata(modified);
+        if metadata.age > ttl {
             return Ok(None);
         }
         let file = File::open(path).map_err(|source| CacheReadError::Open {
@@ -182,14 +213,14 @@ pub(super) fn load_raw_cache_if_fresh_from_paths(
             path: path.clone(),
             source,
         })?;
-        return Ok(Some((data, age)));
+        return Ok(Some(RawPricingCacheSnapshot { data, metadata }));
     }
     Ok(None)
 }
 
-pub(super) fn load_raw_cache() -> CacheReadResult<RawPricingCache> {
+pub(super) fn load_raw_cache_snapshot() -> CacheReadResult<RawPricingCacheSnapshot> {
     let paths = cache_paths();
-    load_raw_cache_from_paths(&paths.read_paths)
+    load_raw_cache_snapshot_from_paths(&paths.read_paths)
 }
 
 pub(super) fn load_raw_cache_if_fresh(ttl: Duration) -> CacheReadResult<FreshRawPricingCache> {
@@ -386,12 +417,12 @@ mod tests {
         let legacy_path = legacy_cache_file(home_root.path());
         save_raw_cache_to_path(&sample_raw_data("legacy-model"), &legacy_path).unwrap();
 
-        let (data, _age) =
+        let snapshot =
             load_raw_cache_if_fresh_from_paths(&paths.read_paths, Duration::from_secs(60))
                 .unwrap()
                 .unwrap();
 
-        assert!(data.contains_key("legacy-model"));
+        assert!(snapshot.data.contains_key("legacy-model"));
     }
 
     #[test]

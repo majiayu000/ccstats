@@ -10,6 +10,12 @@ fn write_exchange_rates_cache(home: &Path, rates: &str) {
     write_file(&home.join(".cache/ccstats/exchange_rates.json"), rates);
 }
 
+fn write_pricing_cache(home: &Path, xdg_cache: &Path, contents: &str) {
+    write_file(&xdg_cache.join("ccstats/pricing.json"), contents);
+    write_file(&home.join("Library/Caches/ccstats/pricing.json"), contents);
+    write_file(&home.join(".cache/ccstats/pricing.json"), contents);
+}
+
 #[test]
 fn monthly_budget_json_includes_forecast() {
     let root = unique_temp_dir("monthly-budget-json");
@@ -211,9 +217,122 @@ fn daily_csv_uses_requested_currency() {
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(
         lines[0],
-        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens,cost"
+        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens,cost,pricing_source"
     );
-    assert!(lines[1].ends_with(",0.007350"), "row: {}", lines[1]);
+    assert!(
+        lines[1].ends_with(",0.007350,fallback"),
+        "row: {}",
+        lines[1]
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn daily_outputs_fresh_cache_pricing_source() {
+    let root = unique_temp_dir("daily-cache-pricing-source");
+    let xdg_cache = root.join("xdg-cache");
+    write_pricing_cache(
+        &root,
+        &xdg_cache,
+        r#"{"claude-3-5-sonnet-20241022":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002}}"#,
+    );
+    let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
+    write_file(
+        &claude_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}}}
+"#,
+    );
+
+    let envs = [
+        ("HOME", root.as_path()),
+        ("XDG_CACHE_HOME", xdg_cache.as_path()),
+    ];
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &envs,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let row = &json.as_array().expect("array output")[0];
+    assert_eq!(row["pricing_source"].as_str(), Some("cache"));
+    assert!(row["pricing_cache_age_seconds"].as_u64().is_some());
+    assert!(row["pricing_cache_mtime_epoch_seconds"].as_u64().is_some());
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--csv",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &envs,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let output = String::from_utf8(stdout).expect("utf8 stdout");
+    let lines: Vec<&str> = output.lines().collect();
+    assert!(lines[0].ends_with(
+        ",cost,pricing_source,pricing_cache_age_seconds,pricing_cache_mtime_epoch_seconds"
+    ));
+    let fields: Vec<&str> = lines[1].split(',').collect();
+    assert_eq!(fields[8], "cache");
+    assert!(fields[9].parse::<u64>().is_ok());
+    assert!(fields[10].parse::<u64>().is_ok());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn daily_csv_fallback_source_omits_empty_cache_columns() {
+    let root = unique_temp_dir("daily-fallback-pricing-source");
+    let xdg_cache = root.join("xdg-cache");
+    write_pricing_cache(
+        &root,
+        &xdg_cache,
+        r#"{"unrelated-model":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002}}"#,
+    );
+    let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
+    write_file(
+        &claude_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--csv",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root), ("XDG_CACHE_HOME", &xdg_cache)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8 stdout");
+    let lines: Vec<&str> = output.lines().collect();
+    assert!(lines[0].ends_with(",cost,pricing_source"));
+    assert!(lines[1].ends_with(",fallback"));
 
     let _ = fs::remove_dir_all(root);
 }

@@ -8,7 +8,10 @@ use crate::cli::SortOrder;
 use crate::core::DayStats;
 use crate::output::format::{create_styled_table, header_cell, right_cell, styled_cell};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
-use crate::pricing::{CostDisplayMode, CurrencyConverter, PricingDb, sum_display_model_costs};
+use crate::pricing::{
+    CostDisplayMode, CurrencyConverter, PricingDb, PricingSource, pricing_source_for_models,
+    sum_display_model_costs,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct MonthlyBudgetReport {
@@ -22,6 +25,9 @@ pub(crate) struct MonthlyBudgetReport {
     pub(crate) days_elapsed: u32,
     pub(crate) days_in_month: u32,
     pub(crate) status: &'static str,
+    pub(crate) pricing_source: PricingSource,
+    pub(crate) pricing_cache_age_seconds: Option<u64>,
+    pub(crate) pricing_cache_mtime_epoch_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +96,14 @@ fn budget_status(spent: f64, projected: f64, projected_pct: f64, limit: f64) -> 
     }
 }
 
-fn budget_report(month: String, spent: f64, limit: f64, as_of: NaiveDate) -> MonthlyBudgetReport {
+fn budget_report(
+    month: String,
+    spent: f64,
+    limit: f64,
+    as_of: NaiveDate,
+    pricing_source: PricingSource,
+    pricing_db: &PricingDb,
+) -> MonthlyBudgetReport {
     let (days_elapsed, days_in_month) = budget_days(&month, as_of);
     let projected = if spent.is_nan() || days_elapsed >= days_in_month {
         spent
@@ -117,6 +130,9 @@ fn budget_report(month: String, spent: f64, limit: f64, as_of: NaiveDate) -> Mon
         days_elapsed,
         days_in_month,
         status,
+        pricing_source,
+        pricing_cache_age_seconds: pricing_db.cache_age_seconds(),
+        pricing_cache_mtime_epoch_seconds: pricing_db.cache_modified_epoch_seconds(),
     }
 }
 
@@ -144,7 +160,15 @@ pub(crate) fn monthly_budget_reports(
                     sum_display_model_costs(&stats.models, pricing_db, cost_mode),
                     currency,
                 );
-                budget_report(month.clone(), spent, monthly_budget, as_of)
+                let pricing_source = pricing_source_for_models(&stats.models, pricing_db);
+                budget_report(
+                    month.clone(),
+                    spent,
+                    monthly_budget,
+                    as_of,
+                    pricing_source,
+                    pricing_db,
+                )
             })
         })
         .collect()
@@ -178,6 +202,27 @@ fn report_json(report: &MonthlyBudgetReport) -> Value {
         serde_json::json!(report.days_in_month),
     );
     obj.insert("status".to_string(), serde_json::json!(report.status));
+    obj.insert(
+        "pricing_source".to_string(),
+        serde_json::json!(report.pricing_source.as_str()),
+    );
+    if matches!(
+        report.pricing_source,
+        PricingSource::Cache | PricingSource::CacheStale | PricingSource::Mixed
+    ) {
+        if let Some(age) = report.pricing_cache_age_seconds {
+            obj.insert(
+                "pricing_cache_age_seconds".to_string(),
+                serde_json::json!(age),
+            );
+        }
+        if let Some(mtime) = report.pricing_cache_mtime_epoch_seconds {
+            obj.insert(
+                "pricing_cache_mtime_epoch_seconds".to_string(),
+                serde_json::json!(mtime),
+            );
+        }
+    }
     Value::Object(obj)
 }
 
@@ -270,6 +315,49 @@ pub(crate) fn print_monthly_budget_table(
 
     println!("\n  Monthly Budget Forecast\n");
     println!("{table}");
+    if let Some(note) = budget_pricing_note(reports) {
+        println!("\n  {note}");
+    }
+}
+
+fn budget_pricing_note(reports: &[MonthlyBudgetReport]) -> Option<String> {
+    let source = reports
+        .iter()
+        .map(|report| report.pricing_source)
+        .reduce(PricingSource::combine)?;
+    match source {
+        PricingSource::Live => None,
+        PricingSource::Cache => Some(format!(
+            "Pricing source: cache{}.",
+            report_cache_suffix(reports)
+        )),
+        PricingSource::CacheStale => Some(format!(
+            "Pricing source: stale cache{}.",
+            report_cache_suffix(reports)
+        )),
+        PricingSource::Fallback => Some("Pricing source: fallback estimates.".to_string()),
+        PricingSource::Mixed => Some(format!(
+            "Pricing source: mixed{}.",
+            report_cache_suffix(reports)
+        )),
+    }
+}
+
+fn report_cache_suffix(reports: &[MonthlyBudgetReport]) -> String {
+    let Some(age) = reports
+        .iter()
+        .find_map(|report| report.pricing_cache_age_seconds)
+    else {
+        return String::new();
+    };
+    let hours = age as f64 / 3600.0;
+    match reports
+        .iter()
+        .find_map(|report| report.pricing_cache_mtime_epoch_seconds)
+    {
+        Some(mtime) => format!(" ({hours:.1}h old, mtime {mtime})"),
+        None => format!(" ({hours:.1}h old)"),
+    }
 }
 
 #[cfg(test)]
@@ -323,6 +411,8 @@ mod tests {
             4.5,
             10.0,
             NaiveDate::from_ymd_opt(2026, 2, 10).unwrap(),
+            PricingSource::Fallback,
+            &PricingDb::default(),
         );
         let json = r#"[{"month":"2026-02","cost":4.5}]"#;
         let output = add_monthly_budget_to_json(json, &[report]);

@@ -170,7 +170,7 @@ fn source_flag_can_select_grok_without_subcommand() {
             "--until",
             "2026-02-06",
         ],
-        &[("GROK_HOME", &grok_home)],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
     );
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
 
@@ -208,7 +208,7 @@ fn grok_daily_json_marks_estimated_proxy_cost() {
             "--until",
             "2026-02-06",
         ],
-        &[("GROK_HOME", &grok_home)],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
     );
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
 
@@ -240,15 +240,15 @@ fn grok_daily_csv_marks_estimated_proxy_cost() {
             "--until",
             "2026-02-06",
         ],
-        &[("GROK_HOME", &grok_home)],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
     );
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
 
     let output = String::from_utf8(stdout).expect("utf8 stdout");
     let lines: Vec<&str> = output.lines().collect();
-    assert!(lines[0].ends_with(",cost,cost_kind,estimated_cost"));
+    assert!(lines[0].ends_with(",cost,cost_kind,estimated_cost,pricing_source"));
     assert!(
-        lines[1].ends_with(",0.001500,estimated_proxy,0.001500"),
+        lines[1].ends_with(",0.001500,estimated_proxy,0.001500,fallback"),
         "stdout: {output}"
     );
 

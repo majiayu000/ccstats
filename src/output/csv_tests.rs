@@ -80,8 +80,9 @@ fn period_csv_daily_with_cost() {
     );
 
     let lines: Vec<&str> = csv.lines().collect();
-    assert!(lines[0].ends_with(",cost"));
+    assert!(lines[0].ends_with(",cost,pricing_source"));
     assert_eq!(lines.len(), 2);
+    assert!(lines[1].ends_with(",fallback"));
 }
 
 #[test]
@@ -107,7 +108,7 @@ fn period_csv_converts_cost_when_currency_is_set() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[1],
-        "2025-01-01,1000000,500000,0,0,0,1500000,73.500000"
+        "2025-01-01,1000000,500000,0,0,0,1500000,73.500000,fallback"
     );
 }
 
@@ -210,8 +211,9 @@ fn project_csv_structure() {
     let csv = output_project_csv(&projects, &db, SortOrder::Asc, true, None);
 
     let lines: Vec<&str> = csv.lines().collect();
-    assert!(lines[0].ends_with(",cost"));
+    assert!(lines[0].ends_with(",cost,pricing_source"));
     assert!(lines[1].starts_with("proj,"));
+    assert!(lines[1].ends_with(",fallback"));
 }
 
 #[test]
@@ -327,9 +329,10 @@ fn breakdown_csv_with_cost() {
     );
 
     let lines: Vec<&str> = csv.lines().collect();
-    assert!(lines[0].ends_with(",cost"));
+    assert!(lines[0].ends_with(",cost,pricing_source"));
     let fields: Vec<&str> = lines[1].split(',').collect();
-    assert_eq!(fields.len(), 9);
+    assert_eq!(fields.len(), 10);
+    assert_eq!(fields[9], "fallback");
 }
 
 #[test]

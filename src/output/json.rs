@@ -5,6 +5,7 @@ use crate::cli::SortOrder;
 use crate::core::{DataQuality, DayStats};
 use crate::output::format::cost_json_value;
 use crate::output::period::{Period, aggregate_day_stats_by_period};
+use crate::output::pricing_meta;
 use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost,
     calculate_estimated_proxy_cost, model_cost_kind, sum_display_model_costs,
@@ -77,6 +78,7 @@ fn build_period_entry(
                 );
                 period_cost += cost;
                 model_obj["cost"] = cost_json_value(cost, options.currency);
+                pricing_meta::add_model_json(&mut model_obj, model, options.pricing_db);
                 let estimated_cost =
                     calculate_estimated_proxy_cost(model_stats, model, options.pricing_db);
                 if estimated_cost > 0.0 {
@@ -101,6 +103,7 @@ fn build_period_entry(
         });
         if options.show_cost {
             obj["cost"] = cost_json_value(period_cost, options.currency);
+            pricing_meta::add_json(&mut obj, &stats.models, options.pricing_db);
             let estimated_cost = sum_estimated_proxy_model_costs(&stats.models, options.pricing_db);
             if estimated_cost > 0.0 {
                 obj["cost_kind"] = serde_json::json!(model_cost_kind(&stats.models).as_str());
@@ -132,6 +135,7 @@ fn build_period_entry(
         });
         if options.show_cost {
             obj["cost"] = cost_json_value(period_cost.unwrap_or(0.0), options.currency);
+            pricing_meta::add_json(&mut obj, &stats.models, options.pricing_db);
             let estimated_cost = sum_estimated_proxy_model_costs(&stats.models, options.pricing_db);
             if estimated_cost > 0.0 {
                 obj["cost_kind"] = serde_json::json!(model_cost_kind(&stats.models).as_str());
