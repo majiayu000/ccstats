@@ -29,15 +29,15 @@ pub(crate) use budget::{
     print_monthly_budget_table,
 };
 pub(crate) use csv::{
-    output_block_csv, output_monthly_budget_csv, output_period_csv, output_project_csv,
-    output_session_csv,
+    append_data_quality_csv_comment, output_block_csv, output_monthly_budget_csv,
+    output_period_csv_with_quality, output_project_csv, output_session_csv,
 };
 pub(crate) use format::NumberFormat;
-pub(crate) use json::output_period_json;
+pub(crate) use json::output_period_json_with_quality;
 pub(crate) use period::Period;
 pub(crate) use project::{ProjectTableOptions, output_project_json, print_project_table};
 pub(crate) use session::{SessionTableOptions, output_session_json, print_session_table};
-pub(crate) use statusline::{print_statusline, print_statusline_json};
+pub(crate) use statusline::{print_statusline, print_statusline_json_with_quality};
 pub(crate) use table::{PeriodSummaryFooter, TokenTableOptions, print_period_table};
 pub(crate) use tools::{output_tools_csv, output_tools_json, print_tools_table};
 pub(crate) use top::{

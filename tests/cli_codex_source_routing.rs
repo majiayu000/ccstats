@@ -355,7 +355,7 @@ fn malformed_records_are_reported_without_debug_flag() {
 "#,
     );
 
-    let (ok, _stdout, stderr) = run_ccstats(
+    let (ok, stdout, stderr) = run_ccstats(
         &[
             "daily",
             "--source",
@@ -375,6 +375,91 @@ fn malformed_records_are_reported_without_debug_flag() {
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     let stderr = String::from_utf8_lossy(&stderr);
     assert!(stderr.contains("malformed records"), "stderr: {stderr}");
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr[0]["data_quality"]["valid_entries"].as_i64(), Some(1));
+    assert_eq!(
+        arr[0]["data_quality"]["dedup_skipped_entries"].as_i64(),
+        Some(0)
+    );
+    assert_eq!(arr[0]["data_quality"]["parse_errors"].as_u64(), Some(1));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn malformed_records_are_reported_in_csv_metadata() {
+    let root = unique_temp_dir("malformed-record-csv-metadata");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("malformed.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"model":"gpt-5"}}}
+{"timestamp":"not-json"
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "codex",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8(stdout).expect("utf8 stdout");
+    assert!(output.contains("# data_quality,1,0,1"), "stdout: {output}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn all_malformed_json_outputs_metadata_only_row() {
+    let root = unique_temp_dir("all-malformed-json-metadata");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("malformed.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"not-json"
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "codex",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert!(arr[0].get("date").is_none());
+    assert_eq!(arr[0]["data_quality"]["valid_entries"].as_i64(), Some(0));
+    assert_eq!(arr[0]["data_quality"]["parse_errors"].as_u64(), Some(1));
 
     let _ = fs::remove_dir_all(root);
 }

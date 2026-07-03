@@ -3,12 +3,13 @@ use std::fmt::Write;
 
 use super::session::compare_session_last_timestamp;
 use crate::cli::SortOrder;
-use crate::core::{BlockStats, DayStats, ProjectStats, SessionStats};
+use crate::core::{BlockStats, DataQuality, DayStats, ProjectStats, SessionStats};
 use crate::output::budget::{MonthlyBudgetOptions, MonthlyBudgetReport, monthly_budget_reports};
 use crate::output::format::{compare_cost, csv_escape};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::{CurrencyConverter, PricingDb, calculate_cost, sum_model_costs};
 
+#[cfg(test)]
 pub(crate) fn output_period_csv(
     day_stats: &HashMap<String, DayStats>,
     period: Period,
@@ -17,6 +18,22 @@ pub(crate) fn output_period_csv(
     breakdown: bool,
     show_cost: bool,
     currency: Option<&CurrencyConverter>,
+) -> String {
+    output_period_csv_with_quality(
+        day_stats, period, pricing_db, order, breakdown, show_cost, currency, None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn output_period_csv_with_quality(
+    day_stats: &HashMap<String, DayStats>,
+    period: Period,
+    pricing_db: &PricingDb,
+    order: SortOrder,
+    breakdown: bool,
+    show_cost: bool,
+    currency: Option<&CurrencyConverter>,
+    data_quality: Option<DataQuality>,
 ) -> String {
     let aggregated;
     let stats_ref = if period == Period::Day {
@@ -99,7 +116,27 @@ pub(crate) fn output_period_csv(
         }
     }
 
+    append_data_quality_csv_comment(&mut out, data_quality);
     out
+}
+
+pub(crate) fn append_data_quality_csv_comment(out: &mut String, data_quality: Option<DataQuality>) {
+    let Some(data_quality) = data_quality else {
+        return;
+    };
+    if !data_quality.has_warnings() {
+        return;
+    }
+
+    let _ = writeln!(
+        out,
+        "# data_quality,valid_entries,dedup_skipped_entries,parse_errors"
+    );
+    let _ = writeln!(
+        out,
+        "# data_quality,{},{},{}",
+        data_quality.valid_entries, data_quality.dedup_skipped_entries, data_quality.parse_errors
+    );
 }
 
 fn csv_float(value: f64) -> String {

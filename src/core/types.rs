@@ -162,8 +162,33 @@ pub(crate) struct LoadResult {
     pub(crate) day_stats: HashMap<String, DayStats>,
     pub(crate) skipped: i64,
     pub(crate) valid: i64,
+    pub(crate) parse_errors: usize,
     /// Processing time in milliseconds (excluding cache save)
     pub(crate) elapsed_ms: f64,
+}
+
+/// Machine-readable data quality metadata for structured consumers.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub(crate) struct DataQuality {
+    pub(crate) valid_entries: i64,
+    pub(crate) dedup_skipped_entries: i64,
+    pub(crate) parse_errors: usize,
+}
+
+impl DataQuality {
+    pub(crate) fn has_warnings(self) -> bool {
+        self.dedup_skipped_entries > 0 || self.parse_errors > 0
+    }
+}
+
+impl LoadResult {
+    pub(crate) fn data_quality(&self) -> DataQuality {
+        DataQuality {
+            valid_entries: self.valid,
+            dedup_skipped_entries: self.skipped,
+            parse_errors: self.parse_errors,
+        }
+    }
 }
 
 #[cfg(test)]

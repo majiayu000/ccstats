@@ -311,6 +311,12 @@ fn claude_dedup_keeps_same_message_id_from_different_files() {
     let arr = json.as_array().expect("array output");
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(280));
+    assert_eq!(arr[0]["data_quality"]["valid_entries"].as_i64(), Some(1));
+    assert_eq!(
+        arr[0]["data_quality"]["dedup_skipped_entries"].as_i64(),
+        Some(1)
+    );
+    assert_eq!(arr[0]["data_quality"]["parse_errors"].as_u64(), Some(0));
     assert!(
         String::from_utf8_lossy(&stderr).contains("Deduplicated 1 entries"),
         "stderr: {}",

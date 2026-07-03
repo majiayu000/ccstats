@@ -37,6 +37,7 @@ fn assert_stable_summary_eq(actual: &CostSummary, expected: &CostSummary) {
     assert_eq!(actual.models, expected.models);
     assert_eq!(actual.valid_entries, expected.valid_entries);
     assert_eq!(actual.skipped_entries, expected.skipped_entries);
+    assert_eq!(actual.parse_error_entries, expected.parse_error_entries);
     assert!(actual.elapsed_ms.is_finite());
 }
 
