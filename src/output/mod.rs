@@ -11,6 +11,18 @@ mod table;
 mod tools;
 mod top;
 
+/// Central selector for supported CLI output modes.
+///
+/// Add a real new format by adding a variant and updating the `render_*`
+/// matches. Trait/plugin dispatch is intentionally deferred until a fourth
+/// format exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutputFormat {
+    Table,
+    Json,
+    Csv,
+}
+
 pub(crate) use blocks::{BlockTableOptions, output_block_json, print_block_table};
 pub(crate) use budget::{
     MonthlyBudgetOptions, add_monthly_budget_to_json, monthly_budget_reports,
