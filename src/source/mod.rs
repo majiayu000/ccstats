@@ -12,7 +12,7 @@ mod registry;
 
 use std::path::{Path, PathBuf};
 
-use crate::core::RawEntry;
+use crate::core::{RawEntry, ToolCall};
 use crate::utils::Timezone;
 
 /// Parse result for a single source file.
@@ -36,6 +36,8 @@ pub(crate) struct Capabilities {
     pub(crate) has_cache_creation: bool,
     /// Requires deduplication (streaming creates duplicate entries)
     pub(crate) needs_dedup: bool,
+    /// Supports tool-call discovery and parsing
+    pub(crate) has_tool_calls: bool,
 }
 
 /// Data source trait - implemented by each CLI tool
@@ -48,7 +50,7 @@ pub(crate) trait Source: Send + Sync {
         self.name()
     }
 
-    /// Short aliases for CLI (e.g., "cc" for "claude")
+    /// Short aliases for CLI.
     fn aliases(&self) -> &'static [&'static str] {
         &[]
     }
@@ -61,6 +63,16 @@ pub(crate) trait Source: Send + Sync {
 
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
+
+    /// Find files that may contain tool-call records for this source.
+    fn find_tool_call_files(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
+    /// Parse tool-call records from one source-owned file.
+    fn parse_tool_call_file(&self, _path: &Path, _timezone: Timezone) -> Vec<ToolCall> {
+        Vec::new()
+    }
 }
 
 /// Box type for dynamic dispatch

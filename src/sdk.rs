@@ -23,6 +23,7 @@ pub use batch::{
 
 /// Supported local usage sources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum UsageSource {
     /// Claude Code logs under `~/.claude/projects`.
@@ -36,6 +37,14 @@ pub enum UsageSource {
 }
 
 impl UsageSource {
+    #[cfg(test)]
+    pub(crate) const VARIANTS: [Self; 4] = [
+        UsageSource::Claude,
+        UsageSource::Codex,
+        UsageSource::Cursor,
+        UsageSource::Grok,
+    ];
+
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -45,21 +54,30 @@ impl UsageSource {
             UsageSource::Grok => "grok",
         }
     }
+
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "claude" => Some(UsageSource::Claude),
+            "codex" => Some(UsageSource::Codex),
+            "cursor" => Some(UsageSource::Cursor),
+            "grok" => Some(UsageSource::Grok),
+            _ => None,
+        }
+    }
 }
 
 impl FromStr for UsageSource {
     type Err = SdkError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "claude" | "cc" => Ok(UsageSource::Claude),
-            "codex" | "cx" => Ok(UsageSource::Codex),
-            "cursor" | "cur" => Ok(UsageSource::Cursor),
-            "grok" | "gx" => Ok(UsageSource::Grok),
-            source => Err(SdkError::InvalidSource {
-                name: source.to_string(),
-            }),
-        }
+        let source_name = value.trim().to_ascii_lowercase();
+        let Some(source) = get_source(&source_name) else {
+            return Err(SdkError::InvalidSource { name: source_name });
+        };
+
+        Self::from_name(source.name()).ok_or_else(|| SdkError::InvalidSource {
+            name: source.name().to_string(),
+        })
     }
 }
 
@@ -397,19 +415,63 @@ fn summarize_models(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     #[test]
-    fn usage_source_accepts_names_and_aliases() {
-        assert_eq!(
-            "claude".parse::<UsageSource>().unwrap(),
-            UsageSource::Claude
-        );
-        assert_eq!("cc".parse::<UsageSource>().unwrap(), UsageSource::Claude);
-        assert_eq!("codex".parse::<UsageSource>().unwrap(), UsageSource::Codex);
-        assert_eq!("cx".parse::<UsageSource>().unwrap(), UsageSource::Codex);
-        assert_eq!("grok".parse::<UsageSource>().unwrap(), UsageSource::Grok);
-        assert_eq!("gx".parse::<UsageSource>().unwrap(), UsageSource::Grok);
-        assert!("unknown".parse::<UsageSource>().is_err());
+    fn usage_source_accepts_registry_names_and_aliases() {
+        for source in crate::source::all_sources() {
+            let expected = UsageSource::from_name(source.name()).expect("SDK source variant");
+            assert_eq!(source.name().parse::<UsageSource>().unwrap(), expected);
+            assert_eq!(
+                source
+                    .name()
+                    .to_ascii_uppercase()
+                    .parse::<UsageSource>()
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(
+                format!(" {} ", source.name())
+                    .parse::<UsageSource>()
+                    .unwrap(),
+                expected
+            );
+
+            for alias in source.aliases() {
+                assert_eq!(alias.parse::<UsageSource>().unwrap(), expected);
+            }
+        }
+
+        let err = " unknown ".parse::<UsageSource>().unwrap_err();
+        assert!(matches!(err, SdkError::InvalidSource { name } if name == "unknown"));
+    }
+
+    #[test]
+    fn registry_concrete_sources_match_sdk_usage_sources() {
+        let registry_sources = crate::source::all_sources()
+            .map(Source::name)
+            .collect::<BTreeSet<_>>();
+        let sdk_sources = UsageSource::VARIANTS
+            .iter()
+            .map(|source| source.as_str())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(registry_sources, sdk_sources);
+        assert!(crate::source::source_choices().contains(&crate::source::ALL_SOURCES));
+        assert!(crate::source::ALL_SOURCES.parse::<UsageSource>().is_err());
+
+        for source in crate::source::all_sources() {
+            assert_eq!(
+                source.name().parse::<UsageSource>().unwrap().as_str(),
+                source.name()
+            );
+            for alias in source.aliases() {
+                assert_eq!(
+                    alias.parse::<UsageSource>().unwrap().as_str(),
+                    source.name()
+                );
+            }
+        }
     }
 
     #[test]

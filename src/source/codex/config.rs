@@ -44,6 +44,7 @@ impl Source for CodexSource {
             has_reasoning_tokens: true,
             has_cache_creation: false,
             needs_dedup: true,
+            has_tool_calls: false,
         }
     }
 
