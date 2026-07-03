@@ -194,6 +194,51 @@ fn codex_daily_json_reads_session_data() {
 }
 
 #[test]
+fn codex_daily_json_counts_component_growth_when_total_tokens_missing_or_zero() {
+    let root = unique_temp_dir("codex-missing-total-delta");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("missing-total.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"turn_context","payload":{"model":"gpt-5"}}
+{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":40,"reasoning_output_tokens":10},"model":"gpt-5"}}}
+{"timestamp":"2026-02-06T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":40,"reasoning_output_tokens":10},"model":"gpt-5"}}}
+{"timestamp":"2026-02-06T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":180,"cached_input_tokens":35,"output_tokens":90,"reasoning_output_tokens":30,"total_tokens":0},"model":"gpt-5"}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(arr[0]["input_tokens"].as_i64(), Some(145));
+    assert_eq!(arr[0]["cache_read_tokens"].as_i64(), Some(35));
+    assert_eq!(arr[0]["output_tokens"].as_i64(), Some(60));
+    assert_eq!(arr[0]["reasoning_tokens"].as_i64(), Some(30));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(270));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn codex_daily_json_deduplicates_replayed_token_counts_across_files() {
     let root = unique_temp_dir("codex-replay-dedup");
     let codex_home = root.join("codex-home");

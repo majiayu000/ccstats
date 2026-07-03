@@ -139,6 +139,10 @@ impl UsageTotals {
         }
     }
 
+    fn is_duplicate_of(&self, prev: &Self) -> bool {
+        self == prev
+    }
+
     fn is_empty(self) -> bool {
         self.input_tokens == 0
             && self.cached_input_tokens == 0
@@ -368,9 +372,9 @@ pub(super) fn parse_codex_file_with_debug(
         };
         let total = UsageTotals::from_usage(total);
 
-        // Skip if total hasn't changed (duplicate event)
+        // Skip only when the complete normalized cumulative usage vector is unchanged.
         if let Some(prev) = &previous_totals
-            && total.total_tokens == prev.total_tokens
+            && total.is_duplicate_of(prev)
         {
             continue;
         }
@@ -524,6 +528,51 @@ mod tests {
         assert_eq!(delta.input_tokens, Some(100));
         assert_eq!(delta.output_tokens, Some(0));
         assert_eq!(delta.reasoning_output_tokens, Some(0));
+    }
+
+    // ========================================================================
+    // UsageTotals::is_duplicate_of
+    // ========================================================================
+
+    #[test]
+    fn test_usage_totals_duplicate_when_complete_vector_matches() {
+        let prev = UsageTotals {
+            input_tokens: 100,
+            cached_input_tokens: 20,
+            output_tokens: 30,
+            reasoning_output_tokens: 10,
+            total_tokens: 0,
+        };
+        let total = UsageTotals {
+            input_tokens: 100,
+            cached_input_tokens: 20,
+            output_tokens: 30,
+            reasoning_output_tokens: 10,
+            total_tokens: 0,
+        };
+
+        assert!(total.is_duplicate_of(&prev));
+    }
+
+    #[test]
+    fn test_usage_totals_not_duplicate_when_component_grows_with_zero_total() {
+        let prev = UsageTotals {
+            input_tokens: 100,
+            cached_input_tokens: 20,
+            output_tokens: 30,
+            reasoning_output_tokens: 10,
+            total_tokens: 0,
+        };
+        let total = UsageTotals {
+            input_tokens: 150,
+            cached_input_tokens: 20,
+            output_tokens: 30,
+            reasoning_output_tokens: 10,
+            total_tokens: 0,
+        };
+
+        assert!(!total.is_duplicate_of(&prev));
+        assert_eq!(total.subtract(prev).input_tokens, 50);
     }
 
     // ========================================================================
