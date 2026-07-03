@@ -209,20 +209,27 @@ fn load_daily_ranges(
         return ranges.iter().map(|_| LoadResult::default()).collect();
     }
 
-    let entries: Vec<RawEntry> = files
+    let (entries, parse_errors) = files
         .par_iter()
-        .flat_map(|path| {
-            source
-                .parse_file(path, timezone, false)
+        .map(|path| {
+            let parsed = source.parse_file(path, timezone, false);
+            let entries = parsed
                 .entries
                 .into_iter()
                 .filter_map(|mut entry| {
                     let date = normalize_entry_date(&mut entry, timezone)?;
                     contains_any_range(date, ranges).then_some(entry)
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (entries, parsed.errors)
         })
-        .collect();
+        .reduce(
+            || (Vec::new(), 0usize),
+            |(mut entries, errors), (partial_entries, partial_errors)| {
+                entries.extend(partial_entries);
+                (entries, errors + partial_errors)
+            },
+        );
 
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     ranges
@@ -233,6 +240,7 @@ fn load_daily_ranges(
                 &range.filter,
                 source.capabilities().needs_dedup,
             );
+            result.parse_errors = parse_errors;
             result.elapsed_ms = elapsed_ms;
             result
         })
@@ -285,6 +293,7 @@ fn load_result_from_entries(entries: Vec<RawEntry>, skipped: i64) -> LoadResult 
         day_stats: aggregate_daily(entries),
         skipped,
         valid,
+        parse_errors: 0,
         elapsed_ms: 0.0,
     }
 }

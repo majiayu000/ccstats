@@ -9,13 +9,13 @@ use crate::output::NumberFormat;
 use crate::output::{
     BlockTableOptions, MonthlyBudgetOptions, OutputFormat, Period, PeriodSummaryFooter,
     ProjectTableOptions, SessionTableOptions, TokenTableOptions, TopRow, TopTableOptions,
-    add_monthly_budget_to_json, monthly_budget_reports, output_block_csv, output_block_json,
-    output_monthly_budget_csv, output_period_csv, output_period_json, output_project_csv,
-    output_project_json, output_session_csv, output_session_json, output_tools_csv,
-    output_tools_json, output_top_csv, output_top_json, print_block_table,
-    print_monthly_budget_table, print_period_table, print_project_table, print_session_table,
-    print_statusline, print_statusline_json, print_tools_table, print_top_table, rank_by_model,
-    rank_by_project,
+    add_monthly_budget_to_json, append_data_quality_csv_comment, monthly_budget_reports,
+    output_block_csv, output_block_json, output_monthly_budget_csv, output_period_csv_with_quality,
+    output_period_json_with_quality, output_project_csv, output_project_json, output_session_csv,
+    output_session_json, output_tools_csv, output_tools_json, output_top_csv, output_top_json,
+    print_block_table, print_monthly_budget_table, print_period_table, print_project_table,
+    print_session_table, print_statusline, print_statusline_json_with_quality, print_tools_table,
+    print_top_table, rank_by_model, rank_by_project,
 };
 use crate::pricing::PricingDb;
 use crate::source::{
@@ -54,6 +54,15 @@ fn print_no_data_hint(source_name: &str, category: &str) {
     println!(
         "No {source_name} {category} data found in the selected date range.\nHint: widen --since/--until, try `today`, or run `ccstats sources` to pick a different --source."
     );
+}
+
+fn should_render_empty_structured_result(result: &LoadResult, ctx: &CommandContext<'_>) -> bool {
+    result.day_stats.is_empty()
+        && result.data_quality().has_warnings()
+        && matches!(
+            ctx.cli.output_format(),
+            OutputFormat::Json | OutputFormat::Csv
+        )
 }
 
 fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
@@ -422,12 +431,13 @@ fn print_sources_table(sources: &[&dyn Source], all_caps: &Capabilities) {
 fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
     let result = load_daily(source, ctx.filter, ctx.timezone, true, false);
     if ctx.cli.json {
-        let json = print_statusline_json(
+        let json = print_statusline_json_with_quality(
             &result.day_stats,
             ctx.pricing_db,
             source.display_name(),
             ctx.number_format,
             ctx.currency,
+            Some(result.data_quality()),
         );
         print_json(&json, ctx.jq_filter);
     } else {
@@ -454,7 +464,7 @@ fn render_period_result(
     match ctx.cli.output_format() {
         OutputFormat::Csv => {
             let csv = if let Some(budget) = monthly_budget {
-                output_monthly_budget_csv(
+                let mut csv = output_monthly_budget_csv(
                     &result.day_stats,
                     ctx.pricing_db,
                     MonthlyBudgetOptions {
@@ -465,9 +475,11 @@ fn render_period_result(
                         as_of: ctx.budget_as_of,
                         currency: ctx.currency,
                     },
-                )
+                );
+                append_data_quality_csv_comment(&mut csv, Some(result.data_quality()));
+                csv
             } else {
-                output_period_csv(
+                output_period_csv_with_quality(
                     &result.day_stats,
                     period,
                     ctx.pricing_db,
@@ -475,12 +487,13 @@ fn render_period_result(
                     ctx.cli.breakdown,
                     ctx.cli.show_cost(),
                     ctx.currency,
+                    Some(result.data_quality()),
                 )
             };
             print!("{csv}");
         }
         OutputFormat::Json => {
-            let mut json = output_period_json(
+            let mut json = output_period_json_with_quality(
                 &result.day_stats,
                 period,
                 ctx.pricing_db,
@@ -488,6 +501,7 @@ fn render_period_result(
                 ctx.cli.breakdown,
                 ctx.cli.show_cost(),
                 ctx.currency,
+                Some(result.data_quality()),
             );
             if let Some(budget) = monthly_budget {
                 let reports = monthly_budget_reports(
@@ -553,7 +567,7 @@ fn handle_period(
     };
 
     let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
-    if result.day_stats.is_empty() {
+    if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {
         print_no_data_hint(source.display_name(), "usage");
         return;
     }
@@ -653,6 +667,7 @@ fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabil
         let result = load_daily(source, ctx.filter, ctx.timezone, quiet, ctx.cli.debug);
         combined.skipped += result.skipped;
         combined.valid += result.valid;
+        combined.parse_errors += result.parse_errors;
         merge_day_stats(&mut combined.day_stats, result.day_stats);
     }
 
@@ -667,12 +682,13 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
         SourceCommand::Statusline => {
             let (result, _) = load_all_daily(ctx, true);
             if ctx.cli.json {
-                let json = print_statusline_json(
+                let json = print_statusline_json_with_quality(
                     &result.day_stats,
                     ctx.pricing_db,
                     "All Sources",
                     ctx.number_format,
                     ctx.currency,
+                    Some(result.data_quality()),
                 );
                 print_json(&json, ctx.jq_filter);
             } else {
@@ -731,7 +747,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
     };
 
     let (result, caps) = load_all_daily(ctx, false);
-    if result.day_stats.is_empty() {
+    if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {
         print_no_data_hint("All Sources", "usage");
         return;
     }

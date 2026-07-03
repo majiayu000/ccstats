@@ -198,6 +198,7 @@ pub struct CostSummary {
     pub models: Vec<ModelCostSummary>,
     pub valid_entries: i64,
     pub skipped_entries: i64,
+    pub parse_error_entries: usize,
     pub elapsed_ms: f64,
 }
 
@@ -331,6 +332,7 @@ pub(in crate::sdk) fn build_cost_summary(
         models: summarize_models(&models, pricing_db, currency),
         valid_entries: result.valid,
         skipped_entries: result.skipped,
+        parse_error_entries: result.parse_errors,
         elapsed_ms: result.elapsed_ms,
     }
 }

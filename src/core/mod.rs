@@ -16,5 +16,6 @@ pub(crate) use tool_aggregator::aggregate_tools;
 pub(crate) use tool_types::ToolStats;
 pub(crate) use tool_types::{ToolCall, ToolCallIdentity, ToolSummary};
 pub(crate) use types::{
-    BlockStats, DateFilter, DayStats, LoadResult, ProjectStats, RawEntry, SessionStats, Stats,
+    BlockStats, DataQuality, DateFilter, DayStats, LoadResult, ProjectStats, RawEntry,
+    SessionStats, Stats,
 };

@@ -253,3 +253,44 @@ fn statusline_json_uses_requested_currency() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn statusline_json_includes_data_quality_metadata() {
+    let root = unique_temp_dir("statusline-quality");
+    let codex_home = root.join("codex-home");
+    let session_file = codex_home.join("sessions").join("statusline.jsonl");
+    let today = Utc::now().format("%Y-%m-%dT12:00:00Z").to_string();
+    write_file(
+        &session_file,
+        &format!(
+            r#"{{"timestamp":"{today}","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15}},"last_token_usage":{{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15}},"model":"gpt-5"}}}}}}
+{{"timestamp":"not-json"
+"#
+        ),
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "statusline",
+            "--source",
+            "codex",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    assert_eq!(json["source"].as_str(), Some("OpenAI Codex"));
+    assert_eq!(json["data_quality"]["valid_entries"].as_i64(), Some(1));
+    assert_eq!(
+        json["data_quality"]["dedup_skipped_entries"].as_i64(),
+        Some(0)
+    );
+    assert_eq!(json["data_quality"]["parse_errors"].as_u64(), Some(1));
+
+    let _ = fs::remove_dir_all(root);
+}

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::core::{DayStats, Stats};
+use crate::core::{DataQuality, DayStats, Stats};
 use crate::output::format::{NumberFormat, cost_json_value, format_compact, format_cost};
 use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
 
@@ -48,6 +48,7 @@ pub(crate) fn print_statusline(
 }
 
 /// Output statusline as JSON for programmatic consumption
+#[cfg(test)]
 pub(crate) fn print_statusline_json(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
@@ -55,9 +56,27 @@ pub(crate) fn print_statusline_json(
     number_format: NumberFormat,
     currency: Option<&CurrencyConverter>,
 ) -> String {
+    print_statusline_json_with_quality(
+        day_stats,
+        pricing_db,
+        source_label,
+        number_format,
+        currency,
+        None,
+    )
+}
+
+pub(crate) fn print_statusline_json_with_quality(
+    day_stats: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    source_label: &str,
+    number_format: NumberFormat,
+    currency: Option<&CurrencyConverter>,
+    data_quality: Option<DataQuality>,
+) -> String {
     let t = aggregate_totals(day_stats, pricing_db);
 
-    let output = serde_json::json!({
+    let mut output = serde_json::json!({
         "source": source_label,
         "input_tokens": t.stats.input_tokens,
         "output_tokens": t.stats.output_tokens,
@@ -73,6 +92,13 @@ pub(crate) fn print_statusline_json(
             "reasoning": format_compact(t.stats.reasoning_tokens, number_format),
         }
     });
+    if let Some(data_quality) = data_quality {
+        output["data_quality"] = serde_json::json!({
+            "valid_entries": data_quality.valid_entries,
+            "dedup_skipped_entries": data_quality.dedup_skipped_entries,
+            "parse_errors": data_quality.parse_errors,
+        });
+    }
 
     serde_json::to_string(&output).unwrap_or_else(|e| {
         eprintln!("Failed to serialize JSON output: {e}");

@@ -188,7 +188,7 @@ impl<'a> DataLoader<'a> {
             }
         }
 
-        Some((result, file_count))
+        Some((result, parse_errors))
     }
 
     /// Load and deduplicate entries incrementally to avoid buffering all raw records in memory.
@@ -196,7 +196,7 @@ impl<'a> DataLoader<'a> {
         &self,
         filter: &DateFilter,
         timezone: Timezone,
-    ) -> (Vec<RawEntry>, i64) {
+    ) -> (Vec<RawEntry>, i64, usize) {
         let result = self.par_process(
             filter,
             timezone,
@@ -213,8 +213,11 @@ impl<'a> DataLoader<'a> {
         );
 
         match result {
-            Some((accumulator, _)) => accumulator.finalize(),
-            None => (Vec::new(), 0),
+            Some((accumulator, parse_errors)) => {
+                let (entries, skipped) = accumulator.finalize();
+                (entries, skipped, parse_errors)
+            }
+            None => (Vec::new(), 0, 0),
         }
     }
 
@@ -232,7 +235,7 @@ impl<'a> DataLoader<'a> {
             },
         );
 
-        let Some((day_stats, _)) = result else {
+        let Some((day_stats, parse_errors)) = result else {
             return LoadResult::default();
         };
 
@@ -247,6 +250,7 @@ impl<'a> DataLoader<'a> {
             day_stats,
             skipped: 0,
             valid,
+            parse_errors,
             elapsed_ms,
         }
     }
@@ -315,9 +319,15 @@ impl<'a> DataLoader<'a> {
         }
 
         let load_start = Instant::now();
-        let (final_entries, skipped) = self.load_deduped_entries_incremental(filter, timezone);
+        let (final_entries, skipped, parse_errors) =
+            self.load_deduped_entries_incremental(filter, timezone);
         if final_entries.is_empty() {
-            return LoadResult::default();
+            return LoadResult {
+                parse_errors,
+                skipped,
+                elapsed_ms: load_start.elapsed().as_secs_f64() * 1000.0,
+                ..LoadResult::default()
+            };
         }
 
         let agg_start = Instant::now();
@@ -344,6 +354,7 @@ impl<'a> DataLoader<'a> {
             day_stats,
             skipped,
             valid,
+            parse_errors,
             elapsed_ms,
         }
     }
@@ -354,7 +365,7 @@ impl<'a> DataLoader<'a> {
             return self.load_sessions_incremental(filter, timezone);
         }
 
-        let (final_entries, skipped) = self.load_deduped_entries_incremental(filter, timezone);
+        let (final_entries, skipped, _) = self.load_deduped_entries_incremental(filter, timezone);
         if final_entries.is_empty() {
             return Vec::new();
         }
@@ -399,7 +410,8 @@ impl<'a> DataLoader<'a> {
         }
 
         let (final_entries, skipped) = if self.source.capabilities().needs_dedup {
-            self.load_deduped_entries_incremental(filter, timezone)
+            let (entries, skipped, _) = self.load_deduped_entries_incremental(filter, timezone);
+            (entries, skipped)
         } else {
             match self.par_process(
                 filter,
@@ -761,3 +773,7 @@ mod tests {
 #[cfg(test)]
 #[path = "loader_tool_tests.rs"]
 mod loader_tool_tests;
+
+#[cfg(test)]
+#[path = "loader_quality_tests.rs"]
+mod loader_quality_tests;

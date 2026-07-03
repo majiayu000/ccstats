@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::cli::SortOrder;
-use crate::core::DayStats;
+use crate::core::{DataQuality, DayStats};
 use crate::output::format::cost_json_value;
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::pricing::CurrencyConverter;
@@ -117,6 +117,15 @@ fn build_period_entry(
     }
 }
 
+fn data_quality_json(data_quality: DataQuality) -> serde_json::Value {
+    serde_json::json!({
+        "valid_entries": data_quality.valid_entries,
+        "dedup_skipped_entries": data_quality.dedup_skipped_entries,
+        "parse_errors": data_quality.parse_errors,
+    })
+}
+
+#[cfg(test)]
 pub(crate) fn output_period_json(
     day_stats: &HashMap<String, DayStats>,
     period: Period,
@@ -125,6 +134,22 @@ pub(crate) fn output_period_json(
     breakdown: bool,
     show_cost: bool,
     currency: Option<&CurrencyConverter>,
+) -> String {
+    output_period_json_with_quality(
+        day_stats, period, pricing_db, order, breakdown, show_cost, currency, None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn output_period_json_with_quality(
+    day_stats: &HashMap<String, DayStats>,
+    period: Period,
+    pricing_db: &PricingDb,
+    order: SortOrder,
+    breakdown: bool,
+    show_cost: bool,
+    currency: Option<&CurrencyConverter>,
+    data_quality: Option<DataQuality>,
 ) -> String {
     let label = period.label();
     let aggregated;
@@ -135,14 +160,25 @@ pub(crate) fn output_period_json(
         &aggregated
     };
 
+    let data_quality = data_quality.map(data_quality_json);
     let mut output: Vec<serde_json::Value> = stats_ref
         .iter()
         .map(|(key, stats)| {
-            build_period_entry(
+            let mut entry = build_period_entry(
                 label, key, stats, pricing_db, breakdown, show_cost, currency,
-            )
+            );
+            if let Some(data_quality) = &data_quality {
+                entry["data_quality"] = data_quality.clone();
+            }
+            entry
         })
         .collect();
+
+    if output.is_empty()
+        && let Some(data_quality) = data_quality
+    {
+        output.push(serde_json::json!({ "data_quality": data_quality }));
+    }
 
     sort_output(&mut output, label, order);
     serde_json::to_string(&output).unwrap_or_else(|e| {
