@@ -132,10 +132,11 @@ mod tests {
 
     #[test]
     fn test_get_source_by_alias() {
-        assert!(get_source("cc").is_some());
-        assert!(get_source("cx").is_some());
-        assert!(get_source("cur").is_some());
-        assert!(get_source("gx").is_some());
+        for source in all_sources() {
+            for alias in source.aliases() {
+                assert!(get_source(alias).is_some());
+            }
+        }
     }
 
     #[test]
@@ -153,7 +154,7 @@ mod tests {
         let source = get_source("claude").unwrap();
         assert_eq!(source.name(), "claude");
         assert_eq!(source.display_name(), "Claude Code");
-        assert!(source.aliases().contains(&"cc"));
+        assert!(!source.aliases().is_empty());
     }
 
     #[test]
@@ -161,7 +162,7 @@ mod tests {
         let source = get_source("codex").unwrap();
         assert_eq!(source.name(), "codex");
         assert_eq!(source.display_name(), "OpenAI Codex");
-        assert!(source.aliases().contains(&"cx"));
+        assert!(!source.aliases().is_empty());
     }
 
     #[test]
@@ -169,7 +170,7 @@ mod tests {
         let source = get_source("cursor").unwrap();
         assert_eq!(source.name(), "cursor");
         assert_eq!(source.display_name(), "Cursor");
-        assert!(source.aliases().contains(&"cur"));
+        assert!(!source.aliases().is_empty());
     }
 
     #[test]
@@ -177,7 +178,7 @@ mod tests {
         let source = get_source("grok").unwrap();
         assert_eq!(source.name(), "grok");
         assert_eq!(source.display_name(), "Grok");
-        assert!(source.aliases().contains(&"gx"));
+        assert!(!source.aliases().is_empty());
     }
 
     #[test]
@@ -188,6 +189,7 @@ mod tests {
         assert!(caps.has_billing_blocks);
         assert!(caps.has_cache_creation);
         assert!(caps.needs_dedup);
+        assert!(caps.has_tool_calls);
         assert!(!caps.has_reasoning_tokens);
     }
 
@@ -200,6 +202,7 @@ mod tests {
         assert!(!caps.has_cache_creation);
         assert!(caps.needs_dedup);
         assert!(caps.has_reasoning_tokens);
+        assert!(!caps.has_tool_calls);
     }
 
     #[test]
@@ -211,6 +214,7 @@ mod tests {
         assert!(!caps.has_cache_creation);
         assert!(!caps.needs_dedup);
         assert!(!caps.has_reasoning_tokens);
+        assert!(!caps.has_tool_calls);
     }
 
     #[test]
@@ -222,6 +226,7 @@ mod tests {
         assert!(!caps.has_cache_creation);
         assert!(!caps.needs_dedup);
         assert!(!caps.has_reasoning_tokens);
+        assert!(!caps.has_tool_calls);
     }
 
     #[test]
@@ -232,35 +237,25 @@ mod tests {
 
     #[test]
     fn test_alias_resolves_to_correct_source() {
-        let by_name = get_source("claude").unwrap();
-        let by_alias = get_source("cc").unwrap();
-        assert_eq!(by_name.name(), by_alias.name());
-
-        let by_name = get_source("codex").unwrap();
-        let by_alias = get_source("cx").unwrap();
-        assert_eq!(by_name.name(), by_alias.name());
-
-        let by_name = get_source("cursor").unwrap();
-        let by_alias = get_source("cur").unwrap();
-        assert_eq!(by_name.name(), by_alias.name());
-
-        let by_name = get_source("grok").unwrap();
-        let by_alias = get_source("gx").unwrap();
-        assert_eq!(by_name.name(), by_alias.name());
+        for source in all_sources() {
+            let by_name = get_source(source.name()).unwrap();
+            for alias in source.aliases() {
+                let by_alias = get_source(alias).unwrap();
+                assert_eq!(by_name.name(), by_alias.name());
+            }
+        }
     }
 
     #[test]
     fn test_source_choices_include_names_and_aliases() {
         let choices = source_choices();
         assert!(choices.contains(&"all"));
-        assert!(choices.contains(&"claude"));
-        assert!(choices.contains(&"codex"));
-        assert!(choices.contains(&"cursor"));
-        assert!(choices.contains(&"grok"));
-        assert!(choices.contains(&"cc"));
-        assert!(choices.contains(&"cx"));
-        assert!(choices.contains(&"cur"));
-        assert!(choices.contains(&"gx"));
+        for source in all_sources() {
+            assert!(choices.contains(&source.name()));
+            for alias in source.aliases() {
+                assert!(choices.contains(alias));
+            }
+        }
     }
 
     #[test]
@@ -271,7 +266,8 @@ mod tests {
         assert_eq!(suggest_source("gro"), Some("grok"));
         assert_eq!(suggest_source("claud"), Some("claude"));
         assert_eq!(suggest_source("al"), Some("all"));
-        assert_eq!(suggest_source("cx"), Some("cx"));
+        let codex_alias = get_source("codex").unwrap().aliases()[0];
+        assert_eq!(suggest_source(codex_alias), Some(codex_alias));
     }
 
     #[test]

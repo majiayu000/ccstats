@@ -491,24 +491,17 @@ pub(crate) fn load_blocks(
     loader.load_blocks(filter, timezone)
 }
 
-/// Convenience function to load tool calls from Claude source
+/// Convenience function to load tool calls for a source with tool-call support.
 pub(crate) fn load_tool_calls(
+    source: &dyn Source,
     filter: &DateFilter,
     timezone: Timezone,
 ) -> Vec<crate::core::ToolCall> {
-    use crate::source::claude::claude_projects_dir;
-    use crate::source::claude::tool_parser::parse_tool_calls;
-
-    let Some(claude_path) = claude_projects_dir() else {
+    if !source.capabilities().has_tool_calls {
         return Vec::new();
-    };
-    let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", claude_path.display())) {
-        for entry in entries.flatten() {
-            files.push(entry);
-        }
     }
 
+    let files = source.find_tool_call_files();
     if files.is_empty() {
         return Vec::new();
     }
@@ -518,7 +511,7 @@ pub(crate) fn load_tool_calls(
     let all_calls: Vec<crate::core::ToolCall> = files
         .par_iter()
         .flat_map(|path| {
-            let calls = parse_tool_calls(path, timezone);
+            let calls = source.parse_tool_call_file(path, timezone);
             calls
                 .into_iter()
                 .filter(|c| {
@@ -764,3 +757,7 @@ mod tests {
         assert_eq!(target.models["other-model"].input_tokens, 200);
     }
 }
+
+#[cfg(test)]
+#[path = "loader_tool_tests.rs"]
+mod loader_tool_tests;

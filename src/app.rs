@@ -247,8 +247,8 @@ fn validate_top_limit(limit: usize) -> Result<usize, String> {
     }
 }
 
-fn handle_tools(ctx: &CommandContext<'_>) {
-    let calls = load_tool_calls(ctx.filter, ctx.timezone);
+fn handle_tools(source: &dyn Source, ctx: &CommandContext<'_>) {
+    let calls = load_tool_calls(source, ctx.filter, ctx.timezone);
     let summary = aggregate_tools(&calls);
     if ctx.cli.csv {
         let csv = output_tools_csv(&summary);
@@ -524,13 +524,13 @@ pub(crate) fn handle_source_command(
         }
         SourceCommand::Statusline => return handle_statusline(source, ctx),
         SourceCommand::Tools => {
-            if source.name() != "claude" {
+            if !caps.has_tool_calls {
                 println!(
                     "Tool usage analysis is only supported for Claude source.\nHint: switch with `--source claude` (or alias `--source cc`)."
                 );
                 return;
             }
-            return handle_tools(ctx);
+            return handle_tools(source, ctx);
         }
         SourceCommand::Top { dim, limit } => {
             let limit = match validate_top_limit(limit) {
@@ -561,6 +561,7 @@ fn all_sources_capabilities() -> Capabilities {
         combined.has_reasoning_tokens |= caps.has_reasoning_tokens;
         combined.has_cache_creation |= caps.has_cache_creation;
         combined.needs_dedup |= caps.needs_dedup;
+        combined.has_tool_calls |= caps.has_tool_calls;
     }
     combined
 }
@@ -577,6 +578,7 @@ fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabil
         caps.has_reasoning_tokens |= source_caps.has_reasoning_tokens;
         caps.has_cache_creation |= source_caps.has_cache_creation;
         caps.needs_dedup |= source_caps.needs_dedup;
+        caps.has_tool_calls |= source_caps.has_tool_calls;
 
         let result = load_daily(source, ctx.filter, ctx.timezone, quiet, ctx.cli.debug);
         combined.skipped += result.skipped;

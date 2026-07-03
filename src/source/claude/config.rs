@@ -8,6 +8,7 @@ use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
 use super::parser::{find_claude_files, parse_claude_file_with_debug};
+use super::tool_parser::parse_tool_calls;
 
 /// Claude data source
 pub(crate) struct ClaudeSource;
@@ -44,6 +45,7 @@ impl Source for ClaudeSource {
             has_reasoning_tokens: false,
             has_cache_creation: true,
             needs_dedup: true,
+            has_tool_calls: true,
         }
     }
 
@@ -53,5 +55,13 @@ impl Source for ClaudeSource {
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_claude_file_with_debug(path, timezone, debug)
+    }
+
+    fn find_tool_call_files(&self) -> Vec<PathBuf> {
+        find_claude_files()
+    }
+
+    fn parse_tool_call_file(&self, path: &Path, timezone: Timezone) -> Vec<crate::core::ToolCall> {
+        parse_tool_calls(path, timezone)
     }
 }
