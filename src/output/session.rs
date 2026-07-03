@@ -9,6 +9,7 @@ use crate::output::format::{
     NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
     header_cell, right_cell, styled_cell,
 };
+use crate::output::pricing_meta;
 use crate::pricing::{
     CurrencyConverter, PricingDb, model_cost_kind, sum_estimated_proxy_model_costs, sum_model_costs,
 };
@@ -256,6 +257,14 @@ pub(crate) fn print_session_table(
             format_cost(total_estimated_cost, options.currency)
         );
     }
+    if show_cost
+        && let Some(note) = pricing_meta::note_for_maps(
+            sorted_sessions.iter().map(|session| &session.models),
+            pricing_db,
+        )
+    {
+        println!("\n  {note}");
+    }
     println!(
         "\n  {} sessions\n",
         format_number(sorted_sessions.len() as i64, number_format)
@@ -303,6 +312,7 @@ pub(crate) fn output_session_json(
             });
             if show_cost {
                 obj["cost"] = cost_json_value(session_cost.unwrap_or(0.0), currency);
+                pricing_meta::add_json(&mut obj, &session.models, pricing_db);
                 let estimated_cost = sum_estimated_proxy_model_costs(&session.models, pricing_db);
                 if estimated_cost > 0.0 {
                     obj["cost_kind"] = serde_json::json!(model_cost_kind(&session.models).as_str());

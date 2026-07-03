@@ -3,15 +3,20 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use super::cache::{
-    CacheReadError, CacheWriteError, load_raw_cache, load_raw_cache_if_fresh, save_raw_cache,
+    CacheReadError, CacheWriteError, load_raw_cache_if_fresh, load_raw_cache_snapshot,
+    save_raw_cache,
 };
 use super::provider::fetch_litellm_raw;
 use super::resolver::{fallback_pricing, parse_litellm_data, resolve_pricing_known};
+use super::source::{CacheMetadata, PricingSource};
 use super::types::ModelPricing;
 
 #[derive(Debug, Clone)]
 enum ResolvedPricing {
-    Known(ModelPricing),
+    Known {
+        pricing: ModelPricing,
+        source: PricingSource,
+    },
     Unknown,
 }
 
@@ -27,6 +32,8 @@ pub(crate) struct PricingDb {
     models: HashMap<String, ModelPricing>,
     resolved: RefCell<HashMap<String, ResolvedPricing>>,
     strict_unknown: bool,
+    source: PricingSource,
+    cache_metadata: Option<CacheMetadata>,
 }
 
 const PRICING_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -37,27 +44,57 @@ impl PricingDb {
             models: HashMap::new(),
             resolved: RefCell::new(HashMap::new()),
             strict_unknown,
+            source: PricingSource::Fallback,
+            cache_metadata: None,
         }
     }
 
-    fn from_raw_data(data: HashMap<String, serde_json::Value>, strict_unknown: bool) -> Self {
+    fn from_raw_data(
+        data: HashMap<String, serde_json::Value>,
+        strict_unknown: bool,
+        source: PricingSource,
+        cache_metadata: Option<CacheMetadata>,
+    ) -> Self {
         Self {
             models: parse_litellm_data(data),
             resolved: RefCell::new(HashMap::new()),
             strict_unknown,
+            source,
+            cache_metadata,
         }
     }
 
     fn load_from_cache(strict_unknown: bool) -> Result<Option<Self>, CacheReadError> {
-        Ok(load_raw_cache()?.map(|raw_data| Self::from_raw_data(raw_data, strict_unknown)))
+        Ok(load_raw_cache_snapshot()?.map(|snapshot| {
+            let source = if snapshot.metadata.age > PRICING_CACHE_TTL {
+                PricingSource::CacheStale
+            } else {
+                PricingSource::Cache
+            };
+            Self::from_raw_data(
+                snapshot.data,
+                strict_unknown,
+                source,
+                Some(snapshot.metadata),
+            )
+        }))
     }
 
     fn load_from_cache_if_fresh(
         ttl: Duration,
         strict_unknown: bool,
     ) -> Result<Option<(Self, Duration)>, CacheReadError> {
-        Ok(load_raw_cache_if_fresh(ttl)?
-            .map(|(raw_data, age)| (Self::from_raw_data(raw_data, strict_unknown), age)))
+        Ok(load_raw_cache_if_fresh(ttl)?.map(|snapshot| {
+            (
+                Self::from_raw_data(
+                    snapshot.data,
+                    strict_unknown,
+                    PricingSource::Cache,
+                    Some(snapshot.metadata),
+                ),
+                snapshot.metadata.age,
+            )
+        }))
     }
 
     pub(crate) fn load(offline: bool, strict_unknown: bool) -> Self {
@@ -123,7 +160,7 @@ impl PricingDb {
         if let Some(raw_data) = fetch_litellm_raw() {
             let fetch_time = start.elapsed();
             let save_result = save_raw_cache(&raw_data);
-            let db = Self::from_raw_data(raw_data, strict_unknown);
+            let db = Self::from_raw_data(raw_data, strict_unknown, PricingSource::Live, None);
             if !quiet {
                 eprintln!(
                     " {} models ({:.2}ms)",
@@ -191,23 +228,47 @@ impl PricingDb {
     }
 
     pub(super) fn get_pricing(&self, model: &str) -> Option<ModelPricing> {
+        self.resolve_pricing(model).map(|(pricing, _)| pricing)
+    }
+
+    pub(crate) fn pricing_source_for_model(&self, model: &str) -> Option<PricingSource> {
+        self.resolve_pricing(model).map(|(_, source)| source)
+    }
+
+    pub(crate) fn source(&self) -> PricingSource {
+        self.source
+    }
+
+    pub(crate) fn cache_age_seconds(&self) -> Option<u64> {
+        self.cache_metadata.map(CacheMetadata::age_seconds)
+    }
+
+    pub(crate) fn cache_modified_epoch_seconds(&self) -> Option<u64> {
+        self.cache_metadata
+            .map(CacheMetadata::modified_epoch_seconds)
+    }
+
+    fn resolve_pricing(&self, model: &str) -> Option<(ModelPricing, PricingSource)> {
         if let Some(cached) = self.resolved.borrow().get(model) {
             return match cached {
-                ResolvedPricing::Known(pricing) => Some(pricing.clone()),
+                ResolvedPricing::Known { pricing, source } => Some((pricing.clone(), *source)),
                 ResolvedPricing::Unknown => None,
             };
         }
 
-        let pricing = resolve_pricing_known(model, &self.models).or_else(|| {
-            if self.strict_unknown {
-                None
-            } else {
-                fallback_pricing(model)
-            }
-        });
+        let pricing = if let Some(pricing) = resolve_pricing_known(model, &self.models) {
+            Some((pricing, self.source))
+        } else if self.strict_unknown {
+            None
+        } else {
+            fallback_pricing(model).map(|pricing| (pricing, PricingSource::Fallback))
+        };
 
         let cached = match &pricing {
-            Some(pricing) => ResolvedPricing::Known(pricing.clone()),
+            Some((pricing, source)) => ResolvedPricing::Known {
+                pricing: pricing.clone(),
+                source: *source,
+            },
             None => ResolvedPricing::Unknown,
         };
         self.resolved.borrow_mut().insert(model.to_string(), cached);
@@ -227,6 +288,8 @@ impl Default for PricingDb {
             models: HashMap::new(),
             resolved: RefCell::new(HashMap::new()),
             strict_unknown: false,
+            source: PricingSource::Fallback,
+            cache_metadata: None,
         }
     }
 }
@@ -236,10 +299,13 @@ impl Default for PricingDb {
 mod tests {
     use super::*;
     use crate::core::Stats;
-    use crate::pricing::{attach_costs, calculate_cost, sum_model_costs};
+    use crate::pricing::{
+        attach_costs, calculate_cost, pricing_source_for_models, sum_model_costs,
+    };
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
+    use std::time::SystemTime;
     use tempfile::TempDir;
 
     fn sample_raw_pricing(model: &str) -> HashMap<String, serde_json::Value> {
@@ -309,7 +375,7 @@ mod tests {
         let raw_data = sample_raw_pricing("gpt-5");
 
         let save_result = super::super::cache::save_raw_cache_to_path(&raw_data, &cache_path);
-        let db = PricingDb::from_raw_data(raw_data, false);
+        let db = PricingDb::from_raw_data(raw_data, false, PricingSource::Live, None);
 
         assert!(save_result.is_err());
         assert!(db.get_pricing("gpt-5").is_some());
@@ -623,6 +689,72 @@ mod tests {
         // Second call hits cache
         let p2 = db.get_pricing("sonnet-4");
         assert_eq!(p1.unwrap().input, p2.unwrap().input);
+    }
+
+    #[test]
+    fn pricing_source_tracks_live_known_model() {
+        let db = PricingDb::from_raw_data(
+            sample_raw_pricing("claude-3-5-sonnet-20241022"),
+            false,
+            PricingSource::Live,
+            None,
+        );
+
+        assert_eq!(
+            db.pricing_source_for_model("claude-3-5-sonnet-20241022"),
+            Some(PricingSource::Live)
+        );
+    }
+
+    #[test]
+    fn pricing_source_tracks_stale_cache_known_model() {
+        let metadata = CacheMetadata {
+            age: Duration::from_secs(2 * 24 * 60 * 60),
+            modified: SystemTime::now() - Duration::from_secs(2 * 24 * 60 * 60),
+        };
+        let db = PricingDb::from_raw_data(
+            sample_raw_pricing("claude-3-5-sonnet-20241022"),
+            false,
+            PricingSource::CacheStale,
+            Some(metadata),
+        );
+
+        assert_eq!(
+            db.pricing_source_for_model("claude-3-5-sonnet-20241022"),
+            Some(PricingSource::CacheStale)
+        );
+        assert!(matches!(db.cache_age_seconds(), Some(age) if age >= 24 * 60 * 60));
+    }
+
+    #[test]
+    fn pricing_source_combines_known_and_fallback_as_mixed() {
+        let db = PricingDb::from_raw_data(
+            sample_raw_pricing("claude-3-5-sonnet-20241022"),
+            false,
+            PricingSource::Cache,
+            None,
+        );
+        let models = HashMap::from([
+            (
+                "claude-3-5-sonnet-20241022".to_string(),
+                Stats {
+                    input_tokens: 100,
+                    ..Default::default()
+                },
+            ),
+            (
+                "gpt-5".to_string(),
+                Stats {
+                    input_tokens: 100,
+                    ..Default::default()
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            pricing_source_for_models(&models, &db),
+            PricingSource::Mixed
+        );
     }
 
     #[test]

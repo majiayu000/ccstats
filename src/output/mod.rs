@@ -4,12 +4,14 @@ mod csv;
 mod format;
 mod json;
 mod period;
+mod pricing_meta;
 mod project;
 mod session;
 mod statusline;
 mod table;
 mod tools;
 mod top;
+mod top_structured;
 
 /// Central selector for supported CLI output modes.
 ///
@@ -41,6 +43,7 @@ pub(crate) use statusline::{print_statusline, print_statusline_json_with_quality
 pub(crate) use table::{PeriodSummaryFooter, TokenTableOptions, print_period_table};
 pub(crate) use tools::{output_tools_csv, output_tools_json, print_tools_table};
 pub(crate) use top::{
-    TopRow, TopTableOptions, output_top_csv, output_top_json, print_top_table, rank_by_model,
-    rank_by_model_with_cost_mode, rank_by_project,
+    TopRow, TopTableOptions, print_top_table, rank_by_model, rank_by_model_with_cost_mode,
+    rank_by_project,
 };
+pub(crate) use top_structured::{output_top_csv, output_top_json};

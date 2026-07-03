@@ -7,10 +7,11 @@ use crate::core::{BlockStats, DataQuality, DayStats, ProjectStats, SessionStats}
 use crate::output::budget::{MonthlyBudgetOptions, MonthlyBudgetReport, monthly_budget_reports};
 use crate::output::format::{compare_cost, csv_escape};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
+use crate::output::pricing_meta;
 use crate::pricing::{
-    CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost,
-    calculate_estimated_proxy_cost, model_cost_kind, sum_display_model_costs,
-    sum_estimated_proxy_model_costs, sum_model_costs,
+    CostDisplayMode, CurrencyConverter, PricingDb, PricingSource, calculate_display_cost,
+    calculate_estimated_proxy_cost, model_cost_kind, pricing_source_for_model_maps,
+    sum_display_model_costs, sum_estimated_proxy_model_costs, sum_model_costs,
 };
 
 #[cfg(test)]
@@ -69,6 +70,10 @@ pub(crate) fn output_period_csv_with_quality(
         show_cost,
         currency,
         include_cost_kind: period_csv_includes_cost_kind(&rows, breakdown, show_cost),
+        pricing_source: pricing_source_for_model_maps(
+            rows.iter().map(|(_, stats)| &stats.models),
+            pricing_db,
+        ),
         cost_mode,
     };
     if breakdown {
@@ -87,6 +92,7 @@ struct PeriodCsvContext<'a> {
     show_cost: bool,
     currency: Option<&'a CurrencyConverter>,
     include_cost_kind: bool,
+    pricing_source: crate::pricing::PricingSource,
     cost_mode: CostDisplayMode,
 }
 
@@ -114,6 +120,7 @@ fn write_period_cost_header(out: &mut String, ctx: &PeriodCsvContext<'_>) {
         if ctx.include_cost_kind {
             let _ = write!(out, ",cost_kind,estimated_cost");
         }
+        pricing_meta::append_source_csv_header(out, ctx.pricing_source, ctx.pricing_db);
     }
     out.push('\n');
 }
@@ -160,6 +167,12 @@ fn write_period_csv_breakdown(
                         csv_cost(estimated_cost, ctx.currency)
                     );
                 }
+                pricing_meta::append_model_csv_fields(
+                    out,
+                    model,
+                    ctx.pricing_db,
+                    pricing_meta::csv_has_cache_fields(ctx.pricing_source, ctx.pricing_db),
+                );
             }
             out.push('\n');
         }
@@ -202,6 +215,12 @@ fn write_period_csv_standard(
                     csv_cost(estimated_cost, ctx.currency)
                 );
             }
+            pricing_meta::append_csv_fields(
+                out,
+                &stats.models,
+                ctx.pricing_db,
+                pricing_meta::csv_has_cache_fields(ctx.pricing_source, ctx.pricing_db),
+            );
         }
         out.push('\n');
     }
@@ -262,6 +281,17 @@ fn write_budget_fields(out: &mut String, report: &MonthlyBudgetReport) {
     );
 }
 
+fn budget_csv_pricing_source(
+    reports: &[MonthlyBudgetReport],
+    pricing_db: &PricingDb,
+) -> PricingSource {
+    reports
+        .iter()
+        .map(|report| report.pricing_source)
+        .reduce(PricingSource::combine)
+        .unwrap_or_else(|| pricing_db.source())
+}
+
 pub(crate) fn output_monthly_budget_csv(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
@@ -278,6 +308,9 @@ pub(crate) fn output_monthly_budget_csv(
         options.cost_mode,
     );
     let mut out = String::new();
+    let pricing_source = budget_csv_pricing_source(&reports, pricing_db);
+    let include_pricing_cache_fields =
+        pricing_meta::csv_has_cache_fields(pricing_source, pricing_db);
 
     if options.breakdown {
         let _ = write!(
@@ -286,6 +319,7 @@ pub(crate) fn output_monthly_budget_csv(
         );
         if options.show_cost {
             let _ = write!(out, ",cost");
+            pricing_meta::append_source_csv_header(&mut out, pricing_source, pricing_db);
         }
         write_budget_header(&mut out);
         out.push('\n');
@@ -313,6 +347,12 @@ pub(crate) fn output_monthly_budget_csv(
                     let cost =
                         calculate_display_cost(model_stats, model, pricing_db, options.cost_mode);
                     let _ = write!(out, ",{}", csv_cost(cost, options.currency));
+                    pricing_meta::append_model_csv_fields(
+                        &mut out,
+                        model,
+                        pricing_db,
+                        include_pricing_cache_fields,
+                    );
                 }
                 write_budget_fields(&mut out, report);
                 out.push('\n');
@@ -325,6 +365,7 @@ pub(crate) fn output_monthly_budget_csv(
         );
         if options.show_cost {
             let _ = write!(out, ",cost");
+            pricing_meta::append_source_csv_header(&mut out, pricing_source, pricing_db);
         }
         write_budget_header(&mut out);
         out.push('\n');
@@ -347,6 +388,12 @@ pub(crate) fn output_monthly_budget_csv(
             if options.show_cost {
                 let cost = sum_display_model_costs(&stats.models, pricing_db, options.cost_mode);
                 let _ = write!(out, ",{}", csv_cost(cost, options.currency));
+                pricing_meta::append_csv_fields(
+                    &mut out,
+                    &stats.models,
+                    pricing_db,
+                    include_pricing_cache_fields,
+                );
             }
             write_budget_fields(&mut out, report);
             out.push('\n');
@@ -374,6 +421,10 @@ pub(crate) fn output_session_csv(
         && sorted
             .iter()
             .any(|session| sum_estimated_proxy_model_costs(&session.models, pricing_db) > 0.0);
+    let pricing_source =
+        pricing_source_for_model_maps(sorted.iter().map(|session| &session.models), pricing_db);
+    let include_pricing_cache_fields =
+        pricing_meta::csv_has_cache_fields(pricing_source, pricing_db);
     let _ = write!(
         out,
         "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
@@ -383,6 +434,7 @@ pub(crate) fn output_session_csv(
         if include_cost_kind {
             let _ = write!(out, ",cost_kind,estimated_cost");
         }
+        pricing_meta::append_source_csv_header(&mut out, pricing_source, pricing_db);
     }
     out.push('\n');
 
@@ -413,6 +465,12 @@ pub(crate) fn output_session_csv(
                     csv_cost(estimated_cost, currency)
                 );
             }
+            pricing_meta::append_csv_fields(
+                &mut out,
+                &s.models,
+                pricing_db,
+                include_pricing_cache_fields,
+            );
         }
         out.push('\n');
     }
@@ -447,6 +505,10 @@ pub(crate) fn output_project_csv(
         && sorted
             .iter()
             .any(|project| sum_estimated_proxy_model_costs(&project.models, pricing_db) > 0.0);
+    let pricing_source =
+        pricing_source_for_model_maps(sorted.iter().map(|project| &project.models), pricing_db);
+    let include_pricing_cache_fields =
+        pricing_meta::csv_has_cache_fields(pricing_source, pricing_db);
     let _ = write!(
         out,
         "project_name,project_path,sessions,input_tokens,output_tokens,total_tokens"
@@ -456,6 +518,7 @@ pub(crate) fn output_project_csv(
         if include_cost_kind {
             let _ = write!(out, ",cost_kind,estimated_cost");
         }
+        pricing_meta::append_source_csv_header(&mut out, pricing_source, pricing_db);
     }
     out.push('\n');
 
@@ -482,6 +545,12 @@ pub(crate) fn output_project_csv(
                     csv_cost(estimated_cost, currency)
                 );
             }
+            pricing_meta::append_csv_fields(
+                &mut out,
+                &p.models,
+                pricing_db,
+                include_pricing_cache_fields,
+            );
         }
         out.push('\n');
     }
@@ -507,6 +576,10 @@ pub(crate) fn output_block_csv(
         && sorted
             .iter()
             .any(|block| sum_estimated_proxy_model_costs(&block.models, pricing_db) > 0.0);
+    let pricing_source =
+        pricing_source_for_model_maps(sorted.iter().map(|block| &block.models), pricing_db);
+    let include_pricing_cache_fields =
+        pricing_meta::csv_has_cache_fields(pricing_source, pricing_db);
     let _ = write!(
         out,
         "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
@@ -516,6 +589,7 @@ pub(crate) fn output_block_csv(
         if include_cost_kind {
             let _ = write!(out, ",cost_kind,estimated_cost");
         }
+        pricing_meta::append_source_csv_header(&mut out, pricing_source, pricing_db);
     }
     out.push('\n');
 
@@ -543,6 +617,12 @@ pub(crate) fn output_block_csv(
                     csv_cost(estimated_cost, currency)
                 );
             }
+            pricing_meta::append_csv_fields(
+                &mut out,
+                &b.models,
+                pricing_db,
+                include_pricing_cache_fields,
+            );
         }
         out.push('\n');
     }
