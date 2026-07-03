@@ -245,57 +245,115 @@ fn extract_model(payload: &Payload<'_>) -> Option<String> {
     extract_model_ref(payload).map(std::string::ToString::to_string)
 }
 
-#[allow(clippy::too_many_lines)]
+struct CodexFileIdentity {
+    session_key: String,
+    session_id: String,
+}
+
+impl CodexFileIdentity {
+    fn from_path(path: &Path) -> Self {
+        Self {
+            session_key: path.display().to_string(),
+            session_id: path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(UNKNOWN)
+                .to_string(),
+        }
+    }
+}
+
+struct CodexParseContext<'a> {
+    path: &'a Path,
+    timezone: Timezone,
+    debug: bool,
+    identity: CodexFileIdentity,
+}
+
+struct CodexParseState {
+    entries: Vec<RawEntry>,
+    parse_errors: usize,
+    previous_totals: Option<UsageTotals>,
+    current_model: Option<String>,
+    logical_session_key: String,
+}
+
+impl CodexParseState {
+    fn new(capacity: usize, session_key: String) -> Self {
+        Self {
+            entries: Vec::with_capacity(capacity),
+            parse_errors: 0,
+            previous_totals: None,
+            current_model: None,
+            logical_session_key: session_key,
+        }
+    }
+
+    fn finish(self) -> ParseOutput {
+        ParseOutput {
+            entries: self.entries,
+            errors: self.parse_errors,
+        }
+    }
+}
+
 pub(super) fn parse_codex_file_with_debug(
     path: &Path,
     timezone: Timezone,
     debug: bool,
 ) -> ParseOutput {
-    let session_key = path.display().to_string();
-    let session_id = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(UNKNOWN)
-        .to_string();
-
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(err) => {
-            if debug {
-                eprintln!("Failed to open {}: {}", path.display(), err);
-            }
-            return ParseOutput {
-                entries: Vec::new(),
-                errors: 1,
-            };
-        }
+    let identity = CodexFileIdentity::from_path(path);
+    let context = CodexParseContext {
+        path,
+        timezone,
+        debug,
+        identity,
+    };
+    let file = match open_codex_file(&context) {
+        Ok(file) => file,
+        Err(output) => return output,
     };
     let estimated_capacity = estimate_entry_capacity(&file, 260);
-    let reader = BufReader::new(file);
+    let mut state = CodexParseState::new(estimated_capacity, context.identity.session_key.clone());
 
-    let mut entries = Vec::with_capacity(estimated_capacity);
-    let mut parse_errors = 0usize;
-    let mut previous_totals: Option<UsageTotals> = None;
-    let mut current_model: Option<String> = None;
-    let mut logical_session_key = session_key.clone();
+    parse_codex_reader(BufReader::new(file), &context, &mut state);
+    state.finish()
+}
+
+fn open_codex_file(context: &CodexParseContext<'_>) -> Result<File, ParseOutput> {
+    File::open(context.path).map_err(|err| {
+        if context.debug {
+            eprintln!("Failed to open {}: {}", context.path.display(), err);
+        }
+        ParseOutput {
+            entries: Vec::new(),
+            errors: 1,
+        }
+    })
+}
+
+fn parse_codex_reader<R: BufRead>(
+    mut reader: R,
+    context: &CodexParseContext<'_>,
+    state: &mut CodexParseState,
+) {
     let mut line = String::new();
     let mut line_no = 0usize;
-    let mut reader = reader;
     loop {
         line.clear();
         let bytes_read = match reader.read_line(&mut line) {
             Ok(n) => n,
             Err(err) => {
                 line_no += 1;
-                if debug {
+                if context.debug {
                     eprintln!(
                         "Failed to read line {} in {}: {}",
                         line_no,
-                        path.display(),
+                        context.path.display(),
                         err
                     );
                 }
-                parse_errors += 1;
+                state.parse_errors += 1;
                 continue;
             }
         };
@@ -309,450 +367,198 @@ pub(super) fn parse_codex_file_with_debug(
             continue;
         }
 
-        let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(line) {
-            Ok(e) => e,
-            Err(err) => {
-                if debug {
-                    eprintln!("Invalid JSON at {}:{}: {}", path.display(), line_no, err);
-                }
-                parse_errors += 1;
-                continue;
+        process_codex_line(line, line_no, context, state);
+    }
+}
+
+fn process_codex_line(
+    line: &str,
+    line_no: usize,
+    context: &CodexParseContext<'_>,
+    state: &mut CodexParseState,
+) {
+    let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(line) {
+        Ok(entry) => entry,
+        Err(err) => {
+            if context.debug {
+                eprintln!(
+                    "Invalid JSON at {}:{}: {}",
+                    context.path.display(),
+                    line_no,
+                    err
+                );
             }
-        };
-
-        let Some(entry_type) = raw_entry.entry_type else {
-            continue;
-        };
-
-        if entry_type == "session_meta" {
-            if let Some(payload) = &raw_entry.payload
-                && let Some(id) = non_empty_model(payload.id)
-            {
-                logical_session_key = format!("codex-session:{id}");
-            }
-            continue;
+            state.parse_errors += 1;
+            return;
         }
+    };
 
-        // Handle turn_context to get model info
-        if entry_type == "turn_context" {
-            if let Some(payload) = &raw_entry.payload
-                && let Some(model) = extract_model_ref(payload)
-            {
-                current_model = Some(model.to_string());
-            }
-            continue;
-        }
+    match raw_entry.entry_type {
+        Some("session_meta") => update_logical_session_key(raw_entry.payload.as_ref(), state),
+        Some("turn_context") => update_current_model(raw_entry.payload.as_ref(), state),
+        Some("event_msg") => process_event_message(&raw_entry, line_no, context, state),
+        _ => {}
+    }
+}
 
-        // Only process event_msg with token_count
-        if entry_type != "event_msg" {
-            continue;
-        }
+fn update_logical_session_key(payload: Option<&Payload<'_>>, state: &mut CodexParseState) {
+    if let Some(payload) = payload
+        && let Some(id) = non_empty_model(payload.id)
+    {
+        state.logical_session_key = format!("codex-session:{id}");
+    }
+}
 
-        let Some(payload) = &raw_entry.payload else {
-            continue;
-        };
+fn update_current_model(payload: Option<&Payload<'_>>, state: &mut CodexParseState) {
+    if let Some(payload) = payload
+        && let Some(model) = extract_model_ref(payload)
+    {
+        state.current_model = Some(model.to_string());
+    }
+}
 
-        let Some(payload_type) = payload.payload_type else {
-            continue;
-        };
+fn process_event_message(
+    raw_entry: &RawJsonEntry<'_>,
+    line_no: usize,
+    context: &CodexParseContext<'_>,
+    state: &mut CodexParseState,
+) {
+    let Some(payload) = &raw_entry.payload else {
+        return;
+    };
+    let Some("token_count") = payload.payload_type else {
+        return;
+    };
+    let Some(timestamp) = raw_entry.timestamp else {
+        return;
+    };
+    let Some(info) = &payload.info else { return };
+    let Some((total, delta)) = next_usage_delta(info, state) else {
+        return;
+    };
+    let Some(utc_dt) = parse_entry_timestamp(timestamp, line_no, context, state) else {
+        return;
+    };
 
-        if payload_type != "token_count" {
-            continue;
-        }
+    let model = resolve_entry_model(payload, state);
+    push_codex_entry(timestamp, utc_dt, total, delta, model, context, state);
+}
 
-        let Some(timestamp) = &raw_entry.timestamp else {
-            continue;
-        };
+fn next_usage_delta(
+    info: &TokenInfo<'_>,
+    state: &mut CodexParseState,
+) -> Option<(UsageTotals, UsageTotals)> {
+    let total = UsageTotals::from_usage(info.total_token_usage.as_ref()?);
 
-        let Some(info) = &payload.info else { continue };
-
-        // Get delta usage
-        let Some(total) = &info.total_token_usage else {
-            continue;
-        };
-        let total = UsageTotals::from_usage(total);
-
-        // Skip only when the complete normalized cumulative usage vector is unchanged.
-        if let Some(prev) = &previous_totals
-            && total.is_duplicate_of(prev)
-        {
-            continue;
-        }
-
-        // Use last_token_usage if available, otherwise compute delta
-        let delta = if let Some(last) = &info.last_token_usage {
-            UsageTotals::from_usage(last)
-        } else {
-            previous_totals.map_or(total, |prev| total.subtract(prev))
-        };
-
-        previous_totals = Some(total);
-
-        if delta.is_empty() {
-            continue;
-        }
-
-        // Parse timestamp
-        let utc_dt = match timestamp.parse::<DateTime<Utc>>() {
-            Ok(dt) => dt,
-            Err(err) => {
-                if debug {
-                    eprintln!(
-                        "Invalid timestamp at {}:{}: {} ({})",
-                        path.display(),
-                        line_no,
-                        timestamp,
-                        err
-                    );
-                }
-                parse_errors += 1;
-                continue;
-            }
-        };
-        let local_dt = timezone.to_fixed_offset(utc_dt);
-        let date = local_dt.date_naive();
-
-        // Get model name
-        let model = if let Some(parsed_model) = extract_model_ref(payload) {
-            let parsed_model = parsed_model.to_string();
-            current_model = Some(parsed_model.clone());
-            parsed_model
-        } else {
-            current_model.clone().unwrap_or_else(|| "gpt-5".to_string())
-        };
-
-        // Codex's input_tokens INCLUDES cached_input_tokens
-        let raw_input = delta.input_tokens;
-        let cached = delta.cached_input_tokens;
-        let non_cached_input = (raw_input - cached).max(0);
-
-        // OpenAI's output_tokens INCLUDES reasoning_output_tokens as a subset.
-        // Separate them so total_tokens() and calculate_cost() don't double-count.
-        let raw_output = delta.output_tokens;
-        let reasoning = delta.reasoning_output_tokens;
-        let non_reasoning_output = (raw_output - reasoning).max(0);
-        let message_id = usage_message_id(&model, &logical_session_key, total, delta);
-
-        entries.push(RawEntry {
-            timestamp: timestamp.to_string(),
-            timestamp_ms: utc_dt.timestamp_millis(),
-            date_str: date.format(DATE_FORMAT).to_string(),
-            message_id: Some(message_id),
-            session_key: session_key.clone(),
-            session_id: session_id.clone(),
-            project_path: String::new(), // Codex doesn't track projects
-            model,
-            input_tokens: non_cached_input,
-            output_tokens: non_reasoning_output,
-            cache_creation: 0, // Codex doesn't have cache creation
-            cache_read: cached,
-            reasoning_tokens: reasoning,
-            stop_reason: Some("complete".to_string()), // Codex events are always complete
-        });
+    // Skip only when the complete normalized cumulative usage vector is unchanged.
+    if let Some(prev) = &state.previous_totals
+        && total.is_duplicate_of(prev)
+    {
+        return None;
     }
 
-    ParseOutput {
-        entries,
-        errors: parse_errors,
+    // Use last_token_usage if available, otherwise compute delta.
+    let delta = if let Some(last) = &info.last_token_usage {
+        UsageTotals::from_usage(last)
+    } else {
+        state
+            .previous_totals
+            .map_or(total, |prev| total.subtract(prev))
+    };
+
+    state.previous_totals = Some(total);
+    if delta.is_empty() {
+        return None;
     }
+
+    Some((total, delta))
+}
+
+fn parse_entry_timestamp(
+    timestamp: &str,
+    line_no: usize,
+    context: &CodexParseContext<'_>,
+    state: &mut CodexParseState,
+) -> Option<DateTime<Utc>> {
+    match timestamp.parse::<DateTime<Utc>>() {
+        Ok(dt) => Some(dt),
+        Err(err) => {
+            if context.debug {
+                eprintln!(
+                    "Invalid timestamp at {}:{}: {} ({})",
+                    context.path.display(),
+                    line_no,
+                    timestamp,
+                    err
+                );
+            }
+            state.parse_errors += 1;
+            None
+        }
+    }
+}
+
+fn resolve_entry_model(payload: &Payload<'_>, state: &mut CodexParseState) -> String {
+    if let Some(parsed_model) = extract_model_ref(payload) {
+        let parsed_model = parsed_model.to_string();
+        state.current_model = Some(parsed_model.clone());
+        parsed_model
+    } else {
+        state
+            .current_model
+            .clone()
+            .unwrap_or_else(|| "gpt-5".to_string())
+    }
+}
+
+fn push_codex_entry(
+    timestamp: &str,
+    utc_dt: DateTime<Utc>,
+    total: UsageTotals,
+    delta: UsageTotals,
+    model: String,
+    context: &CodexParseContext<'_>,
+    state: &mut CodexParseState,
+) {
+    let local_dt = context.timezone.to_fixed_offset(utc_dt);
+    let date = local_dt.date_naive();
+    let (input_tokens, output_tokens, cache_read, reasoning_tokens) = split_codex_usage(delta);
+    let message_id = usage_message_id(&model, &state.logical_session_key, total, delta);
+
+    state.entries.push(RawEntry {
+        timestamp: timestamp.to_string(),
+        timestamp_ms: utc_dt.timestamp_millis(),
+        date_str: date.format(DATE_FORMAT).to_string(),
+        message_id: Some(message_id),
+        session_key: context.identity.session_key.clone(),
+        session_id: context.identity.session_id.clone(),
+        project_path: String::new(), // Codex doesn't track projects
+        model,
+        input_tokens,
+        output_tokens,
+        cache_creation: 0, // Codex doesn't have cache creation
+        cache_read,
+        reasoning_tokens,
+        stop_reason: Some("complete".to_string()), // Codex events are always complete
+    });
+}
+
+fn split_codex_usage(delta: UsageTotals) -> (i64, i64, i64, i64) {
+    // Codex's input_tokens includes cached_input_tokens.
+    let input_tokens = (delta.input_tokens - delta.cached_input_tokens).max(0);
+
+    // OpenAI's output_tokens includes reasoning_output_tokens as a subset.
+    // Separate them so total_tokens() and calculate_cost() don't double-count.
+    let output_tokens = (delta.output_tokens - delta.reasoning_output_tokens).max(0);
+
+    (
+        input_tokens,
+        output_tokens,
+        delta.cached_input_tokens,
+        delta.reasoning_output_tokens,
+    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ========================================================================
-    // TokenUsage::subtract
-    // ========================================================================
-
-    #[test]
-    fn test_subtract_normal() {
-        let total = TokenUsage {
-            input_tokens: Some(1000),
-            cached_input_tokens: Some(200),
-            alt_cache_read_input_tokens: None,
-            output_tokens: Some(500),
-            reasoning_output_tokens: Some(100),
-            total_tokens: Some(1500),
-        };
-        let prev = TokenUsage {
-            input_tokens: Some(400),
-            cached_input_tokens: Some(100),
-            alt_cache_read_input_tokens: None,
-            output_tokens: Some(200),
-            reasoning_output_tokens: Some(50),
-            total_tokens: Some(600),
-        };
-        let delta = total.subtract(&prev);
-        assert_eq!(delta.input_tokens, Some(600));
-        assert_eq!(delta.cached_input_tokens, Some(100));
-        assert_eq!(delta.output_tokens, Some(300));
-        assert_eq!(delta.reasoning_output_tokens, Some(50));
-        assert_eq!(delta.total_tokens, Some(900));
-    }
-
-    #[test]
-    fn test_subtract_clamps_negative_to_zero() {
-        let total = TokenUsage {
-            input_tokens: Some(100),
-            cached_input_tokens: Some(50),
-            alt_cache_read_input_tokens: None,
-            output_tokens: Some(10),
-            reasoning_output_tokens: Some(0),
-            total_tokens: Some(110),
-        };
-        let prev = TokenUsage {
-            input_tokens: Some(500),
-            cached_input_tokens: Some(200),
-            alt_cache_read_input_tokens: None,
-            output_tokens: Some(300),
-            reasoning_output_tokens: Some(100),
-            total_tokens: Some(800),
-        };
-        let delta = total.subtract(&prev);
-        assert_eq!(delta.input_tokens, Some(0));
-        assert_eq!(delta.cached_input_tokens, Some(0));
-        assert_eq!(delta.output_tokens, Some(0));
-        assert_eq!(delta.reasoning_output_tokens, Some(0));
-        assert_eq!(delta.total_tokens, Some(0));
-    }
-
-    #[test]
-    fn test_subtract_none_fields_treated_as_zero() {
-        let total = TokenUsage {
-            input_tokens: Some(100),
-            ..Default::default()
-        };
-        let prev = TokenUsage::default();
-        let delta = total.subtract(&prev);
-        assert_eq!(delta.input_tokens, Some(100));
-        assert_eq!(delta.output_tokens, Some(0));
-        assert_eq!(delta.reasoning_output_tokens, Some(0));
-    }
-
-    // ========================================================================
-    // UsageTotals::is_duplicate_of
-    // ========================================================================
-
-    #[test]
-    fn test_usage_totals_duplicate_when_complete_vector_matches() {
-        let prev = UsageTotals {
-            input_tokens: 100,
-            cached_input_tokens: 20,
-            output_tokens: 30,
-            reasoning_output_tokens: 10,
-            total_tokens: 0,
-        };
-        let total = UsageTotals {
-            input_tokens: 100,
-            cached_input_tokens: 20,
-            output_tokens: 30,
-            reasoning_output_tokens: 10,
-            total_tokens: 0,
-        };
-
-        assert!(total.is_duplicate_of(&prev));
-    }
-
-    #[test]
-    fn test_usage_totals_not_duplicate_when_component_grows_with_zero_total() {
-        let prev = UsageTotals {
-            input_tokens: 100,
-            cached_input_tokens: 20,
-            output_tokens: 30,
-            reasoning_output_tokens: 10,
-            total_tokens: 0,
-        };
-        let total = UsageTotals {
-            input_tokens: 150,
-            cached_input_tokens: 20,
-            output_tokens: 30,
-            reasoning_output_tokens: 10,
-            total_tokens: 0,
-        };
-
-        assert!(!total.is_duplicate_of(&prev));
-        assert_eq!(total.subtract(prev).input_tokens, 50);
-    }
-
-    // ========================================================================
-    // TokenUsage::is_empty
-    // ========================================================================
-
-    #[test]
-    fn test_is_empty_default() {
-        assert!(TokenUsage::default().is_empty());
-    }
-
-    #[test]
-    fn test_is_empty_with_input() {
-        let usage = TokenUsage {
-            input_tokens: Some(1),
-            ..Default::default()
-        };
-        assert!(!usage.is_empty());
-    }
-
-    #[test]
-    fn test_is_empty_with_cached_only() {
-        let usage = TokenUsage {
-            cached_input_tokens: Some(50),
-            ..Default::default()
-        };
-        assert!(!usage.is_empty());
-    }
-
-    #[test]
-    fn test_is_empty_with_reasoning_only() {
-        let usage = TokenUsage {
-            reasoning_output_tokens: Some(10),
-            ..Default::default()
-        };
-        assert!(!usage.is_empty());
-    }
-
-    // ========================================================================
-    // TokenUsage::cached_input (fallback logic)
-    // ========================================================================
-
-    #[test]
-    fn test_cached_input_prefers_cached_input_tokens() {
-        let usage = TokenUsage {
-            cached_input_tokens: Some(100),
-            alt_cache_read_input_tokens: Some(50),
-            ..Default::default()
-        };
-        assert_eq!(usage.cached_input(), 100);
-    }
-
-    #[test]
-    fn test_cached_input_falls_back_to_cache_read() {
-        let usage = TokenUsage {
-            cached_input_tokens: None,
-            alt_cache_read_input_tokens: Some(75),
-            ..Default::default()
-        };
-        assert_eq!(usage.cached_input(), 75);
-    }
-
-    #[test]
-    fn test_cached_input_both_none_returns_zero() {
-        let usage = TokenUsage::default();
-        assert_eq!(usage.cached_input(), 0);
-    }
-
-    // ========================================================================
-    // extract_model (priority chain)
-    // ========================================================================
-
-    #[test]
-    fn test_extract_model_from_info_model() {
-        let payload = Payload {
-            payload_type: None,
-            id: None,
-            model: Some("fallback-model"),
-            info: Some(TokenInfo {
-                total_token_usage: None,
-                last_token_usage: None,
-                model: Some("info-model"),
-                model_name: Some("info-model-name"),
-                metadata: Some(Metadata {
-                    model: Some("meta-model"),
-                }),
-            }),
-        };
-        assert_eq!(extract_model(&payload), Some("info-model".to_string()));
-    }
-
-    #[test]
-    fn test_extract_model_falls_back_to_model_name() {
-        let payload = Payload {
-            payload_type: None,
-            id: None,
-            model: Some("fallback"),
-            info: Some(TokenInfo {
-                total_token_usage: None,
-                last_token_usage: None,
-                model: None,
-                model_name: Some("model-name"),
-                metadata: None,
-            }),
-        };
-        assert_eq!(extract_model(&payload), Some("model-name".to_string()));
-    }
-
-    #[test]
-    fn test_extract_model_falls_back_to_metadata() {
-        let payload = Payload {
-            payload_type: None,
-            id: None,
-            model: Some("fallback"),
-            info: Some(TokenInfo {
-                total_token_usage: None,
-                last_token_usage: None,
-                model: None,
-                model_name: None,
-                metadata: Some(Metadata {
-                    model: Some("meta-model"),
-                }),
-            }),
-        };
-        assert_eq!(extract_model(&payload), Some("meta-model".to_string()));
-    }
-
-    #[test]
-    fn test_extract_model_falls_back_to_payload_model() {
-        let payload = Payload {
-            payload_type: None,
-            id: None,
-            model: Some("payload-model"),
-            info: Some(TokenInfo {
-                total_token_usage: None,
-                last_token_usage: None,
-                model: None,
-                model_name: None,
-                metadata: None,
-            }),
-        };
-        assert_eq!(extract_model(&payload), Some("payload-model".to_string()));
-    }
-
-    #[test]
-    fn test_extract_model_no_info_uses_payload() {
-        let payload = Payload {
-            payload_type: None,
-            id: None,
-            model: Some("payload-only"),
-            info: None,
-        };
-        assert_eq!(extract_model(&payload), Some("payload-only".to_string()));
-    }
-
-    #[test]
-    fn test_extract_model_all_none_returns_none() {
-        let payload = Payload {
-            payload_type: None,
-            id: None,
-            model: None,
-            info: None,
-        };
-        assert_eq!(extract_model(&payload), None);
-    }
-
-    #[test]
-    fn test_extract_model_empty_strings_skipped() {
-        let payload = Payload {
-            payload_type: None,
-            id: None,
-            model: Some("real-model"),
-            info: Some(TokenInfo {
-                total_token_usage: None,
-                last_token_usage: None,
-                model: Some("  "),
-                model_name: Some(""),
-                metadata: None,
-            }),
-        };
-        assert_eq!(extract_model(&payload), Some("real-model".to_string()));
-    }
-}
+#[path = "parser_tests.rs"]
+mod parser_tests;
