@@ -23,6 +23,12 @@ pub(crate) fn resolve_pricing_known(
         PricingResolution::NoMatch => {}
     }
 
+    match resolve_dated_base_exact(model, &model_lower, models) {
+        PricingResolution::Resolved(pricing) => return Some(pricing),
+        PricingResolution::Ambiguous => return None,
+        PricingResolution::NoMatch => {}
+    }
+
     resolve_dated_claude_variant(&model_lower, models)
 }
 
@@ -71,6 +77,60 @@ fn resolve_normalized_exact(
     resolve_unique_pricing(candidates)
 }
 
+fn resolve_dated_base_exact(
+    model: &str,
+    model_lower: &str,
+    models: &HashMap<String, ModelPricing>,
+) -> PricingResolution {
+    let mut keys = Vec::new();
+    let mut seen = HashSet::new();
+    for key in dated_base_candidate_keys(model, model_lower) {
+        if let Some(base) = strip_known_date_suffix(&key) {
+            push_candidate_key(&mut keys, &mut seen, base);
+        }
+    }
+
+    let candidates = keys
+        .into_iter()
+        .filter_map(|key| {
+            models.get(&key).map(|pricing| {
+                (
+                    canonical_lookup_key(&key),
+                    pricing_signature(pricing),
+                    pricing,
+                )
+            })
+        })
+        .collect();
+
+    resolve_unique_pricing(candidates)
+}
+
+fn dated_base_candidate_keys(model: &str, model_lower: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut seen = HashSet::new();
+    push_candidate_key(&mut keys, &mut seen, model);
+    push_candidate_key(&mut keys, &mut seen, model_lower);
+
+    let base_keys = keys.clone();
+    for key in base_keys {
+        if let Some(stripped) = key.strip_prefix("anthropic.") {
+            push_candidate_key(&mut keys, &mut seen, stripped);
+        }
+        if let Some(stripped) = key.strip_prefix("anthropic/") {
+            push_candidate_key(&mut keys, &mut seen, stripped);
+        }
+        if let Some(stripped) = key.strip_prefix("openai/") {
+            push_candidate_key(&mut keys, &mut seen, stripped);
+        }
+        if let Some(stripped) = key.strip_prefix("xai/") {
+            push_candidate_key(&mut keys, &mut seen, stripped);
+        }
+    }
+
+    keys
+}
+
 fn exact_candidate_keys(model: &str, model_lower: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut seen = HashSet::new();
@@ -80,6 +140,9 @@ fn exact_candidate_keys(model: &str, model_lower: &str) -> Vec<String> {
     let base_keys = keys.clone();
     for key in base_keys {
         if let Some(stripped) = key.strip_prefix("anthropic.") {
+            push_candidate_key(&mut keys, &mut seen, stripped);
+        }
+        if let Some(stripped) = key.strip_prefix("anthropic/") {
             push_candidate_key(&mut keys, &mut seen, stripped);
         }
         if let Some(stripped) = key.strip_prefix("openai/") {
@@ -170,6 +233,7 @@ fn canonical_lookup_key(key: &str) -> String {
     let lower = key.to_lowercase();
     let without_provider = lower
         .strip_prefix("anthropic.")
+        .or_else(|| lower.strip_prefix("anthropic/"))
         .or_else(|| lower.strip_prefix("openai/"))
         .or_else(|| lower.strip_prefix("xai/"))
         .unwrap_or(&lower);
@@ -187,6 +251,30 @@ fn strip_yyyymmdd_suffix(key: &str) -> Option<&str> {
     (!base.is_empty()
         && suffix.len() == 8
         && suffix.chars().all(|character| character.is_ascii_digit()))
+    .then_some(base)
+}
+
+fn strip_known_date_suffix(key: &str) -> Option<&str> {
+    strip_yyyymmdd_suffix(key).or_else(|| strip_yyyy_mm_dd_suffix(key))
+}
+
+fn strip_yyyy_mm_dd_suffix(key: &str) -> Option<&str> {
+    let date_start = key.len().checked_sub(10)?;
+    let separator_index = date_start.checked_sub(1)?;
+    if key.as_bytes().get(separator_index) != Some(&b'-') {
+        return None;
+    }
+
+    let base = &key[..separator_index];
+    let suffix = &key[date_start..];
+    (!base.is_empty()
+        && suffix.len() == 10
+        && suffix.as_bytes().get(4) == Some(&b'-')
+        && suffix.as_bytes().get(7) == Some(&b'-')
+        && suffix
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit()))
     .then_some(base)
 }
 
@@ -290,6 +378,51 @@ mod tests {
         let result = resolve_pricing_known("sonnet-4", &models);
         assert!(result.is_some());
         assert_eq!(result.unwrap().input, 3e-6);
+    }
+
+    #[test]
+    fn test_resolve_anthropic_slash_provider_prefix_stripping() {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-sonnet-4-20250514".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+
+        let result = resolve_pricing_known("anthropic/claude-sonnet-4-20250514", &models);
+        assert_eq!(result.map(|pricing| pricing.input), Some(3e-6));
+    }
+
+    #[test]
+    fn test_resolve_dated_openai_base_variant() {
+        let mut models = HashMap::new();
+        models.insert(
+            "gpt-4o-mini-audio-preview".to_string(),
+            ModelPricing {
+                input: 15e-8,
+                ..Default::default()
+            },
+        );
+
+        let result = resolve_pricing_known("gpt-4o-mini-audio-preview-2024-12-17", &models);
+        assert_eq!(result.map(|pricing| pricing.input), Some(15e-8));
+    }
+
+    #[test]
+    fn test_resolve_dated_claude_canonical_base_variant() {
+        let mut models = HashMap::new();
+        models.insert(
+            "claude-sonnet-4-5".to_string(),
+            ModelPricing {
+                input: 3e-6,
+                ..Default::default()
+            },
+        );
+
+        let result = resolve_pricing_known("claude-sonnet-4-5-20250929", &models);
+        assert_eq!(result.map(|pricing| pricing.input), Some(3e-6));
     }
 
     #[test]
