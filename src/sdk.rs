@@ -245,7 +245,12 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
 /// Returns an error when the resolved source or timezone is invalid, or when an
 /// explicit date range has `since` after `until`.
 pub fn summarize_cost_with_cli_config(options: SummaryOptions) -> Result<CostSummary, SdkError> {
-    summarize_cost(apply_cli_config(options, &Config::load_quiet()))
+    let config = load_cli_config()?;
+    summarize_cost(apply_cli_config(options, &config))
+}
+
+pub(super) fn load_cli_config() -> Result<Config, SdkError> {
+    Config::try_load_quiet().map_err(|err| SdkError::Configuration(err.to_string()))
 }
 
 fn apply_cli_config(mut options: SummaryOptions, config: &Config) -> SummaryOptions {

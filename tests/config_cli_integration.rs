@@ -1,8 +1,15 @@
+use ccstats::{
+    MultiSummaryOptions, SummaryOptions, UsageRange, summarize_cost_ranges_with_cli_config,
+    summarize_cost_with_cli_config,
+};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -131,5 +138,38 @@ fn missing_config_uses_defaults_for_codex_daily() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["date"].as_str(), Some("2026-02-06"));
 
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn sdk_cli_config_helpers_fail_on_invalid_config() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let root = unique_temp_dir("sdk-invalid-config");
+    write_config(&root, "timezone = 123");
+
+    let previous_home = std::env::var_os("HOME");
+    unsafe {
+        std::env::set_var("HOME", &root);
+    }
+
+    let single = summarize_cost_with_cli_config(SummaryOptions::default())
+        .expect_err("single-range SDK helper should fail");
+    assert!(single.to_string().contains("failed to parse config"));
+
+    let multi = summarize_cost_ranges_with_cli_config(MultiSummaryOptions {
+        ranges: vec![UsageRange::Today],
+        ..MultiSummaryOptions::default()
+    })
+    .expect_err("multi-range SDK helper should fail");
+    assert!(multi.to_string().contains("failed to parse config"));
+
+    match previous_home {
+        Some(value) => unsafe {
+            std::env::set_var("HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("HOME");
+        },
+    }
     let _ = fs::remove_dir_all(root);
 }

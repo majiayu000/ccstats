@@ -5,7 +5,8 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CostSummary, SdkError, UsageRange, UsageSource, build_cost_summary, load_requested_currency,
+    CostSummary, SdkError, UsageRange, UsageSource, build_cost_summary, load_cli_config,
+    load_requested_currency,
 };
 use crate::config::Config;
 use crate::consts::DATE_FORMAT;
@@ -147,7 +148,8 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
 pub fn summarize_cost_ranges_with_cli_config(
     options: MultiSummaryOptions,
 ) -> Result<MultiCostSummary, SdkError> {
-    summarize_cost_ranges(apply_cli_config_multi(options, &Config::load_quiet()))
+    let config = load_cli_config()?;
+    summarize_cost_ranges(apply_cli_config_multi(options, &config))
 }
 
 fn apply_cli_config_multi(

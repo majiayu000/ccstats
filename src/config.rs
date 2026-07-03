@@ -73,10 +73,6 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub(crate) fn load_quiet() -> Self {
-        Self::try_load_quiet().unwrap_or_default()
-    }
-
     pub(crate) fn try_load() -> Result<Self, ConfigError> {
         Self::try_load_internal(false)
     }
