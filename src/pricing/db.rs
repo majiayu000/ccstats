@@ -248,6 +248,11 @@ impl PricingDb {
             .map(CacheMetadata::modified_epoch_seconds)
     }
 
+    #[cfg(test)]
+    pub(super) fn insert_model_for_tests(&mut self, name: String, pricing: ModelPricing) {
+        self.models.insert(name, pricing);
+    }
+
     fn resolve_pricing(&self, model: &str) -> Option<(ModelPricing, PricingSource)> {
         if let Some(cached) = self.resolved.borrow().get(model) {
             return match cached {
@@ -391,6 +396,7 @@ mod tests {
                 output: 15e-6,
                 reasoning_output: 15e-6,
                 cache_create: 3.75e-6,
+                cache_create_1h: 3.75e-6,
                 cache_read: 0.3e-6,
             },
         );
@@ -399,6 +405,7 @@ mod tests {
             input_tokens: 1_000_000,
             output_tokens: 100_000,
             cache_creation: 0,
+            cache_creation_1h: 0,
             cache_read: 0,
             reasoning_tokens: 0,
             count: 1,
@@ -421,6 +428,7 @@ mod tests {
                 output: 15e-6,
                 reasoning_output: 15e-6,
                 cache_create: 3.75e-6,
+                cache_create_1h: 3.75e-6,
                 cache_read: 0.3e-6,
             },
         );
@@ -429,6 +437,7 @@ mod tests {
             input_tokens: 0,
             output_tokens: 0,
             cache_creation: 1_000_000,
+            cache_creation_1h: 0,
             cache_read: 1_000_000,
             reasoning_tokens: 0,
             count: 1,
@@ -490,6 +499,7 @@ mod tests {
                 output: 75e-6,
                 reasoning_output: 75e-6,
                 cache_create: 0.0,
+                cache_create_1h: 0.0,
                 cache_read: 0.0,
             },
         );

@@ -278,14 +278,14 @@ fn strip_yyyy_mm_dd_suffix(key: &str) -> Option<&str> {
     .then_some(base)
 }
 
-fn unique_pricing(candidates: Vec<(String, [u64; 5], &ModelPricing)>) -> Option<ModelPricing> {
+fn unique_pricing(candidates: Vec<(String, [u64; 6], &ModelPricing)>) -> Option<ModelPricing> {
     match resolve_unique_pricing(candidates) {
         PricingResolution::Resolved(pricing) => Some(pricing),
         PricingResolution::NoMatch | PricingResolution::Ambiguous => None,
     }
 }
 
-fn resolve_unique_pricing(candidates: Vec<(String, [u64; 5], &ModelPricing)>) -> PricingResolution {
+fn resolve_unique_pricing(candidates: Vec<(String, [u64; 6], &ModelPricing)>) -> PricingResolution {
     let mut unique = HashMap::new();
     for (canonical, signature, pricing) in candidates {
         match unique.get(&canonical) {
@@ -312,13 +312,14 @@ fn resolve_unique_pricing(candidates: Vec<(String, [u64; 5], &ModelPricing)>) ->
     PricingResolution::Resolved(pricing.clone())
 }
 
-fn pricing_signature(pricing: &ModelPricing) -> [u64; 5] {
+fn pricing_signature(pricing: &ModelPricing) -> [u64; 6] {
     [
         pricing.input.to_bits(),
         pricing.output.to_bits(),
         pricing.reasoning_output.to_bits(),
         pricing.cache_read.to_bits(),
         pricing.cache_create.to_bits(),
+        pricing.cache_create_1h.to_bits(),
     ]
 }
 

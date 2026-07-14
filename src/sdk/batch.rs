@@ -356,6 +356,7 @@ mod tests {
                     input_tokens: 10,
                     output_tokens: 5,
                     cache_creation: 0,
+                    cache_creation_1h: 0,
                     cache_read: 0,
                     reasoning_tokens: 0,
                     stop_reason: Some("complete".to_string()),

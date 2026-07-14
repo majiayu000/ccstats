@@ -6,6 +6,7 @@ fn openai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
         output,
         reasoning_output: output,
         cache_create: 0.0,
+        cache_create_1h: 0.0,
         cache_read,
     }
 }
@@ -16,6 +17,7 @@ fn xai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
         output,
         reasoning_output: output,
         cache_create: 0.0,
+        cache_create_1h: 0.0,
         cache_read,
     }
 }
@@ -29,6 +31,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
                 output: 25e-6, // $25/M
                 reasoning_output: 25e-6,
                 cache_create: 6.25e-6, // $6.25/M
+                cache_create_1h: 10e-6, // $10/M (2x input)
                 cache_read: 0.5e-6,    // $0.5/M
             }
         } else if model_lower.contains("opus") {
@@ -37,6 +40,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
                 output: 75e-6,
                 reasoning_output: 75e-6,
                 cache_create: 18.75e-6,
+                cache_create_1h: 30e-6,
                 cache_read: 1.5e-6,
             }
         } else if model_lower.contains("sonnet") {
@@ -45,6 +49,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
                 output: 15e-6,
                 reasoning_output: 15e-6,
                 cache_create: 3.75e-6,
+                cache_create_1h: 6e-6,
                 cache_read: 0.3e-6,
             }
         } else if model_lower.contains("haiku") {
@@ -53,6 +58,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
                 output: 4e-6,
                 reasoning_output: 4e-6,
                 cache_create: 1e-6,
+                cache_create_1h: 1.6e-6,
                 cache_read: 0.08e-6,
             }
         } else if model_lower.contains("grok-build") {

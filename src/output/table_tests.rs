@@ -136,6 +136,7 @@ fn make_day_stats() -> DayStats {
         output_tokens: 500,
         reasoning_tokens: 100,
         cache_creation: 50,
+        cache_creation_1h: 0,
         cache_read: 200,
         count: 3,
         skipped_chunks: 0,

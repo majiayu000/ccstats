@@ -537,6 +537,7 @@ fn push_codex_entry(
         input_tokens,
         output_tokens,
         cache_creation: 0, // Codex doesn't have cache creation
+        cache_creation_1h: 0,
         cache_read,
         reasoning_tokens,
         stop_reason: Some("complete".to_string()), // Codex events are always complete

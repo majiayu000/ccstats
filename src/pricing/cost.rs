@@ -17,10 +17,13 @@ fn calculate_token_cost(tokens: CostTokens, model: &str, pricing_db: &PricingDb)
     }
     match pricing_db.get_pricing(model) {
         Some(pricing) => {
+            let long_ttl_tokens = tokens.cache_creation_1h.min(tokens.cache_creation);
+            let short_ttl_tokens = tokens.cache_creation - long_ttl_tokens;
             tokens.input_tokens as f64 * pricing.input
                 + tokens.output_tokens as f64 * pricing.output
                 + tokens.reasoning_tokens as f64 * pricing.reasoning_output
-                + tokens.cache_creation as f64 * pricing.cache_create
+                + short_ttl_tokens as f64 * pricing.cache_create
+                + long_ttl_tokens as f64 * pricing.cache_create_1h
                 + tokens.cache_read as f64 * pricing.cache_read
         }
         None => f64::NAN,
@@ -206,4 +209,70 @@ where
             cost: sum_model_costs(models_of(item), pricing_db),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::CostTokens;
+
+    fn pricing_db_with(model: &str, pricing: super::super::types::ModelPricing) -> PricingDb {
+        let mut db = PricingDb::default();
+        db.insert_model_for_tests(model.to_string(), pricing);
+        db
+    }
+
+    fn fable_pricing() -> super::super::types::ModelPricing {
+        super::super::types::ModelPricing {
+            input: 1e-5,
+            output: 5e-5,
+            reasoning_output: 5e-5,
+            cache_create: 1.25e-5,
+            cache_create_1h: 2e-5,
+            cache_read: 1e-6,
+        }
+    }
+
+    #[test]
+    fn calculate_cost_with_1h_cache_creation() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let stats = Stats {
+            cache_creation: 1_000_000,
+            cache_creation_1h: 600_000,
+            ..Default::default()
+        };
+
+        let cost = calculate_cost(&stats, "fable-5", &db);
+        // 400K * $12.5/M + 600K * $20/M = $5 + $12 = $17
+        assert!((cost - 17.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn calculate_cost_clamps_1h_to_total_cache_creation() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let stats = Stats {
+            cache_creation: 100_000,
+            cache_creation_1h: 500_000, // malformed: larger than total
+            ..Default::default()
+        };
+
+        let cost = calculate_cost(&stats, "fable-5", &db);
+        // All 100K billed at the 1h rate: 100K * $20/M = $2
+        assert!((cost - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn cost_tokens_1h_flows_through_real_cost() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let stats = Stats {
+            cache_creation: 200_000,
+            cache_creation_1h: 200_000,
+            estimated_proxy: CostTokens::default(),
+            ..Default::default()
+        };
+
+        // 200K * $20/M = $4 — all cache creation billed at the 1h rate
+        let cost = calculate_real_cost(&stats, "fable-5", &db);
+        assert!((cost - 4.0).abs() < 0.001);
+    }
 }

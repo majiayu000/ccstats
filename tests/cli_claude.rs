@@ -81,7 +81,7 @@ fn claude_project_json_aggregates_sessions() {
 }
 
 #[test]
-fn claude_project_json_ignores_sidechain_subagent_logs() {
+fn claude_project_json_includes_sidechain_subagent_logs() {
     let root = unique_temp_dir("claude-project-subagents");
     let session_a = root.join(".claude/projects/myapp/session-a.jsonl");
     let session_b = root.join(".claude/projects/myapp/subagents/agent-a.jsonl");
@@ -119,8 +119,9 @@ fn claude_project_json_ignores_sidechain_subagent_logs() {
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["project"].as_str(), Some("myapp"));
     assert_eq!(arr[0]["project_path"].as_str(), Some("myapp"));
-    assert_eq!(arr[0]["session_count"].as_i64(), Some(1));
-    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(150));
+    // Subagent log is a separate session under the same project; its usage counts.
+    assert_eq!(arr[0]["session_count"].as_i64(), Some(2));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(430));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -442,8 +443,8 @@ fn claude_daily_json_missing_claude_config_dir_returns_no_data() {
 }
 
 #[test]
-fn claude_daily_ignores_sidechains_and_subagent_logs() {
-    let root = unique_temp_dir("claude-ignore-sidechains");
+fn claude_daily_includes_sidechains_and_subagent_logs() {
+    let root = unique_temp_dir("claude-include-sidechains");
     let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
     let subagent_file = root.join(".claude/projects/myproject/subagents/agent-a.jsonl");
 
@@ -480,10 +481,10 @@ fn claude_daily_ignores_sidechains_and_subagent_logs() {
     let arr = json.as_array().expect("array output");
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
-    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(180));
+    // Sidechain (subagent) usage is real billed API usage: 180 + 700 + 1000
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1880));
     let models = arr[0]["models"].as_array().expect("models array");
-    assert_eq!(models.len(), 1);
-    assert_eq!(models[0].as_str(), Some("3-5-sonnet"));
+    assert_eq!(models.len(), 3);
 
     let _ = fs::remove_dir_all(root);
 }

@@ -353,6 +353,7 @@ pub(super) fn parse_grok_signal_file_with_debug(
             input_tokens: total_tokens,
             output_tokens: 0,
             cache_creation: 0,
+            cache_creation_1h: 0,
             cache_read: 0,
             reasoning_tokens: 0,
             stop_reason: Some("context_snapshot".to_string()),
