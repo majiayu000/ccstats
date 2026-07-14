@@ -30,9 +30,9 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
                 input: 5e-6,   // $5/M
                 output: 25e-6, // $25/M
                 reasoning_output: 25e-6,
-                cache_create: 6.25e-6, // $6.25/M
+                cache_create: 6.25e-6,  // $6.25/M
                 cache_create_1h: 10e-6, // $10/M (2x input)
-                cache_read: 0.5e-6,    // $0.5/M
+                cache_read: 0.5e-6,     // $0.5/M
             }
         } else if model_lower.contains("opus") {
             ModelPricing {
