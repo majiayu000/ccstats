@@ -1,6 +1,8 @@
 //! Core module - shared types and logic for all data sources
 
 mod aggregator;
+#[cfg(test)]
+mod aggregator_endpoint_tests;
 mod dedup;
 mod tool_aggregator;
 mod tool_types;

@@ -353,6 +353,21 @@ mod tests {
     use super::*;
 
     // ========================================================================
+    // classify_endpoint
+    // ========================================================================
+
+    #[test]
+    fn classify_endpoint_maps_inference_geo() {
+        assert_eq!(classify_endpoint(Some("not_available")), Endpoint::Native);
+        assert_eq!(classify_endpoint(Some("")), Endpoint::Proxy);
+        assert_eq!(classify_endpoint(None), Endpoint::Unknown);
+        // Any other value (e.g. a real geo or a future sentinel) is Unknown,
+        // never silently misclassified as native/proxy.
+        assert_eq!(classify_endpoint(Some("us-east")), Endpoint::Unknown);
+        assert_eq!(classify_endpoint(Some("NOT_AVAILABLE")), Endpoint::Unknown);
+    }
+
+    // ========================================================================
     // normalize_model_name
     // ========================================================================
 
