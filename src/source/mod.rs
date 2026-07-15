@@ -38,6 +38,8 @@ pub(crate) struct Capabilities {
     pub(crate) needs_dedup: bool,
     /// Supports tool-call discovery and parsing
     pub(crate) has_tool_calls: bool,
+    /// Populates the serving-endpoint field (native vs proxy classification)
+    pub(crate) has_endpoints: bool,
 }
 
 /// Data source trait - implemented by each CLI tool
@@ -83,3 +85,14 @@ pub(crate) use registry::{ALL_SOURCES, all_sources, get_source, source_choices, 
 
 // Re-export loader functions
 pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions, load_tool_calls};
+
+/// Load per-endpoint stats (native vs proxy) for a source. Claude-only; other
+/// sources return empty. Lives here (not in `loader.rs`) to keep that file
+/// under the module size limit.
+pub(crate) fn load_endpoints(
+    source: &dyn Source,
+    filter: &crate::core::DateFilter,
+    timezone: Timezone,
+) -> Vec<crate::core::EndpointStats> {
+    loader::DataLoader::new(source, false, false).load_endpoints(filter, timezone)
+}

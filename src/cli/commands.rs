@@ -33,6 +33,8 @@ pub(crate) enum Commands {
     Project,
     /// Show usage by 5-hour billing blocks
     Blocks,
+    /// Show usage split by serving endpoint (native Anthropic vs proxy)
+    Endpoints,
     /// Output single line for statusline/tmux integration
     Statusline,
     /// Show tool usage statistics (Read, Bash, Edit, etc.)
@@ -105,6 +107,7 @@ pub(crate) enum SourceCommand {
     Session,
     Project,
     Blocks,
+    Endpoints,
     Statusline,
     Tools,
     Top { dim: TopDimension, limit: usize },
@@ -134,6 +137,7 @@ impl From<&Commands> for SourceCommand {
             Commands::Session => SourceCommand::Session,
             Commands::Project => SourceCommand::Project,
             Commands::Blocks => SourceCommand::Blocks,
+            Commands::Endpoints => SourceCommand::Endpoints,
             Commands::Statusline => SourceCommand::Statusline,
             Commands::Tools => SourceCommand::Tools,
             Commands::Top { dim, limit } => SourceCommand::Top {

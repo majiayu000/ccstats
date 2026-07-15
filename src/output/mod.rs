@@ -1,6 +1,7 @@
 mod blocks;
 mod budget;
 mod csv;
+mod endpoints;
 mod format;
 mod json;
 mod period;
@@ -34,6 +35,7 @@ pub(crate) use csv::{
     append_data_quality_csv_comment, output_block_csv, output_monthly_budget_csv,
     output_period_csv_with_quality, output_project_csv, output_session_csv,
 };
+pub(crate) use endpoints::{EndpointTableOptions, output_endpoint_json, print_endpoint_table};
 pub(crate) use format::NumberFormat;
 pub(crate) use json::output_period_json_with_quality;
 pub(crate) use period::Period;

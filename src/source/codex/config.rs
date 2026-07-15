@@ -45,6 +45,7 @@ impl Source for CodexSource {
             has_cache_creation: false,
             needs_dedup: true,
             has_tool_calls: false,
+            has_endpoints: false,
         }
     }
 

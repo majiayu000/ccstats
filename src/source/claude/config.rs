@@ -46,6 +46,7 @@ impl Source for ClaudeSource {
             has_cache_creation: true,
             needs_dedup: true,
             has_tool_calls: true,
+            has_endpoints: true,
         }
     }
 

@@ -21,6 +21,7 @@ mod cli;
 mod config;
 mod consts;
 mod core;
+mod endpoints_cmd;
 mod error;
 mod output;
 mod pricing;
