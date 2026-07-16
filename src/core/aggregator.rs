@@ -5,7 +5,9 @@
 use chrono::{DateTime, Duration, FixedOffset, TimeZone, Timelike};
 use std::collections::HashMap;
 
-use crate::core::types::{BlockStats, DayStats, ProjectStats, RawEntry, SessionStats, Stats};
+use crate::core::types::{
+    BlockStats, DayStats, Endpoint, EndpointStats, ProjectStats, RawEntry, SessionStats, Stats,
+};
 
 /// Aggregate entries by day (consumes entries to avoid cloning)
 pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStats> {
@@ -18,6 +20,23 @@ pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStat
     }
 
     day_stats
+}
+
+/// Aggregate entries by serving endpoint (native vs proxy vs unknown).
+/// Returns present endpoints in canonical order (native, proxy, unknown).
+pub(crate) fn aggregate_by_endpoint(entries: Vec<RawEntry>) -> Vec<EndpointStats> {
+    let mut map: HashMap<Endpoint, EndpointStats> = HashMap::new();
+    for entry in entries {
+        let stats = entry.to_stats();
+        let acc = map.entry(entry.endpoint).or_default();
+        acc.endpoint = entry.endpoint;
+        acc.stats.add(&stats);
+        acc.models.entry(entry.model).or_default().add(&stats);
+    }
+    Endpoint::ORDER
+        .iter()
+        .filter_map(|ep| map.remove(ep))
+        .collect()
 }
 
 pub(crate) fn merge_day_stats(
@@ -259,6 +278,7 @@ mod tests {
             reasoning_tokens: 0,
             stop_reason: Some("end_turn".to_string()),
             cost_kind: crate::core::CostKind::Real,
+            endpoint: Endpoint::Unknown,
         }
     }
 
@@ -486,6 +506,7 @@ mod tests {
                 reasoning_tokens: 0,
                 stop_reason: None,
                 cost_kind: crate::core::CostKind::Real,
+                endpoint: Endpoint::Unknown,
             },
             RawEntry {
                 timestamp: "2025-01-01T08:00:00Z".to_string(),
@@ -504,6 +525,7 @@ mod tests {
                 reasoning_tokens: 0,
                 stop_reason: None,
                 cost_kind: crate::core::CostKind::Real,
+                endpoint: Endpoint::Unknown,
             },
             RawEntry {
                 timestamp: "2025-01-01T20:00:00Z".to_string(),
@@ -522,6 +544,7 @@ mod tests {
                 reasoning_tokens: 0,
                 stop_reason: None,
                 cost_kind: crate::core::CostKind::Real,
+                endpoint: Endpoint::Unknown,
             },
         ];
         let result = aggregate_sessions(entries);

@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{RawEntry, source_wide_message_id};
+use crate::core::{Endpoint, RawEntry, source_wide_message_id};
 use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
@@ -41,6 +41,11 @@ struct Usage {
     cache_read_input_tokens: Option<i64>,
     /// TTL breakdown of cache creation tokens (newer Claude Code versions).
     cache_creation: Option<CacheCreation>,
+    /// Non-standard, undocumented field emitted by Claude Code. Empirically it
+    /// distinguishes the native Anthropic endpoint (`"not_available"`) from
+    /// third-party proxies/gateways (`""`). Used only to classify `Endpoint`;
+    /// values may change across versions/proxies.
+    inference_geo: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -301,6 +306,8 @@ fn parse_entry_with_debug(
     let local_dt = timezone.to_fixed_offset(utc_dt);
     let date = local_dt.date_naive();
 
+    let endpoint = classify_endpoint(usage.inference_geo.as_deref());
+
     let cache_creation = non_negative_tokens(usage.cache_creation_input_tokens);
     let cache_creation_1h = non_negative_tokens(
         usage
@@ -327,12 +334,38 @@ fn parse_entry_with_debug(
         reasoning_tokens: 0, // Claude doesn't have reasoning tokens
         stop_reason: msg.stop_reason,
         cost_kind: crate::core::CostKind::Real,
+        endpoint,
     })
+}
+
+/// Classify the serving endpoint from the non-standard `inference_geo` field.
+/// See the `Usage.inference_geo` doc comment for the caveats.
+fn classify_endpoint(inference_geo: Option<&str>) -> Endpoint {
+    match inference_geo {
+        Some("not_available") => Endpoint::Native,
+        Some("") => Endpoint::Proxy,
+        _ => Endpoint::Unknown,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ========================================================================
+    // classify_endpoint
+    // ========================================================================
+
+    #[test]
+    fn classify_endpoint_maps_inference_geo() {
+        assert_eq!(classify_endpoint(Some("not_available")), Endpoint::Native);
+        assert_eq!(classify_endpoint(Some("")), Endpoint::Proxy);
+        assert_eq!(classify_endpoint(None), Endpoint::Unknown);
+        // Any other value (e.g. a real geo or a future sentinel) is Unknown,
+        // never silently misclassified as native/proxy.
+        assert_eq!(classify_endpoint(Some("us-east")), Endpoint::Unknown);
+        assert_eq!(classify_endpoint(Some("NOT_AVAILABLE")), Endpoint::Unknown);
+    }
 
     // ========================================================================
     // normalize_model_name
@@ -427,6 +460,7 @@ mod tests {
                     cache_creation_input_tokens: None,
                     cache_read_input_tokens: None,
                     cache_creation: None,
+                    inference_geo: None,
                 }),
             }),
         }
@@ -548,6 +582,7 @@ mod tests {
                     cache_creation_input_tokens: Some(30),
                     cache_read_input_tokens: Some(20),
                     cache_creation: None,
+                    inference_geo: None,
                 }),
             }),
         };
@@ -571,6 +606,7 @@ mod tests {
                     cache_creation_input_tokens: None,
                     cache_read_input_tokens: None,
                     cache_creation: None,
+                    inference_geo: None,
                 }),
             }),
         };
@@ -598,6 +634,7 @@ mod tests {
                     cache_creation: Some(CacheCreation {
                         ephemeral_1h_input_tokens: Some(25),
                     }),
+                    inference_geo: None,
                 }),
             }),
         };
@@ -624,6 +661,7 @@ mod tests {
                     cache_creation: Some(CacheCreation {
                         ephemeral_1h_input_tokens: Some(99),
                     }),
+                    inference_geo: None,
                 }),
             }),
         };
@@ -657,6 +695,7 @@ mod tests {
                     cache_creation_input_tokens: Some(-30),
                     cache_read_input_tokens: Some(-20),
                     cache_creation: None,
+                    inference_geo: None,
                 }),
             }),
         };

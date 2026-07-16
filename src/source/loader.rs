@@ -6,9 +6,9 @@ use std::time::Instant;
 
 use crate::consts::DATE_FORMAT;
 use crate::core::{
-    BlockStats, DateFilter, DedupAccumulator, LoadResult, ProjectStats, RawEntry, SessionStats,
-    aggregate_blocks, aggregate_daily, aggregate_projects, aggregate_sessions,
-    aggregate_sessions_map, merge_day_stats,
+    BlockStats, DateFilter, DedupAccumulator, EndpointStats, LoadResult, ProjectStats, RawEntry,
+    SessionStats, aggregate_blocks, aggregate_by_endpoint, aggregate_daily, aggregate_projects,
+    aggregate_sessions, aggregate_sessions_map, merge_day_stats,
 };
 use crate::source::Source;
 use crate::utils::Timezone;
@@ -17,14 +17,14 @@ use chrono::NaiveDate;
 use chrono::{DateTime, FixedOffset, Utc};
 
 /// Load data from a source
-struct DataLoader<'a> {
+pub(super) struct DataLoader<'a> {
     source: &'a dyn Source,
     quiet: bool,
     debug: bool,
 }
 
 impl<'a> DataLoader<'a> {
-    fn new(source: &'a dyn Source, quiet: bool, debug: bool) -> Self {
+    pub(super) fn new(source: &'a dyn Source, quiet: bool, debug: bool) -> Self {
         Self {
             source,
             quiet,
@@ -403,6 +403,23 @@ impl<'a> DataLoader<'a> {
         projects
     }
 
+    /// Load per-endpoint stats (native vs proxy). Only for sources that
+    /// populate the endpoint field (Claude); others return empty.
+    pub(super) fn load_endpoints(
+        &self,
+        filter: &DateFilter,
+        timezone: Timezone,
+    ) -> Vec<EndpointStats> {
+        if !self.source.capabilities().has_endpoints {
+            return Vec::new();
+        }
+        let (final_entries, _skipped, _) = self.load_deduped_entries_incremental(filter, timezone);
+        if final_entries.is_empty() {
+            return Vec::new();
+        }
+        aggregate_by_endpoint(final_entries)
+    }
+
     /// Load block stats (only for sources that support it)
     fn load_blocks(&self, filter: &DateFilter, timezone: Timezone) -> Vec<BlockStats> {
         if !self.source.capabilities().has_billing_blocks {
@@ -562,6 +579,7 @@ mod tests {
             reasoning_tokens: 0,
             stop_reason: Some("end_turn".to_string()),
             cost_kind: crate::core::CostKind::Real,
+            endpoint: crate::core::Endpoint::Unknown,
         }
     }
 

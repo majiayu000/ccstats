@@ -361,6 +361,7 @@ mod tests {
                     reasoning_tokens: 0,
                     stop_reason: Some("complete".to_string()),
                     cost_kind: crate::core::CostKind::Real,
+                    endpoint: crate::core::Endpoint::Unknown,
                 }],
                 errors: 0,
             }

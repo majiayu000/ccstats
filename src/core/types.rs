@@ -92,6 +92,38 @@ impl CostKind {
     }
 }
 
+/// Serving endpoint an entry was routed through.
+///
+/// Derived from the Claude Code `inference_geo` usage field (see
+/// `source/claude/parser.rs`). This field is non-standard and undocumented;
+/// the classification is empirically derived and may change across Claude Code
+/// versions or proxies. Non-Claude sources are always `Unknown`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Endpoint {
+    /// Native Anthropic endpoint (`inference_geo == "not_available"`).
+    Native,
+    /// Third-party proxy / gateway (`inference_geo == ""`): does not report
+    /// cache creation and bills full context as raw input.
+    Proxy,
+    /// Field absent, other value, or non-Claude source.
+    #[default]
+    Unknown,
+}
+
+impl Endpoint {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Endpoint::Native => "native",
+            Endpoint::Proxy => "proxy",
+            Endpoint::Unknown => "unknown",
+        }
+    }
+
+    /// Canonical display order for tables/JSON.
+    pub(crate) const ORDER: [Endpoint; 3] = [Endpoint::Native, Endpoint::Proxy, Endpoint::Unknown];
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CostTokens {
     pub(crate) input_tokens: i64,
@@ -183,6 +215,14 @@ pub(crate) struct BlockStats {
     pub(crate) models: HashMap<String, Stats>,
 }
 
+/// Per-endpoint (native vs proxy) statistics
+#[derive(Debug, Default, Clone)]
+pub(crate) struct EndpointStats {
+    pub(crate) endpoint: Endpoint,
+    pub(crate) stats: Stats,
+    pub(crate) models: HashMap<String, Stats>,
+}
+
 /// Raw entry parsed from source files
 /// All sources convert their native format to this unified structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,6 +257,9 @@ pub(crate) struct RawEntry {
     pub(crate) stop_reason: Option<String>,
     #[serde(default)]
     pub(crate) cost_kind: CostKind,
+    /// Serving endpoint (native vs proxy); Claude-only, else `Unknown`.
+    #[serde(default)]
+    pub(crate) endpoint: Endpoint,
 }
 
 impl RawEntry {
@@ -453,6 +496,7 @@ mod tests {
             reasoning_tokens: 10,
             stop_reason: None,
             cost_kind: CostKind::Real,
+            endpoint: Endpoint::Unknown,
         };
         let s = entry.to_stats();
         assert_eq!(s.input_tokens, 100);

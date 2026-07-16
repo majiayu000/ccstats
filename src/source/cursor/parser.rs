@@ -259,6 +259,7 @@ fn entry_from_bubble(
         reasoning_tokens: 0,
         stop_reason: Some("complete".to_string()),
         cost_kind: crate::core::CostKind::Real,
+        endpoint: crate::core::Endpoint::Unknown,
     })
 }
 
@@ -309,6 +310,7 @@ fn entry_from_generation(generation: &Value, path: &Path, timezone: Timezone) ->
         reasoning_tokens: 0,
         stop_reason: Some("complete".to_string()),
         cost_kind: crate::core::CostKind::Real,
+        endpoint: crate::core::Endpoint::Unknown,
     })
 }
 

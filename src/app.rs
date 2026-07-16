@@ -26,7 +26,7 @@ use crate::utils::{Timezone, filter_json};
 use serde_json::json;
 
 /// Print JSON output, optionally filtering through jq
-fn print_json(json: &str, jq_filter: Option<&str>) {
+pub(crate) fn print_json(json: &str, jq_filter: Option<&str>) {
     match jq_filter {
         Some(filter) => match filter_json(json, filter) {
             Ok(filtered) => print!("{filtered}"),
@@ -50,7 +50,7 @@ pub(crate) struct CommandContext<'a> {
     pub(crate) budget_as_of: chrono::NaiveDate,
 }
 
-fn print_no_data_hint(source_name: &str, category: &str) {
+pub(crate) fn print_no_data_hint(source_name: &str, category: &str) {
     println!(
         "No {source_name} {category} data found in the selected date range.\nHint: widen --since/--until, try `today`, or run `ccstats sources` to pick a different --source."
     );
@@ -632,6 +632,7 @@ pub(crate) fn handle_source_command(
             }
             return handle_blocks(source, ctx);
         }
+        SourceCommand::Endpoints => return crate::endpoints_cmd::handle_endpoints(source, ctx),
         SourceCommand::Statusline => return handle_statusline(source, ctx),
         SourceCommand::Tools => {
             if !caps.has_tool_calls {
@@ -766,6 +767,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
         SourceCommand::Session
         | SourceCommand::Project
         | SourceCommand::Blocks
+        | SourceCommand::Endpoints
         | SourceCommand::Tools => {
             println!(
                 "`--source all` supports daily, weekly, monthly, today, statusline, and top views.\nHint: use a specific --source for {command:?}."
