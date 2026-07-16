@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-07-16
+
+### Added
+- Add the `endpoints` subcommand for native-versus-proxy traffic and cost breakdowns.
+- Add multi-range cost summaries to the Rust SDK with `summarize_cost_ranges`, `MultiSummaryOptions`, and `MultiCostSummary`.
+- Add fallback pricing for GLM, DeepSeek, Qwen, and Moonshot model families.
+- Expose parse data-quality metadata and pricing-source provenance in structured CLI and SDK output.
+
+### Changed
+- Separate observed proxy costs from estimated token-based proxy costs and report their provenance explicitly.
+- Use the platform-appropriate pricing cache directory and honor `CLAUDE_CONFIG_DIR` when discovering Claude data.
+- Make pricing model matching more conservative and surface invalid configuration instead of silently falling back.
+- Align source capability discovery and structured output dispatch across the CLI and Rust SDK.
+
+### Fixed
+- Count Claude subagent (sidechain) usage and price one-hour cache creation tokens correctly.
+- Honor the requested currency consistently across output modes.
+- Deduplicate replayed Codex usage and repeated Claude messages across files without dropping distinct usage.
+- Clamp invalid negative Claude and Cursor token counts and keep merged daily totals consistent.
+- Make pricing cache writes atomic and report corrupted cache data instead of silently degrading.
+- Harden Cursor database parsing and preserve parse failures in data-quality metadata.
+- Exclude records outside requested SDK summary ranges.
+
 ## [0.2.65] - 2026-05-31
 
 ### Fixed
