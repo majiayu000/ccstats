@@ -55,6 +55,7 @@ fn entry(id: &str, input_tokens: i64) -> RawEntry {
         input_tokens,
         output_tokens: 0,
         cache_creation: 0,
+        cache_creation_1h: 0,
         cache_read: 0,
         reasoning_tokens: 0,
         stop_reason: Some("end_turn".to_string()),

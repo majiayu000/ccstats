@@ -42,6 +42,11 @@ pub(crate) fn parse_litellm_data(
             .and_then(serde_json::Value::as_f64)
             .unwrap_or(output);
 
+        let cache_create = value
+            .get("cache_creation_input_token_cost")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0);
+
         let pricing = ModelPricing {
             input,
             output,
@@ -50,10 +55,11 @@ pub(crate) fn parse_litellm_data(
                 .get("cache_read_input_token_cost")
                 .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0),
-            cache_create: value
-                .get("cache_creation_input_token_cost")
+            cache_create,
+            cache_create_1h: value
+                .get("cache_creation_input_token_cost_above_1hr")
                 .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0),
+                .unwrap_or(cache_create),
         };
 
         // Store with multiple key variations for matching
@@ -121,6 +127,42 @@ mod tests {
 
         let result = parse_litellm_data(data);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_cache_create_1h_rate() {
+        let mut data = HashMap::new();
+        data.insert(
+            "claude-fable-5".to_string(),
+            json!({
+                "input_cost_per_token": 1e-5,
+                "output_cost_per_token": 5e-5,
+                "cache_creation_input_token_cost": 1.25e-5,
+                "cache_creation_input_token_cost_above_1hr": 2e-5,
+            }),
+        );
+
+        let result = parse_litellm_data(data);
+        let pricing = &result["claude-fable-5"];
+        assert_eq!(pricing.cache_create, 1.25e-5);
+        assert_eq!(pricing.cache_create_1h, 2e-5);
+    }
+
+    #[test]
+    fn test_parse_cache_create_1h_falls_back_to_5m_rate() {
+        let mut data = HashMap::new();
+        data.insert(
+            "claude-legacy".to_string(),
+            json!({
+                "input_cost_per_token": 3e-6,
+                "output_cost_per_token": 15e-6,
+                "cache_creation_input_token_cost": 3.75e-6,
+            }),
+        );
+
+        let result = parse_litellm_data(data);
+        let pricing = &result["claude-legacy"];
+        assert_eq!(pricing.cache_create_1h, 3.75e-6);
     }
 
     #[test]

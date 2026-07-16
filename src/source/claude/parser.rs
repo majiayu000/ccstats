@@ -20,8 +20,6 @@ use crate::utils::Timezone;
 
 #[derive(Debug, Deserialize)]
 struct UsageEntry {
-    #[serde(default, rename = "isSidechain")]
-    is_sidechain: bool,
     timestamp: Option<String>,
     message: Option<Message>,
 }
@@ -41,6 +39,13 @@ struct Usage {
     output_tokens: Option<i64>,
     cache_creation_input_tokens: Option<i64>,
     cache_read_input_tokens: Option<i64>,
+    /// TTL breakdown of cache creation tokens (newer Claude Code versions).
+    cache_creation: Option<CacheCreation>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+struct CacheCreation {
+    ephemeral_1h_input_tokens: Option<i64>,
 }
 
 // ============================================================================
@@ -263,10 +268,6 @@ fn parse_entry_with_debug(
     debug: bool,
     parse_errors: &mut usize,
 ) -> Option<RawEntry> {
-    if entry.is_sidechain {
-        return None;
-    }
-
     let ts = entry.timestamp?;
     let msg = entry.message?;
     let usage = msg.usage?;
@@ -300,6 +301,15 @@ fn parse_entry_with_debug(
     let local_dt = timezone.to_fixed_offset(utc_dt);
     let date = local_dt.date_naive();
 
+    let cache_creation = non_negative_tokens(usage.cache_creation_input_tokens);
+    let cache_creation_1h = non_negative_tokens(
+        usage
+            .cache_creation
+            .as_ref()
+            .and_then(|breakdown| breakdown.ephemeral_1h_input_tokens),
+    )
+    .min(cache_creation);
+
     Some(RawEntry {
         timestamp: ts,
         timestamp_ms: utc_dt.timestamp_millis(),
@@ -311,7 +321,8 @@ fn parse_entry_with_debug(
         model,
         input_tokens: non_negative_tokens(usage.input_tokens),
         output_tokens: non_negative_tokens(usage.output_tokens),
-        cache_creation: non_negative_tokens(usage.cache_creation_input_tokens),
+        cache_creation,
+        cache_creation_1h,
         cache_read: non_negative_tokens(usage.cache_read_input_tokens),
         reasoning_tokens: 0, // Claude doesn't have reasoning tokens
         stop_reason: msg.stop_reason,
@@ -405,7 +416,6 @@ mod tests {
         output: i64,
     ) -> UsageEntry {
         UsageEntry {
-            is_sidechain: false,
             timestamp: Some(timestamp.to_string()),
             message: Some(Message {
                 id: Some("msg_001".to_string()),
@@ -416,6 +426,7 @@ mod tests {
                     output_tokens: Some(output),
                     cache_creation_input_tokens: None,
                     cache_read_input_tokens: None,
+                    cache_creation: None,
                 }),
             }),
         }
@@ -451,7 +462,6 @@ mod tests {
     #[test]
     fn test_parse_entry_no_timestamp_returns_none() {
         let entry = UsageEntry {
-            is_sidechain: false,
             timestamp: None,
             message: Some(Message {
                 id: Some("msg_001".to_string()),
@@ -467,7 +477,6 @@ mod tests {
     #[test]
     fn test_parse_entry_no_message_returns_none() {
         let entry = UsageEntry {
-            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: None,
         };
@@ -478,7 +487,6 @@ mod tests {
     #[test]
     fn test_parse_entry_no_usage_returns_none() {
         let entry = UsageEntry {
-            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: Some(Message {
                 id: Some("msg_001".to_string()),
@@ -529,7 +537,6 @@ mod tests {
     #[test]
     fn test_parse_entry_cache_tokens() {
         let entry = UsageEntry {
-            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: Some(Message {
                 id: Some("msg_002".to_string()),
@@ -540,6 +547,7 @@ mod tests {
                     output_tokens: Some(50),
                     cache_creation_input_tokens: Some(30),
                     cache_read_input_tokens: Some(20),
+                    cache_creation: None,
                 }),
             }),
         };
@@ -552,7 +560,6 @@ mod tests {
     #[test]
     fn test_parse_entry_none_tokens_default_to_zero() {
         let entry = UsageEntry {
-            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: Some(Message {
                 id: Some("msg_003".to_string()),
@@ -563,6 +570,7 @@ mod tests {
                     output_tokens: None,
                     cache_creation_input_tokens: None,
                     cache_read_input_tokens: None,
+                    cache_creation: None,
                 }),
             }),
         };
@@ -575,9 +583,69 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_entry_cache_creation_1h_breakdown() {
+        let entry = UsageEntry {
+            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
+            message: Some(Message {
+                id: Some("msg_1h".to_string()),
+                model: Some("claude-fable-5".to_string()),
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(Usage {
+                    input_tokens: Some(100),
+                    output_tokens: Some(50),
+                    cache_creation_input_tokens: Some(30),
+                    cache_read_input_tokens: Some(20),
+                    cache_creation: Some(CacheCreation {
+                        ephemeral_1h_input_tokens: Some(25),
+                    }),
+                }),
+            }),
+        };
+        let tz = make_timezone();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
+        assert_eq!(raw.cache_creation, 30);
+        assert_eq!(raw.cache_creation_1h, 25);
+    }
+
+    #[test]
+    fn test_parse_entry_cache_creation_1h_clamped_to_total() {
+        // Defensive: a malformed breakdown larger than the scalar total is clamped
+        let entry = UsageEntry {
+            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
+            message: Some(Message {
+                id: Some("msg_1h_clamp".to_string()),
+                model: Some("claude-fable-5".to_string()),
+                stop_reason: Some("end_turn".to_string()),
+                usage: Some(Usage {
+                    input_tokens: Some(0),
+                    output_tokens: Some(0),
+                    cache_creation_input_tokens: Some(30),
+                    cache_read_input_tokens: Some(0),
+                    cache_creation: Some(CacheCreation {
+                        ephemeral_1h_input_tokens: Some(99),
+                    }),
+                }),
+            }),
+        };
+        let tz = make_timezone();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
+        assert_eq!(raw.cache_creation_1h, 30);
+    }
+
+    #[test]
+    fn test_parse_sidechain_entry_included() {
+        // Subagent (sidechain) entries are real billed API usage and must be counted.
+        let json = r#"{"isSidechain":true,"timestamp":"2025-01-15T10:00:00Z","message":{"id":"msg_side","model":"claude-fable-5","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}}"#;
+        let entry: UsageEntry = serde_json::from_str(json).unwrap();
+        let tz = make_timezone();
+        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
+        assert_eq!(raw.input_tokens, 10);
+        assert_eq!(raw.output_tokens, 5);
+    }
+
+    #[test]
     fn test_parse_entry_clamps_negative_tokens_to_zero() {
         let entry = UsageEntry {
-            is_sidechain: false,
             timestamp: Some("2025-01-15T10:00:00Z".to_string()),
             message: Some(Message {
                 id: Some("msg_004".to_string()),
@@ -588,6 +656,7 @@ mod tests {
                     output_tokens: Some(-50),
                     cache_creation_input_tokens: Some(-30),
                     cache_read_input_tokens: Some(-20),
+                    cache_creation: None,
                 }),
             }),
         };

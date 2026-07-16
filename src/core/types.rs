@@ -11,6 +11,9 @@ pub(crate) struct Stats {
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_creation: i64,
+    /// Portion of `cache_creation` written with a 1-hour TTL (billed at a higher rate).
+    #[serde(default)]
+    pub(crate) cache_creation_1h: i64,
     pub(crate) cache_read: i64,
     /// Reasoning tokens (e.g., Codex o1 models)
     pub(crate) reasoning_tokens: i64,
@@ -24,6 +27,7 @@ impl Stats {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
         self.cache_creation += other.cache_creation;
+        self.cache_creation_1h += other.cache_creation_1h;
         self.cache_read += other.cache_read;
         self.reasoning_tokens += other.reasoning_tokens;
         self.count += other.count;
@@ -45,6 +49,7 @@ impl Stats {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             cache_creation: self.cache_creation,
+            cache_creation_1h: self.cache_creation_1h,
             cache_read: self.cache_read,
             reasoning_tokens: self.reasoning_tokens,
             count: self.count,
@@ -92,6 +97,9 @@ pub(crate) struct CostTokens {
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_creation: i64,
+    /// Portion of `cache_creation` written with a 1-hour TTL (billed at a higher rate).
+    #[serde(default)]
+    pub(crate) cache_creation_1h: i64,
     pub(crate) cache_read: i64,
     pub(crate) reasoning_tokens: i64,
     pub(crate) count: i64,
@@ -102,6 +110,7 @@ impl CostTokens {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
         self.cache_creation += other.cache_creation;
+        self.cache_creation_1h += other.cache_creation_1h;
         self.cache_read += other.cache_read;
         self.reasoning_tokens += other.reasoning_tokens;
         self.count += other.count;
@@ -112,6 +121,7 @@ impl CostTokens {
             input_tokens: (self.input_tokens - other.input_tokens).max(0),
             output_tokens: (self.output_tokens - other.output_tokens).max(0),
             cache_creation: (self.cache_creation - other.cache_creation).max(0),
+            cache_creation_1h: (self.cache_creation_1h - other.cache_creation_1h).max(0),
             cache_read: (self.cache_read - other.cache_read).max(0),
             reasoning_tokens: (self.reasoning_tokens - other.reasoning_tokens).max(0),
             count: (self.count - other.count).max(0),
@@ -198,6 +208,9 @@ pub(crate) struct RawEntry {
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_creation: i64,
+    /// Portion of `cache_creation` written with a 1-hour TTL (billed at a higher rate).
+    #[serde(default)]
+    pub(crate) cache_creation_1h: i64,
     pub(crate) cache_read: i64,
     pub(crate) reasoning_tokens: i64,
     /// Stop reason for completion detection
@@ -212,6 +225,7 @@ impl RawEntry {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             cache_creation: self.cache_creation,
+            cache_creation_1h: self.cache_creation_1h,
             cache_read: self.cache_read,
             reasoning_tokens: self.reasoning_tokens,
             count: 1,
@@ -297,6 +311,7 @@ mod tests {
             input_tokens: input,
             output_tokens: output,
             cache_creation: cache_c,
+            cache_creation_1h: 0,
             cache_read: cache_r,
             reasoning_tokens: reason,
             count: 1,
@@ -331,6 +346,7 @@ mod tests {
             input_tokens: 10,
             output_tokens: 5,
             cache_creation: 0,
+            cache_creation_1h: 0,
             cache_read: 0,
             reasoning_tokens: 0,
             count: 999,
@@ -353,6 +369,7 @@ mod tests {
             input_tokens: 100,
             output_tokens: 200,
             cache_creation: 50,
+            cache_creation_1h: 0,
             cache_read: 30,
             reasoning_tokens: 10,
             count: 3,
@@ -431,6 +448,7 @@ mod tests {
             input_tokens: 100,
             output_tokens: 200,
             cache_creation: 50,
+            cache_creation_1h: 0,
             cache_read: 30,
             reasoning_tokens: 10,
             stop_reason: None,

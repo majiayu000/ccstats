@@ -199,7 +199,7 @@ fn estimate_entry_capacity(file: &File, approx_bytes_per_entry: u64) -> usize {
 }
 
 fn non_empty_model(model: Option<&str>) -> Option<&str> {
-    model.and_then(|m| if m.trim().is_empty() { None } else { Some(m) })
+    model.filter(|m| !m.trim().is_empty())
 }
 
 fn extract_model_ref<'a>(payload: &'a Payload<'a>) -> Option<&'a str> {
@@ -537,6 +537,7 @@ fn push_codex_entry(
         input_tokens,
         output_tokens,
         cache_creation: 0, // Codex doesn't have cache creation
+        cache_creation_1h: 0,
         cache_read,
         reasoning_tokens,
         stop_reason: Some("complete".to_string()), // Codex events are always complete

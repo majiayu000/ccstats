@@ -465,6 +465,7 @@ mod tests {
             input_tokens: input,
             output_tokens: output,
             cache_creation: 0,
+            cache_creation_1h: 0,
             cache_read: 0,
             reasoning_tokens: 0,
             count,
