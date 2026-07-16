@@ -119,6 +119,20 @@ pub(super) fn format_cost(cost: f64, currency: Option<&CurrencyConverter>) -> St
     }
 }
 
+pub(super) fn format_cache_hit_rate(rate: Option<f64>) -> String {
+    rate.map_or_else(|| "N/A".to_string(), |value| format!("{value:.1}%"))
+}
+
+pub(super) fn cache_hit_rate_json_value(rate: Option<f64>) -> serde_json::Value {
+    rate.map_or(serde_json::Value::Null, |value| {
+        serde_json::json!((value * 100.0).round() / 100.0)
+    })
+}
+
+pub(super) fn cache_hit_rate_csv_value(rate: Option<f64>) -> String {
+    rate.map_or_else(String::new, |value| format!("{value:.2}"))
+}
+
 pub(super) fn cost_json_value(
     cost: f64,
     currency: Option<&CurrencyConverter>,
@@ -206,7 +220,10 @@ pub(super) fn csv_escape(s: &str) -> String {
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
-    use super::{NumberFormat, compare_cost, format_compact, format_cost, format_number};
+    use super::{
+        NumberFormat, cache_hit_rate_csv_value, cache_hit_rate_json_value, compare_cost,
+        format_cache_hit_rate, format_compact, format_cost, format_number,
+    };
 
     #[test]
     fn format_number_with_commas() {
@@ -233,6 +250,19 @@ mod tests {
     fn format_cost_handles_nan() {
         assert_eq!(format_cost(f64::NAN, None), "N/A");
         assert_eq!(format_cost(1.234, None), "$1.23");
+    }
+
+    #[test]
+    fn cache_hit_rate_formats_for_table_json_and_csv() {
+        assert_eq!(format_cache_hit_rate(Some(12.345)), "12.3%");
+        assert_eq!(format_cache_hit_rate(None), "N/A");
+        assert_eq!(
+            cache_hit_rate_json_value(Some(12.345)),
+            serde_json::json!(12.35)
+        );
+        assert_eq!(cache_hit_rate_json_value(None), serde_json::Value::Null);
+        assert_eq!(cache_hit_rate_csv_value(Some(12.345)), "12.35");
+        assert_eq!(cache_hit_rate_csv_value(None), "");
     }
 
     #[test]

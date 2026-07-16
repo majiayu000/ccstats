@@ -46,6 +46,7 @@ impl Source for CursorSource {
             has_billing_blocks: false,
             has_reasoning_tokens: false,
             has_cache_creation: false,
+            has_cache_read: false,
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,

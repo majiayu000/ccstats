@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::cli::SortOrder;
 use crate::core::{DataQuality, DayStats};
-use crate::output::format::cost_json_value;
+use crate::output::format::{cache_hit_rate_json_value, cost_json_value};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::output::pricing_meta;
 use crate::pricing::{
@@ -67,6 +67,9 @@ fn build_period_entry(
                 "reasoning_tokens": model_stats.reasoning_tokens,
                 "cache_creation_tokens": model_stats.cache_creation,
                 "cache_read_tokens": model_stats.cache_read,
+                "cache_hit_rate": cache_hit_rate_json_value(
+                    model_stats.cache_hit_rate(options.supports_cache_read)
+                ),
                 "total_tokens": model_stats.total_tokens(),
             });
             if options.show_cost {
@@ -98,6 +101,9 @@ fn build_period_entry(
             "reasoning_tokens": stats.stats.reasoning_tokens,
             "cache_creation_tokens": stats.stats.cache_creation,
             "cache_read_tokens": stats.stats.cache_read,
+            "cache_hit_rate": cache_hit_rate_json_value(
+                stats.stats.cache_hit_rate(options.supports_cache_read)
+            ),
             "total_tokens": stats.stats.total_tokens(),
             "breakdown": models_breakdown,
         });
@@ -130,6 +136,9 @@ fn build_period_entry(
             "reasoning_tokens": stats.stats.reasoning_tokens,
             "cache_creation_tokens": stats.stats.cache_creation,
             "cache_read_tokens": stats.stats.cache_read,
+            "cache_hit_rate": cache_hit_rate_json_value(
+                stats.stats.cache_hit_rate(options.supports_cache_read)
+            ),
             "total_tokens": stats.stats.total_tokens(),
             "models": models,
         });
@@ -150,6 +159,7 @@ struct PeriodJsonOptions<'a> {
     pricing_db: &'a PricingDb,
     breakdown: bool,
     show_cost: bool,
+    supports_cache_read: bool,
     currency: Option<&'a CurrencyConverter>,
     cost_mode: CostDisplayMode,
 }
@@ -179,6 +189,7 @@ pub(crate) fn output_period_json(
         order,
         breakdown,
         show_cost,
+        true,
         currency,
         None,
         CostDisplayMode::Total,
@@ -193,6 +204,7 @@ pub(crate) fn output_period_json_with_quality(
     order: SortOrder,
     breakdown: bool,
     show_cost: bool,
+    supports_cache_read: bool,
     currency: Option<&CurrencyConverter>,
     data_quality: Option<DataQuality>,
     cost_mode: CostDisplayMode,
@@ -211,6 +223,7 @@ pub(crate) fn output_period_json_with_quality(
         pricing_db,
         breakdown,
         show_cost,
+        supports_cache_read,
         currency,
         cost_mode,
     };

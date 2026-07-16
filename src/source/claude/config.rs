@@ -44,6 +44,7 @@ impl Source for ClaudeSource {
             has_billing_blocks: true,
             has_reasoning_tokens: false,
             has_cache_creation: true,
+            has_cache_read: true,
             needs_dedup: true,
             has_tool_calls: true,
             has_endpoints: true,

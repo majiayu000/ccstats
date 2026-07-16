@@ -35,6 +35,7 @@ pub(crate) struct MonthlyBudgetOptions<'a> {
     pub(crate) order: SortOrder,
     pub(crate) breakdown: bool,
     pub(crate) show_cost: bool,
+    pub(crate) supports_cache_read: bool,
     pub(crate) limit: f64,
     pub(crate) as_of: NaiveDate,
     pub(crate) currency: Option<&'a CurrencyConverter>,

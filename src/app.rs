@@ -19,8 +19,8 @@ use crate::output::{
 };
 use crate::pricing::{CostDisplayMode, PricingDb};
 use crate::source::{
-    ALL_SOURCES, Capabilities, Source, all_sources, load_blocks, load_daily, load_projects,
-    load_sessions, load_tool_calls,
+    ALL_SOURCES, Capabilities, Source, all_capabilities, all_sources, load_blocks, load_daily,
+    load_projects, load_sessions, load_tool_calls,
 };
 use crate::utils::{Timezone, filter_json};
 use serde_json::json;
@@ -83,6 +83,7 @@ fn render_session(sessions: &[SessionStats], source: &dyn Source, ctx: &CommandC
                 ctx.pricing_db,
                 ctx.cli.sort_order(),
                 ctx.cli.show_cost(),
+                source.capabilities().has_cache_read,
                 ctx.currency,
             );
             print!("{csv}");
@@ -93,6 +94,7 @@ fn render_session(sessions: &[SessionStats], source: &dyn Source, ctx: &CommandC
                 ctx.pricing_db,
                 ctx.cli.sort_order(),
                 ctx.cli.show_cost(),
+                source.capabilities().has_cache_read,
                 ctx.currency,
             );
             print_json(&json, ctx.jq_filter);
@@ -105,6 +107,7 @@ fn render_session(sessions: &[SessionStats], source: &dyn Source, ctx: &CommandC
                 use_color: ctx.cli.use_color(),
                 compact: ctx.cli.compact,
                 show_cost: ctx.cli.show_cost(),
+                supports_cache_read: source.capabilities().has_cache_read,
                 number_format: ctx.number_format,
                 source_label: source.display_name(),
                 timezone: ctx.timezone,
@@ -132,6 +135,7 @@ fn render_project(projects: &[ProjectStats], source: &dyn Source, ctx: &CommandC
                 ctx.pricing_db,
                 ctx.cli.sort_order(),
                 ctx.cli.show_cost(),
+                source.capabilities().has_cache_read,
                 ctx.currency,
             );
             print!("{csv}");
@@ -142,6 +146,7 @@ fn render_project(projects: &[ProjectStats], source: &dyn Source, ctx: &CommandC
                 ctx.pricing_db,
                 ctx.cli.sort_order(),
                 ctx.cli.show_cost(),
+                source.capabilities().has_cache_read,
                 ctx.currency,
             );
             print_json(&json, ctx.jq_filter);
@@ -154,6 +159,7 @@ fn render_project(projects: &[ProjectStats], source: &dyn Source, ctx: &CommandC
                 use_color: ctx.cli.use_color(),
                 compact: ctx.cli.compact,
                 show_cost: ctx.cli.show_cost(),
+                supports_cache_read: source.capabilities().has_cache_read,
                 source_label: source.display_name(),
                 number_format: ctx.number_format,
                 currency: ctx.currency,
@@ -180,6 +186,7 @@ fn render_blocks(blocks: &[BlockStats], source: &dyn Source, ctx: &CommandContex
                 ctx.pricing_db,
                 ctx.cli.sort_order(),
                 ctx.cli.show_cost(),
+                source.capabilities().has_cache_read,
                 ctx.currency,
             );
             print!("{csv}");
@@ -190,6 +197,7 @@ fn render_blocks(blocks: &[BlockStats], source: &dyn Source, ctx: &CommandContex
                 ctx.pricing_db,
                 ctx.cli.sort_order(),
                 ctx.cli.show_cost(),
+                source.capabilities().has_cache_read,
                 ctx.currency,
             );
             print_json(&json, ctx.jq_filter);
@@ -202,6 +210,7 @@ fn render_blocks(blocks: &[BlockStats], source: &dyn Source, ctx: &CommandContex
                 use_color: ctx.cli.use_color(),
                 compact: ctx.cli.compact,
                 show_cost: ctx.cli.show_cost(),
+                supports_cache_read: source.capabilities().has_cache_read,
                 source_label: source.display_name(),
                 number_format: ctx.number_format,
                 currency: ctx.currency,
@@ -215,6 +224,7 @@ fn handle_top(
     dim: TopDimension,
     limit: usize,
     source_label: &str,
+    supports_cache_read: bool,
     ctx: &CommandContext<'_>,
     cost_mode: CostDisplayMode,
 ) {
@@ -223,24 +233,27 @@ fn handle_top(
         return;
     }
 
-    render_top(rows, dim, limit, source_label, ctx, cost_mode);
-}
-
-fn render_top(
-    rows: &[TopRow],
-    dim: TopDimension,
-    limit: usize,
-    source_label: &str,
-    ctx: &CommandContext<'_>,
-    cost_mode: CostDisplayMode,
-) {
     match ctx.cli.output_format() {
         OutputFormat::Csv => {
-            let csv = output_top_csv(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
+            let csv = output_top_csv(
+                rows,
+                dim,
+                limit,
+                ctx.cli.show_cost(),
+                supports_cache_read,
+                ctx.currency,
+            );
             print!("{csv}");
         }
         OutputFormat::Json => {
-            let json = output_top_json(rows, dim, limit, ctx.cli.show_cost(), ctx.currency);
+            let json = output_top_json(
+                rows,
+                dim,
+                limit,
+                ctx.cli.show_cost(),
+                supports_cache_read,
+                ctx.currency,
+            );
             print_json(&json, ctx.jq_filter);
         }
         OutputFormat::Table => print_top_table(
@@ -249,6 +262,7 @@ fn render_top(
                 use_color: ctx.cli.use_color(),
                 compact: ctx.cli.compact,
                 show_cost: ctx.cli.show_cost(),
+                supports_cache_read,
                 source_label,
                 number_format: ctx.number_format,
                 currency: ctx.currency,
@@ -275,6 +289,7 @@ fn handle_top_for_source(
                 dim,
                 limit,
                 source.display_name(),
+                source.capabilities().has_cache_read,
                 ctx,
                 CostDisplayMode::Total,
             );
@@ -294,6 +309,7 @@ fn handle_top_for_source(
                 dim,
                 limit,
                 source.display_name(),
+                source.capabilities().has_cache_read,
                 ctx,
                 CostDisplayMode::Total,
             );
@@ -334,7 +350,7 @@ fn render_tools(summary: &ToolSummary, ctx: &CommandContext<'_>) {
 
 fn handle_sources(ctx: &CommandContext<'_>) {
     let sources: Vec<&dyn Source> = all_sources().collect();
-    let mut all_caps = all_sources_capabilities();
+    let mut all_caps = all_capabilities();
     all_caps.has_projects = false;
     all_caps.has_billing_blocks = false;
 
@@ -454,6 +470,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             source.display_name(),
             ctx.number_format,
             ctx.currency,
+            source.capabilities().has_cache_read,
             Some(result.data_quality()),
             CostDisplayMode::Total,
         );
@@ -465,11 +482,13 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             source.display_name(),
             ctx.number_format,
             ctx.currency,
+            source.capabilities().has_cache_read,
             CostDisplayMode::Total,
         );
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_period_result(
     result: &LoadResult,
     period: Period,
@@ -491,6 +510,7 @@ fn render_period_result(
                         order: ctx.cli.sort_order(),
                         breakdown: ctx.cli.breakdown,
                         show_cost: ctx.cli.show_cost(),
+                        supports_cache_read: caps.has_cache_read,
                         limit: budget,
                         as_of: ctx.budget_as_of,
                         currency: ctx.currency,
@@ -507,6 +527,7 @@ fn render_period_result(
                     ctx.cli.sort_order(),
                     ctx.cli.breakdown,
                     ctx.cli.show_cost(),
+                    caps.has_cache_read,
                     ctx.currency,
                     Some(result.data_quality()),
                     cost_mode,
@@ -522,6 +543,7 @@ fn render_period_result(
                 ctx.cli.sort_order(),
                 ctx.cli.breakdown,
                 ctx.cli.show_cost(),
+                caps.has_cache_read,
                 ctx.currency,
                 Some(result.data_quality()),
                 cost_mode,
@@ -559,6 +581,7 @@ fn render_period_result(
                     number_format: ctx.number_format,
                     show_reasoning: caps.has_reasoning_tokens,
                     show_cache_creation: caps.has_cache_creation,
+                    supports_cache_read: caps.has_cache_read,
                     currency: ctx.currency,
                     cost_mode,
                 },
@@ -608,7 +631,6 @@ pub(crate) fn handle_source_command(
 ) {
     let caps = source.capabilities();
 
-    // Non-period commands: dispatch and return early
     match command {
         SourceCommand::Sources => return handle_sources(ctx),
         SourceCommand::Session => return handle_session(source, ctx),
@@ -663,34 +685,12 @@ pub(crate) fn handle_source_command(
     handle_period(source, command, &caps, ctx);
 }
 
-fn all_sources_capabilities() -> Capabilities {
-    let mut combined = Capabilities::default();
-    for source in all_sources() {
-        let caps = source.capabilities();
-        combined.has_projects |= caps.has_projects;
-        combined.has_billing_blocks |= caps.has_billing_blocks;
-        combined.has_reasoning_tokens |= caps.has_reasoning_tokens;
-        combined.has_cache_creation |= caps.has_cache_creation;
-        combined.needs_dedup |= caps.needs_dedup;
-        combined.has_tool_calls |= caps.has_tool_calls;
-    }
-    combined
-}
-
 fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabilities) {
     let start = Instant::now();
     let mut combined = LoadResult::default();
-    let mut caps = Capabilities::default();
+    let caps = all_capabilities();
 
     for source in all_sources() {
-        let source_caps = source.capabilities();
-        caps.has_projects |= source_caps.has_projects;
-        caps.has_billing_blocks |= source_caps.has_billing_blocks;
-        caps.has_reasoning_tokens |= source_caps.has_reasoning_tokens;
-        caps.has_cache_creation |= source_caps.has_cache_creation;
-        caps.needs_dedup |= source_caps.needs_dedup;
-        caps.has_tool_calls |= source_caps.has_tool_calls;
-
         let result = load_daily(source, ctx.filter, ctx.timezone, quiet, ctx.cli.debug);
         combined.skipped += result.skipped;
         combined.valid += result.valid;
@@ -707,7 +707,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
     match command {
         SourceCommand::Sources => return handle_sources(ctx),
         SourceCommand::Statusline => {
-            let (result, _) = load_all_daily(ctx, true);
+            let (result, caps) = load_all_daily(ctx, true);
             if ctx.cli.json {
                 let json = print_statusline_json_with_quality(
                     &result.day_stats,
@@ -715,6 +715,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     "All Sources",
                     ctx.number_format,
                     ctx.currency,
+                    caps.has_cache_read,
                     Some(result.data_quality()),
                     CostDisplayMode::RealOnly,
                 );
@@ -726,6 +727,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     "All Sources",
                     ctx.number_format,
                     ctx.currency,
+                    caps.has_cache_read,
                     CostDisplayMode::RealOnly,
                 );
             }
@@ -748,7 +750,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                 );
                 return;
             }
-            let (result, _) = load_all_daily(ctx, false);
+            let (result, caps) = load_all_daily(ctx, false);
             let rows = rank_by_model_with_cost_mode(
                 &result.day_stats,
                 ctx.pricing_db,
@@ -759,6 +761,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                 dim,
                 limit,
                 "All Sources",
+                caps.has_cache_read,
                 ctx,
                 CostDisplayMode::RealOnly,
             );

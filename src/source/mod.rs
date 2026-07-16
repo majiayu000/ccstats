@@ -34,12 +34,38 @@ pub(crate) struct Capabilities {
     pub(crate) has_reasoning_tokens: bool,
     /// Has cache creation tokens
     pub(crate) has_cache_creation: bool,
+    /// Has trustworthy prompt-cache read tokens
+    pub(crate) has_cache_read: bool,
     /// Requires deduplication (streaming creates duplicate entries)
     pub(crate) needs_dedup: bool,
     /// Supports tool-call discovery and parsing
     pub(crate) has_tool_calls: bool,
     /// Populates the serving-endpoint field (native vs proxy classification)
     pub(crate) has_endpoints: bool,
+}
+
+impl Capabilities {
+    pub(crate) fn combine<'a>(sources: impl IntoIterator<Item = &'a dyn Source>) -> Self {
+        let mut combined = Self {
+            has_cache_read: true,
+            ..Self::default()
+        };
+        let mut has_sources = false;
+        for source in sources {
+            has_sources = true;
+            let caps = source.capabilities();
+            combined.has_projects |= caps.has_projects;
+            combined.has_billing_blocks |= caps.has_billing_blocks;
+            combined.has_reasoning_tokens |= caps.has_reasoning_tokens;
+            combined.has_cache_creation |= caps.has_cache_creation;
+            combined.has_cache_read &= caps.has_cache_read;
+            combined.needs_dedup |= caps.needs_dedup;
+            combined.has_tool_calls |= caps.has_tool_calls;
+            combined.has_endpoints |= caps.has_endpoints;
+        }
+        combined.has_cache_read &= has_sources;
+        combined
+    }
 }
 
 /// Data source trait - implemented by each CLI tool
@@ -82,6 +108,10 @@ pub(crate) type BoxedSource = Box<dyn Source>;
 
 // Re-export registry functions
 pub(crate) use registry::{ALL_SOURCES, all_sources, get_source, source_choices, suggest_source};
+
+pub(crate) fn all_capabilities() -> Capabilities {
+    Capabilities::combine(all_sources())
+}
 
 // Re-export loader functions
 pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions, load_tool_calls};

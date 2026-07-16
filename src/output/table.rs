@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use crate::cli::SortOrder;
 use crate::core::{DayStats, Stats};
 use crate::output::format::{
-    NumberFormat, create_styled_table, format_compact, format_cost, format_number, header_cell,
-    right_cell, styled_cell,
+    NumberFormat, create_styled_table, format_cache_hit_rate, format_compact, format_cost,
+    format_number, header_cell, right_cell, styled_cell,
 };
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::output::pricing_meta;
@@ -24,6 +24,7 @@ pub(crate) struct TokenTableOptions<'a> {
     pub(crate) number_format: NumberFormat,
     pub(crate) show_reasoning: bool,
     pub(crate) show_cache_creation: bool,
+    pub(crate) supports_cache_read: bool,
     pub(crate) currency: Option<&'a CurrencyConverter>,
     pub(crate) cost_mode: CostDisplayMode,
 }
@@ -100,11 +101,9 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         if cfg.show_calls {
             h.push(header_cell("Calls", c));
         }
-        h.extend([
-            header_cell("In", c),
-            header_cell("Out", c),
-            header_cell("Total", c),
-        ]);
+        h.extend([header_cell("In", c), header_cell("Out", c)]);
+        h.push(header_cell("Cache Hit", c));
+        h.push(header_cell("Total", c));
         if opts.show_cost {
             h.push(header_cell("Cost", c));
         }
@@ -122,6 +121,7 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
             h.push(header_cell("Cache Creation", c));
         }
         h.push(header_cell("Cache Read", c));
+        h.push(header_cell("Cache Hit", c));
         if opts.show_cost {
             h.push(header_cell("Cost", c));
         }
@@ -138,7 +138,9 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         if opts.show_cache_creation {
             h.push(header_cell("Cache Creation", c));
         }
-        h.extend([header_cell("Cache Read", c), header_cell("Total", c)]);
+        h.push(header_cell("Cache Read", c));
+        h.push(header_cell("Cache Hit", c));
+        h.push(header_cell("Total", c));
         if opts.show_cost {
             h.push(header_cell("Cost", c));
         }
@@ -168,8 +170,17 @@ fn add_compact_rows(
     row.extend([
         right_cell(&format_compact(data.stats.input_tokens, nf), None, false),
         right_cell(&format_compact(data.stats.output_tokens, nf), None, false),
-        right_cell(&format_compact(data.stats.total_tokens(), nf), None, false),
     ]);
+    row.push(right_cell(
+        &format_cache_hit_rate(data.stats.cache_hit_rate(opts.supports_cache_read)),
+        None,
+        false,
+    ));
+    row.push(right_cell(
+        &format_compact(data.stats.total_tokens(), nf),
+        None,
+        false,
+    ));
     if opts.show_cost {
         row.push(right_cell(
             &format_cost(cost, opts.currency),
@@ -224,6 +235,11 @@ fn add_breakdown_rows(
         }
         row.push(right_cell(
             &format_number(stats.cache_read, nf),
+            None,
+            false,
+        ));
+        row.push(right_cell(
+            &format_cache_hit_rate(stats.cache_hit_rate(opts.supports_cache_read)),
             None,
             false,
         ));
@@ -290,6 +306,11 @@ fn add_standard_rows(
         false,
     ));
     row.push(right_cell(
+        &format_cache_hit_rate(data.stats.cache_hit_rate(opts.supports_cache_read)),
+        None,
+        false,
+    ));
+    row.push(right_cell(
         &format_number(data.stats.total_tokens(), nf),
         None,
         false,
@@ -337,8 +358,17 @@ fn add_total_row(
         row.extend([
             right_cell(&format_compact(total_stats.input_tokens, nf), cyan, true),
             right_cell(&format_compact(total_stats.output_tokens, nf), cyan, true),
-            right_cell(&format_compact(total_stats.total_tokens(), nf), cyan, true),
         ]);
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(opts.supports_cache_read)),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_compact(total_stats.total_tokens(), nf),
+            cyan,
+            true,
+        ));
         if opts.show_cost {
             row.push(right_cell(
                 &format_cost(total_cost, opts.currency),
@@ -376,6 +406,11 @@ fn add_total_row(
         }
         row.push(right_cell(
             &format_number(total_stats.cache_read, nf),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(opts.supports_cache_read)),
             cyan,
             true,
         ));

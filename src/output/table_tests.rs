@@ -13,6 +13,7 @@ fn default_opts() -> TokenTableOptions<'static> {
         number_format: NumberFormat::default(),
         show_reasoning: false,
         show_cache_creation: false,
+        supports_cache_read: false,
         currency: None,
         cost_mode: CostDisplayMode::Total,
     }
@@ -27,7 +28,7 @@ fn header_compact_daily_with_cost() {
         ..default_opts()
     };
     let h = build_header(&cfg, false, &opts);
-    assert_eq!(h.len(), 6);
+    assert_eq!(h.len(), 7);
 }
 
 #[test]
@@ -39,7 +40,7 @@ fn header_compact_weekly_no_calls() {
         ..default_opts()
     };
     let h = build_header(&cfg, false, &opts);
-    assert_eq!(h.len(), 4);
+    assert_eq!(h.len(), 5);
 }
 
 #[test]
@@ -52,9 +53,10 @@ fn header_breakdown_daily_all_columns() {
         ..default_opts()
     };
     let h = build_header(&cfg, true, &opts);
-    assert_eq!(h.len(), 9);
+    assert_eq!(h.len(), 10);
     assert_eq!(h[6].content(), "Cache Creation");
     assert_eq!(h[7].content(), "Cache Read");
+    assert_eq!(h[8].content(), "Cache Hit");
 }
 
 #[test]
@@ -62,7 +64,7 @@ fn header_breakdown_monthly_minimal() {
     let cfg = period_config(Period::Month);
     let opts = default_opts();
     let h = build_header(&cfg, true, &opts);
-    assert_eq!(h.len(), 5);
+    assert_eq!(h.len(), 6);
 }
 
 #[test]
@@ -75,9 +77,21 @@ fn header_standard_daily_all_columns() {
         ..default_opts()
     };
     let h = build_header(&cfg, false, &opts);
-    assert_eq!(h.len(), 10);
+    assert_eq!(h.len(), 11);
     assert_eq!(h[6].content(), "Cache Creation");
     assert_eq!(h[7].content(), "Cache Read");
+    assert_eq!(h[8].content(), "Cache Hit");
+}
+
+#[test]
+fn header_includes_cache_hit_when_source_does_not_support_cache_reads() {
+    let cfg = period_config(Period::Day);
+    let opts = TokenTableOptions {
+        supports_cache_read: false,
+        ..default_opts()
+    };
+    let h = build_header(&cfg, false, &opts);
+    assert!(h.iter().any(|cell| cell.content() == "Cache Hit"));
 }
 
 #[test]
@@ -85,7 +99,7 @@ fn header_standard_weekly_minimal() {
     let cfg = period_config(Period::Week);
     let opts = default_opts();
     let h = build_header(&cfg, false, &opts);
-    assert_eq!(h.len(), 6);
+    assert_eq!(h.len(), 7);
 }
 
 #[test]

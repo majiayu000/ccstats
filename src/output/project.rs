@@ -3,8 +3,9 @@ use comfy_table::{Cell, Color};
 use crate::cli::SortOrder;
 use crate::core::{ProjectStats, Stats};
 use crate::output::format::{
-    NumberFormat, compare_cost, cost_json_value, create_styled_table, format_compact, format_cost,
-    format_number, header_cell, right_cell, styled_cell,
+    NumberFormat, cache_hit_rate_json_value, compare_cost, cost_json_value, create_styled_table,
+    format_cache_hit_rate, format_compact, format_cost, format_number, header_cell, right_cell,
+    styled_cell,
 };
 use crate::output::pricing_meta;
 use crate::pricing::{
@@ -12,11 +13,13 @@ use crate::pricing::{
 };
 
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct ProjectTableOptions<'a> {
     pub(crate) order: SortOrder,
     pub(crate) use_color: bool,
     pub(crate) compact: bool,
     pub(crate) show_cost: bool,
+    pub(crate) supports_cache_read: bool,
     pub(crate) source_label: &'a str,
     pub(crate) number_format: NumberFormat,
     pub(crate) currency: Option<&'a CurrencyConverter>,
@@ -49,8 +52,9 @@ pub(crate) fn print_project_table(
         let mut header = vec![
             header_cell("Project", use_color),
             header_cell("Sessions", use_color),
-            header_cell("Total", use_color),
         ];
+        header.push(header_cell("Cache Hit", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -61,8 +65,9 @@ pub(crate) fn print_project_table(
             header_cell("Sessions", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Total", use_color),
         ];
+        header.push(header_cell("Cache Hit", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -97,12 +102,17 @@ pub(crate) fn print_project_table(
                     None,
                     false,
                 ),
-                right_cell(
-                    &format_compact(project.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
             ];
+            row.push(right_cell(
+                &format_cache_hit_rate(project.stats.cache_hit_rate(options.supports_cache_read)),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_compact(project.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(
                     &format_cost(project_cost, options.currency),
@@ -129,12 +139,17 @@ pub(crate) fn print_project_table(
                     None,
                     false,
                 ),
-                right_cell(
-                    &format_number(project.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
             ];
+            row.push(right_cell(
+                &format_cache_hit_rate(project.stats.cache_hit_rate(options.supports_cache_read)),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_number(project.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(
                     &format_cost(project_cost, options.currency),
@@ -158,12 +173,17 @@ pub(crate) fn print_project_table(
                 cyan,
                 true,
             ),
-            right_cell(
-                &format_compact(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
         ];
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(options.supports_cache_read)),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_compact(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(
                 &format_cost(total_cost, options.currency),
@@ -190,12 +210,17 @@ pub(crate) fn print_project_table(
                 cyan,
                 true,
             ),
-            right_cell(
-                &format_number(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
         ];
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(options.supports_cache_read)),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_number(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(
                 &format_cost(total_cost, options.currency),
@@ -234,6 +259,7 @@ pub(crate) fn output_project_json(
     pricing_db: &PricingDb,
     order: SortOrder,
     show_cost: bool,
+    supports_cache_read: bool,
     currency: Option<&CurrencyConverter>,
 ) -> String {
     let mut sorted_projects = attach_costs(projects, |p| &p.models, pricing_db);
@@ -259,6 +285,9 @@ pub(crate) fn output_project_json(
                 "output_tokens": project.stats.output_tokens,
                 "cache_creation_tokens": project.stats.cache_creation,
                 "cache_read_tokens": project.stats.cache_read,
+                "cache_hit_rate": cache_hit_rate_json_value(
+                    project.stats.cache_hit_rate(supports_cache_read)
+                ),
                 "total_tokens": project.stats.total_tokens(),
                 "models": models,
             });
@@ -318,7 +347,7 @@ mod tests {
     #[test]
     fn output_project_json_empty() {
         let db = PricingDb::default();
-        let result = output_project_json(&[], &db, SortOrder::Desc, false, None);
+        let result = output_project_json(&[], &db, SortOrder::Desc, false, true, None);
         assert_eq!(result.trim(), "[]");
     }
 
@@ -326,7 +355,7 @@ mod tests {
     fn output_project_json_single_project() {
         let db = PricingDb::default();
         let projects = vec![make_project("myapp", "/path/myapp", 3, 1000, 500)];
-        let result = output_project_json(&projects, &db, SortOrder::Desc, false, None);
+        let result = output_project_json(&projects, &db, SortOrder::Desc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0]["project"], "myapp");
@@ -342,7 +371,7 @@ mod tests {
     fn output_project_json_with_cost() {
         let db = PricingDb::default();
         let projects = vec![make_project("app", "/app", 1, 100, 50)];
-        let result = output_project_json(&projects, &db, SortOrder::Desc, true, None);
+        let result = output_project_json(&projects, &db, SortOrder::Desc, true, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
         assert!(parsed[0].get("cost").is_some());
     }
@@ -378,7 +407,7 @@ mod tests {
                 ),
             ]),
         }];
-        let result = output_project_json(&projects, &db, SortOrder::Desc, false, None);
+        let result = output_project_json(&projects, &db, SortOrder::Desc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
         let models = parsed[0]["models"].as_array().unwrap();
         assert_eq!(models[0], "claude");
@@ -393,13 +422,13 @@ mod tests {
             make_project("big", "/big", 1, 1000, 500),
         ];
         // Desc: big first (higher cost)
-        let desc = output_project_json(&projects, &db, SortOrder::Desc, false, None);
+        let desc = output_project_json(&projects, &db, SortOrder::Desc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&desc).unwrap();
         // With empty pricing DB, all costs are 0.0, so order is stable
         assert_eq!(parsed.len(), 2);
 
         // Asc: same with empty pricing
-        let asc = output_project_json(&projects, &db, SortOrder::Asc, false, None);
+        let asc = output_project_json(&projects, &db, SortOrder::Asc, false, true, None);
         let parsed_asc: Vec<serde_json::Value> = serde_json::from_str(&asc).unwrap();
         assert_eq!(parsed_asc.len(), 2);
     }

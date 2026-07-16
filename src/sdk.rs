@@ -166,13 +166,17 @@ impl Default for SummaryOptions {
 }
 
 /// Token totals for a summary or model row.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TokenBreakdown {
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub reasoning_tokens: i64,
     pub cache_creation_tokens: i64,
     pub cache_read_tokens: i64,
+    /// Reported prompt-cache hit rate as a percentage from 0 to 100.
+    /// `None` means the source does not expose trustworthy cache-read data or
+    /// the summary has no input-side tokens.
+    pub cache_hit_rate: Option<f64>,
     pub total_tokens: i64,
 }
 
@@ -300,13 +304,14 @@ fn apply_cli_config(mut options: SummaryOptions, config: &Config) -> SummaryOpti
 }
 
 impl TokenBreakdown {
-    fn from_stats(stats: &Stats) -> Self {
+    fn from_stats(stats: &Stats, supports_cache_read: bool) -> Self {
         Self {
             input_tokens: stats.input_tokens,
             output_tokens: stats.output_tokens,
             reasoning_tokens: stats.reasoning_tokens,
             cache_creation_tokens: stats.cache_creation,
             cache_read_tokens: stats.cache_read,
+            cache_hit_rate: stats.cache_hit_rate(supports_cache_read),
             total_tokens: stats.total_tokens(),
         }
     }
@@ -328,6 +333,7 @@ pub(in crate::sdk) fn build_cost_summary(
     let cost_usd = finite_cost(sum_model_costs(&models, pricing_db));
     let estimated_cost_usd =
         finite_positive_cost(sum_estimated_proxy_model_costs(&models, pricing_db));
+    let supports_cache_read = source.capabilities().has_cache_read;
 
     CostSummary {
         source: usage_source,
@@ -342,8 +348,8 @@ pub(in crate::sdk) fn build_cost_summary(
         estimated_cost: convert_cost(estimated_cost_usd, currency),
         estimated_cost_usd,
         cost_kind: model_cost_kind(&models).as_str().to_string(),
-        tokens: TokenBreakdown::from_stats(&stats),
-        models: summarize_models(&models, pricing_db, currency),
+        tokens: TokenBreakdown::from_stats(&stats, supports_cache_read),
+        models: summarize_models(&models, pricing_db, currency, supports_cache_read),
         valid_entries: result.valid,
         skipped_entries: result.skipped,
         parse_error_entries: result.parse_errors,
@@ -402,6 +408,7 @@ fn summarize_models(
     models: &HashMap<String, Stats>,
     pricing_db: &PricingDb,
     currency: Option<&CurrencyConverter>,
+    supports_cache_read: bool,
 ) -> Vec<ModelCostSummary> {
     let mut rows: Vec<_> = models
         .iter()
@@ -416,7 +423,7 @@ fn summarize_models(
                 estimated_cost: convert_cost(estimated_cost_usd, currency),
                 estimated_cost_usd,
                 cost_kind: stats.cost_kind().as_str().to_string(),
-                tokens: TokenBreakdown::from_stats(stats),
+                tokens: TokenBreakdown::from_stats(stats, supports_cache_read),
             }
         })
         .collect();
@@ -539,7 +546,7 @@ mod tests {
             },
         );
 
-        let rows = summarize_models(&models, &pricing_db, None);
+        let rows = summarize_models(&models, &pricing_db, None, true);
 
         assert_eq!(rows[0].model, "gpt-5-alpha");
         assert_eq!(rows[1].model, "gpt-5-zeta");

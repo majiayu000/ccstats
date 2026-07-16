@@ -43,6 +43,7 @@ impl Source for CodexSource {
             has_billing_blocks: false, // Different billing model
             has_reasoning_tokens: true,
             has_cache_creation: false,
+            has_cache_read: true,
             needs_dedup: true,
             has_tool_calls: false,
             has_endpoints: false,
