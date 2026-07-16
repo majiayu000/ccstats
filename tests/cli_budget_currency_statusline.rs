@@ -105,6 +105,7 @@ fn monthly_budget_csv_includes_budget_columns() {
     let mut lines = output.lines();
     let header = lines.next().expect("header");
     let row = lines.next().expect("row");
+    assert!(header.contains("cache_hit_rate"));
     assert!(header.contains("budget_projected"));
     assert!(header.contains("budget_status"));
     assert!(row.contains("over_budget"));
@@ -307,7 +308,7 @@ fn daily_csv_uses_requested_currency() {
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(
         lines[0],
-        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens,cost,pricing_source"
+        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens,cost,pricing_source"
     );
     assert!(
         lines[1].ends_with(",0.007350,fallback"),
@@ -380,9 +381,9 @@ fn daily_outputs_fresh_cache_pricing_source() {
         ",cost,pricing_source,pricing_cache_age_seconds,pricing_cache_mtime_epoch_seconds"
     ));
     let fields: Vec<&str> = lines[1].split(',').collect();
-    assert_eq!(fields[8], "cache");
-    assert!(fields[9].parse::<u64>().is_ok());
+    assert_eq!(fields[9], "cache");
     assert!(fields[10].parse::<u64>().is_ok());
+    assert!(fields[11].parse::<u64>().is_ok());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -492,7 +493,7 @@ fn daily_outputs_mixed_pricing_source() {
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     let output = String::from_utf8(stdout).expect("utf8 stdout");
     let fields: Vec<&str> = output.lines().nth(1).expect("row").split(',').collect();
-    assert_eq!(fields[8], "mixed");
+    assert_eq!(fields[9], "mixed");
 
     let _ = fs::remove_dir_all(root);
 }

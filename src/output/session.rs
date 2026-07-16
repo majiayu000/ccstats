@@ -6,8 +6,9 @@ use crate::cli::SortOrder;
 use crate::consts::DATE_FORMAT;
 use crate::core::{SessionStats, Stats, format_project_name};
 use crate::output::format::{
-    NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
-    header_cell, right_cell, styled_cell,
+    NumberFormat, cache_hit_rate_json_value, cost_json_value, create_styled_table,
+    format_cache_hit_rate, format_compact, format_cost, format_number, header_cell, right_cell,
+    styled_cell,
 };
 use crate::output::pricing_meta;
 use crate::pricing::{
@@ -57,11 +58,13 @@ pub(super) fn compare_session_last_timestamp(a: &SessionStats, b: &SessionStats)
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct SessionTableOptions<'a> {
     pub(crate) order: SortOrder,
     pub(crate) use_color: bool,
     pub(crate) compact: bool,
     pub(crate) show_cost: bool,
+    pub(crate) supports_cache_read: bool,
     pub(crate) number_format: NumberFormat,
     pub(crate) source_label: &'a str,
     pub(crate) timezone: Timezone,
@@ -97,8 +100,9 @@ pub(crate) fn print_session_table(
             header_cell("Session", use_color),
             header_cell("Project", use_color),
             header_cell("Date", use_color),
-            header_cell("Total", use_color),
         ];
+        header.push(header_cell("Cache Hit", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -110,8 +114,9 @@ pub(crate) fn print_session_table(
             header_cell("Date", use_color),
             header_cell("Input", use_color),
             header_cell("Output", use_color),
-            header_cell("Total", use_color),
         ];
+        header.push(header_cell("Cache Hit", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -149,12 +154,17 @@ pub(crate) fn print_session_table(
                 Cell::new(&session_id),
                 Cell::new(&project),
                 Cell::new(&date),
-                right_cell(
-                    &format_compact(session.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
             ];
+            row.push(right_cell(
+                &format_cache_hit_rate(session.stats.cache_hit_rate(options.supports_cache_read)),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_compact(session.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(
                     &format_cost(session_cost.unwrap_or(0.0), options.currency),
@@ -178,12 +188,17 @@ pub(crate) fn print_session_table(
                     None,
                     false,
                 ),
-                right_cell(
-                    &format_number(session.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
             ];
+            row.push(right_cell(
+                &format_cache_hit_rate(session.stats.cache_hit_rate(options.supports_cache_read)),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_number(session.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(
                     &format_cost(session_cost.unwrap_or(0.0), options.currency),
@@ -204,12 +219,17 @@ pub(crate) fn print_session_table(
             styled_cell("TOTAL", cyan, true),
             Cell::new(""),
             Cell::new(""),
-            right_cell(
-                &format_compact(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
         ];
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(options.supports_cache_read)),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_compact(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(
                 &format_cost(total_cost, options.currency),
@@ -233,12 +253,17 @@ pub(crate) fn print_session_table(
                 cyan,
                 true,
             ),
-            right_cell(
-                &format_number(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
         ];
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(options.supports_cache_read)),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_number(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(
                 &format_cost(total_cost, options.currency),
@@ -276,6 +301,7 @@ pub(crate) fn output_session_json(
     pricing_db: &PricingDb,
     order: SortOrder,
     show_cost: bool,
+    supports_cache_read: bool,
     currency: Option<&CurrencyConverter>,
 ) -> String {
     let mut sorted_sessions: Vec<_> = sessions.iter().collect();
@@ -307,6 +333,9 @@ pub(crate) fn output_session_json(
                 "reasoning_tokens": session.stats.reasoning_tokens,
                 "cache_creation_tokens": session.stats.cache_creation,
                 "cache_read_tokens": session.stats.cache_read,
+                "cache_hit_rate": cache_hit_rate_json_value(
+                    session.stats.cache_hit_rate(supports_cache_read)
+                ),
                 "total_tokens": session.stats.total_tokens(),
                 "models": models,
             });
@@ -487,7 +516,7 @@ mod tests {
     #[test]
     fn output_session_json_empty() {
         let db = PricingDb::default();
-        let json_str = output_session_json(&[], &db, SortOrder::Asc, false, None);
+        let json_str = output_session_json(&[], &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.is_empty());
     }
@@ -496,7 +525,7 @@ mod tests {
     fn output_session_json_fields_present() {
         let db = PricingDb::default();
         let sessions = vec![make_session("sess-1", "2026-02-12T10:00:00Z", 1000, 500)];
-        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, false, None);
+        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed.len(), 1);
@@ -513,7 +542,7 @@ mod tests {
     fn output_session_json_includes_cost_when_requested() {
         let db = PricingDb::default();
         let sessions = vec![make_session("sess-1", "2026-02-12T10:00:00Z", 100, 50)];
-        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, true, None);
+        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, true, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert!(parsed[0].get("cost").is_some());
@@ -527,12 +556,12 @@ mod tests {
             make_session("early", "2026-02-12T08:00:00Z", 200, 100),
         ];
 
-        let asc = output_session_json(&sessions, &db, SortOrder::Asc, false, None);
+        let asc = output_session_json(&sessions, &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&asc).unwrap();
         assert_eq!(parsed[0]["session_id"], "early");
         assert_eq!(parsed[1]["session_id"], "late");
 
-        let desc = output_session_json(&sessions, &db, SortOrder::Desc, false, None);
+        let desc = output_session_json(&sessions, &db, SortOrder::Desc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&desc).unwrap();
         assert_eq!(parsed[0]["session_id"], "late");
         assert_eq!(parsed[1]["session_id"], "early");
@@ -551,7 +580,7 @@ mod tests {
             models,
             ..Default::default()
         }];
-        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, false, None);
+        let json_str = output_session_json(&sessions, &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         let model_list: Vec<&str> = parsed[0]["models"]

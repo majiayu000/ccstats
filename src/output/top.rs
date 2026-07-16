@@ -12,8 +12,8 @@ use comfy_table::{Attribute, Cell, CellAlignment, Color};
 use crate::cli::TopDimension;
 use crate::core::{CostKind, DayStats, ProjectStats, Stats};
 use crate::output::format::{
-    NumberFormat, create_styled_table, format_compact, format_cost, format_number, header_cell,
-    right_cell, styled_cell,
+    NumberFormat, create_styled_table, format_cache_hit_rate, format_compact, format_cost,
+    format_number, header_cell, right_cell, styled_cell,
 };
 use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost, model_cost_kind,
@@ -35,10 +35,12 @@ pub(crate) struct TopRow {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct TopTableOptions<'a> {
     pub(crate) use_color: bool,
     pub(crate) compact: bool,
     pub(crate) show_cost: bool,
+    pub(crate) supports_cache_read: bool,
     pub(crate) source_label: &'a str,
     pub(crate) number_format: NumberFormat,
     pub(crate) currency: Option<&'a CurrencyConverter>,
@@ -251,6 +253,7 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
         header.push(header_cell("Input", options.use_color));
         header.push(header_cell("Output", options.use_color));
     }
+    header.push(header_cell("Cache Hit", options.use_color));
     header.push(header_cell("Total", options.use_color));
     header.push(header_cell("Share", options.use_color));
     if options.show_cost {
@@ -282,6 +285,11 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
             ));
         }
         cells.push(right_cell(
+            &format_cache_hit_rate(row.stats.cache_hit_rate(options.supports_cache_read)),
+            None,
+            false,
+        ));
+        cells.push(right_cell(
             &format_compact(row.stats.total_tokens(), options.number_format),
             None,
             false,
@@ -303,6 +311,10 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
     let displayed_total_count: i64 = limited.iter().map(|r| r.count).sum();
     let displayed_total_input: i64 = limited.iter().map(|r| r.stats.input_tokens).sum();
     let displayed_total_output: i64 = limited.iter().map(|r| r.stats.output_tokens).sum();
+    let mut displayed_stats = Stats::default();
+    for row in &limited {
+        displayed_stats.add(&row.stats);
+    }
     let mut total_row = vec![
         styled_cell("", bold_cyan, true),
         styled_cell("TOTAL", bold_cyan, true),
@@ -324,6 +336,11 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
             true,
         ));
     }
+    total_row.push(right_cell(
+        &format_cache_hit_rate(displayed_stats.cache_hit_rate(options.supports_cache_read)),
+        bold_cyan,
+        true,
+    ));
     total_row.push(right_cell(
         &format_compact(displayed_total_tokens, options.number_format),
         bold_cyan,
@@ -638,7 +655,7 @@ mod tests {
                 pricing_cache_mtime_epoch_seconds: None,
             })
             .collect();
-        let csv = output_top_csv(&rows, TopDimension::Model, 5, false, None);
+        let csv = output_top_csv(&rows, TopDimension::Model, 5, false, true, None);
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 6); // header + 5 rows
     }
@@ -656,7 +673,7 @@ mod tests {
             pricing_cache_age_seconds: None,
             pricing_cache_mtime_epoch_seconds: None,
         }];
-        let json = output_top_json(&rows, TopDimension::Model, 10, true, None);
+        let json = output_top_json(&rows, TopDimension::Model, 10, true, true, None);
         let val: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(val["dimension"], "model");
         assert_eq!(val["share_basis"], "cost");
@@ -693,7 +710,7 @@ mod tests {
                 pricing_cache_mtime_epoch_seconds: None,
             },
         ];
-        let json = output_top_json(&rows, TopDimension::Model, 10, true, None);
+        let json = output_top_json(&rows, TopDimension::Model, 10, true, true, None);
         let val: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(val["share_basis"], "tokens");
         // cost_usd should be JSON null for NaN
@@ -713,7 +730,7 @@ mod tests {
             pricing_cache_age_seconds: None,
             pricing_cache_mtime_epoch_seconds: None,
         }];
-        let csv = output_top_csv(&rows, TopDimension::Project, 1, false, None);
+        let csv = output_top_csv(&rows, TopDimension::Project, 1, false, true, None);
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[1].contains("\"weird,name\""), "csv: {}", lines[1]);
     }
@@ -733,7 +750,7 @@ mod tests {
         }];
         let converter = CurrencyConverter::from_rate_for_test("CNY", 7.0, "CNY ");
 
-        let csv = output_top_csv(&rows, TopDimension::Model, 1, true, Some(&converter));
+        let csv = output_top_csv(&rows, TopDimension::Model, 1, true, true, Some(&converter));
 
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].ends_with(",cost_usd,cost_local,pricing_source"));
@@ -742,7 +759,7 @@ mod tests {
 
     #[test]
     fn empty_rows_produce_header_only_csv() {
-        let csv = output_top_csv(&[], TopDimension::Model, 10, false, None);
+        let csv = output_top_csv(&[], TopDimension::Model, 10, false, true, None);
         assert_eq!(csv.lines().count(), 1);
     }
 }

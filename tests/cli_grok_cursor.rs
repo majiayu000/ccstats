@@ -141,10 +141,32 @@ fn source_flag_can_select_cursor_without_subcommand() {
     assert_eq!(arr[0]["input_tokens"].as_i64(), Some(100));
     assert_eq!(arr[0]["output_tokens"].as_i64(), Some(40));
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(140));
+    assert!(arr[0]["cache_hit_rate"].is_null());
     assert_eq!(
         arr[0]["models"].as_array().unwrap()[0].as_str(),
         Some("claude-4-sonnet")
     );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "cursor",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CURSOR_HOME", &cursor_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let table = String::from_utf8(stdout).expect("utf8 table");
+    assert!(table.contains("Cache Hit"), "table: {table}");
+    assert!(table.contains("N/A"), "table: {table}");
 
     let _ = fs::remove_dir_all(root);
 }
@@ -181,6 +203,7 @@ fn source_flag_can_select_grok_without_subcommand() {
     assert_eq!(arr[0]["input_tokens"].as_i64(), Some(1500));
     assert_eq!(arr[0]["output_tokens"].as_i64(), Some(0));
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1500));
+    assert!(arr[0]["cache_hit_rate"].is_null());
     assert_eq!(
         arr[0]["models"].as_array().unwrap()[0].as_str(),
         Some("grok-build")

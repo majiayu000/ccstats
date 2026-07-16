@@ -44,6 +44,27 @@ impl Stats {
             + self.cache_read
     }
 
+    /// Percentage of reported input-side tokens served from the prompt cache.
+    ///
+    /// `supports_cache_read` comes from the selected source capability. Keeping
+    /// it explicit prevents sources that do not report cache reads from being
+    /// misrepresented as a real 0% hit rate.
+    pub(crate) fn cache_hit_rate(&self, supports_cache_read: bool) -> Option<f64> {
+        if !supports_cache_read {
+            return None;
+        }
+
+        let input = i128::from(self.input_tokens.max(0));
+        let cache_creation = i128::from(self.cache_creation.max(0));
+        let cache_read = i128::from(self.cache_read.max(0));
+        let total_input = input + cache_creation + cache_read;
+        if total_input == 0 {
+            None
+        } else {
+            Some(cache_read as f64 / total_input as f64 * 100.0)
+        }
+    }
+
     pub(crate) fn cost_tokens(&self) -> CostTokens {
         CostTokens {
             input_tokens: self.input_tokens,
@@ -361,6 +382,30 @@ mod tests {
             skipped_chunks: 0,
             estimated_proxy: CostTokens::default(),
         }
+    }
+
+    #[test]
+    fn cache_hit_rate_uses_all_input_side_tokens() {
+        let stats = make_stats(100, 50, 20, 80, 10);
+        assert_eq!(stats.cache_hit_rate(true), Some(40.0));
+    }
+
+    #[test]
+    fn cache_hit_rate_is_zero_when_supported_without_hits() {
+        let stats = make_stats(100, 50, 0, 0, 0);
+        assert_eq!(stats.cache_hit_rate(true), Some(0.0));
+    }
+
+    #[test]
+    fn cache_hit_rate_is_unavailable_without_input_or_source_support() {
+        assert_eq!(Stats::default().cache_hit_rate(true), None);
+        assert_eq!(make_stats(100, 0, 0, 50, 0).cache_hit_rate(false), None);
+    }
+
+    #[test]
+    fn cache_hit_rate_clamps_negative_components() {
+        let stats = make_stats(-100, 0, -20, 80, 0);
+        assert_eq!(stats.cache_hit_rate(true), Some(100.0));
     }
 
     // --- Stats ---

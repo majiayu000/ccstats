@@ -124,7 +124,7 @@ let summary = summarize_cost_with_cli_config(SummaryOptions {
 println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
 ```
 
-The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
+The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, cache hit rate, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
 
 Apps that need several windows at once can use the batch API so source logs,
 pricing, and currency are loaded once for the request:
@@ -419,6 +419,22 @@ Source root env overrides are independent of config keys:
 - `reasoning_tokens`
 - `cache_creation_tokens`
 - `cache_read_tokens`
+- `cache_hit_rate`
+
+### Cache Hit Rate
+
+Statistical table, JSON, CSV, statusline, top, session, project, and block outputs
+report prompt-cache hit rate as:
+
+```text
+cache_read / (input + cache_creation + cache_read) * 100
+```
+
+Table output uses one decimal place and a `%` suffix. JSON uses the numeric
+`cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
+Claude and Codex expose the required cache-read metric. Cursor, Grok, and
+mixed `--source all` output report the value as unavailable (`N/A`, `null`, or
+an empty CSV field) instead of treating missing metrics as zero.
 
 ### Parsing Warnings
 

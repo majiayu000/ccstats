@@ -41,6 +41,7 @@ fn codex_daily_json_reads_session_data() {
     // OpenAI output_tokens(30) includes reasoning_output_tokens(10).
     // After separating: non_cached_input=80, output=20, reasoning=10, cache_read=20 → total=130
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(130));
+    assert_eq!(arr[0]["cache_hit_rate"].as_f64(), Some(20.0));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -260,6 +261,7 @@ fn source_all_daily_json_merges_registered_sources() {
     assert_eq!(arr[0]["input_tokens"].as_i64(), Some(110));
     assert_eq!(arr[0]["output_tokens"].as_i64(), Some(55));
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(165));
+    assert!(arr[0]["cache_hit_rate"].is_null());
 
     let models = arr[0]["models"].as_array().expect("models");
     assert_eq!(models.len(), 2);
@@ -677,11 +679,11 @@ fn codex_session_csv_includes_reasoning_and_cache_tokens() {
     let row = lines.next().expect("row");
     assert_eq!(
         header,
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert_eq!(
         row,
-        "reasoning-session,,2026-02-06T10:00:00Z,2026-02-06T10:00:00Z,900,300,200,0,100,1500"
+        "reasoning-session,,2026-02-06T10:00:00Z,2026-02-06T10:00:00Z,900,300,200,0,100,10.00,1500"
     );
 
     let _ = fs::remove_dir_all(root);

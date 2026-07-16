@@ -3,7 +3,7 @@ use std::fmt::Write;
 use serde_json::json;
 
 use crate::cli::TopDimension;
-use crate::output::format::csv_escape;
+use crate::output::format::{cache_hit_rate_csv_value, cache_hit_rate_json_value, csv_escape};
 use crate::output::top::{
     ShareBasis, TopRow, share_basis, share_of, sum_cost, sum_tokens, take_top,
 };
@@ -16,6 +16,7 @@ pub(crate) fn output_top_json(
     dim: TopDimension,
     limit: usize,
     show_cost: bool,
+    supports_cache_read: bool,
     currency: Option<&CurrencyConverter>,
 ) -> String {
     let limited = take_top(rows, limit);
@@ -37,6 +38,9 @@ pub(crate) fn output_top_json(
                 "output_tokens": row.stats.output_tokens,
                 "cache_creation": row.stats.cache_creation,
                 "cache_read": row.stats.cache_read,
+                "cache_hit_rate": cache_hit_rate_json_value(
+                    row.stats.cache_hit_rate(supports_cache_read)
+                ),
                 "reasoning_tokens": row.stats.reasoning_tokens,
                 "total_tokens": row.stats.total_tokens(),
                 "share_percent": (share * 100.0).round() / 100.0,
@@ -94,6 +98,7 @@ pub(crate) fn output_top_csv(
     dim: TopDimension,
     limit: usize,
     show_cost: bool,
+    supports_cache_read: bool,
     currency: Option<&CurrencyConverter>,
 ) -> String {
     let limited = take_top(rows, limit);
@@ -108,7 +113,7 @@ pub(crate) fn output_top_csv(
     };
     let _ = write!(
         out,
-        "rank,{dim_col},count,input_tokens,output_tokens,cache_creation,cache_read,reasoning_tokens,total_tokens,share_percent"
+        "rank,{dim_col},count,input_tokens,output_tokens,cache_creation,cache_read,cache_hit_rate,reasoning_tokens,total_tokens,share_percent"
     );
     if show_cost {
         out.push_str(",cost_usd");
@@ -130,7 +135,7 @@ pub(crate) fn output_top_csv(
         let share = share_of(row, total_cost, total_tokens, basis);
         let _ = write!(
             out,
-            "{},{},{},{},{},{},{},{},{},{:.2}",
+            "{},{},{},{},{},{},{},{},{},{},{:.2}",
             idx + 1,
             csv_escape(&row.name),
             row.count,
@@ -138,6 +143,7 @@ pub(crate) fn output_top_csv(
             row.stats.output_tokens,
             row.stats.cache_creation,
             row.stats.cache_read,
+            cache_hit_rate_csv_value(row.stats.cache_hit_rate(supports_cache_read)),
             row.stats.reasoning_tokens,
             row.stats.total_tokens(),
             share,

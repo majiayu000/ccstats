@@ -156,6 +156,7 @@ fn all_sources_daily_json_clamps_negative_claude_and_cursor_tokens() {
     assert_eq!(row["output_tokens"].as_i64(), Some(90));
     assert_eq!(row["cache_creation_tokens"].as_i64(), Some(0));
     assert_eq!(row["cache_read_tokens"].as_i64(), Some(20));
+    assert!(row["cache_hit_rate"].is_null());
     assert_eq!(row["total_tokens"].as_i64(), Some(135));
 
     for key in [

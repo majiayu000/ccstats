@@ -64,6 +64,7 @@ fn claude_project_json_aggregates_sessions() {
 
     assert_eq!(myapp["session_count"].as_i64(), Some(2));
     assert_eq!(myapp["total_tokens"].as_i64(), Some(460));
+    assert_eq!(myapp["cache_hit_rate"].as_f64(), Some(6.06));
     // Models should be sorted alphabetically
     let models: Vec<&str> = myapp["models"]
         .as_array()
@@ -521,10 +522,29 @@ fn claude_daily_csv_outputs_correct_format() {
     assert_eq!(lines.len(), 2, "header + 1 data row");
     assert_eq!(
         lines[0],
-        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     // input=100, output=50, reasoning=0, cache_creation=10, cache_read=20, total=180
-    assert_eq!(lines[1], "2026-02-06,100,50,0,10,20,180");
+    assert_eq!(lines[1], "2026-02-06,100,50,0,10,20,15.38,180");
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let table = String::from_utf8(stdout).expect("utf8 table");
+    assert!(table.contains("Cache Hit"), "table: {table}");
+    assert!(table.contains("15.4%"), "table: {table}");
 
     let _ = fs::remove_dir_all(root);
 }
@@ -568,13 +588,13 @@ fn claude_session_csv_outputs_correct_format() {
     assert_eq!(lines.len(), 3, "header + 2 sessions");
     assert_eq!(
         lines[0],
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     // Sessions sorted by last_timestamp asc: session-a (10:00) then session-b (11:00)
     assert!(lines[1].starts_with("session-a,"));
-    assert!(lines[1].ends_with(",100,50,0,0,0,150"));
+    assert!(lines[1].ends_with(",100,50,0,0,0,0.00,150"));
     assert!(lines[2].starts_with("session-b,"));
-    assert!(lines[2].ends_with(",200,80,0,0,0,280"));
+    assert!(lines[2].ends_with(",200,80,0,0,0,0.00,280"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -618,19 +638,19 @@ fn claude_project_csv_outputs_correct_format() {
     assert_eq!(lines.len(), 3, "header + 2 projects");
     assert_eq!(
         lines[0],
-        "project_name,project_path,sessions,input_tokens,output_tokens,total_tokens"
+        "project_name,project_path,sessions,input_tokens,output_tokens,cache_hit_rate,total_tokens"
     );
     // With --no-cost, all costs are 0.0 so order is undefined — find by name
     let myapp_line = lines
         .iter()
         .find(|l| l.starts_with("myapp,"))
         .expect("myapp row");
-    assert!(myapp_line.ends_with(",1,100,50,150"));
+    assert!(myapp_line.ends_with(",1,100,50,0.00,150"));
     let other_line = lines
         .iter()
         .find(|l| l.starts_with("other-project,"))
         .expect("other-project row");
-    assert!(other_line.ends_with(",1,200,80,280"));
+    assert!(other_line.ends_with(",1,200,80,0.00,280"));
 
     let _ = fs::remove_dir_all(root);
 }
@@ -671,14 +691,14 @@ fn claude_blocks_csv_outputs_correct_format() {
     assert_eq!(lines.len(), 3, "header + 2 blocks");
     assert_eq!(
         lines[0],
-        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     // Block 1: 10:00-15:00, input=100, output=50, cache_creation=10, cache_read=20, total=180
     assert!(lines[1].contains("10:00"));
-    assert!(lines[1].ends_with(",100,50,10,20,180"));
+    assert!(lines[1].ends_with(",100,50,10,20,15.38,180"));
     // Block 2: 15:00-20:00, input=300, output=150, cache_creation=0, cache_read=0, total=450
     assert!(lines[2].contains("15:00"));
-    assert!(lines[2].ends_with(",300,150,0,0,450"));
+    assert!(lines[2].ends_with(",300,150,0,0,0.00,450"));
 
     let _ = fs::remove_dir_all(root);
 }

@@ -3,8 +3,9 @@ use comfy_table::{Cell, Color};
 use crate::cli::SortOrder;
 use crate::core::{BlockStats, Stats};
 use crate::output::format::{
-    NumberFormat, cost_json_value, create_styled_table, format_compact, format_cost, format_number,
-    header_cell, right_cell, styled_cell,
+    NumberFormat, cache_hit_rate_json_value, cost_json_value, create_styled_table,
+    format_cache_hit_rate, format_compact, format_cost, format_number, header_cell, right_cell,
+    styled_cell,
 };
 use crate::output::pricing_meta;
 use crate::pricing::{
@@ -12,11 +13,13 @@ use crate::pricing::{
 };
 
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct BlockTableOptions<'a> {
     pub(crate) order: SortOrder,
     pub(crate) use_color: bool,
     pub(crate) compact: bool,
     pub(crate) show_cost: bool,
+    pub(crate) supports_cache_read: bool,
     pub(crate) source_label: &'a str,
     pub(crate) number_format: NumberFormat,
     pub(crate) currency: Option<&'a CurrencyConverter>,
@@ -45,10 +48,9 @@ pub(crate) fn print_block_table(
     let mut table = create_styled_table();
 
     if compact {
-        let mut header = vec![
-            header_cell("Block", use_color),
-            header_cell("Total", use_color),
-        ];
+        let mut header = vec![header_cell("Block", use_color)];
+        header.push(header_cell("Cache Hit", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -60,8 +62,9 @@ pub(crate) fn print_block_table(
             header_cell("Output", use_color),
             header_cell("Cache Create", use_color),
             header_cell("Cache Read", use_color),
-            header_cell("Total", use_color),
         ];
+        header.push(header_cell("Cache Hit", use_color));
+        header.push(header_cell("Total", use_color));
         if show_cost {
             header.push(header_cell("Cost", use_color));
         }
@@ -88,14 +91,17 @@ pub(crate) fn print_block_table(
         let block_label = format!("{} - {}", block.block_start, block.block_end);
 
         if compact {
-            let mut row = vec![
-                Cell::new(&block_label),
-                right_cell(
-                    &format_compact(block.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
-            ];
+            let mut row = vec![Cell::new(&block_label)];
+            row.push(right_cell(
+                &format_cache_hit_rate(block.stats.cache_hit_rate(options.supports_cache_read)),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_compact(block.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(
                     &format_cost(block_cost, options.currency),
@@ -127,12 +133,17 @@ pub(crate) fn print_block_table(
                     None,
                     false,
                 ),
-                right_cell(
-                    &format_number(block.stats.total_tokens(), number_format),
-                    None,
-                    false,
-                ),
             ];
+            row.push(right_cell(
+                &format_cache_hit_rate(block.stats.cache_hit_rate(options.supports_cache_read)),
+                None,
+                false,
+            ));
+            row.push(right_cell(
+                &format_number(block.stats.total_tokens(), number_format),
+                None,
+                false,
+            ));
             if show_cost {
                 row.push(right_cell(
                     &format_cost(block_cost, options.currency),
@@ -149,14 +160,17 @@ pub(crate) fn print_block_table(
 
     // Add total row
     if compact {
-        let mut row = vec![
-            styled_cell("TOTAL", cyan, true),
-            right_cell(
-                &format_compact(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
-        ];
+        let mut row = vec![styled_cell("TOTAL", cyan, true)];
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(options.supports_cache_read)),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_compact(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(
                 &format_cost(total_cost, options.currency),
@@ -188,12 +202,17 @@ pub(crate) fn print_block_table(
                 cyan,
                 true,
             ),
-            right_cell(
-                &format_number(total_stats.total_tokens(), number_format),
-                cyan,
-                true,
-            ),
         ];
+        row.push(right_cell(
+            &format_cache_hit_rate(total_stats.cache_hit_rate(options.supports_cache_read)),
+            cyan,
+            true,
+        ));
+        row.push(right_cell(
+            &format_number(total_stats.total_tokens(), number_format),
+            cyan,
+            true,
+        ));
         if show_cost {
             row.push(right_cell(
                 &format_cost(total_cost, options.currency),
@@ -229,6 +248,7 @@ pub(crate) fn output_block_json(
     pricing_db: &PricingDb,
     order: SortOrder,
     show_cost: bool,
+    supports_cache_read: bool,
     currency: Option<&CurrencyConverter>,
 ) -> String {
     let mut sorted_blocks: Vec<_> = blocks.iter().collect();
@@ -252,6 +272,9 @@ pub(crate) fn output_block_json(
                 "output_tokens": block.stats.output_tokens,
                 "cache_creation_tokens": block.stats.cache_creation,
                 "cache_read_tokens": block.stats.cache_read,
+                "cache_hit_rate": cache_hit_rate_json_value(
+                    block.stats.cache_hit_rate(supports_cache_read)
+                ),
                 "total_tokens": block.stats.total_tokens(),
                 "models": models,
             });
@@ -319,7 +342,7 @@ mod tests {
     #[test]
     fn output_block_json_empty_input() {
         let db = PricingDb::default();
-        let json_str = output_block_json(&[], &db, SortOrder::Asc, false, None);
+        let json_str = output_block_json(&[], &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
         assert!(parsed.is_empty());
     }
@@ -333,7 +356,7 @@ mod tests {
             1000,
             500,
         )];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed.len(), 1);
@@ -349,7 +372,7 @@ mod tests {
     fn output_block_json_includes_cost_when_requested() {
         let db = PricingDb::default();
         let blocks = vec![make_block("2026-02-12 10:00", "2026-02-12 15:00", 100, 50)];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, true, None);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, true, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert!(parsed[0].get("cost").is_some());
@@ -363,7 +386,7 @@ mod tests {
             make_block("2026-02-12 05:00", "2026-02-12 10:00", 200, 100),
             make_block("2026-02-12 10:00", "2026-02-12 15:00", 300, 150),
         ];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["block_start"], "2026-02-12 05:00");
@@ -378,7 +401,7 @@ mod tests {
             make_block("2026-02-12 05:00", "2026-02-12 10:00", 100, 50),
             make_block("2026-02-12 15:00", "2026-02-12 20:00", 200, 100),
         ];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Desc, false, None);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Desc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["block_start"], "2026-02-12 15:00");
@@ -396,11 +419,12 @@ mod tests {
             200,
             300,
         )];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["cache_creation_tokens"], 200);
         assert_eq!(parsed[0]["cache_read_tokens"], 300);
+        assert_eq!(parsed[0]["cache_hit_rate"], 20.0);
         assert_eq!(parsed[0]["total_tokens"], 2000); // 1000+500+200+300
     }
 
@@ -418,7 +442,7 @@ mod tests {
             stats: Stats::default(),
             models,
         }];
-        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, None);
+        let json_str = output_block_json(&blocks, &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         let model_list: Vec<&str> = parsed[0]["models"]

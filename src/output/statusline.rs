@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::core::{DataQuality, DayStats, Stats};
-use crate::output::format::{NumberFormat, cost_json_value, format_compact, format_cost};
+use crate::output::format::{
+    NumberFormat, cache_hit_rate_json_value, cost_json_value, format_cache_hit_rate,
+    format_compact, format_cost,
+};
 use crate::output::pricing_meta;
 use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, sum_display_model_costs,
@@ -42,6 +45,7 @@ pub(crate) fn print_statusline(
     source_label: &str,
     number_format: NumberFormat,
     currency: Option<&CurrencyConverter>,
+    supports_cache_read: bool,
     cost_mode: CostDisplayMode,
 ) {
     let t = aggregate_totals(day_stats, pricing_db, cost_mode);
@@ -60,6 +64,10 @@ pub(crate) fn print_statusline(
             format_compact(t.stats.reasoning_tokens, number_format)
         ));
     }
+    parts.push(format!(
+        "Cache Hit: {}",
+        format_cache_hit_rate(t.stats.cache_hit_rate(supports_cache_read))
+    ));
     println!("{}", parts.join(" | "));
 }
 
@@ -78,17 +86,20 @@ pub(crate) fn print_statusline_json(
         source_label,
         number_format,
         currency,
+        true,
         None,
         CostDisplayMode::Total,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn print_statusline_json_with_quality(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
     source_label: &str,
     number_format: NumberFormat,
     currency: Option<&CurrencyConverter>,
+    supports_cache_read: bool,
     data_quality: Option<DataQuality>,
     cost_mode: CostDisplayMode,
 ) -> String {
@@ -101,6 +112,9 @@ pub(crate) fn print_statusline_json_with_quality(
         "reasoning_tokens": t.stats.reasoning_tokens,
         "cache_creation_tokens": t.stats.cache_creation,
         "cache_read_tokens": t.stats.cache_read,
+        "cache_hit_rate": cache_hit_rate_json_value(
+            t.stats.cache_hit_rate(supports_cache_read)
+        ),
         "total_tokens": t.stats.total_tokens(),
         "cost": cost_json_value(t.cost, currency),
         "formatted": {
@@ -232,6 +246,7 @@ mod tests {
         assert_eq!(v["reasoning_tokens"].as_i64(), Some(100));
         assert_eq!(v["cache_creation_tokens"].as_i64(), Some(50));
         assert_eq!(v["cache_read_tokens"].as_i64(), Some(700));
+        assert_eq!(v["cache_hit_rate"].as_f64(), Some(14.74));
         assert_eq!(v["total_tokens"].as_i64(), Some(10850));
     }
 

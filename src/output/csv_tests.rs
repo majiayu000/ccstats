@@ -54,7 +54,7 @@ fn period_csv_daily_no_cost() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert!(lines[1].starts_with("2025-01-01,1000,500,"));
     assert!(!lines[0].contains("cost"));
@@ -108,7 +108,7 @@ fn period_csv_converts_cost_when_currency_is_set() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[1],
-        "2025-01-01,1000000,500000,0,0,0,1500000,73.500000,fallback"
+        "2025-01-01,1000000,500000,0,0,0,0.00,1500000,73.500000,fallback"
     );
 }
 
@@ -152,12 +152,12 @@ fn session_csv_structure() {
     }];
 
     let db = PricingDb::default();
-    let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false, None);
+    let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false, true, None);
 
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert!(lines[1].starts_with("abc-123,/home/user/project,"));
 }
@@ -183,12 +183,12 @@ fn session_csv_includes_reasoning_and_cache_tokens() {
     }];
 
     let db = PricingDb::default();
-    let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false, None);
+    let csv = output_session_csv(&sessions, &db, SortOrder::Asc, false, true, None);
     let lines: Vec<&str> = csv.lines().collect();
 
     assert_eq!(
         lines[1],
-        "reasoning,,2025-01-01T00:00:00Z,2025-01-01T01:00:00Z,1000,300,200,50,100,1650"
+        "reasoning,,2025-01-01T00:00:00Z,2025-01-01T01:00:00Z,1000,300,200,50,100,8.70,1650"
     );
 }
 
@@ -208,7 +208,7 @@ fn project_csv_structure() {
     }];
 
     let db = PricingDb::default();
-    let csv = output_project_csv(&projects, &db, SortOrder::Asc, true, None);
+    let csv = output_project_csv(&projects, &db, SortOrder::Asc, true, true, None);
 
     let lines: Vec<&str> = csv.lines().collect();
     assert!(lines[0].ends_with(",cost,pricing_source"));
@@ -232,12 +232,12 @@ fn block_csv_structure() {
     }];
 
     let db = PricingDb::default();
-    let csv = output_block_csv(&blocks, &db, SortOrder::Asc, false, None);
+    let csv = output_block_csv(&blocks, &db, SortOrder::Asc, false, true, None);
 
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert_eq!(lines.len(), 2);
 }
@@ -280,7 +280,7 @@ fn breakdown_csv_header_includes_model() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "date,model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,total_tokens"
+        "date,model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
 }
 
@@ -331,8 +331,8 @@ fn breakdown_csv_with_cost() {
     let lines: Vec<&str> = csv.lines().collect();
     assert!(lines[0].ends_with(",cost,pricing_source"));
     let fields: Vec<&str> = lines[1].split(',').collect();
-    assert_eq!(fields.len(), 10);
-    assert_eq!(fields[9], "fallback");
+    assert_eq!(fields.len(), 11);
+    assert_eq!(fields[10], "fallback");
 }
 
 #[test]
