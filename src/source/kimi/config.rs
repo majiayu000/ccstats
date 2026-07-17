@@ -43,6 +43,7 @@ impl Source for KimiSource {
             has_billing_blocks: false,
             has_reasoning_tokens: false,
             has_cache_creation: true,
+            has_cache_read: true,
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
