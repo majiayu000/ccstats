@@ -232,6 +232,38 @@ fn kimi_subcommand_conflicts_with_different_source_flag() {
 }
 
 #[test]
+fn kimi_code_home_override_never_falls_back_to_default_home() {
+    let root = unique_temp_dir("kimi-home-override");
+    // The default ~/.kimi-code holds valid data...
+    write_kimi_session(&root.join(".kimi-code"));
+    // ...but KIMI_CODE_HOME selects a root with no sessions directory.
+    let kimi_home = root.join("kimi-home-empty");
+    fs::create_dir_all(&kimi_home).expect("create empty kimi home");
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "kimi",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+        ],
+        &[("KIMI_CODE_HOME", &kimi_home), ("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let stdout = String::from_utf8(stdout).expect("utf8 stdout");
+    assert!(
+        stdout.contains("No Kimi Code usage data found"),
+        "explicit KIMI_CODE_HOME must not report default-home data: {stdout}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn sources_listing_includes_kimi() {
     let root = unique_temp_dir("kimi-sources-listing");
     let (ok, stdout, stderr) = run_ccstats(&["sources", "-j"], &[("HOME", &root)]);
