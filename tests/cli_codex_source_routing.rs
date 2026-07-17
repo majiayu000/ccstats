@@ -282,6 +282,7 @@ fn sources_outputs_expose_same_capability_columns() {
         "has_billing_blocks",
         "has_reasoning_tokens",
         "has_cache_creation",
+        "has_cache_read",
         "needs_dedup",
     ];
 

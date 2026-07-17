@@ -27,6 +27,7 @@ mod output;
 mod pricing;
 mod sdk;
 mod source;
+mod sources_cmd;
 mod utils;
 
 pub use sdk::{

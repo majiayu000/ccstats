@@ -176,6 +176,8 @@ pub struct TokenBreakdown {
     /// Reported prompt-cache hit rate as a percentage from 0 to 100.
     /// `None` means the source does not expose trustworthy cache-read data or
     /// the summary has no input-side tokens.
+    // Default keeps summaries serialized before this field existed loadable.
+    #[serde(default)]
     pub cache_hit_rate: Option<f64>,
     pub total_tokens: i64,
 }
@@ -525,6 +527,22 @@ mod tests {
                 .resolve(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn token_breakdown_deserializes_legacy_json_without_cache_hit_rate() {
+        let legacy = r#"{
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "reasoning_tokens": 0,
+            "cache_creation_tokens": 3,
+            "cache_read_tokens": 2,
+            "total_tokens": 20
+        }"#;
+        let tokens: TokenBreakdown =
+            serde_json::from_str(legacy).expect("legacy breakdown without cache_hit_rate");
+        assert_eq!(tokens.cache_hit_rate, None);
+        assert_eq!(tokens.total_tokens, 20);
     }
 
     #[test]
