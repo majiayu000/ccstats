@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -66,10 +67,10 @@ struct SessionIndexEntry {
 
 fn get_kimi_sessions_dir() -> Option<PathBuf> {
     if let Ok(kimi_home) = env::var(KIMI_HOME_ENV) {
+        // An explicit override never falls back to the default root: reporting
+        // home data after the user selected another root would be wrong data.
         let path = PathBuf::from(kimi_home).join(SESSIONS_SUBDIR);
-        if path.is_dir() {
-            return Some(path);
-        }
+        return path.is_dir().then_some(path);
     }
 
     let home = dirs::home_dir()?;
@@ -225,10 +226,9 @@ fn parse_usage_line(
         // Conversation payloads may mention the token; only typed records count.
         return None;
     }
-    if let Some(scope) = record.usage_scope.as_deref()
-        && scope != TURN_SCOPE
-    {
-        // Non-turn scopes (e.g. cumulative session totals) would double count.
+    if record.usage_scope.as_deref() != Some(TURN_SCOPE) {
+        // Only per-turn records bill; unscoped or cumulative (e.g. session
+        // totals) records would double count.
         return None;
     }
 
@@ -291,8 +291,10 @@ pub(super) fn parse_kimi_wire_file_with_debug(
     timezone: Timezone,
     debug: bool,
 ) -> ParseOutput {
-    let content = match fs::read_to_string(path) {
-        Ok(content) => content,
+    // Stream line by line: wire files mix large conversation payloads with
+    // small usage records, so buffering a whole long session can spike memory.
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
         Err(err) => {
             if debug {
                 eprintln!("Failed to read {}: {}", path.display(), err);
@@ -307,9 +309,24 @@ pub(super) fn parse_kimi_wire_file_with_debug(
     let ctx = session_context(path, debug);
     let mut entries = Vec::new();
     let mut errors = 0;
-    for (line_index, line) in content.lines().enumerate() {
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
+        let line = match line {
+            Ok(line) => line,
+            Err(err) => {
+                errors += 1;
+                if debug {
+                    eprintln!(
+                        "Failed to read {} line {}: {}",
+                        path.display(),
+                        line_index + 1,
+                        err
+                    );
+                }
+                continue;
+            }
+        };
         if let Some(entry) =
-            parse_usage_line(line, line_index, path, timezone, debug, &ctx, &mut errors)
+            parse_usage_line(&line, line_index, path, timezone, debug, &ctx, &mut errors)
         {
             entries.push(entry);
         }
@@ -433,6 +450,24 @@ mod tests {
             &wire,
             r#"{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":100,"output":50},"usageScope":"turn","time":1784247404495}
 {"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":99999,"output":99999},"usageScope":"session","time":1784247404500}
+"#,
+        )
+        .expect("write wire");
+
+        let parsed = parse_kimi_wire_file_with_debug(&wire, tz(), true);
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].input_tokens, 100);
+    }
+
+    #[test]
+    fn skips_usage_records_without_scope() {
+        let root = tempdir().expect("temp dir");
+        let wire = write_wire_session(root.path(), "wd_proj_6c618ba503c5", "session-1");
+        fs::write(
+            &wire,
+            r#"{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":100,"output":50},"usageScope":"turn","time":1784247404495}
+{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":99999,"output":99999},"time":1784247404500}
 "#,
         )
         .expect("write wire");
