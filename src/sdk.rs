@@ -37,15 +37,18 @@ pub enum UsageSource {
     Cursor,
     /// Grok session signal summaries under `~/.grok/sessions`, or `GROK_HOME`.
     Grok,
+    /// Kimi Code wire logs under `~/.kimi-code/sessions`, or `KIMI_CODE_HOME`.
+    Kimi,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 4] = [
+    pub(crate) const VARIANTS: [Self; 5] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
         UsageSource::Grok,
+        UsageSource::Kimi,
     ];
 
     #[must_use]
@@ -55,6 +58,7 @@ impl UsageSource {
             UsageSource::Codex => "codex",
             UsageSource::Cursor => "cursor",
             UsageSource::Grok => "grok",
+            UsageSource::Kimi => "kimi",
         }
     }
 
@@ -64,6 +68,7 @@ impl UsageSource {
             "codex" => Some(UsageSource::Codex),
             "cursor" => Some(UsageSource::Cursor),
             "grok" => Some(UsageSource::Grok),
+            "kimi" => Some(UsageSource::Kimi),
             _ => None,
         }
     }

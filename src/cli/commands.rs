@@ -58,6 +58,11 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: Option<GrokCommands>,
     },
+    /// Kimi Code CLI usage statistics
+    Kimi {
+        #[command(subcommand)]
+        command: Option<KimiCommands>,
+    },
 }
 
 /// Codex-specific subcommands
@@ -91,6 +96,25 @@ pub(crate) enum GrokCommands {
     /// Show Grok local context-token stats by session
     Session,
     /// Show Grok local context-token stats by project
+    Project,
+    /// Output single line for statusline/tmux integration
+    Statusline,
+}
+
+/// Kimi-specific subcommands
+#[derive(Subcommand)]
+pub(crate) enum KimiCommands {
+    /// Show daily Kimi Code usage (default)
+    Daily,
+    /// Show weekly Kimi Code usage
+    Weekly,
+    /// Show monthly Kimi Code usage
+    Monthly,
+    /// Show today's Kimi Code usage
+    Today,
+    /// Show Kimi Code usage by session
+    Session,
+    /// Show Kimi Code usage by project
     Project,
     /// Output single line for statusline/tmux integration
     Statusline,
@@ -144,7 +168,9 @@ impl From<&Commands> for SourceCommand {
                 dim: *dim,
                 limit: *limit,
             },
-            Commands::Codex { .. } | Commands::Grok { .. } => SourceCommand::Daily, // Default, handled separately
+            Commands::Codex { .. } | Commands::Grok { .. } | Commands::Kimi { .. } => {
+                SourceCommand::Daily
+            } // Default, handled separately
         }
     }
 }
@@ -176,6 +202,20 @@ impl From<&Option<GrokCommands>> for SourceCommand {
     }
 }
 
+impl From<&Option<KimiCommands>> for SourceCommand {
+    fn from(cmd: &Option<KimiCommands>) -> Self {
+        match cmd {
+            Some(KimiCommands::Daily) | None => SourceCommand::Daily,
+            Some(KimiCommands::Weekly) => SourceCommand::Weekly,
+            Some(KimiCommands::Monthly) => SourceCommand::Monthly,
+            Some(KimiCommands::Today) => SourceCommand::Today,
+            Some(KimiCommands::Session) => SourceCommand::Session,
+            Some(KimiCommands::Project) => SourceCommand::Project,
+            Some(KimiCommands::Statusline) => SourceCommand::Statusline,
+        }
+    }
+}
+
 /// Parsed command with optional source hint from subcommand routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ParsedCommand {
@@ -192,6 +232,10 @@ pub(crate) fn parse_command(cmd: Option<&Commands>) -> ParsedCommand {
         },
         Some(Commands::Grok { command }) => ParsedCommand {
             source_hint: Some("grok"),
+            command: SourceCommand::from(command),
+        },
+        Some(Commands::Kimi { command }) => ParsedCommand {
+            source_hint: Some("kimi"),
             command: SourceCommand::from(command),
         },
         Some(cmd) => ParsedCommand {
@@ -232,6 +276,15 @@ mod tests {
         }));
         assert_eq!(parsed.command, SourceCommand::Project);
         assert_eq!(parsed.source_hint, Some("grok"));
+    }
+
+    #[test]
+    fn parse_command_kimi_sets_source_hint() {
+        let parsed = parse_command(Some(&Commands::Kimi {
+            command: Some(KimiCommands::Project),
+        }));
+        assert_eq!(parsed.command, SourceCommand::Project);
+        assert_eq!(parsed.source_hint, Some("kimi"));
     }
 
     #[test]

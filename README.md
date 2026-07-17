@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics for Claude Code, OpenAI Codex, Cursor, and Grok logs.
+`ccstats` is a fast CLI for token and cost usage analytics for Claude Code, OpenAI Codex, Cursor, Grok, and Kimi Code logs.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -17,6 +17,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - OpenAI Codex support (`~/.codex/sessions/`)
 - Experimental Cursor support (`Cursor/User/globalStorage/state.vscdb`)
 - Grok support (`~/.grok/sessions/`)
+- Kimi Code support (`~/.kimi-code/sessions/`)
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
@@ -100,6 +101,24 @@ ccstats grok
 
 # Same source via alias
 ccstats daily --source gx
+```
+
+## Quick Start (Kimi Code)
+
+Kimi Code support reads per-turn `usage.record` entries from wire logs under `~/.kimi-code/sessions/`, including sub-agent usage, and reports actual input/output/cache token usage per turn.
+
+```bash
+# Install
+brew install majiayu000/tap/ccstats
+
+# Today's usage and cost
+ccstats kimi today
+
+# Daily breakdown
+ccstats kimi
+
+# Same source via alias
+ccstats daily --source km
 ```
 
 ## Crate Documentation
@@ -310,6 +329,45 @@ Current limitations:
 - ccstats reports Grok context tokens as input tokens and leaves output, cache creation, cache read, and reasoning token fields at zero.
 - Grok 5-hour billing blocks are not supported.
 
+### Kimi Code
+
+```bash
+# Today's Kimi Code usage and cost
+ccstats kimi today
+
+# Daily Kimi Code breakdown
+ccstats kimi
+
+# Weekly Kimi Code summary
+ccstats kimi weekly
+
+# By session
+ccstats kimi session
+
+# By project
+ccstats kimi project
+
+# Kimi alias
+ccstats daily --source km
+```
+
+By default, ccstats reads Kimi Code wire logs under:
+
+- `~/.kimi-code/sessions/*/*/agents/*/wire.jsonl` (main and sub-agent per-turn `usage.record` entries)
+- `~/.kimi-code/session_index.jsonl` for session-to-project mapping
+
+You can override the Kimi Code home directory with `KIMI_CODE_HOME`:
+
+```bash
+KIMI_CODE_HOME="/path/to/.kimi-code" ccstats kimi
+```
+
+Current limitations:
+
+- Kimi Code subscription models (e.g. `kimi-code/k3`) have no public per-token pricing; costs use fallback estimates based on Moonshot's official `kimi-k2.6` API rates and are marked as `fallback` in structured output. Use `--strict-pricing` to show N/A instead.
+- Cache creation tokens are reported but priced at $0 by the Kimi fallback estimate (Moonshot does not publish a separate cache-creation rate).
+- Kimi 5-hour billing blocks and tool-call statistics are not supported.
+
 ### Common Options
 
 ```bash
@@ -340,6 +398,10 @@ ccstats daily --source cur
 # Grok source and alias
 ccstats daily --source grok
 ccstats daily --source gx
+
+# Kimi Code source and alias
+ccstats daily --source kimi
+ccstats daily --source km
 
 # Offline mode (use cached pricing)
 ccstats today -O
@@ -401,7 +463,7 @@ Supported keys:
 | `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
 | `locale` | string | Locale used for number formatting, such as `en` or `de` |
 | `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
-| `source` | string | Source name or alias such as `claude`, `codex`, `cursor`, `grok`, or `all` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `cursor`, `grok`, `kimi`, or `all` |
 
 Source root env overrides are independent of config keys:
 
@@ -411,6 +473,7 @@ Source root env overrides are independent of config keys:
 | OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
 | Cursor | `CURSOR_HOME` | Cursor `User` directory | Cursor `User` under platform app/config data dirs |
 | Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
+| Kimi Code | `KIMI_CODE_HOME` | Kimi Code root containing `sessions/` | `~/.kimi-code` |
 
 ### Session CSV Columns
 
@@ -453,6 +516,7 @@ Warning: ignored <N> malformed records
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor (experimental) | Cursor `User/globalStorage/state.vscdb` | `CURSOR_HOME` | Local SQLite `tokenCount` fields only |
 | Grok | `~/.grok/sessions/` | `GROK_HOME` | Context-token session summaries, Projects |
+| Kimi Code | `~/.kimi-code/sessions/` | `KIMI_CODE_HOME` | Per-turn usage records, Projects, Cache tokens |
 
 ## Architecture
 
