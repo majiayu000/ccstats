@@ -7,6 +7,7 @@ mod claude;
 mod codex;
 mod cursor;
 mod grok;
+mod kimi;
 mod loader;
 mod registry;
 

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Add Kimi Code usage and cost statistics from `~/.kimi-code/sessions` wire logs, available through `ccstats kimi`, `--source kimi`, and alias `km`.
+- Add Kimi Code daily, weekly, monthly, today, session, project, and statusline views using the existing output formats, including sub-agent usage and cache token fields.
+- Add Moonshot/Kimi fallback pricing for `kimi-code/*` subscription models based on official `kimi-k2.6` API reference rates.
+- Add Rust SDK source selection for Kimi Code usage summaries.
+
 ## [0.3.0] - 2026-07-16
 
 ### Added

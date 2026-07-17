@@ -8,6 +8,7 @@ use super::claude::ClaudeSource;
 use super::codex::CodexSource;
 use super::cursor::CursorSource;
 use super::grok::GrokSource;
+use super::kimi::KimiSource;
 use super::{BoxedSource, Source};
 
 /// Pseudo-source that aggregates every registered source.
@@ -20,6 +21,7 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(CodexSource::new()),
         Box::new(CursorSource::new()),
         Box::new(GrokSource::new()),
+        Box::new(KimiSource::new()),
         // Add new sources here:
         // Box::new(WindsurfSource::new()),
     ]
@@ -127,6 +129,7 @@ mod tests {
         assert!(get_source("codex").is_some());
         assert!(get_source("cursor").is_some());
         assert!(get_source("grok").is_some());
+        assert!(get_source("kimi").is_some());
         assert!(get_source("unknown").is_none());
     }
 
@@ -146,6 +149,7 @@ mod tests {
         assert!(get_source("Codex").is_some());
         assert!(get_source("Cursor").is_some());
         assert!(get_source("Grok").is_some());
+        assert!(get_source("Kimi").is_some());
         assert!(get_source("CC").is_some());
     }
 
@@ -178,6 +182,14 @@ mod tests {
         let source = get_source("grok").unwrap();
         assert_eq!(source.name(), "grok");
         assert_eq!(source.display_name(), "Grok");
+        assert!(!source.aliases().is_empty());
+    }
+
+    #[test]
+    fn test_kimi_source_properties() {
+        let source = get_source("kimi").unwrap();
+        assert_eq!(source.name(), "kimi");
+        assert_eq!(source.display_name(), "Kimi Code");
         assert!(!source.aliases().is_empty());
     }
 
@@ -234,9 +246,21 @@ mod tests {
     }
 
     #[test]
+    fn test_kimi_capabilities() {
+        let source = get_source("kimi").unwrap();
+        let caps = source.capabilities();
+        assert!(caps.has_projects);
+        assert!(!caps.has_billing_blocks);
+        assert!(caps.has_cache_creation);
+        assert!(!caps.needs_dedup);
+        assert!(!caps.has_reasoning_tokens);
+        assert!(!caps.has_tool_calls);
+    }
+
+    #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 4);
+        assert_eq!(SOURCES.len(), 5);
     }
 
     #[test]
@@ -268,6 +292,7 @@ mod tests {
         assert_eq!(suggest_source("code"), Some("codex"));
         assert_eq!(suggest_source("curs"), Some("cursor"));
         assert_eq!(suggest_source("gro"), Some("grok"));
+        assert_eq!(suggest_source("kim"), Some("kimi"));
         assert_eq!(suggest_source("claud"), Some("claude"));
         assert_eq!(suggest_source("al"), Some("all"));
         let codex_alias = get_source("codex").unwrap().aliases()[0];

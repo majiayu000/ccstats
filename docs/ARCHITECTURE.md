@@ -197,6 +197,7 @@ Source 根目录仍由环境变量覆盖：
 | OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
 | Cursor | `CURSOR_HOME` | Cursor `User` directory | Platform Cursor `User` directory |
 | Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
+| Kimi Code | `KIMI_CODE_HOME` | Kimi Code root containing `sessions/` | `~/.kimi-code` |
 
 ## 添加新数据源
 

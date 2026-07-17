@@ -22,6 +22,17 @@ fn xai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     }
 }
 
+fn moonshot_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
+    ModelPricing {
+        input,
+        output,
+        reasoning_output: output,
+        cache_create: 0.0,
+        cache_create_1h: 0.0,
+        cache_read,
+    }
+}
+
 pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
     let model_lower = model.to_lowercase();
     Some(
@@ -65,6 +76,11 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
             xai_pricing(1e-6, 2e-6, 0.2e-6)
         } else if model_lower.contains("grok") {
             xai_pricing(1.25e-6, 2.5e-6, 0.2e-6)
+        } else if model_lower.contains("kimi") {
+            // Kimi Code subscription models (e.g. `kimi-code/k3`) have no public
+            // per-token price; use Moonshot's official `kimi-k2.6` API rates as
+            // the reference estimate.
+            moonshot_pricing(0.95e-6, 4e-6, 0.16e-6)
         } else if model_lower.contains("gpt-5.4-mini") {
             openai_pricing(0.75e-6, 4.5e-6, 0.075e-6)
         } else if model_lower.contains("gpt-5.4-nano") {
@@ -138,6 +154,15 @@ mod tests {
         assert_eq!(p.input, 1.25e-6);
         assert_eq!(p.output, 2.5e-6);
         assert_eq!(p.cache_read, 0.2e-6);
+    }
+
+    #[test]
+    fn test_fallback_kimi_code_model() {
+        let p = fallback_pricing("kimi-code/k3").unwrap();
+        assert_eq!(p.input, 0.95e-6);
+        assert_eq!(p.output, 4e-6);
+        assert_eq!(p.cache_read, 0.16e-6);
+        assert_eq!(p.cache_create, 0.0);
     }
 
     #[test]
