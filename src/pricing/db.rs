@@ -12,7 +12,7 @@ use super::source::{CacheMetadata, PricingSource};
 use super::types::ModelPricing;
 
 #[derive(Debug, Clone)]
-enum ResolvedPricing {
+pub(super) enum ResolvedPricing {
     Known {
         pricing: ModelPricing,
         source: PricingSource,
@@ -29,10 +29,10 @@ pub(crate) enum PricingLoadError {
 /// Pricing database loaded from `LiteLLM` or cache
 #[derive(Debug)]
 pub(crate) struct PricingDb {
-    models: HashMap<String, ModelPricing>,
-    resolved: RefCell<HashMap<String, ResolvedPricing>>,
+    pub(super) models: HashMap<String, ModelPricing>,
+    pub(super) resolved: RefCell<HashMap<String, ResolvedPricing>>,
     strict_unknown: bool,
-    source: PricingSource,
+    pub(super) source: PricingSource,
     cache_metadata: Option<CacheMetadata>,
 }
 

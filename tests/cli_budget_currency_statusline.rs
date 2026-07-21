@@ -242,6 +242,41 @@ fn strict_pricing_table_marks_unknown_source() {
 }
 
 #[test]
+fn debug_reports_unknown_model_pricing_resolution() {
+    let root = unique_temp_dir("debug-pricing-resolution");
+    let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
+    write_file(
+        &claude_file,
+        r#"{"timestamp":"2026-02-06T12:00:00Z","message":{"id":"msg_1","model":"mystery-model","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}}}
+"#,
+    );
+
+    let (ok, _stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-O",
+            "--strict-pricing",
+            "--debug",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let stderr = String::from_utf8(stderr).expect("utf8 stderr");
+    assert!(
+        stderr.contains("Pricing: mystery-model -> no match (unknown)"),
+        "stderr: {stderr}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn invalid_currency_rejects_missing_rate() {
     let root = unique_temp_dir("invalid-currency-rejected");
     let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");

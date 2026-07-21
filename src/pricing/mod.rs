@@ -2,6 +2,7 @@ mod cache;
 mod cost;
 pub(crate) mod currency;
 mod db;
+mod diagnostics;
 mod provider;
 mod resolver;
 mod source;

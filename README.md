@@ -207,6 +207,11 @@ ccstats today -j
 
 # Debug mode (timing info)
 ccstats today --debug
+
+# Debug model pricing resolution (written to stderr)
+# Example: Pricing: glm-5.2 -> glm-5.2 (live)
+# Unknown models are reported as: Pricing: <model> -> no match (unknown)
+ccstats today --breakdown --strict-pricing --debug
 ```
 
 By default, ccstats checks Claude Code logs under `~/.claude/projects/`.
