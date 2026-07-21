@@ -299,4 +299,10 @@ pub fn run_cli() {
             budget_as_of,
         },
     );
+
+    if cli.debug && needs_pricing {
+        for diagnostic in pricing_db.pricing_diagnostics() {
+            eprintln!("{diagnostic}");
+        }
+    }
 }
