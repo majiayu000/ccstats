@@ -15,6 +15,8 @@ use crate::core::RawEntry;
 use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
+use super::config::CodexScope;
+
 const DEFAULT_CODEX_DIR: &str = ".codex";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
 const SESSION_SUBDIR: &str = "sessions";
@@ -41,6 +43,8 @@ struct Payload<'a> {
     id: Option<&'a str>,
     info: Option<TokenInfo<'a>>,
     model: Option<&'a str>,
+    source: Option<serde_json::Value>,
+    thread_source: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -268,6 +272,7 @@ struct CodexParseContext<'a> {
     timezone: Timezone,
     debug: bool,
     identity: CodexFileIdentity,
+    scope: CodexScope,
 }
 
 struct CodexParseState {
@@ -276,6 +281,7 @@ struct CodexParseState {
     previous_totals: Option<UsageTotals>,
     current_model: Option<String>,
     logical_session_key: String,
+    session_origin: CodexSessionOrigin,
 }
 
 impl CodexParseState {
@@ -286,6 +292,7 @@ impl CodexParseState {
             previous_totals: None,
             current_model: None,
             logical_session_key: session_key,
+            session_origin: CodexSessionOrigin::Unknown,
         }
     }
 
@@ -297,10 +304,11 @@ impl CodexParseState {
     }
 }
 
-pub(super) fn parse_codex_file_with_debug(
+pub(super) fn parse_codex_file_with_scope(
     path: &Path,
     timezone: Timezone,
     debug: bool,
+    scope: CodexScope,
 ) -> ParseOutput {
     let identity = CodexFileIdentity::from_path(path);
     let context = CodexParseContext {
@@ -308,6 +316,7 @@ pub(super) fn parse_codex_file_with_debug(
         timezone,
         debug,
         identity,
+        scope,
     };
     let file = match open_codex_file(&context) {
         Ok(file) => file,
@@ -394,19 +403,20 @@ fn process_codex_line(
     };
 
     match raw_entry.entry_type {
-        Some("session_meta") => update_logical_session_key(raw_entry.payload.as_ref(), state),
+        Some("session_meta") => update_session_metadata(raw_entry.payload.as_ref(), state),
         Some("turn_context") => update_current_model(raw_entry.payload.as_ref(), state),
         Some("event_msg") => process_event_message(&raw_entry, line_no, context, state),
         _ => {}
     }
 }
 
-fn update_logical_session_key(payload: Option<&Payload<'_>>, state: &mut CodexParseState) {
+fn update_session_metadata(payload: Option<&Payload<'_>>, state: &mut CodexParseState) {
     if let Some(payload) = payload
         && let Some(id) = non_empty_model(payload.id)
     {
         state.logical_session_key = format!("codex-session:{id}");
     }
+    state.session_origin = session_origin_from_payload(payload);
 }
 
 fn update_current_model(payload: Option<&Payload<'_>>, state: &mut CodexParseState) {
@@ -429,6 +439,9 @@ fn process_event_message(
     let Some("token_count") = payload.payload_type else {
         return;
     };
+    if !scope_includes_origin(context.scope, state.session_origin) {
+        return;
+    }
     let Some(timestamp) = raw_entry.timestamp else {
         return;
     };
@@ -442,6 +455,62 @@ fn process_event_message(
 
     let model = resolve_entry_model(payload, state);
     push_codex_entry(timestamp, utc_dt, total, delta, model, context, state);
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum CodexSessionOrigin {
+    Interactive,
+    Exec,
+    Subagent,
+    #[default]
+    Unknown,
+}
+
+fn scope_includes_origin(scope: CodexScope, origin: CodexSessionOrigin) -> bool {
+    match scope {
+        CodexScope::All => true,
+        CodexScope::Interactive => origin == CodexSessionOrigin::Interactive,
+        CodexScope::Exec => origin == CodexSessionOrigin::Exec,
+        CodexScope::Subagent => origin == CodexSessionOrigin::Subagent,
+    }
+}
+
+fn session_origin_from_payload(payload: Option<&Payload<'_>>) -> CodexSessionOrigin {
+    let Some(payload) = payload else {
+        return CodexSessionOrigin::Unknown;
+    };
+
+    if payload
+        .thread_source
+        .is_some_and(|source| source.eq_ignore_ascii_case("subagent"))
+    {
+        return CodexSessionOrigin::Subagent;
+    }
+
+    session_origin_from_source(payload.source.as_ref())
+}
+
+fn session_origin_from_source(source: Option<&serde_json::Value>) -> CodexSessionOrigin {
+    match source {
+        Some(serde_json::Value::String(source)) => {
+            match source.trim().to_ascii_lowercase().as_str() {
+                "cli" | "interactive" => CodexSessionOrigin::Interactive,
+                "exec" => CodexSessionOrigin::Exec,
+                "subagent" => CodexSessionOrigin::Subagent,
+                _ => CodexSessionOrigin::Unknown,
+            }
+        }
+        Some(serde_json::Value::Object(source)) if source.contains_key("subagent") => {
+            CodexSessionOrigin::Subagent
+        }
+        Some(serde_json::Value::Object(source)) if source.contains_key("exec") => {
+            CodexSessionOrigin::Exec
+        }
+        Some(serde_json::Value::Object(source)) if source.contains_key("cli") => {
+            CodexSessionOrigin::Interactive
+        }
+        _ => CodexSessionOrigin::Unknown,
+    }
 }
 
 fn next_usage_delta(

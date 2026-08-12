@@ -3,6 +3,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const SOURCE_ENV_VARS: &[&str] = &[
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "CURSOR_HOME",
+    "GROK_HOME",
+    "KIMI_CODE_HOME",
+];
+
 pub(crate) fn unique_temp_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -63,6 +71,9 @@ fn resolve_ccstats_binary() -> PathBuf {
 pub(crate) fn run_ccstats(args: &[&str], envs: &[(&str, &Path)]) -> (bool, Vec<u8>, Vec<u8>) {
     let mut cmd = Command::new(resolve_ccstats_binary());
     cmd.args(args);
+    for key in SOURCE_ENV_VARS {
+        cmd.env_remove(key);
+    }
     for (k, v) in envs {
         cmd.env(k, v);
     }

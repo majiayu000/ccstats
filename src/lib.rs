@@ -45,7 +45,7 @@ use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
 use pricing::{CurrencyConverter, PricingDb};
-use source::{ALL_SOURCES, get_source, source_choices, suggest_source};
+use source::{ALL_SOURCES, CodexScope, CodexSource, get_source, source_choices, suggest_source};
 use utils::{Timezone, parse_date};
 
 enum TimezoneSource {
@@ -236,6 +236,25 @@ fn load_currency_converter(
     })
 }
 
+fn validate_codex_scope(scope: CodexScope, source_name: &str) {
+    if scope == CodexScope::All {
+        return;
+    }
+
+    if source_name.eq_ignore_ascii_case(ALL_SOURCES) {
+        eprintln!("Error: --codex-scope only supports the Codex source");
+        std::process::exit(1);
+    }
+
+    let Some(source) = get_source(source_name) else {
+        return;
+    };
+    if source.name() != "codex" {
+        eprintln!("Error: --codex-scope only supports the Codex source");
+        std::process::exit(1);
+    }
+}
+
 fn dispatch_command(source_name: &str, source_cmd: SourceCommand, context: &CommandContext<'_>) {
     if source_name.eq_ignore_ascii_case(ALL_SOURCES) {
         return handle_all_sources_command(source_cmd, context);
@@ -245,6 +264,11 @@ fn dispatch_command(source_name: &str, source_cmd: SourceCommand, context: &Comm
         eprintln!("{}", unknown_source_message(source_name));
         std::process::exit(1);
     };
+
+    if source.name() == "codex" {
+        let scoped_source = CodexSource::with_scope(context.cli.codex_scope);
+        return handle_source_command(&scoped_source, source_cmd, context);
+    }
 
     handle_source_command(source, source_cmd, context);
 }
@@ -283,6 +307,7 @@ pub fn run_cli() {
         cli.source.as_deref(),
         source_cmd,
     );
+    validate_codex_scope(cli.codex_scope, source_name);
     let currency_converter = load_currency_converter(&cli, needs_pricing, is_statusline);
 
     dispatch_command(

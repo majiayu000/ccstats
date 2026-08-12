@@ -8,6 +8,7 @@ use clap::{Parser, ValueEnum};
 
 use crate::config::{Config, ConfigColorMode, ConfigCostMode, ConfigSortOrder};
 use crate::output::OutputFormat;
+use crate::source::CodexScope;
 
 use super::commands::Commands;
 
@@ -130,6 +131,10 @@ pub(crate) struct Cli {
     /// Data source name or alias (e.g., "claude", "codex", "cursor", "grok", "kimi", "all", "cc", "cx", "cur", "gx", "km")
     #[arg(long, global = true, value_name = "SOURCE")]
     pub(crate) source: Option<String>,
+
+    /// Filter Codex sessions by origin
+    #[arg(long, global = true, value_enum, default_value_t = CodexScope::All)]
+    pub(crate) codex_scope: CodexScope,
 }
 
 impl Cli {
