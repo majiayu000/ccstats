@@ -4,17 +4,58 @@
 
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
+
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::parser::{find_codex_files, parse_codex_file_with_debug};
+use super::parser::{find_codex_files, parse_codex_file_with_scope};
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
+pub(crate) enum CodexScope {
+    /// Include every Codex session origin.
+    #[default]
+    All,
+    /// Include interactive Codex CLI sessions only.
+    Interactive,
+    /// Include `codex exec` sessions only.
+    Exec,
+    /// Include spawned subagent sessions only.
+    Subagent,
+}
+
+impl CodexScope {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            CodexScope::All => "all",
+            CodexScope::Interactive => "interactive",
+            CodexScope::Exec => "exec",
+            CodexScope::Subagent => "subagent",
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            CodexScope::All => "all sessions",
+            CodexScope::Interactive => "interactive CLI sessions",
+            CodexScope::Exec => "exec sessions",
+            CodexScope::Subagent => "subagent sessions",
+        }
+    }
+}
 
 /// Codex data source
-pub(crate) struct CodexSource;
+pub(crate) struct CodexSource {
+    scope: CodexScope,
+}
 
 impl CodexSource {
     pub(crate) fn new() -> Self {
-        Self
+        Self::with_scope(CodexScope::All)
+    }
+
+    pub(crate) fn with_scope(scope: CodexScope) -> Self {
+        Self { scope }
     }
 }
 
@@ -55,6 +96,6 @@ impl Source for CodexSource {
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-        parse_codex_file_with_debug(path, timezone, debug)
+        parse_codex_file_with_scope(path, timezone, debug, self.scope)
     }
 }

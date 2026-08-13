@@ -107,6 +107,8 @@ pub(crate) trait Source: Send + Sync {
 /// Box type for dynamic dispatch
 pub(crate) type BoxedSource = Box<dyn Source>;
 
+pub(crate) use codex::{CodexScope, CodexSource};
+
 // Re-export registry functions
 pub(crate) use registry::{ALL_SOURCES, all_sources, get_source, source_choices, suggest_source};
 

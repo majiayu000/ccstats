@@ -2,7 +2,19 @@ mod common;
 
 use common::{run_ccstats, unique_temp_dir, write_file};
 use serde_json::Value;
-use std::fs;
+use std::{fs, path::Path};
+
+fn write_codex_token_session(codex_home: &Path, file_name: &str, meta_payload: &str, input: i64) {
+    let session_file = codex_home.join("sessions").join(file_name);
+    write_file(
+        &session_file,
+        &format!(
+            r#"{{"timestamp":"2026-02-06T10:00:00Z","type":"session_meta","payload":{meta_payload}}}
+{{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":{input},"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":{input}}},"last_token_usage":{{"input_tokens":{input},"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":{input}}},"model":"gpt-5"}}}}}}
+"#
+        ),
+    );
+}
 
 #[test]
 fn codex_daily_json_reads_session_data() {
@@ -42,6 +54,159 @@ fn codex_daily_json_reads_session_data() {
     // After separating: non_cached_input=80, output=20, reasoning=10, cache_read=20 → total=130
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(130));
     assert_eq!(arr[0]["cache_hit_rate"].as_f64(), Some(20.0));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_scope_filters_daily_json_by_session_origin() {
+    let root = unique_temp_dir("codex-scope-filter");
+    let codex_home = root.join("codex-home");
+    write_codex_token_session(
+        &codex_home,
+        "interactive.jsonl",
+        r#"{"id":"interactive","source":"cli","thread_source":"user"}"#,
+        10,
+    );
+    write_codex_token_session(
+        &codex_home,
+        "exec.jsonl",
+        r#"{"id":"exec","source":"exec","thread_source":"user"}"#,
+        20,
+    );
+    write_codex_token_session(
+        &codex_home,
+        "review-subagent.jsonl",
+        r#"{"id":"review-subagent","source":{"subagent":"review"},"thread_source":"user"}"#,
+        30,
+    );
+    write_codex_token_session(
+        &codex_home,
+        "spawned-subagent.jsonl",
+        r#"{"id":"spawned-subagent","source":{"future":"shape"},"thread_source":"subagent"}"#,
+        40,
+    );
+    write_codex_token_session(
+        &codex_home,
+        "unknown.jsonl",
+        r#"{"id":"unknown","source":{"future":"shape"},"thread_source":"user"}"#,
+        50,
+    );
+
+    let cases = [
+        (None, None, 150),
+        (Some("interactive"), Some("interactive"), 10),
+        (Some("exec"), Some("exec"), 20),
+        (Some("subagent"), Some("subagent"), 70),
+    ];
+
+    for (scope_arg, expected_scope, expected_total) in cases {
+        let mut args = vec![
+            "codex",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ];
+        if let Some(scope) = scope_arg {
+            args.push("--codex-scope");
+            args.push(scope);
+        }
+
+        let (ok, stdout, stderr) = run_ccstats(&args, &[("CODEX_HOME", &codex_home)]);
+        assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+        let json: Value = serde_json::from_slice(&stdout).expect("json");
+        let arr = json.as_array().expect("array output");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["codex_scope"].as_str(), expected_scope);
+        assert_eq!(arr[0]["total_tokens"].as_i64(), Some(expected_total));
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_scope_csv_keeps_the_header_first_and_appends_scope_metadata() {
+    let root = unique_temp_dir("codex-scope-csv");
+    let codex_home = root.join("codex-home");
+    write_codex_token_session(
+        &codex_home,
+        "exec.jsonl",
+        r#"{"id":"exec","source":"exec","thread_source":"user"}"#,
+        20,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--codex-scope",
+            "exec",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let csv = String::from_utf8(stdout).expect("utf8 csv");
+    let lines: Vec<_> = csv.lines().collect();
+    assert!(lines[0].starts_with("date,"), "header: {}", lines[0]);
+    assert!(lines[1].ends_with(",20"), "data row: {}", lines[1]);
+    assert_eq!(lines.last(), Some(&"# codex_scope,exec"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn codex_scope_is_rejected_for_non_codex_sources() {
+    let root = unique_temp_dir("codex-scope-reject");
+
+    let (ok, _stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "claude",
+            "--codex-scope",
+            "exec",
+            "-O",
+            "--no-cost",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(!ok, "expected non-Codex scope failure");
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(stderr.contains("--codex-scope only supports the Codex source"));
+
+    let (ok, _stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "all",
+            "--codex-scope",
+            "exec",
+            "-O",
+            "--no-cost",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(!ok, "expected all-source scope failure");
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(stderr.contains("--codex-scope only supports the Codex source"));
 
     let _ = fs::remove_dir_all(root);
 }

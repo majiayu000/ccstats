@@ -170,6 +170,8 @@ fn test_extract_model_from_info_model() {
         payload_type: None,
         id: None,
         model: Some("fallback-model"),
+        source: None,
+        thread_source: None,
         info: Some(TokenInfo {
             total_token_usage: None,
             last_token_usage: None,
@@ -189,6 +191,8 @@ fn test_extract_model_falls_back_to_model_name() {
         payload_type: None,
         id: None,
         model: Some("fallback"),
+        source: None,
+        thread_source: None,
         info: Some(TokenInfo {
             total_token_usage: None,
             last_token_usage: None,
@@ -206,6 +210,8 @@ fn test_extract_model_falls_back_to_metadata() {
         payload_type: None,
         id: None,
         model: Some("fallback"),
+        source: None,
+        thread_source: None,
         info: Some(TokenInfo {
             total_token_usage: None,
             last_token_usage: None,
@@ -225,6 +231,8 @@ fn test_extract_model_falls_back_to_payload_model() {
         payload_type: None,
         id: None,
         model: Some("payload-model"),
+        source: None,
+        thread_source: None,
         info: Some(TokenInfo {
             total_token_usage: None,
             last_token_usage: None,
@@ -242,6 +250,8 @@ fn test_extract_model_no_info_uses_payload() {
         payload_type: None,
         id: None,
         model: Some("payload-only"),
+        source: None,
+        thread_source: None,
         info: None,
     };
     assert_eq!(extract_model(&payload), Some("payload-only".to_string()));
@@ -253,6 +263,8 @@ fn test_extract_model_all_none_returns_none() {
         payload_type: None,
         id: None,
         model: None,
+        source: None,
+        thread_source: None,
         info: None,
     };
     assert_eq!(extract_model(&payload), None);
@@ -264,6 +276,8 @@ fn test_extract_model_empty_strings_skipped() {
         payload_type: None,
         id: None,
         model: Some("real-model"),
+        source: None,
+        thread_source: None,
         info: Some(TokenInfo {
             total_token_usage: None,
             last_token_usage: None,
@@ -273,4 +287,60 @@ fn test_extract_model_empty_strings_skipped() {
         }),
     };
     assert_eq!(extract_model(&payload), Some("real-model".to_string()));
+}
+
+#[test]
+fn codex_origin_parses_source_strings() {
+    let cli: Payload<'_> =
+        serde_json::from_str(r#"{"source":"cli","thread_source":"user"}"#).unwrap();
+    let exec: Payload<'_> =
+        serde_json::from_str(r#"{"source":"exec","thread_source":"user"}"#).unwrap();
+
+    assert_eq!(
+        session_origin_from_payload(Some(&cli)),
+        CodexSessionOrigin::Interactive
+    );
+    assert_eq!(
+        session_origin_from_payload(Some(&exec)),
+        CodexSessionOrigin::Exec
+    );
+}
+
+#[test]
+fn codex_origin_parses_tagged_subagent_source_shapes() {
+    let review: Payload<'_> =
+        serde_json::from_str(r#"{"source":{"subagent":"review"},"thread_source":"user"}"#).unwrap();
+    let spawned: Payload<'_> = serde_json::from_str(
+        r#"{"source":{"subagent":{"thread_spawn":{"id":"child"}}},"thread_source":"user"}"#,
+    )
+    .unwrap();
+    let thread_source: Payload<'_> =
+        serde_json::from_str(r#"{"source":{"future":"shape"},"thread_source":"subagent"}"#)
+            .unwrap();
+
+    assert_eq!(
+        session_origin_from_payload(Some(&review)),
+        CodexSessionOrigin::Subagent
+    );
+    assert_eq!(
+        session_origin_from_payload(Some(&spawned)),
+        CodexSessionOrigin::Subagent
+    );
+    assert_eq!(
+        session_origin_from_payload(Some(&thread_source)),
+        CodexSessionOrigin::Subagent
+    );
+}
+
+#[test]
+fn codex_origin_keeps_unknown_shapes_out_of_named_scopes() {
+    let unknown: Payload<'_> =
+        serde_json::from_str(r#"{"source":{"future":"shape"},"thread_source":"user"}"#).unwrap();
+    let origin = session_origin_from_payload(Some(&unknown));
+
+    assert_eq!(origin, CodexSessionOrigin::Unknown);
+    assert!(scope_includes_origin(CodexScope::All, origin));
+    assert!(!scope_includes_origin(CodexScope::Interactive, origin));
+    assert!(!scope_includes_origin(CodexScope::Exec, origin));
+    assert!(!scope_includes_origin(CodexScope::Subagent, origin));
 }
