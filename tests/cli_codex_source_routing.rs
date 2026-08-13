@@ -133,6 +133,46 @@ fn codex_scope_filters_daily_json_by_session_origin() {
 }
 
 #[test]
+fn codex_scope_csv_keeps_the_header_first_and_appends_scope_metadata() {
+    let root = unique_temp_dir("codex-scope-csv");
+    let codex_home = root.join("codex-home");
+    write_codex_token_session(
+        &codex_home,
+        "exec.jsonl",
+        r#"{"id":"exec","source":"exec","thread_source":"user"}"#,
+        20,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "codex",
+            "daily",
+            "--csv",
+            "-O",
+            "--no-cost",
+            "--codex-scope",
+            "exec",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let csv = String::from_utf8(stdout).expect("utf8 csv");
+    let lines: Vec<_> = csv.lines().collect();
+    assert!(lines[0].starts_with("date,"), "header: {}", lines[0]);
+    assert!(lines[1].ends_with(",20"), "data row: {}", lines[1]);
+    assert_eq!(lines.last(), Some(&"# codex_scope,exec"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn codex_scope_is_rejected_for_non_codex_sources() {
     let root = unique_temp_dir("codex-scope-reject");
 

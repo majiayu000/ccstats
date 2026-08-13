@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::time::Instant;
 
 use crate::cli::{Cli, SourceCommand, TopDimension};
@@ -98,11 +99,14 @@ fn annotate_json_codex_scope(json: &str, scope: Option<CodexScope>) -> String {
     serde_json::to_string(&value).unwrap_or_else(|_| json.to_string())
 }
 
-fn annotate_csv_codex_scope(csv: String, scope: Option<CodexScope>) -> String {
-    match scope {
-        Some(scope) => format!("# codex_scope,{}\n{csv}", scope.as_str()),
-        None => csv,
+fn annotate_csv_codex_scope(mut csv: String, scope: Option<CodexScope>) -> String {
+    if let Some(scope) = scope {
+        if !csv.ends_with('\n') {
+            csv.push('\n');
+        }
+        let _ = writeln!(csv, "# codex_scope,{}", scope.as_str());
     }
+    csv
 }
 
 fn print_codex_scope_note(scope: Option<CodexScope>) {
