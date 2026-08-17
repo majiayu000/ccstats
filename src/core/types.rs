@@ -20,6 +20,15 @@ pub(crate) struct Stats {
     pub(crate) count: i64,
     pub(crate) skipped_chunks: i64,
     pub(crate) estimated_proxy: CostTokens,
+    /// Provider-reported USD cost that bypasses the local price list.
+    #[serde(default)]
+    pub(crate) recorded_cost_usd: f64,
+    /// Number of source records that contributed `recorded_cost_usd`.
+    #[serde(default)]
+    pub(crate) recorded_cost_entries: i64,
+    /// Tokens that still need local pricing (records without a provider cost).
+    #[serde(default)]
+    pub(crate) priced_tokens: CostTokens,
 }
 
 impl Stats {
@@ -33,6 +42,9 @@ impl Stats {
         self.count += other.count;
         self.skipped_chunks += other.skipped_chunks;
         self.estimated_proxy.add(&other.estimated_proxy);
+        self.recorded_cost_usd += other.recorded_cost_usd;
+        self.recorded_cost_entries += other.recorded_cost_entries;
+        self.priced_tokens.add(&other.priced_tokens);
     }
 
     /// Total tokens for display purposes
@@ -169,7 +181,7 @@ impl CostTokens {
         self.count += other.count;
     }
 
-    fn saturating_sub(self, other: &Self) -> Self {
+    pub(crate) fn saturating_sub(self, other: &Self) -> Self {
         Self {
             input_tokens: (self.input_tokens - other.input_tokens).max(0),
             output_tokens: (self.output_tokens - other.output_tokens).max(0),
@@ -281,10 +293,21 @@ pub(crate) struct RawEntry {
     /// Serving endpoint (native vs proxy); Claude-only, else `Unknown`.
     #[serde(default)]
     pub(crate) endpoint: Endpoint,
+    /// Number of model calls represented by this record. Defaults to 1.
+    #[serde(default = "default_call_count")]
+    pub(crate) call_count: i64,
+    /// Provider-reported USD cost for this record, when the source logs one.
+    #[serde(default)]
+    pub(crate) recorded_cost_usd: Option<f64>,
+}
+
+fn default_call_count() -> i64 {
+    1
 }
 
 impl RawEntry {
     pub(crate) fn to_stats(&self) -> Stats {
+        let call_count = self.call_count.max(1);
         let mut stats = Stats {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
@@ -292,12 +315,21 @@ impl RawEntry {
             cache_creation_1h: self.cache_creation_1h,
             cache_read: self.cache_read,
             reasoning_tokens: self.reasoning_tokens,
-            count: 1,
+            count: call_count,
             skipped_chunks: 0,
             estimated_proxy: CostTokens::default(),
+            recorded_cost_usd: 0.0,
+            recorded_cost_entries: 0,
+            priced_tokens: CostTokens::default(),
         };
         if self.cost_kind == CostKind::EstimatedProxy {
             stats.estimated_proxy = stats.cost_tokens();
+            stats.priced_tokens = stats.cost_tokens();
+        } else if let Some(recorded) = self.recorded_cost_usd {
+            stats.recorded_cost_usd = recorded.max(0.0);
+            stats.recorded_cost_entries = 1;
+        } else {
+            stats.priced_tokens = stats.cost_tokens();
         }
         stats
     }
@@ -381,6 +413,7 @@ mod tests {
             count: 1,
             skipped_chunks: 0,
             estimated_proxy: CostTokens::default(),
+            ..Default::default()
         }
     }
 
@@ -440,6 +473,7 @@ mod tests {
             count: 999,
             skipped_chunks: 42,
             estimated_proxy: CostTokens::default(),
+            ..Default::default()
         };
         assert_eq!(s.total_tokens(), 15);
     }
@@ -463,6 +497,7 @@ mod tests {
             count: 3,
             skipped_chunks: 5,
             estimated_proxy: CostTokens::default(),
+            ..Default::default()
         };
         a.add(&b);
         assert_eq!(a.input_tokens, 110);
@@ -542,6 +577,8 @@ mod tests {
             stop_reason: None,
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
+            call_count: 1,
+            recorded_cost_usd: None,
         };
         let s = entry.to_stats();
         assert_eq!(s.input_tokens, 100);
@@ -551,6 +588,38 @@ mod tests {
         assert_eq!(s.reasoning_tokens, 10);
         assert_eq!(s.count, 1);
         assert_eq!(s.skipped_chunks, 0);
+        assert_eq!(s.recorded_cost_entries, 0);
+        assert_eq!(s.priced_tokens.input_tokens, 100);
+    }
+
+    #[test]
+    fn raw_entry_to_stats_uses_call_count_and_recorded_cost() {
+        let entry = RawEntry {
+            timestamp: String::new(),
+            timestamp_ms: 0,
+            date_str: String::new(),
+            message_id: None,
+            session_key: String::new(),
+            session_id: String::new(),
+            project_path: String::new(),
+            model: String::new(),
+            input_tokens: 10,
+            output_tokens: 2,
+            cache_creation: 0,
+            cache_creation_1h: 0,
+            cache_read: 0,
+            reasoning_tokens: 0,
+            stop_reason: None,
+            cost_kind: CostKind::Real,
+            endpoint: Endpoint::Unknown,
+            call_count: 5,
+            recorded_cost_usd: Some(1.25),
+        };
+        let stats = entry.to_stats();
+        assert_eq!(stats.count, 5);
+        assert!((stats.recorded_cost_usd - 1.25).abs() < 1e-12);
+        assert_eq!(stats.recorded_cost_entries, 1);
+        assert!(!stats.priced_tokens.has_entries());
     }
 
     // --- DateFilter ---

@@ -35,7 +35,7 @@ pub enum UsageSource {
     Codex,
     /// Cursor composer usage data.
     Cursor,
-    /// Grok session signal summaries under `~/.grok/sessions`, or `GROK_HOME`.
+    /// Grok session usage under `~/.grok/sessions`, or `GROK_HOME`.
     Grok,
     /// Kimi Code wire logs under `~/.kimi-code/sessions`, or `KIMI_CODE_HOME`.
     Kimi,

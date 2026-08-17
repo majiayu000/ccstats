@@ -7,6 +7,12 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Report each resolved model's pricing lookup key and source in `--debug` output without changing structured stdout.
 
+### Changed
+- Read Grok `turn_completed.usage` from `updates.jsonl` as real per-turn token, call, and server-cost statistics. Context-token snapshots remain only as `estimated_proxy` fallback.
+
+### Fixed
+- Stop treating Grok `contextTokensUsed` session snapshots as cumulative input tokens, model calls, or billed cost.
+
 ## [0.4.0] - 2026-07-17
 
 ### Added

@@ -428,6 +428,9 @@ fn top_pricing_note(rows: &[TopRow]) -> Option<String> {
         crate::pricing::PricingSource::Fallback => {
             Some("Pricing source: fallback estimates.".to_string())
         }
+        crate::pricing::PricingSource::Recorded => {
+            Some("Pricing source: recorded provider cost.".to_string())
+        }
         crate::pricing::PricingSource::Unknown => {
             Some("Pricing source: unknown unpriced models.".to_string())
         }
@@ -488,6 +491,7 @@ mod tests {
             count,
             skipped_chunks: 0,
             estimated_proxy: crate::core::CostTokens::default(),
+            ..Default::default()
         }
     }
 
