@@ -7,6 +7,9 @@ const SOURCE_ENV_VARS: &[&str] = &[
     "CLAUDE_CONFIG_DIR",
     "CODEX_HOME",
     "CURSOR_HOME",
+    "CURSOR_USAGE_FILE",
+    "CURSOR_API_KEY",
+    "CURSOR_SESSION_TOKEN",
     "GROK_HOME",
     "KIMI_CODE_HOME",
 ];

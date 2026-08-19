@@ -580,6 +580,7 @@ mod tests {
             stop_reason: Some("end_turn".to_string()),
             cost_kind: crate::core::CostKind::Real,
             endpoint: crate::core::Endpoint::Unknown,
+            recorded_cost_usd: None,
         }
     }
 

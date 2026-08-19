@@ -15,7 +15,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Fast local analysis of usage JSONL logs
 - Claude Code support (`~/.claude/projects/`)
 - OpenAI Codex support (`~/.codex/sessions/`)
-- Experimental Cursor support (`Cursor/User/globalStorage/state.vscdb`)
+- Cursor usage API support (`CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN`)
 - Grok support (`~/.grok/sessions/`)
 - Kimi Code support (`~/.kimi-code/sessions/`)
 - Daily/weekly/monthly/project/session views
@@ -69,7 +69,7 @@ ccstats daily --source codex
 
 ## Quick Start (Cursor)
 
-Cursor support is experimental because Cursor's local database schema is not a public API. ccstats reads local SQLite `tokenCount` fields only and does not estimate missing usage.
+Cursor usage comes from Cursor's usage API, not from local `state.vscdb` files. Enterprise teams should set `CURSOR_API_KEY`. Individual and self-serve plans should set `CURSOR_SESSION_TOKEN` to the `WorkosCursorSessionToken` cookie from [cursor.com/dashboard/usage](https://cursor.com/dashboard/usage).
 
 ```bash
 # Install
@@ -254,7 +254,7 @@ override the Codex home directory with `CODEX_HOME`:
 CODEX_HOME="/path/to/.codex" ccstats codex daily
 ```
 
-### Cursor (Experimental)
+### Cursor
 
 Cursor uses the unified source flag rather than a dedicated subcommand.
 
@@ -275,23 +275,24 @@ ccstats session --source cursor
 ccstats daily --source cur
 ```
 
-By default, ccstats checks these local Cursor databases:
-
-- macOS: `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
-- Linux: `~/.config/Cursor/User/globalStorage/state.vscdb`
-- `workspaceStorage/*/state.vscdb` under the same Cursor user directory
-
-You can override the Cursor user directory with `CURSOR_HOME`:
+Authenticate with one of:
 
 ```bash
-CURSOR_HOME="/path/to/Cursor/User" ccstats daily --source cursor
+# Enterprise Admin API key from cursor.com/dashboard/api
+CURSOR_API_KEY="..." ccstats daily --source cursor
+
+# Dashboard session cookie for individual / self-serve plans
+CURSOR_SESSION_TOKEN="..." ccstats daily --source cursor
 ```
+
+`CURSOR_API_KEY` calls `POST https://api.cursor.com/teams/filtered-usage-events`. `CURSOR_SESSION_TOKEN` calls the dashboard usage-events endpoint used by [cursor.com/dashboard/usage](https://cursor.com/dashboard/usage). For tests or offline replay, point `CURSOR_USAGE_FILE` at a saved JSON payload.
 
 Current limitations:
 
-- Only explicit `tokenCount`/usage fields are counted.
+- ccstats does not read local Cursor SQLite auth tokens. Set `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN` explicitly.
 - Project aggregation and 5-hour billing blocks are not supported for Cursor.
-- Cache creation, cache read, and reasoning token fields are reported as zero unless Cursor exposes them directly in a supported local record.
+- Dashboard session cookies expire; refresh `CURSOR_SESSION_TOKEN` when requests start failing.
+- Self-serve plans may return token counts with `$0` event costs. ccstats records that billed amount instead of estimating Cursor subscription cost from LiteLLM prices.
 
 ### Grok
 
@@ -394,7 +395,7 @@ ccstats daily --source codex
 # Combine all supported data sources
 ccstats monthly --source all
 
-# Experimental Cursor source (reads local SQLite tokenCount fields)
+# Cursor source (usage API)
 ccstats daily --source cursor
 
 # Cursor alias
@@ -476,7 +477,7 @@ Source root env overrides are independent of config keys:
 |--------|---------|-------|--------------------|
 | Claude Code | `CLAUDE_CONFIG_DIR` | Claude config root containing `projects/` | `~/.claude` |
 | OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
-| Cursor | `CURSOR_HOME` | Cursor `User` directory | Cursor `User` under platform app/config data dirs |
+| Cursor | `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN` | Admin API key or dashboard session cookie | No default; optional `CURSOR_USAGE_FILE` replay |
 | Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
 | Kimi Code | `KIMI_CODE_HOME` | Kimi Code root containing `sessions/` | `~/.kimi-code` |
 
@@ -500,9 +501,9 @@ cache_read / (input + cache_creation + cache_read) * 100
 
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
-Claude and Codex expose the required cache-read metric. Cursor, Grok, and
-mixed `--source all` output report the value as unavailable (`N/A`, `null`, or
-an empty CSV field) instead of treating missing metrics as zero.
+Claude, Codex, Cursor, and Kimi Code expose the required cache-read metric.
+Grok and mixed `--source all` output report the value as unavailable (`N/A`,
+`null`, or an empty CSV field) instead of treating missing metrics as zero.
 
 ### Parsing Warnings
 
@@ -519,7 +520,7 @@ Warning: ignored <N> malformed records
 | Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Billing Blocks, Deduplication |
 | OpenAI Codex | `~/.codex/sessions/` | `CODEX_HOME` | Reasoning Tokens |
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
-| Cursor (experimental) | Cursor `User/globalStorage/state.vscdb` | `CURSOR_HOME` | Local SQLite `tokenCount` fields only |
+| Cursor | Cursor usage API | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Per-event tokens, cache tokens, recorded `chargedCents` |
 | Grok | `~/.grok/sessions/` | `GROK_HOME` | Context-token session summaries, Projects |
 | Kimi Code | `~/.kimi-code/sessions/` | `KIMI_CODE_HOME` | Per-turn usage records, Projects, Cache tokens |
 

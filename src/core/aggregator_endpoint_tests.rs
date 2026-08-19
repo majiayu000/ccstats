@@ -24,6 +24,7 @@ fn entry(model: &str, endpoint: Endpoint, input: i64) -> RawEntry {
         stop_reason: Some("end_turn".to_string()),
         cost_kind: CostKind::Real,
         endpoint,
+        recorded_cost_usd: None,
     }
 }
 

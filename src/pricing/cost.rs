@@ -30,12 +30,41 @@ fn calculate_token_cost(tokens: CostTokens, model: &str, pricing_db: &PricingDb)
     }
 }
 
+fn combine_recorded_and_priced(recorded_usd: f64, priced: f64, priced_tokens: CostTokens) -> f64 {
+    if priced.is_nan() {
+        if priced_tokens.has_entries() && recorded_usd == 0.0 {
+            f64::NAN
+        } else {
+            recorded_usd
+        }
+    } else {
+        recorded_usd + priced
+    }
+}
+
 pub(crate) fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb) -> f64 {
-    calculate_token_cost(stats.cost_tokens(), model, pricing_db)
+    if stats.recorded_cost_entries > 0 {
+        combine_recorded_and_priced(
+            stats.recorded_cost_usd,
+            calculate_token_cost(stats.priced_tokens, model, pricing_db),
+            stats.priced_tokens,
+        )
+    } else {
+        calculate_token_cost(stats.cost_tokens(), model, pricing_db)
+    }
 }
 
 pub(crate) fn calculate_real_cost(stats: &Stats, model: &str, pricing_db: &PricingDb) -> f64 {
-    calculate_token_cost(stats.real_cost_tokens(), model, pricing_db)
+    if stats.recorded_cost_entries > 0 {
+        let priced_real = stats.priced_tokens.saturating_sub(&stats.estimated_proxy);
+        combine_recorded_and_priced(
+            stats.recorded_cost_usd,
+            calculate_token_cost(priced_real, model, pricing_db),
+            priced_real,
+        )
+    } else {
+        calculate_token_cost(stats.real_cost_tokens(), model, pricing_db)
+    }
 }
 
 pub(crate) fn calculate_estimated_proxy_cost(
@@ -65,18 +94,18 @@ pub(crate) fn calculate_display_cost(
 /// where every selected cost bucket is unknown returns NaN so callers surface
 /// N/A instead of a misleading $0.00.
 pub(crate) fn sum_model_costs(models: &HashMap<String, Stats>, pricing_db: &PricingDb) -> f64 {
-    sum_model_costs_by(models, pricing_db, Stats::cost_tokens)
+    sum_model_costs_by(models, pricing_db, calculate_cost)
 }
 
 pub(crate) fn sum_real_model_costs(models: &HashMap<String, Stats>, pricing_db: &PricingDb) -> f64 {
-    sum_model_costs_by(models, pricing_db, Stats::real_cost_tokens)
+    sum_model_costs_by(models, pricing_db, calculate_real_cost)
 }
 
 pub(crate) fn sum_estimated_proxy_model_costs(
     models: &HashMap<String, Stats>,
     pricing_db: &PricingDb,
 ) -> f64 {
-    sum_model_costs_by(models, pricing_db, |stats| stats.estimated_proxy)
+    sum_token_costs_by(models, pricing_db, |stats| stats.estimated_proxy)
 }
 
 pub(crate) fn sum_display_model_costs(
@@ -90,7 +119,45 @@ pub(crate) fn sum_display_model_costs(
     }
 }
 
+fn stats_has_cost_input(stats: &Stats) -> bool {
+    stats.cost_tokens().has_entries()
+        || stats.recorded_cost_entries > 0
+        || stats.recorded_cost_usd > 0.0
+}
+
 fn sum_model_costs_by(
+    models: &HashMap<String, Stats>,
+    pricing_db: &PricingDb,
+    cost_of: impl Fn(&Stats, &str, &PricingDb) -> f64,
+) -> f64 {
+    if models.is_empty() {
+        return 0.0;
+    }
+    let mut total = 0.0;
+    let mut any_entries = false;
+    let mut any_known = false;
+    for (model, stats) in models {
+        if !stats_has_cost_input(stats) {
+            continue;
+        }
+        any_entries = true;
+        let cost = cost_of(stats, model, pricing_db);
+        if cost.is_nan() {
+            continue;
+        }
+        total += cost;
+        any_known = true;
+    }
+    if !any_entries {
+        0.0
+    } else if any_known {
+        total
+    } else {
+        f64::NAN
+    }
+}
+
+fn sum_token_costs_by(
     models: &HashMap<String, Stats>,
     pricing_db: &PricingDb,
     tokens_of: impl Fn(&Stats) -> CostTokens,
@@ -274,5 +341,35 @@ mod tests {
         // 200K * $20/M = $4 — all cache creation billed at the 1h rate
         let cost = calculate_real_cost(&stats, "fable-5", &db);
         assert!((cost - 4.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn recorded_cost_bypasses_local_price_list() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let stats = Stats {
+            input_tokens: 1_000_000,
+            count: 5,
+            recorded_cost_usd: 5.134_352_2,
+            recorded_cost_entries: 1,
+            ..Default::default()
+        };
+
+        assert!((calculate_cost(&stats, "fable-5", &db) - 5.134_352_2).abs() < 1e-9);
+        assert!((calculate_real_cost(&stats, "fable-5", &db) - 5.134_352_2).abs() < 1e-9);
+        assert!((calculate_estimated_proxy_cost(&stats, "fable-5", &db) - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn recorded_zero_cost_is_not_replaced_by_priced_tokens() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let stats = Stats {
+            input_tokens: 1_000_000,
+            count: 1,
+            recorded_cost_usd: 0.0,
+            recorded_cost_entries: 1,
+            ..Default::default()
+        };
+
+        assert!((calculate_cost(&stats, "fable-5", &db) - 0.0).abs() < 1e-12);
     }
 }

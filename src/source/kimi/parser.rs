@@ -283,6 +283,7 @@ fn parse_usage_line(
         stop_reason: None,
         cost_kind: CostKind::Real,
         endpoint: crate::core::Endpoint::Unknown,
+        recorded_cost_usd: None,
     })
 }
 

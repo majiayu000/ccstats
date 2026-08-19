@@ -2,37 +2,30 @@ mod common;
 
 use chrono::Utc;
 use common::{run_ccstats, unique_temp_dir, write_file};
-use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-fn write_cursor_state_db(path: &Path) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("create cursor db parent");
+fn write_cursor_usage_file(path: &Path) {
+    write_file(
+        path,
+        r#"{
+  "usageEventsDisplay": [
+    {
+      "timestamp": "2026-02-06T10:00:00Z",
+      "model": "claude-4-sonnet",
+      "conversationId": "composer-1",
+      "tokenUsage": {
+        "inputTokens": 100,
+        "outputTokens": 40,
+        "cacheWriteTokens": 0,
+        "cacheReadTokens": 10
+      },
+      "chargedCents": 12.5
     }
-    let conn = Connection::open(path).expect("open cursor db");
-    conn.execute(
-        "CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB)",
-        [],
-    )
-    .expect("create cursorDiskKV");
-    conn.execute(
-        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
-        (
-            "composerData:composer-1",
-            r#"{"composerId":"composer-1","modelConfig":{"modelName":"claude-4-sonnet"},"workspaceIdentifier":{"uri":{"fsPath":"/tmp/cursor-project"}}}"#,
-        ),
-    )
-    .expect("insert composer");
-    conn.execute(
-        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
-        (
-            "bubbleId:composer-1:bubble-1",
-            r#"{"createdAt":"2026-02-06T10:00:00Z","tokenCount":{"inputTokens":100,"outputTokens":40}}"#,
-        ),
-    )
-    .expect("insert bubble");
+  ]
+}"#,
+    );
 }
 
 fn write_grok_session(grok_home: &Path) {
@@ -112,8 +105,8 @@ fn assert_close(actual: f64, expected: f64) {
 #[test]
 fn source_flag_can_select_cursor_without_subcommand() {
     let root = unique_temp_dir("source-flag-cursor");
-    let cursor_home = root.join("cursor-user");
-    write_cursor_state_db(&cursor_home.join("globalStorage").join("state.vscdb"));
+    let cursor_usage = root.join("cursor-usage.json");
+    write_cursor_usage_file(&cursor_usage);
 
     let (ok, stdout, stderr) = run_ccstats(
         &[
@@ -130,7 +123,7 @@ fn source_flag_can_select_cursor_without_subcommand() {
             "--until",
             "2026-02-06",
         ],
-        &[("CURSOR_HOME", &cursor_home)],
+        &[("CURSOR_USAGE_FILE", &cursor_usage)],
     );
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
 
@@ -140,8 +133,9 @@ fn source_flag_can_select_cursor_without_subcommand() {
     assert_eq!(arr[0]["date"].as_str(), Some("2026-02-06"));
     assert_eq!(arr[0]["input_tokens"].as_i64(), Some(100));
     assert_eq!(arr[0]["output_tokens"].as_i64(), Some(40));
-    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(140));
-    assert!(arr[0]["cache_hit_rate"].is_null());
+    assert_eq!(arr[0]["cache_read_tokens"].as_i64(), Some(10));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(150));
+    assert_close(arr[0]["cache_hit_rate"].as_f64().unwrap(), 9.09);
     assert_eq!(
         arr[0]["models"].as_array().unwrap()[0].as_str(),
         Some("claude-4-sonnet")
@@ -161,12 +155,12 @@ fn source_flag_can_select_cursor_without_subcommand() {
             "--until",
             "2026-02-06",
         ],
-        &[("CURSOR_HOME", &cursor_home)],
+        &[("CURSOR_USAGE_FILE", &cursor_usage)],
     );
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     let table = String::from_utf8(stdout).expect("utf8 table");
     assert!(table.contains("Cache Hit"), "table: {table}");
-    assert!(table.contains("N/A"), "table: {table}");
+    assert!(table.contains("9.1%"), "table: {table}");
 
     let _ = fs::remove_dir_all(root);
 }

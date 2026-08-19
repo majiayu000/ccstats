@@ -279,6 +279,7 @@ mod tests {
             stop_reason: Some("end_turn".to_string()),
             cost_kind: crate::core::CostKind::Real,
             endpoint: Endpoint::Unknown,
+            recorded_cost_usd: None,
         }
     }
 
@@ -507,6 +508,7 @@ mod tests {
                 stop_reason: None,
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
+                recorded_cost_usd: None,
             },
             RawEntry {
                 timestamp: "2025-01-01T08:00:00Z".to_string(),
@@ -526,6 +528,7 @@ mod tests {
                 stop_reason: None,
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
+                recorded_cost_usd: None,
             },
             RawEntry {
                 timestamp: "2025-01-01T20:00:00Z".to_string(),
@@ -545,6 +548,7 @@ mod tests {
                 stop_reason: None,
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
+                recorded_cost_usd: None,
             },
         ];
         let result = aggregate_sessions(entries);

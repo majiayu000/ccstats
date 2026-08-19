@@ -411,6 +411,7 @@ mod tests {
             count: 1,
             skipped_chunks: 0,
             estimated_proxy: crate::core::CostTokens::default(),
+            ..Default::default()
         };
 
         let cost = calculate_cost(&stats, "sonnet-4", &db);
@@ -443,6 +444,7 @@ mod tests {
             count: 1,
             skipped_chunks: 0,
             estimated_proxy: crate::core::CostTokens::default(),
+            ..Default::default()
         };
 
         let cost = calculate_cost(&stats, "sonnet-4", &db);

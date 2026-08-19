@@ -359,6 +359,7 @@ pub(super) fn parse_grok_signal_file_with_debug(
             stop_reason: Some("context_snapshot".to_string()),
             cost_kind: CostKind::EstimatedProxy,
             endpoint: crate::core::Endpoint::Unknown,
+            recorded_cost_usd: None,
         }],
         errors,
     }

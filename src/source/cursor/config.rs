@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::parser::{find_cursor_files, parse_cursor_db_with_debug};
+use super::parser::{find_cursor_files, parse_cursor_with_debug};
 
-/// Experimental Cursor data source.
+/// Cursor usage API data source.
 pub(crate) struct CursorSource;
 
 impl CursorSource {
@@ -39,14 +39,11 @@ impl Source for CursorSource {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            // Cursor project metadata is only present in some experimental rows.
-            // Keep project aggregation disabled until every parsed table can
-            // provide a trustworthy project path.
             has_projects: false,
             has_billing_blocks: false,
             has_reasoning_tokens: false,
-            has_cache_creation: false,
-            has_cache_read: false,
+            has_cache_creation: true,
+            has_cache_read: true,
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
@@ -58,6 +55,6 @@ impl Source for CursorSource {
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-        parse_cursor_db_with_debug(path, timezone, debug)
+        parse_cursor_with_debug(path, timezone, debug)
     }
 }

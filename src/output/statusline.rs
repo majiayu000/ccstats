@@ -162,6 +162,7 @@ mod tests {
             count: 1,
             skipped_chunks: 0,
             estimated_proxy: crate::core::CostTokens::default(),
+            ..Default::default()
         };
         let mut day = DayStats {
             stats: stats.clone(),
@@ -188,6 +189,7 @@ mod tests {
                 count: 1,
                 skipped_chunks: 0,
                 estimated_proxy: crate::core::CostTokens::default(),
+                ..Default::default()
             },
             ..Default::default()
         };

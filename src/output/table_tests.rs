@@ -155,6 +155,7 @@ fn make_day_stats() -> DayStats {
         count: 3,
         skipped_chunks: 0,
         estimated_proxy: crate::core::CostTokens::default(),
+        ..Default::default()
     };
     day.stats = stats.clone();
     day.models.insert("claude-sonnet".to_string(), stats);

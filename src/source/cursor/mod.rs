@@ -1,7 +1,8 @@
 //! Cursor data source
 //!
-//! Parses read-only `SQLite` state databases from Cursor's local user data dir.
+//! Reads usage events from Cursor's Admin API or dashboard usage API.
 
+mod client;
 mod config;
 mod parser;
 

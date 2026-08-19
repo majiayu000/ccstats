@@ -488,6 +488,7 @@ mod tests {
             count,
             skipped_chunks: 0,
             estimated_proxy: crate::core::CostTokens::default(),
+            ..Default::default()
         }
     }
 

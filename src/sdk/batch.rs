@@ -362,6 +362,7 @@ mod tests {
                     stop_reason: Some("complete".to_string()),
                     cost_kind: crate::core::CostKind::Real,
                     endpoint: crate::core::Endpoint::Unknown,
+                    recorded_cost_usd: None,
                 }],
                 errors: 0,
             }
