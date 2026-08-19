@@ -5,8 +5,9 @@
 //! reads and `outputTokens` includes reasoning, so those nested counts are
 //! subtracted before they are stored on `RawEntry`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
@@ -15,7 +16,6 @@ use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
 use crate::core::{CostKind, RawEntry};
-use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
 use super::parser::{GrokSessionContext, first_non_empty};
@@ -78,6 +78,7 @@ struct UpdateEnvelope {
     params: Option<UpdateParams>,
 }
 
+#[derive(Clone, Default)]
 struct NormalizedUsage {
     input_tokens: i64,
     output_tokens: i64,
@@ -88,30 +89,42 @@ struct NormalizedUsage {
     recorded_cost_usd: Option<f64>,
 }
 
+pub(super) struct TurnUsageParseOutput {
+    pub(super) entries: Vec<RawEntry>,
+    pub(super) errors: usize,
+    pub(super) saw_usage_record: bool,
+}
+
 pub(super) fn parse_turn_completed_usage(
     path: &Path,
     timezone: Timezone,
     debug: bool,
     ctx: &GrokSessionContext,
-) -> ParseOutput {
+) -> TurnUsageParseOutput {
     let file = match File::open(path) {
         Ok(file) => file,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return ParseOutput::default();
+            return TurnUsageParseOutput {
+                entries: Vec::new(),
+                errors: 0,
+                saw_usage_record: false,
+            };
         }
         Err(err) => {
             if debug {
                 eprintln!("Failed to read {}: {}", path.display(), err);
             }
-            return ParseOutput {
+            return TurnUsageParseOutput {
                 entries: Vec::new(),
                 errors: 1,
+                saw_usage_record: false,
             };
         }
     };
 
     let mut entries = Vec::new();
     let mut errors = 0;
+    let mut saw_usage_record = false;
     for (line_index, line) in BufReader::new(file).lines().enumerate() {
         let line = match line {
             Ok(line) => line,
@@ -128,12 +141,20 @@ pub(super) fn parse_turn_completed_usage(
                 continue;
             }
         };
-        if !line.contains(TURN_COMPLETED) {
+        if !looks_like_turn_completed_record(&line) {
             continue;
         }
+        // A turn-completed record is authoritative even when it is truncated
+        // before the usage object. Never replace it with a cumulative snapshot.
+        saw_usage_record = true;
         match parse_turn_line(&line, timezone, ctx) {
-            Ok(Some(turn_entries)) => entries.extend(turn_entries),
-            Ok(None) => {}
+            Ok(Some(turn_entries)) => {
+                saw_usage_record = true;
+                entries.extend(turn_entries);
+            }
+            Ok(None) => {
+                errors += 1;
+            }
             Err(err) => {
                 errors += 1;
                 if debug {
@@ -147,7 +168,23 @@ pub(super) fn parse_turn_completed_usage(
         }
     }
 
-    ParseOutput { entries, errors }
+    TurnUsageParseOutput {
+        entries,
+        errors,
+        saw_usage_record,
+    }
+}
+
+fn looks_like_turn_completed_record(line: &str) -> bool {
+    ["\"sessionUpdate\"", "\"session_update\""]
+        .into_iter()
+        .filter_map(|key| line.split_once(key).map(|(_, value)| value))
+        .any(|value| {
+            value
+                .trim_start()
+                .strip_prefix(':')
+                .is_some_and(|value| value.trim_start().starts_with("\"turn_completed\""))
+        })
 }
 
 fn parse_turn_line(
@@ -176,31 +213,57 @@ fn parse_turn_line(
     let event_id = params
         .and_then(|params| params.meta.as_ref())
         .and_then(|meta| meta.event_id.as_deref());
-    let message_id = first_non_empty(&[prompt_id, event_id]);
+    let base_message_id = first_non_empty(&[event_id, prompt_id]).unwrap_or_else(|| {
+        let mut hasher = DefaultHasher::new();
+        line.hash(&mut hasher);
+        format!("turn:{:016x}", hasher.finish())
+    });
     let stop_reason = update.and_then(|update| update.stop_reason.clone());
 
-    let mut model_usages: Vec<(String, &UsageTokens)> = usage
+    let total_usage = normalize_usage(&usage.tokens);
+    let has_authoritative_total_cost = total_usage.recorded_cost_usd.is_some();
+    let mut model_usages: Vec<(String, NormalizedUsage)> = usage
         .model_usage
         .iter()
         .filter(|(model, _)| !model.trim().is_empty())
-        .map(|(model, tokens)| (model.clone(), tokens))
+        .map(|(model, tokens)| {
+            let mut normalized = normalize_usage(tokens);
+            if has_authoritative_total_cost && normalized.recorded_cost_usd.is_none() {
+                normalized.recorded_cost_usd = Some(0.0);
+            }
+            (model.clone(), normalized)
+        })
         .collect();
     model_usages.sort_by(|left, right| left.0.cmp(&right.0));
     if model_usages.is_empty() {
-        model_usages.push((ctx.fallback_model.clone(), &usage.tokens));
+        model_usages.push((ctx.fallback_model.clone(), total_usage));
+    } else {
+        let attributed =
+            model_usages
+                .iter()
+                .fold(NormalizedUsage::default(), |mut sum, (_, current)| {
+                    sum.add(current);
+                    sum
+                });
+        let residual = total_usage.residual_after(&attributed);
+        if has_usage(&residual) {
+            if let Some((_, fallback)) = model_usages
+                .iter_mut()
+                .find(|(model, _)| model == &ctx.fallback_model)
+            {
+                fallback.add(&residual);
+            } else {
+                model_usages.push((ctx.fallback_model.clone(), residual));
+            }
+        }
     }
 
     let mut entries = Vec::new();
-    for (model, tokens) in model_usages {
-        let normalized = normalize_usage(tokens);
+    for (model, normalized) in model_usages {
         if !has_usage(&normalized) {
             continue;
         }
-        let message_id = match (message_id.as_deref(), model_usages_need_suffix(&entries)) {
-            (Some(id), true) => Some(format!("{id}:{model}")),
-            (Some(id), false) => Some(id.to_string()),
-            (None, _) => None,
-        };
+        let message_id = Some(format!("{base_message_id}:{model}"));
         entries.push(RawEntry {
             timestamp: utc_dt.to_rfc3339(),
             timestamp_ms: utc_dt.timestamp_millis(),
@@ -226,10 +289,6 @@ fn parse_turn_line(
     Ok(Some(entries).filter(|entries| !entries.is_empty()))
 }
 
-fn model_usages_need_suffix(entries: &[RawEntry]) -> bool {
-    !entries.is_empty()
-}
-
 fn event_time(envelope: &UpdateEnvelope) -> Option<DateTime<Utc>> {
     let meta_ms = envelope
         .params
@@ -237,8 +296,8 @@ fn event_time(envelope: &UpdateEnvelope) -> Option<DateTime<Utc>> {
         .and_then(|params| params.meta.as_ref())
         .and_then(|meta| meta.agent_timestamp_ms)
         .filter(|ms| *ms > 0);
-    if let Some(ms) = meta_ms {
-        return DateTime::<Utc>::from_timestamp_millis(ms);
+    if let Some(timestamp) = meta_ms.and_then(DateTime::<Utc>::from_timestamp_millis) {
+        return Some(timestamp);
     }
 
     let timestamp = envelope.timestamp.filter(|timestamp| *timestamp > 0)?;
@@ -265,7 +324,50 @@ fn normalize_usage(tokens: &UsageTokens) -> NormalizedUsage {
         call_count: if model_calls > 0 { model_calls } else { 1 },
         recorded_cost_usd: tokens
             .cost_usd_ticks
-            .map(|ticks| ticks.max(0) as f64 / USD_TICKS_PER_DOLLAR),
+            .filter(|ticks| *ticks >= 0)
+            .map(|ticks| ticks as f64 / USD_TICKS_PER_DOLLAR),
+    }
+}
+
+impl NormalizedUsage {
+    fn add(&mut self, other: &Self) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_creation = self.cache_creation.saturating_add(other.cache_creation);
+        self.cache_read = self.cache_read.saturating_add(other.cache_read);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+        self.call_count = self.call_count.saturating_add(other.call_count);
+        self.recorded_cost_usd = match (self.recorded_cost_usd, other.recorded_cost_usd) {
+            (Some(left), Some(right)) => Some(left + right),
+            (Some(value), None) | (None, Some(value)) => Some(value),
+            (None, None) => None,
+        };
+    }
+
+    fn residual_after(&self, attributed: &Self) -> Self {
+        Self {
+            input_tokens: self
+                .input_tokens
+                .saturating_sub(attributed.input_tokens)
+                .max(0),
+            output_tokens: self
+                .output_tokens
+                .saturating_sub(attributed.output_tokens)
+                .max(0),
+            cache_creation: self
+                .cache_creation
+                .saturating_sub(attributed.cache_creation)
+                .max(0),
+            cache_read: self.cache_read.saturating_sub(attributed.cache_read).max(0),
+            reasoning_tokens: self
+                .reasoning_tokens
+                .saturating_sub(attributed.reasoning_tokens)
+                .max(0),
+            call_count: self.call_count.saturating_sub(attributed.call_count).max(0),
+            recorded_cost_usd: self
+                .recorded_cost_usd
+                .map(|total| (total - attributed.recorded_cost_usd.unwrap_or_default()).max(0.0)),
+        }
     }
 }
 
@@ -282,6 +384,7 @@ fn has_usage(usage: &NormalizedUsage) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::DedupAccumulator;
     use crate::source::grok::parser::GrokSessionContext;
     use crate::utils::Timezone;
     use std::fs;
@@ -323,7 +426,7 @@ mod tests {
         assert_eq!(entry.reasoning_tokens, 1145);
         assert_eq!(entry.call_count, 5);
         assert_eq!(entry.date_str, "2026-04-16");
-        assert_eq!(entry.message_id.as_deref(), Some("p1"));
+        assert_eq!(entry.message_id.as_deref(), Some("e1:grok-4.5-build"));
         assert_eq!(entry.stop_reason.as_deref(), Some("end_turn"));
         assert_eq!(entry.cost_kind, CostKind::Real);
         assert_eq!(entry.recorded_cost_usd, Some(0.13816));
@@ -364,7 +467,7 @@ mod tests {
         assert_eq!(parsed.entries[0].model, "grok-a");
         assert_eq!(parsed.entries[0].input_tokens, 10);
         assert_eq!(parsed.entries[0].call_count, 1);
-        assert_eq!(parsed.entries[0].message_id.as_deref(), Some("p2"));
+        assert_eq!(parsed.entries[0].message_id.as_deref(), Some("p2:grok-a"));
         assert_eq!(parsed.entries[1].model, "grok-b");
         assert_eq!(parsed.entries[1].call_count, 2);
         assert_eq!(parsed.entries[1].message_id.as_deref(), Some("p2:grok-b"));
@@ -387,6 +490,107 @@ mod tests {
         assert_eq!(usage.cache_creation, 0);
         assert_eq!(usage.reasoning_tokens, 0);
         assert_eq!(usage.call_count, 1);
-        assert_eq!(usage.recorded_cost_usd, Some(0.0));
+        assert_eq!(usage.recorded_cost_usd, None);
+    }
+
+    #[test]
+    fn preserves_top_level_residual_when_model_breakdown_is_partial() {
+        let root = tempdir().expect("temp dir");
+        let path = root.path().join("updates.jsonl");
+        fs::write(
+            &path,
+            r#"{"timestamp":1786896000,"params":{"update":{"sessionUpdate":"turn_completed","prompt_id":"p3","usage":{"inputTokens":40,"outputTokens":8,"modelCalls":4,"costUsdTicks":400,"modelUsage":{"grok-a":{"inputTokens":10,"outputTokens":2,"modelCalls":1},"grok-build":{"inputTokens":10,"outputTokens":2,"modelCalls":1,"costUsdTicks":100}}}}}}
+"#,
+        )
+        .expect("write updates");
+
+        let parsed = parse_turn_completed_usage(&path, tz(), true, &ctx());
+        assert_eq!(parsed.entries.len(), 2);
+        let fallback = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.model == "grok-build")
+            .expect("fallback model");
+        assert_eq!(fallback.input_tokens, 30);
+        assert_eq!(fallback.output_tokens, 6);
+        assert_eq!(fallback.call_count, 3);
+        let stats: Vec<_> = parsed.entries.iter().map(RawEntry::to_stats).collect();
+        assert!(stats.iter().all(|stats| !stats.priced_tokens.has_entries()));
+        assert!(
+            (stats
+                .iter()
+                .map(|stats| stats.recorded_cost_usd)
+                .sum::<f64>()
+                - 0.000_000_04)
+                .abs()
+                < 1e-18
+        );
+    }
+
+    #[test]
+    fn invalid_agent_timestamp_falls_back_to_envelope_timestamp() {
+        let root = tempdir().expect("temp dir");
+        let path = root.path().join("updates.jsonl");
+        fs::write(
+            &path,
+            r#"{"timestamp":1786896000,"params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":10}},"_meta":{"agentTimestampMs":9223372036854775807}}}
+"#,
+        )
+        .expect("write updates");
+
+        let parsed = parse_turn_completed_usage(&path, tz(), true, &ctx());
+        assert_eq!(parsed.entries[0].date_str, "2026-08-16");
+    }
+
+    #[test]
+    fn duplicate_turns_deduplicate_shared_models_without_dropping_new_models() {
+        let root = tempdir().expect("temp dir");
+        let path = root.path().join("updates.jsonl");
+        fs::write(
+            &path,
+            r#"{"timestamp":1786896000,"params":{"_meta":{"eventId":"same"},"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":10,"modelUsage":{"z-grok":{"inputTokens":10}}}}}}
+{"timestamp":1786896001,"params":{"_meta":{"eventId":"same"},"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":20,"modelUsage":{"a-grok":{"inputTokens":10},"z-grok":{"inputTokens":10}}}}}}
+"#,
+        )
+        .expect("write updates");
+
+        let parsed = parse_turn_completed_usage(&path, tz(), true, &ctx());
+        let mut dedup = DedupAccumulator::new();
+        dedup.extend(parsed.entries);
+        let (entries, skipped) = dedup.finalize();
+        assert_eq!(skipped, 1);
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|entry| entry.model == "a-grok"));
+        assert!(entries.iter().any(|entry| entry.model == "z-grok"));
+    }
+
+    #[test]
+    fn residual_tokens_do_not_invent_a_model_call() {
+        let line = r#"{"timestamp":1786896000,"params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":30,"modelCalls":2,"modelUsage":{"grok-a":{"inputTokens":10,"modelCalls":1},"grok-b":{"inputTokens":10,"modelCalls":1}}}}}}"#;
+        let entries = parse_turn_line(line, tz(), &ctx())
+            .expect("valid turn")
+            .expect("usage entries");
+
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.to_stats().count)
+                .sum::<i64>(),
+            2
+        );
+        assert_eq!(
+            entries.iter().map(|entry| entry.input_tokens).sum::<i64>(),
+            30
+        );
+    }
+
+    #[test]
+    fn accepts_snake_case_turn_discriminator() {
+        let line = r#"{"timestamp":1786896000,"params":{"update":{"session_update":"turn_completed","usage":{"inputTokens":10}}}}"#;
+        let entries = parse_turn_line(line, tz(), &ctx())
+            .expect("valid turn")
+            .expect("usage entries");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].input_tokens, 10);
     }
 }

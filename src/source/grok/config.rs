@@ -44,7 +44,7 @@ impl Source for GrokSource {
             has_reasoning_tokens: true,
             has_cache_creation: true,
             has_cache_read: true,
-            needs_dedup: false,
+            needs_dedup: true,
             has_tool_calls: false,
             has_endpoints: false,
         }

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-20
+
 ### Added
 - Report each resolved model's pricing lookup key and source in `--debug` output without changing structured stdout.
 

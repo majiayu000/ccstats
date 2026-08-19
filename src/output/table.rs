@@ -45,7 +45,7 @@ pub(crate) fn print_summary_line(
     use_color: bool,
 ) {
     let stats_text = format!(
-        "{} unique API calls ({} streaming entries deduplicated)",
+        "{} usage records ({} streaming records deduplicated)",
         format_number(valid, number_format),
         format_number(skipped, number_format)
     );

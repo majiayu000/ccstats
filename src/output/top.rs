@@ -17,7 +17,8 @@ use crate::output::format::{
 };
 use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost, model_cost_kind,
-    pricing_source_for_models, sum_display_model_costs, sum_estimated_proxy_model_costs,
+    pricing_source_for_model_stats, pricing_source_for_models, sum_display_model_costs,
+    sum_estimated_proxy_model_costs,
 };
 
 /// One row in the leaderboard.
@@ -77,9 +78,7 @@ pub(crate) fn rank_by_model_with_cost_mode(
                 calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::Total)
                     - calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::RealOnly);
             let cost_kind = stats.cost_kind();
-            let pricing_source = pricing_db
-                .pricing_source_for_model(&model)
-                .unwrap_or(crate::pricing::PricingSource::Unknown);
+            let pricing_source = pricing_source_for_model_stats(&model, &stats, pricing_db);
             let (pricing_cache_age_seconds, pricing_cache_mtime_epoch_seconds) =
                 top_cache_metadata(pricing_source, pricing_db);
             TopRow {
@@ -307,10 +306,18 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
 
     // TOTAL row reflects the displayed slice, not the full dataset, so the
     // share column always sums to 100% within the leaderboard.
-    let displayed_total_tokens: i64 = limited.iter().map(|r| r.stats.total_tokens()).sum();
-    let displayed_total_count: i64 = limited.iter().map(|r| r.count).sum();
-    let displayed_total_input: i64 = limited.iter().map(|r| r.stats.input_tokens).sum();
-    let displayed_total_output: i64 = limited.iter().map(|r| r.stats.output_tokens).sum();
+    let displayed_total_tokens = limited.iter().fold(0_i64, |total, row| {
+        total.saturating_add(row.stats.total_tokens())
+    });
+    let displayed_total_count = limited
+        .iter()
+        .fold(0_i64, |total, row| total.saturating_add(row.count));
+    let displayed_total_input = limited.iter().fold(0_i64, |total, row| {
+        total.saturating_add(row.stats.input_tokens)
+    });
+    let displayed_total_output = limited.iter().fold(0_i64, |total, row| {
+        total.saturating_add(row.stats.output_tokens)
+    });
     let mut displayed_stats = Stats::default();
     for row in &limited {
         displayed_stats.add(&row.stats);
@@ -471,7 +478,9 @@ pub(super) fn sum_cost(rows: &[TopRow]) -> f64 {
 }
 
 pub(super) fn sum_tokens(rows: &[TopRow]) -> i64 {
-    rows.iter().map(|r| r.stats.total_tokens()).sum()
+    rows.iter().fold(0_i64, |total, row| {
+        total.saturating_add(row.stats.total_tokens())
+    })
 }
 
 #[cfg(test)]

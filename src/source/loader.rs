@@ -239,7 +239,7 @@ impl<'a> DataLoader<'a> {
             return LoadResult::default();
         };
 
-        let valid: i64 = day_stats.values().map(|day| day.stats.count).sum();
+        let valid: i64 = day_stats.values().map(|day| day.stats.records).sum();
         if self.debug && !self.quiet {
             eprintln!("[DEBUG] Processed {} entries, {} skipped", valid, 0);
             eprintln!("[DEBUG] Days with data: {}", day_stats.len());
@@ -329,12 +329,10 @@ impl<'a> DataLoader<'a> {
                 ..LoadResult::default()
             };
         }
-
         let agg_start = Instant::now();
         let valid = final_entries.len() as i64;
         let day_stats = aggregate_daily(final_entries);
         let agg_ms = agg_start.elapsed().as_secs_f64() * 1000.0;
-
         if !self.quiet {
             if skipped > 0 {
                 eprintln!("Deduplicated {skipped} entries, aggregated ({agg_ms:.2}ms)");
@@ -342,7 +340,6 @@ impl<'a> DataLoader<'a> {
                 eprintln!("Aggregated ({agg_ms:.2}ms)");
             }
         }
-
         if self.debug && !self.quiet {
             eprintln!("[DEBUG] Processed {valid} entries, {skipped} skipped");
             eprintln!("[DEBUG] Days with data: {}", day_stats.len());

@@ -175,6 +175,7 @@ fn write_period_csv_breakdown(
                 pricing_meta::append_model_csv_fields(
                     out,
                     model,
+                    model_stats,
                     ctx.pricing_db,
                     pricing_meta::csv_has_cache_fields(ctx.pricing_source, ctx.pricing_db),
                 );
@@ -360,6 +361,7 @@ pub(crate) fn output_monthly_budget_csv(
                     pricing_meta::append_model_csv_fields(
                         &mut out,
                         model,
+                        model_stats,
                         pricing_db,
                         include_pricing_cache_fields,
                     );
