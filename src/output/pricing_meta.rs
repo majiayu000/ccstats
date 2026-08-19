@@ -2,7 +2,8 @@ use std::{collections::HashMap, fmt::Write};
 
 use crate::core::Stats;
 use crate::pricing::{
-    PricingDb, PricingSource, pricing_source_for_model_maps, pricing_source_for_models,
+    PricingDb, PricingSource, pricing_source_for_model_maps, pricing_source_for_model_stats,
+    pricing_source_for_models,
 };
 
 fn needs_cache_fields(source: PricingSource, pricing_db: &PricingDb) -> bool {
@@ -24,10 +25,13 @@ pub(super) fn add_json(
     );
 }
 
-pub(super) fn add_model_json(obj: &mut serde_json::Value, model: &str, pricing_db: &PricingDb) {
-    let source = pricing_db
-        .pricing_source_for_model(model)
-        .unwrap_or(PricingSource::Unknown);
+pub(super) fn add_model_json(
+    obj: &mut serde_json::Value,
+    model: &str,
+    stats: &Stats,
+    pricing_db: &PricingDb,
+) {
+    let source = pricing_source_for_model_stats(model, stats, pricing_db);
     add_source_json(obj, source, pricing_db);
 }
 
@@ -91,12 +95,11 @@ pub(super) fn append_csv_fields(
 pub(super) fn append_model_csv_fields(
     out: &mut String,
     model: &str,
+    stats: &Stats,
     pricing_db: &PricingDb,
     include_cache_fields: bool,
 ) {
-    let source = pricing_db
-        .pricing_source_for_model(model)
-        .unwrap_or(PricingSource::Unknown);
+    let source = pricing_source_for_model_stats(model, stats, pricing_db);
     append_source_csv_fields(out, source, pricing_db, include_cache_fields);
 }
 
@@ -134,6 +137,7 @@ pub(super) fn note(source: PricingSource, pricing_db: &PricingDb) -> Option<Stri
             cache_age_suffix(pricing_db)
         )),
         PricingSource::Fallback => Some("Pricing source: fallback estimates.".to_string()),
+        PricingSource::Recorded => Some("Pricing source: recorded provider cost.".to_string()),
         PricingSource::Unknown => Some("Pricing source: unknown unpriced models.".to_string()),
         PricingSource::Mixed => Some(format!(
             "Pricing source: mixed{}.",

@@ -400,7 +400,7 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     assert_eq!(summary.tokens.input_tokens, 1500);
     assert_eq!(summary.tokens.output_tokens, 0);
     assert_eq!(summary.tokens.total_tokens, 1500);
-    assert_eq!(summary.tokens.cache_hit_rate, None);
+    assert_eq!(summary.tokens.cache_hit_rate, Some(0.0));
     assert_eq!(summary.models.len(), 1);
     assert_eq!(summary.models[0].model, "grok-build");
     assert!(summary.cost_usd.is_some_and(|cost| cost > 0.0));

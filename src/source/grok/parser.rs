@@ -1,9 +1,9 @@
-//! Grok session signal parser
+//! Grok session parser
 //!
 //! Grok persists session metadata under `~/.grok/sessions/<cwd>/<session>/`.
-//! Local files currently expose context-token snapshots rather than precise
-//! provider input/output billing or remote account quota usage, so this parser
-//! reports those context tokens as input tokens.
+//! `updates.jsonl` `turn_completed.usage` is the billable request log. When a
+//! session has no such events, this parser falls back to `signals.json`
+//! context-token snapshots and labels them `estimated_proxy`.
 
 use std::collections::HashMap;
 use std::env;
@@ -25,6 +25,13 @@ const SIGNALS_FILE: &str = "signals.json";
 const SUMMARY_FILE: &str = "summary.json";
 const UPDATES_FILE: &str = "updates.jsonl";
 const GROK_MODEL: &str = "grok";
+
+pub(super) struct GrokSessionContext {
+    pub(super) session_id: String,
+    pub(super) session_key: String,
+    pub(super) project_path: String,
+    pub(super) fallback_model: String,
+}
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
@@ -83,29 +90,54 @@ pub(super) fn find_grok_files() -> Vec<PathBuf> {
         return Vec::new();
     };
 
-    let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&format!("{}/**/{SUMMARY_FILE}", sessions_dir.display())) {
-        files.extend(entries.flatten().filter(|path| path.is_file()));
-    }
+    let mut by_session: HashMap<PathBuf, PathBuf> = HashMap::new();
+    collect_session_files(
+        &sessions_dir,
+        UPDATES_FILE,
+        &mut by_session,
+        FilePreference::Preferred,
+    );
+    collect_session_files(
+        &sessions_dir,
+        SUMMARY_FILE,
+        &mut by_session,
+        FilePreference::Fallback,
+    );
+
+    let mut files: Vec<PathBuf> = by_session.into_values().collect();
     files.sort();
-    files.dedup();
     files
 }
 
-fn read_json<T>(path: &Path, debug: bool) -> Result<T, ()>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    let content = fs::read_to_string(path).map_err(|err| {
-        if debug {
-            eprintln!("Failed to read {}: {}", path.display(), err);
+#[derive(Clone, Copy)]
+enum FilePreference {
+    Preferred,
+    Fallback,
+}
+
+fn collect_session_files(
+    sessions_dir: &Path,
+    file_name: &str,
+    by_session: &mut HashMap<PathBuf, PathBuf>,
+    preference: FilePreference,
+) {
+    let pattern = format!("{}/**/{file_name}", sessions_dir.display());
+    let Ok(entries) = glob::glob(&pattern) else {
+        return;
+    };
+    for path in entries.flatten().filter(|path| path.is_file()) {
+        let Some(parent) = path.parent() else {
+            continue;
+        };
+        match preference {
+            FilePreference::Preferred => {
+                by_session.insert(parent.to_path_buf(), path);
+            }
+            FilePreference::Fallback => {
+                by_session.entry(parent.to_path_buf()).or_insert(path);
+            }
         }
-    })?;
-    serde_json::from_str(&content).map_err(|err| {
-        if debug {
-            eprintln!("Invalid JSON in {}: {}", path.display(), err);
-        }
-    })
+    }
 }
 
 fn read_optional_json<T>(path: &Path, debug: bool) -> Result<Option<T>, ()>
@@ -128,7 +160,7 @@ where
     }
 }
 
-fn first_non_empty(values: &[Option<&str>]) -> Option<String> {
+pub(super) fn first_non_empty(values: &[Option<&str>]) -> Option<String> {
     values
         .iter()
         .flatten()
@@ -210,7 +242,9 @@ fn total_update_tokens(path: &Path, debug: bool) -> (i64, usize) {
     let total = if keyed_maxes.is_empty() {
         session_max
     } else {
-        keyed_maxes.values().sum()
+        keyed_maxes
+            .values()
+            .fold(0_i64, |total, value| total.saturating_add(*value))
     };
     (total, errors)
 }
@@ -270,44 +304,58 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-pub(super) fn parse_grok_signal_file_with_debug(
+pub(super) fn parse_grok_session_file_with_debug(
     path: &Path,
     timezone: Timezone,
     debug: bool,
 ) -> ParseOutput {
-    let summary_path = if path.file_name().and_then(|name| name.to_str()) == Some(SUMMARY_FILE) {
-        path.to_path_buf()
-    } else {
-        let Some(session_dir) = path.parent() else {
-            return ParseOutput {
-                entries: Vec::new(),
-                errors: 1,
-            };
-        };
-        session_dir.join(SUMMARY_FILE)
-    };
-
-    let Some(session_dir) = summary_path.parent() else {
+    let Some(session_dir) = path.parent() else {
         return ParseOutput {
             entries: Vec::new(),
             errors: 1,
         };
     };
-    let summary: Summary = match read_json(&summary_path, debug) {
-        Ok(summary) => summary,
-        Err(()) => {
-            return ParseOutput {
-                entries: Vec::new(),
-                errors: 1,
-            };
-        }
+
+    let summary_path = session_dir.join(SUMMARY_FILE);
+    let (summary, mut errors) = match read_optional_json::<Summary>(&summary_path, debug) {
+        Ok(summary) => (summary.unwrap_or_default(), 0),
+        Err(()) => (Summary::default(), 1),
     };
 
     let signals_path = session_dir.join(SIGNALS_FILE);
-    let (signals, mut errors) = match read_optional_json::<Signals>(&signals_path, debug) {
-        Ok(signals) => (signals, 0),
-        Err(()) => (None, 1),
+    let signals = if let Ok(signals) = read_optional_json::<Signals>(&signals_path, debug) {
+        signals
+    } else {
+        errors += 1;
+        None
     };
+
+    let session_id = session_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(UNKNOWN)
+        .to_string();
+    let ctx = GrokSessionContext {
+        session_key: session_dir.display().to_string(),
+        project_path: project_path(path, &summary),
+        fallback_model: model_name(signals.as_ref(), &summary),
+        session_id: session_id.clone(),
+    };
+
+    let usage = super::usage::parse_turn_completed_usage(
+        &session_dir.join(UPDATES_FILE),
+        timezone,
+        debug,
+        &ctx,
+    );
+    errors += usage.errors;
+    if usage.saw_usage_record {
+        return ParseOutput {
+            entries: usage.entries,
+            errors,
+        };
+    }
+
     let signal_tokens = signals.as_ref().map_or(0, total_context_tokens);
     let total_tokens = if signal_tokens > 0 {
         signal_tokens
@@ -330,15 +378,10 @@ pub(super) fn parse_grok_signal_file_with_debug(
         }
         return ParseOutput {
             entries: Vec::new(),
-            errors: 1,
+            errors: errors + 1,
         };
     };
     let local_dt = timezone.to_fixed_offset(utc_dt);
-    let session_id = session_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(UNKNOWN)
-        .to_string();
 
     ParseOutput {
         entries: vec![RawEntry {
@@ -346,10 +389,10 @@ pub(super) fn parse_grok_signal_file_with_debug(
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),
             message_id: Some(session_id.clone()),
-            session_key: session_dir.display().to_string(),
+            session_key: ctx.session_key,
             session_id,
-            project_path: project_path(path, &summary),
-            model: model_name(signals.as_ref(), &summary),
+            project_path: ctx.project_path,
+            model: ctx.fallback_model,
             input_tokens: total_tokens,
             output_tokens: 0,
             cache_creation: 0,
@@ -359,6 +402,8 @@ pub(super) fn parse_grok_signal_file_with_debug(
             stop_reason: Some("context_snapshot".to_string()),
             cost_kind: CostKind::EstimatedProxy,
             endpoint: crate::core::Endpoint::Unknown,
+            call_count: 1,
+            recorded_cost_usd: None,
         }],
         errors,
     }
@@ -409,7 +454,8 @@ mod tests {
         )
         .expect("write summary");
 
-        let parsed = parse_grok_signal_file_with_debug(&session_dir.join(SIGNALS_FILE), tz(), true);
+        let parsed =
+            parse_grok_session_file_with_debug(&session_dir.join(SIGNALS_FILE), tz(), true);
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
         let entry = &parsed.entries[0];
@@ -440,7 +486,8 @@ mod tests {
         )
         .expect("write summary");
 
-        let parsed = parse_grok_signal_file_with_debug(&session_dir.join(SIGNALS_FILE), tz(), true);
+        let parsed =
+            parse_grok_session_file_with_debug(&session_dir.join(SIGNALS_FILE), tz(), true);
         assert_eq!(parsed.entries[0].project_path, "/repo/from-summary/");
         assert_eq!(parsed.entries[0].model, "grok-4.3");
     }
@@ -464,11 +511,132 @@ mod tests {
 "#,
         )?;
 
-        let parsed = parse_grok_signal_file_with_debug(&session_dir.join(SUMMARY_FILE), tz(), true);
+        let parsed =
+            parse_grok_session_file_with_debug(&session_dir.join(SUMMARY_FILE), tz(), true);
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
         assert_eq!(parsed.entries[0].input_tokens, 250);
         assert_eq!(parsed.entries[0].model, "grok-build");
         Ok(())
+    }
+
+    #[test]
+    fn parse_grok_session_prefers_turn_completed_over_context_snapshot() {
+        let root = tempdir().expect("temp dir");
+        let session_dir = root.path().join("%2Ftmp%2Fgrok-project").join("session-1");
+        fs::create_dir_all(&session_dir).expect("create session dir");
+        fs::write(
+            session_dir.join(SIGNALS_FILE),
+            r#"{"contextTokensUsed": 1200, "totalTokensBeforeCompaction": 300, "primaryModelId": "grok-build"}"#,
+        )
+        .expect("write signals");
+        fs::write(
+            session_dir.join(SUMMARY_FILE),
+            r#"{"updated_at": "2026-08-17T01:00:00Z", "git_root_dir": "/tmp/grok-project/"}"#,
+        )
+        .expect("write summary");
+        fs::write(
+            session_dir.join(UPDATES_FILE),
+            r#"{"timestamp":1786838400,"params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":100,"outputTokens":20,"cachedReadTokens":40,"reasoningTokens":5,"modelCalls":3,"costUsdTicks":20000000000,"modelUsage":{"grok-4.5-build":{"inputTokens":100,"outputTokens":20,"cachedReadTokens":40,"reasoningTokens":5,"modelCalls":3,"costUsdTicks":20000000000}}}}}}
+"#,
+        )
+        .expect("write updates");
+
+        let parsed =
+            parse_grok_session_file_with_debug(&session_dir.join(SUMMARY_FILE), tz(), true);
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 1);
+        let entry = &parsed.entries[0];
+        assert_eq!(entry.input_tokens, 60);
+        assert_eq!(entry.output_tokens, 15);
+        assert_eq!(entry.cache_read, 40);
+        assert_eq!(entry.reasoning_tokens, 5);
+        assert_eq!(entry.call_count, 3);
+        assert_eq!(entry.date_str, "2026-08-16");
+        assert_eq!(entry.model, "grok-4.5-build");
+        assert_eq!(entry.cost_kind, CostKind::Real);
+        assert_eq!(entry.recorded_cost_usd, Some(2.0));
+    }
+
+    #[test]
+    fn parse_grok_session_reads_updates_without_summary() {
+        let root = tempdir().expect("temp dir");
+        let session_dir = root
+            .path()
+            .join("%2Ftmp%2Fgrok-project")
+            .join("live-session");
+        fs::create_dir_all(&session_dir).expect("create session dir");
+        fs::write(
+            session_dir.join(UPDATES_FILE),
+            r#"{"timestamp":1786838400,"params":{"sessionId":"live-session","update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":8,"outputTokens":2,"modelCalls":1,"costUsdTicks":1000000000}}}}
+"#,
+        )
+        .expect("write updates");
+
+        let parsed =
+            parse_grok_session_file_with_debug(&session_dir.join(UPDATES_FILE), tz(), true);
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].input_tokens, 8);
+        assert_eq!(parsed.entries[0].output_tokens, 2);
+        assert_eq!(parsed.entries[0].session_id, "live-session");
+        assert_eq!(parsed.entries[0].project_path, "/tmp/grok-project");
+    }
+
+    #[test]
+    fn unusable_turn_usage_does_not_fall_back_to_context_snapshot() {
+        let root = tempdir().expect("temp dir");
+        let session_dir = root.path().join("project").join("session-1");
+        fs::create_dir_all(&session_dir).expect("create session dir");
+        fs::write(
+            session_dir.join(SIGNALS_FILE),
+            r#"{"contextTokensUsed": 1200, "primaryModelId": "grok-build"}"#,
+        )
+        .expect("write signals");
+        fs::write(
+            session_dir.join(SUMMARY_FILE),
+            r#"{"updated_at": "2026-08-17T01:00:00Z"}"#,
+        )
+        .expect("write summary");
+        fs::write(
+            session_dir.join(UPDATES_FILE),
+            r#"{"params":{"update":{"sessionUpdate":"turn_completed""#,
+        )
+        .expect("write updates");
+
+        let parsed =
+            parse_grok_session_file_with_debug(&session_dir.join(SUMMARY_FILE), tz(), true);
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 1);
+    }
+
+    #[test]
+    fn unrelated_turn_completed_text_keeps_context_snapshot_fallback() {
+        let root = tempdir().expect("temp dir");
+        let session_dir = root.path().join("project").join("session-1");
+        fs::create_dir_all(&session_dir).expect("create session dir");
+        fs::write(
+            session_dir.join(SIGNALS_FILE),
+            r#"{"contextTokensUsed": 1200, "primaryModelId": "grok-build"}"#,
+        )
+        .expect("write signals");
+        fs::write(
+            session_dir.join(SUMMARY_FILE),
+            r#"{"updated_at": "2026-08-17T01:00:00Z"}"#,
+        )
+        .expect("write summary");
+        fs::write(
+            session_dir.join(UPDATES_FILE),
+            r#"{"timestamp":1786924800,"params":{"update":{"sessionUpdate":"tool_result","content":"turn_completed"}}}
+"#,
+        )
+        .expect("write updates");
+
+        let parsed =
+            parse_grok_session_file_with_debug(&session_dir.join(SUMMARY_FILE), tz(), true);
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].input_tokens, 1200);
+        assert_eq!(parsed.entries[0].cost_kind, CostKind::EstimatedProxy);
     }
 }
