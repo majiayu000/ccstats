@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Fast token and cost usage statistics CLI for Claude Code, OpenAI Codex, Cursor, Grok, and Kimi Code"
@@ -32,7 +32,6 @@ dirs = "6.0.0"
 ureq = { version = "3.2.0", features = ["json"] }
 thiserror = "2"
 toml = "1.0.0"
-rusqlite = { version = "0.39.0", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"

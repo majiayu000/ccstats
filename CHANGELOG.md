@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-20
+
+### Changed
+- Read Cursor usage from the official Admin API or dashboard usage-events API instead of local SQLite `state.vscdb` files. Token counts, cache tokens, and billed `chargedCents` come from usage events; set `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN` (no local session-token discovery).
+
 ## [0.4.1] - 2026-08-20
 
 ### Added

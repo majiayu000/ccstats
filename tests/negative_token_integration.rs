@@ -1,9 +1,19 @@
-use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const SOURCE_ENV_VARS: &[&str] = &[
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "CURSOR_HOME",
+    "CURSOR_USAGE_FILE",
+    "CURSOR_API_KEY",
+    "CURSOR_SESSION_TOKEN",
+    "GROK_HOME",
+    "KIMI_CODE_HOME",
+];
 
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -51,6 +61,9 @@ fn resolve_ccstats_binary() -> PathBuf {
 fn run_ccstats(args: &[&str], envs: &[(&str, &Path)]) -> (bool, Vec<u8>, Vec<u8>) {
     let mut cmd = Command::new(resolve_ccstats_binary());
     cmd.args(args);
+    for key in SOURCE_ENV_VARS {
+        cmd.env_remove(key);
+    }
     for (k, v) in envs {
         cmd.env(k, v);
     }
@@ -58,53 +71,38 @@ fn run_ccstats(args: &[&str], envs: &[(&str, &Path)]) -> (bool, Vec<u8>, Vec<u8>
     (output.status.success(), output.stdout, output.stderr)
 }
 
-fn write_cursor_negative_state_db(path: &Path) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).expect("create cursor db parent");
+fn write_cursor_negative_usage_file(path: &Path) {
+    write_file(
+        path,
+        r#"{
+  "usageEvents": [
+    {
+      "timestamp": "2026-02-06T10:30:00Z",
+      "model": "gpt-4o-mini",
+      "conversationId": "composer-1",
+      "tokenUsage": {"inputTokens": -25, "outputTokens": 40}
+    },
+    {
+      "timestamp": "2026-02-06T10:31:00Z",
+      "model": "gpt-4o-mini",
+      "conversationId": "composer-1",
+      "tokenUsage": {"inputTokens": -7, "outputTokens": -3}
+    },
+    {
+      "timestamp": "2026-02-06T11:00:00Z",
+      "model": "gpt-4o-mini",
+      "conversationId": "generation-1",
+      "tokenUsage": {"inputTokens": 25, "outputTokens": -5}
+    },
+    {
+      "timestamp": "2026-02-06T11:05:00Z",
+      "model": "gpt-4o-mini",
+      "conversationId": "generation-negative",
+      "tokenUsage": {"inputTokens": -11, "outputTokens": -2}
     }
-    let conn = Connection::open(path).expect("open cursor db");
-    conn.execute(
-        "CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB)",
-        [],
-    )
-    .expect("create cursorDiskKV");
-    conn.execute(
-        "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)",
-        [],
-    )
-    .expect("create ItemTable");
-    conn.execute(
-        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
-        (
-            "composerData:composer-1",
-            r#"{"composerId":"composer-1","modelConfig":{"modelName":"gpt-4o-mini"},"workspaceIdentifier":{"uri":{"fsPath":"/tmp/cursor-project"}}}"#,
-        ),
-    )
-    .expect("insert composer");
-    conn.execute(
-        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
-        (
-            "bubbleId:composer-1:bubble-1",
-            r#"{"createdAt":"2026-02-06T10:30:00Z","tokenCount":{"inputTokens":-25,"outputTokens":40}}"#,
-        ),
-    )
-    .expect("insert mixed bubble");
-    conn.execute(
-        "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
-        (
-            "bubbleId:composer-1:bubble-negative",
-            r#"{"createdAt":"2026-02-06T10:31:00Z","tokenCount":{"inputTokens":-7,"outputTokens":-3}}"#,
-        ),
-    )
-    .expect("insert all-negative bubble");
-    conn.execute(
-        "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
-        (
-            "aiService.generations",
-            r#"[{"createdAt":"2026-02-06T11:00:00Z","generationUUID":"generation-1","model":"gpt-4o-mini","inputTokens":25,"outputTokens":-5},{"createdAt":"2026-02-06T11:05:00Z","generationUUID":"generation-negative","model":"gpt-4o-mini","inputTokens":-11,"outputTokens":-2}]"#,
-        ),
-    )
-    .expect("insert generations");
+  ]
+}"#,
+    );
 }
 
 #[test]
@@ -112,7 +110,7 @@ fn all_sources_daily_json_clamps_negative_claude_and_cursor_tokens() {
     let root = unique_temp_dir("negative-token-json");
     let codex_home = root.join("codex-home");
     let grok_home = root.join("grok-home");
-    let cursor_home = root.join("cursor-user");
+    let cursor_usage = root.join("cursor-usage.json");
     let claude_file = root.join(".claude/projects/myapp/session-negative.jsonl");
 
     write_file(
@@ -121,7 +119,7 @@ fn all_sources_daily_json_clamps_negative_claude_and_cursor_tokens() {
 {"timestamp":"2026-02-06T10:01:00Z","message":{"id":"msg_negative","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":-10,"output_tokens":-5,"cache_creation_input_tokens":-3,"cache_read_input_tokens":-2}}}
 "#,
     );
-    write_cursor_negative_state_db(&cursor_home.join("globalStorage").join("state.vscdb"));
+    write_cursor_negative_usage_file(&cursor_usage);
 
     let (ok, stdout, stderr) = run_ccstats(
         &[
@@ -141,7 +139,7 @@ fn all_sources_daily_json_clamps_negative_claude_and_cursor_tokens() {
         &[
             ("HOME", &root),
             ("CODEX_HOME", &codex_home),
-            ("CURSOR_HOME", &cursor_home),
+            ("CURSOR_USAGE_FILE", &cursor_usage),
             ("GROK_HOME", &grok_home),
         ],
     );
@@ -156,7 +154,8 @@ fn all_sources_daily_json_clamps_negative_claude_and_cursor_tokens() {
     assert_eq!(row["output_tokens"].as_i64(), Some(90));
     assert_eq!(row["cache_creation_tokens"].as_i64(), Some(0));
     assert_eq!(row["cache_read_tokens"].as_i64(), Some(20));
-    assert!(row["cache_hit_rate"].is_null());
+    let cache_hit_rate = row["cache_hit_rate"].as_f64().expect("cache hit rate");
+    assert!((cache_hit_rate - 44.44).abs() < 1e-9);
     assert_eq!(row["total_tokens"].as_i64(), Some(135));
 
     for key in [

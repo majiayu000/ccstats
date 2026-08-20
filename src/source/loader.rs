@@ -148,7 +148,7 @@ impl<'a> DataLoader<'a> {
         R: Fn(T, T) -> T + Send + Sync,
     {
         let discovery_start = Instant::now();
-        let files = self.source.find_files();
+        let files = self.source.find_files_for_filter(filter, timezone);
         let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
 
         if files.is_empty() {

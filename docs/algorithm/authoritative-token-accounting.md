@@ -54,7 +54,7 @@ cost = "show"
 |--------|----------|------|--------|
 | Claude Code | `CLAUDE_CONFIG_DIR` | 包含 `projects/` 的 Claude 配置根目录 | `~/.claude` |
 | OpenAI Codex | `CODEX_HOME` | 包含 `sessions/` 的 Codex 根目录 | `~/.codex` |
-| Cursor | `CURSOR_HOME` | Cursor `User` 目录 | 平台 app/config data 目录下的 Cursor `User` |
+| Cursor | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Cursor usage API credentials | 无默认值；可用 `CURSOR_USAGE_FILE` 回放 |
 | Grok | `GROK_HOME` | 包含 `sessions/` 的 Grok 根目录 | `~/.grok` |
 
 ---
@@ -248,68 +248,65 @@ Codex 不需要去重。每条 `event_msg` 类型为 `token_count` 的记录已�
 
 ---
 
-## Cursor (Experimental)
+## Cursor
 
-### 日志位置
+### 数据来源
 
-Cursor 使用本地 SQLite 状态库。默认搜索：
+Cursor 用量来自 usage events API，不再读取本地 `state.vscdb`。
 
-```
-~/Library/Application Support/Cursor/User/globalStorage/state.vscdb
-~/.config/Cursor/User/globalStorage/state.vscdb
-<Cursor User>/workspaceStorage/*/state.vscdb
-```
-
-可通过 `CURSOR_HOME` 覆盖 Cursor User 目录：
+- Enterprise：`CURSOR_API_KEY` → `POST https://api.cursor.com/teams/filtered-usage-events`
+- 个人 / self-serve：`CURSOR_SESSION_TOKEN`（`WorkosCursorSessionToken` cookie）→ `POST https://cursor.com/api/dashboard/get-filtered-usage-events`
+- 测试或离线回放：`CURSOR_USAGE_FILE` 指向已保存的 JSON
 
 ```
-CURSOR_HOME=/path/to/Cursor/User ccstats daily --source cursor
+CURSOR_API_KEY=... ccstats daily --source cursor
+CURSOR_SESSION_TOKEN=... ccstats daily --source cursor
+CURSOR_USAGE_FILE=/path/to/usage.json ccstats daily --source cursor
 ```
 
 ### 原始字段
 
-Cursor 的本地数据库 schema 不是公开 API。parser 只信任显式 token 字段，不做估算：
-
 ```json
 {
-  "createdAt": "2026-02-06T10:00:00Z",
-  "tokenCount": {
+  "timestamp": "1770372000000",
+  "model": "claude-4-sonnet",
+  "conversationId": "composer-1",
+  "tokenUsage": {
     "inputTokens": 100,
-    "outputTokens": 40
+    "outputTokens": 40,
+    "cacheWriteTokens": 8,
+    "cacheReadTokens": 12
   },
-  "modelInfo": {
-    "modelName": "claude-4-sonnet"
-  }
+  "chargedCents": 12.5
 }
 ```
 
-当前读取的 SQLite 位置包括：
-
-1. `cursorDiskKV` 中的 `composerData:*` 和 `bubbleId:*`
-2. `ItemTable` 中的 `aiService.generations`
-3. `ItemTable` 中的 `workbench.panel.aichat.view.aichat.chatdata`
+Parser 同时接受 Admin API 的 `usageEvents` 和 dashboard 的 `usageEventsDisplay`。
 
 ### 字段映射
 
 ```
-input_tokens       ← tokenCount.inputTokens / usage.inputTokens / inputTokens
-output_tokens      ← tokenCount.outputTokens / usage.outputTokens / outputTokens
+input_tokens       ← tokenUsage.inputTokens
+output_tokens      ← tokenUsage.outputTokens
+cache_creation     ← tokenUsage.cacheWriteTokens
+cache_read         ← tokenUsage.cacheReadTokens
 reasoning_tokens   ← 0
-cache_creation     ← 0
-cache_read         ← 0
+recorded_cost_usd  ← chargedCents / 100（字段存在时）
+session_id         ← conversationId
 ```
 
-如果一条记录没有显式输入或输出 token，parser 会跳过该记录。
+如果一条事件没有显式 token 且 `chargedCents` 也为 0 或缺失，parser 会跳过该记录。负 token 钳制为 0。
 
 ### 去重
 
-Cursor parser 将本地记录转换为带 `message_id` 和 `session_id` 的 `RawEntry`，数据源能力中 `needs_dedup=false`。当前不做额外去重或 token 差分。
+同一页或跨页中 timestamp/model/token/cost 完全相同的事件按 `message_id` 去重。数据源能力中 `needs_dedup=false`。
 
 ### 限制
 
-- Cursor 支持是实验性的，依赖本地 SQLite schema。
 - 不支持项目聚合和 5 小时 billing block。
-- 不估算缺失 token，也不从文本长度推算 token。
+- 个人 dashboard API 不是公开稳定接口，session cookie 会过期。
+- Self-serve 计划可能只返回 token、事件成本为 0；ccstats 记录该 billed 金额，不用 LiteLLM 估算 Cursor 订阅费用。
+- 默认抓取当前计费周期（dashboard）或最近 90 天（Admin API）。
 
 ---
 
