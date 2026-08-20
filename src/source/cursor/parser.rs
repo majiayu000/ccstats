@@ -24,10 +24,10 @@ const API_SENTINEL: &str = "<cursor-usage-api>";
 const CURSOR_MODEL: &str = "cursor";
 
 pub(super) fn find_cursor_files(filter: &DateFilter, timezone: Timezone) -> Vec<PathBuf> {
-    if let Ok(path) = env::var(USAGE_FILE_ENV) {
-        if !path.trim().is_empty() {
-            return vec![PathBuf::from(path)];
-        }
+    if let Ok(path) = env::var(USAGE_FILE_ENV)
+        && !path.trim().is_empty()
+    {
+        return vec![PathBuf::from(path)];
     }
 
     if has_api_credentials() {

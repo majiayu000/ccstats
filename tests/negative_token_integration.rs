@@ -154,7 +154,8 @@ fn all_sources_daily_json_clamps_negative_claude_and_cursor_tokens() {
     assert_eq!(row["output_tokens"].as_i64(), Some(90));
     assert_eq!(row["cache_creation_tokens"].as_i64(), Some(0));
     assert_eq!(row["cache_read_tokens"].as_i64(), Some(20));
-    assert!(row["cache_hit_rate"].is_null());
+    let cache_hit_rate = row["cache_hit_rate"].as_f64().expect("cache hit rate");
+    assert!((cache_hit_rate - (20.0 / 45.0 * 100.0)).abs() < 1e-9);
     assert_eq!(row["total_tokens"].as_i64(), Some(135));
 
     for key in [
