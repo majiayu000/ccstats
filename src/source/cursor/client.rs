@@ -361,14 +361,7 @@ mod tests {
     #[test]
     fn requested_date_window_overrides_default_lookback() {
         assert_eq!(
-            date_window(
-                CursorApi::Admin,
-                None,
-                None,
-                Some(100),
-                Some(200),
-                false
-            ),
+            date_window(CursorApi::Admin, None, None, Some(100), Some(200), false),
             (100, 200)
         );
     }

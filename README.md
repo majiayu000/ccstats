@@ -502,8 +502,7 @@ cache_read / (input + cache_creation + cache_read) * 100
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
 Claude, Codex, Cursor, Grok, and Kimi Code expose the required cache-read metric.
-Mixed `--source all` output reports the value as unavailable (`N/A`, `null`, or
-an empty CSV field) instead of treating heterogeneous metrics as zero.
+Mixed `--source all` output reports the aggregate rate across all selected usage.
 
 ### Parsing Warnings
 

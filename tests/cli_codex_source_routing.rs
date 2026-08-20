@@ -426,7 +426,7 @@ fn source_all_daily_json_merges_registered_sources() {
     assert_eq!(arr[0]["input_tokens"].as_i64(), Some(110));
     assert_eq!(arr[0]["output_tokens"].as_i64(), Some(55));
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(165));
-    assert!(arr[0]["cache_hit_rate"].is_null());
+    assert_eq!(arr[0]["cache_hit_rate"].as_f64(), Some(0.0));
 
     let models = arr[0]["models"].as_array().expect("models");
     assert_eq!(models.len(), 2);
