@@ -18,6 +18,9 @@ pub(crate) struct Stats {
     /// Reasoning tokens (e.g., Codex o1 models)
     pub(crate) reasoning_tokens: i64,
     pub(crate) count: i64,
+    /// Number of parsed source records represented by this aggregation.
+    #[serde(default)]
+    pub(crate) records: i64,
     pub(crate) skipped_chunks: i64,
     pub(crate) estimated_proxy: CostTokens,
     /// Provider-reported USD cost that bypasses the local price list.
@@ -33,27 +36,32 @@ pub(crate) struct Stats {
 
 impl Stats {
     pub(crate) fn add(&mut self, other: &Stats) {
-        self.input_tokens += other.input_tokens;
-        self.output_tokens += other.output_tokens;
-        self.cache_creation += other.cache_creation;
-        self.cache_creation_1h += other.cache_creation_1h;
-        self.cache_read += other.cache_read;
-        self.reasoning_tokens += other.reasoning_tokens;
-        self.count += other.count;
-        self.skipped_chunks += other.skipped_chunks;
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_creation = self.cache_creation.saturating_add(other.cache_creation);
+        self.cache_creation_1h = self
+            .cache_creation_1h
+            .saturating_add(other.cache_creation_1h);
+        self.cache_read = self.cache_read.saturating_add(other.cache_read);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+        self.count = self.count.saturating_add(other.count);
+        self.records = self.records.saturating_add(other.records);
+        self.skipped_chunks = self.skipped_chunks.saturating_add(other.skipped_chunks);
         self.estimated_proxy.add(&other.estimated_proxy);
         self.recorded_cost_usd += other.recorded_cost_usd;
-        self.recorded_cost_entries += other.recorded_cost_entries;
+        self.recorded_cost_entries = self
+            .recorded_cost_entries
+            .saturating_add(other.recorded_cost_entries);
         self.priced_tokens.add(&other.priced_tokens);
     }
 
     /// Total tokens for display purposes
     pub(crate) fn total_tokens(&self) -> i64 {
         self.input_tokens
-            + self.output_tokens
-            + self.reasoning_tokens
-            + self.cache_creation
-            + self.cache_read
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.reasoning_tokens)
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
     }
 
     /// Percentage of reported input-side tokens served from the prompt cache.
@@ -172,24 +180,38 @@ pub(crate) struct CostTokens {
 
 impl CostTokens {
     pub(crate) fn add(&mut self, other: &Self) {
-        self.input_tokens += other.input_tokens;
-        self.output_tokens += other.output_tokens;
-        self.cache_creation += other.cache_creation;
-        self.cache_creation_1h += other.cache_creation_1h;
-        self.cache_read += other.cache_read;
-        self.reasoning_tokens += other.reasoning_tokens;
-        self.count += other.count;
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_creation = self.cache_creation.saturating_add(other.cache_creation);
+        self.cache_creation_1h = self
+            .cache_creation_1h
+            .saturating_add(other.cache_creation_1h);
+        self.cache_read = self.cache_read.saturating_add(other.cache_read);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+        self.count = self.count.saturating_add(other.count);
     }
 
     pub(crate) fn saturating_sub(self, other: &Self) -> Self {
         Self {
-            input_tokens: (self.input_tokens - other.input_tokens).max(0),
-            output_tokens: (self.output_tokens - other.output_tokens).max(0),
-            cache_creation: (self.cache_creation - other.cache_creation).max(0),
-            cache_creation_1h: (self.cache_creation_1h - other.cache_creation_1h).max(0),
-            cache_read: (self.cache_read - other.cache_read).max(0),
-            reasoning_tokens: (self.reasoning_tokens - other.reasoning_tokens).max(0),
-            count: (self.count - other.count).max(0),
+            input_tokens: self.input_tokens.saturating_sub(other.input_tokens).max(0),
+            output_tokens: self
+                .output_tokens
+                .saturating_sub(other.output_tokens)
+                .max(0),
+            cache_creation: self
+                .cache_creation
+                .saturating_sub(other.cache_creation)
+                .max(0),
+            cache_creation_1h: self
+                .cache_creation_1h
+                .saturating_sub(other.cache_creation_1h)
+                .max(0),
+            cache_read: self.cache_read.saturating_sub(other.cache_read).max(0),
+            reasoning_tokens: self
+                .reasoning_tokens
+                .saturating_sub(other.reasoning_tokens)
+                .max(0),
+            count: self.count.saturating_sub(other.count).max(0),
         }
     }
 
@@ -293,13 +315,23 @@ pub(crate) struct RawEntry {
     /// Serving endpoint (native vs proxy); Claude-only, else `Unknown`.
     #[serde(default)]
     pub(crate) endpoint: Endpoint,
+    /// Number of model calls represented by this record. Defaults to 1.
+    #[serde(default = "default_call_count")]
+    pub(crate) call_count: i64,
     /// Provider-reported USD cost for this record, when the source logs one.
     #[serde(default)]
     pub(crate) recorded_cost_usd: Option<f64>,
 }
 
+fn default_call_count() -> i64 {
+    1
+}
+
 impl RawEntry {
     pub(crate) fn to_stats(&self) -> Stats {
+        // Parsers default real records to one call; a synthetic residual may
+        // legitimately carry tokens or cost without representing another call.
+        let call_count = self.call_count.max(0);
         let mut stats = Stats {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
@@ -307,7 +339,8 @@ impl RawEntry {
             cache_creation_1h: self.cache_creation_1h,
             cache_read: self.cache_read,
             reasoning_tokens: self.reasoning_tokens,
-            count: 1,
+            count: call_count,
+            records: 1,
             skipped_chunks: 0,
             estimated_proxy: CostTokens::default(),
             recorded_cost_usd: 0.0,
@@ -476,6 +509,27 @@ mod tests {
     }
 
     #[test]
+    fn stats_aggregation_saturates_at_i64_max() {
+        let mut total = Stats {
+            input_tokens: i64::MAX,
+            count: i64::MAX,
+            records: i64::MAX,
+            ..Default::default()
+        };
+        total.add(&Stats {
+            input_tokens: 1,
+            count: 1,
+            records: 1,
+            ..Default::default()
+        });
+
+        assert_eq!(total.input_tokens, i64::MAX);
+        assert_eq!(total.count, i64::MAX);
+        assert_eq!(total.records, i64::MAX);
+        assert_eq!(total.total_tokens(), i64::MAX);
+    }
+
+    #[test]
     fn stats_add_accumulates_all_fields() {
         let mut a = make_stats(10, 20, 5, 3, 1);
         a.skipped_chunks = 2;
@@ -569,6 +623,7 @@ mod tests {
             stop_reason: None,
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
+            call_count: 1,
             recorded_cost_usd: None,
         };
         let s = entry.to_stats();
@@ -578,13 +633,14 @@ mod tests {
         assert_eq!(s.cache_read, 30);
         assert_eq!(s.reasoning_tokens, 10);
         assert_eq!(s.count, 1);
+        assert_eq!(s.records, 1);
         assert_eq!(s.skipped_chunks, 0);
         assert_eq!(s.recorded_cost_entries, 0);
         assert_eq!(s.priced_tokens.input_tokens, 100);
     }
 
     #[test]
-    fn raw_entry_to_stats_uses_recorded_cost() {
+    fn raw_entry_to_stats_uses_call_count_and_recorded_cost() {
         let entry = RawEntry {
             timestamp: String::new(),
             timestamp_ms: 0,
@@ -594,8 +650,8 @@ mod tests {
             session_id: String::new(),
             project_path: String::new(),
             model: String::new(),
-            input_tokens: 1_000_000,
-            output_tokens: 0,
+            input_tokens: 10,
+            output_tokens: 2,
             cache_creation: 0,
             cache_creation_1h: 0,
             cache_read: 0,
@@ -603,9 +659,12 @@ mod tests {
             stop_reason: None,
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
+            call_count: 5,
             recorded_cost_usd: Some(1.25),
         };
         let stats = entry.to_stats();
+        assert_eq!(stats.count, 5);
+        assert_eq!(stats.records, 1);
         assert!((stats.recorded_cost_usd - 1.25).abs() < 1e-12);
         assert_eq!(stats.recorded_cost_entries, 1);
         assert!(!stats.priced_tokens.has_entries());

@@ -223,7 +223,15 @@ fn pricing_source_for_models_with_cost(
 ) -> Option<PricingSource> {
     let mut source: Option<PricingSource> = None;
     for (model, stats) in models {
-        if !stats.cost_tokens().has_entries() {
+        if stats.recorded_cost_entries > 0 {
+            source = Some(match source {
+                Some(current) => current.combine(PricingSource::Recorded),
+                None => PricingSource::Recorded,
+            });
+        }
+        let has_locally_priced_tokens = stats.priced_tokens.has_entries()
+            || (stats.recorded_cost_entries == 0 && stats.cost_tokens().has_entries());
+        if !has_locally_priced_tokens {
             continue;
         }
         let model_source = pricing_db
@@ -235,6 +243,16 @@ fn pricing_source_for_models_with_cost(
         });
     }
     source
+}
+
+pub(crate) fn pricing_source_for_model_stats(
+    model: &str,
+    stats: &Stats,
+    pricing_db: &PricingDb,
+) -> PricingSource {
+    let mut models = HashMap::with_capacity(1);
+    models.insert(model.to_string(), stats.clone());
+    pricing_source_for_models(&models, pricing_db)
 }
 
 pub(crate) fn pricing_source_for_model_maps<'a>(
@@ -371,5 +389,24 @@ mod tests {
         };
 
         assert!((calculate_cost(&stats, "fable-5", &db) - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn recorded_and_locally_priced_entries_report_mixed_provenance() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let stats = Stats {
+            recorded_cost_entries: 1,
+            recorded_cost_usd: 1.0,
+            priced_tokens: CostTokens {
+                input_tokens: 10,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            pricing_source_for_model_stats("fable-5", &stats, &db),
+            PricingSource::Mixed
+        );
     }
 }

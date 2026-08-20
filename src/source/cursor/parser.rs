@@ -13,7 +13,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde_json::Value;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::RawEntry;
+use crate::core::{DateFilter, RawEntry};
 use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
@@ -23,31 +23,42 @@ pub(super) const USAGE_FILE_ENV: &str = "CURSOR_USAGE_FILE";
 const API_SENTINEL: &str = "<cursor-usage-api>";
 const CURSOR_MODEL: &str = "cursor";
 
-pub(super) fn find_cursor_files() -> Vec<PathBuf> {
+pub(super) fn find_cursor_files(filter: &DateFilter, timezone: Timezone) -> Vec<PathBuf> {
     if let Ok(path) = env::var(USAGE_FILE_ENV) {
-        let path = PathBuf::from(path);
-        return if path.is_file() {
-            vec![path]
-        } else {
-            Vec::new()
-        };
+        if !path.trim().is_empty() {
+            return vec![PathBuf::from(path)];
+        }
     }
 
     if has_api_credentials() {
-        vec![PathBuf::from(API_SENTINEL)]
+        let start_ms = filter
+            .since
+            .and_then(|date| timezone.date_start_utc_millis(date));
+        let end_ms = filter.until.and_then(|date| {
+            date.succ_opt()
+                .and_then(|next| timezone.date_start_utc_millis(next))
+                .map(|next_start| next_start.saturating_sub(1))
+        });
+        vec![PathBuf::from(format!(
+            "{API_SENTINEL}|{}|{}",
+            start_ms.map_or_else(String::new, |value| value.to_string()),
+            end_ms.map_or_else(String::new, |value| value.to_string())
+        ))]
     } else {
         Vec::new()
     }
 }
 
 pub(super) fn parse_cursor_with_debug(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-    if path.as_os_str() == API_SENTINEL {
-        return match fetch_usage_events(debug) {
+    if path.to_string_lossy().starts_with(API_SENTINEL) {
+        let sentinel = path.to_string_lossy();
+        let mut parts = sentinel.split('|').skip(1);
+        let start_ms = parts.next().and_then(|value| value.parse().ok());
+        let end_ms = parts.next().and_then(|value| value.parse().ok());
+        return match fetch_usage_events(start_ms, end_ms, debug) {
             Ok(events) => entries_from_events(&events, timezone),
             Err(err) => {
-                if debug {
-                    eprintln!("{err}");
-                }
+                eprintln!("Error: {err}");
                 ParseOutput {
                     entries: Vec::new(),
                     errors: 1,
@@ -89,22 +100,28 @@ pub(super) fn parse_cursor_with_debug(path: &Path, timezone: Timezone, debug: bo
     }
 }
 
-pub(super) fn events_from_payload(value: &Value) -> Vec<&Value> {
+pub(super) fn events_from_payload(value: &Value) -> Option<Vec<&Value>> {
     if let Some(items) = value.as_array() {
-        return items.iter().collect();
+        return Some(items.iter().collect());
     }
 
     for key in ["usageEventsDisplay", "usageEvents", "events"] {
         if let Some(items) = value.get(key).and_then(Value::as_array) {
-            return items.iter().collect();
+            return Some(items.iter().collect());
         }
     }
 
-    Vec::new()
+    None
 }
 
 fn parse_usage_payload(payload: &Value, timezone: Timezone) -> ParseOutput {
-    let events: Vec<Value> = events_from_payload(payload).into_iter().cloned().collect();
+    let Some(events) = events_from_payload(payload) else {
+        return ParseOutput {
+            entries: Vec::new(),
+            errors: 1,
+        };
+    };
+    let events: Vec<Value> = events.into_iter().cloned().collect();
     entries_from_events(&events, timezone)
 }
 
@@ -113,12 +130,12 @@ fn entries_from_events(events: &[Value], timezone: Timezone) -> ParseOutput {
     let mut seen = HashSet::new();
     let mut errors = 0usize;
 
-    for event in events {
+    for (ordinal, event) in events.iter().enumerate() {
         if !event.is_object() {
             errors += 1;
             continue;
         }
-        let Some(entry) = entry_from_event(event, timezone) else {
+        let Some(entry) = entry_from_event(event, ordinal, timezone) else {
             continue;
         };
         if !seen.insert(entry.message_id.clone().unwrap_or_default()) {
@@ -130,7 +147,7 @@ fn entries_from_events(events: &[Value], timezone: Timezone) -> ParseOutput {
     ParseOutput { entries, errors }
 }
 
-fn entry_from_event(event: &Value, timezone: Timezone) -> Option<RawEntry> {
+fn entry_from_event(event: &Value, ordinal: usize, timezone: Timezone) -> Option<RawEntry> {
     let utc_dt = timestamp_from_value(event)?;
     let local_dt = timezone.to_fixed_offset(utc_dt);
     let (input_tokens, output_tokens, cache_creation, cache_read) = token_counts(event);
@@ -152,11 +169,17 @@ fn entry_from_event(event: &Value, timezone: Timezone) -> Option<RawEntry> {
         &[&["conversationId"], &["generationUUID"], &["generationId"]],
     )
     .unwrap_or_else(|| UNKNOWN.to_string());
-    let message_id = format!(
-        "{}:{model}:{input_tokens}:{output_tokens}:{cache_creation}:{cache_read}:{}",
-        utc_dt.timestamp_millis(),
-        recorded_cost_usd.unwrap_or(0.0)
-    );
+    let message_id = first_string(
+        event,
+        &[
+            &["usageEventId"],
+            &["requestId"],
+            &["id"],
+            &["generationUUID"],
+            &["generationId"],
+        ],
+    )
+    .map_or_else(|| format!("event:{ordinal}"), |id| format!("event:{id}"));
 
     Some(RawEntry {
         timestamp: utc_dt.to_rfc3339(),
@@ -176,6 +199,7 @@ fn entry_from_event(event: &Value, timezone: Timezone) -> Option<RawEntry> {
         stop_reason: Some("complete".to_string()),
         cost_kind: crate::core::CostKind::Real,
         endpoint: crate::core::Endpoint::Unknown,
+        call_count: 1,
         recorded_cost_usd,
     })
 }
@@ -418,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_identical_events() {
+    fn preserves_identical_events_without_provider_ids() {
         let event = json!({
             "timestamp": "2026-02-06T10:00:00Z",
             "model": "claude-4-sonnet",
@@ -427,6 +451,26 @@ mod tests {
         });
         let payload = json!([event.clone(), event]);
         let parsed = parse_usage_payload(&payload, tz());
+        assert_eq!(parsed.entries.len(), 2);
+    }
+
+    #[test]
+    fn deduplicates_repeated_provider_event_ids() {
+        let event = json!({
+            "id": "event-1",
+            "timestamp": "2026-02-06T10:00:00Z",
+            "model": "claude-4-sonnet",
+            "tokenUsage": {"inputTokens": 10, "outputTokens": 4}
+        });
+        let payload = json!([event.clone(), event]);
+        let parsed = parse_usage_payload(&payload, tz());
         assert_eq!(parsed.entries.len(), 1);
+    }
+
+    #[test]
+    fn rejects_unsupported_usage_file_schema() {
+        let parsed = parse_usage_payload(&json!({"unexpected": []}), tz());
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 1);
     }
 }

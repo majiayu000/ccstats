@@ -1,5 +1,5 @@
 use chrono::offset::Offset;
-use chrono::{DateTime, FixedOffset, Local, Utc};
+use chrono::{DateTime, FixedOffset, Local, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use std::str::FromStr;
 
@@ -43,6 +43,21 @@ impl Timezone {
                 local.with_timezone(&offset)
             }
         }
+    }
+
+    pub(crate) fn date_start_utc_millis(self, date: NaiveDate) -> Option<i64> {
+        let midnight = date.and_hms_opt(0, 0, 0)?;
+        let utc = match self {
+            Timezone::Local => Local
+                .from_local_datetime(&midnight)
+                .earliest()
+                .map(|value| value.with_timezone(&Utc)),
+            Timezone::Named(tz) => tz
+                .from_local_datetime(&midnight)
+                .earliest()
+                .map(|value| value.with_timezone(&Utc)),
+        }?;
+        Some(utc.timestamp_millis())
     }
 }
 

@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::core::DateFilter;
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
@@ -51,7 +52,11 @@ impl Source for CursorSource {
     }
 
     fn find_files(&self) -> Vec<PathBuf> {
-        find_cursor_files()
+        find_cursor_files(&DateFilter::default(), Timezone::Local)
+    }
+
+    fn find_files_for_filter(&self, filter: &DateFilter, timezone: Timezone) -> Vec<PathBuf> {
+        find_cursor_files(filter, timezone)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {

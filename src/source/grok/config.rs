@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::parser::{find_grok_files, parse_grok_signal_file_with_debug};
+use super::parser::{find_grok_files, parse_grok_session_file_with_debug};
 
 /// Grok data source.
 pub(crate) struct GrokSource;
@@ -41,10 +41,10 @@ impl Source for GrokSource {
         Capabilities {
             has_projects: true,
             has_billing_blocks: false,
-            has_reasoning_tokens: false,
-            has_cache_creation: false,
-            has_cache_read: false,
-            needs_dedup: false,
+            has_reasoning_tokens: true,
+            has_cache_creation: true,
+            has_cache_read: true,
+            needs_dedup: true,
             has_tool_calls: false,
             has_endpoints: false,
         }
@@ -55,6 +55,6 @@ impl Source for GrokSource {
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-        parse_grok_signal_file_with_debug(path, timezone, debug)
+        parse_grok_session_file_with_debug(path, timezone, debug)
     }
 }

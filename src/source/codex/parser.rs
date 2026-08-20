@@ -612,6 +612,7 @@ fn push_codex_entry(
         stop_reason: Some("complete".to_string()), // Codex events are always complete
         cost_kind: crate::core::CostKind::Real,
         endpoint: crate::core::Endpoint::Unknown,
+        call_count: 1,
         recorded_cost_usd: None,
     });
 }

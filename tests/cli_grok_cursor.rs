@@ -59,6 +59,35 @@ fn write_grok_session_at(grok_home: &Path, created_at: &str, updated_at: &str) {
     );
 }
 
+fn write_grok_turn_session(grok_home: &Path) {
+    let session_dir = grok_home
+        .join("sessions")
+        .join("%2Ftmp%2Fgrok-project")
+        .join("grok-turn-session");
+    write_file(
+        &session_dir.join("signals.json"),
+        r#"{
+  "contextTokensUsed": 999999,
+  "primaryModelId": "grok-build"
+}"#,
+    );
+    write_file(
+        &session_dir.join("summary.json"),
+        r#"{
+  "created_at": "2026-08-15T09:00:00Z",
+  "updated_at": "2026-08-17T10:00:00Z",
+  "current_model_id": "grok-build",
+  "git_root_dir": "/tmp/grok-project/"
+}"#,
+    );
+    write_file(
+        &session_dir.join("updates.jsonl"),
+        r#"{"timestamp":1786838400,"method":"_x.ai/session/update","params":{"sessionId":"grok-turn-session","update":{"sessionUpdate":"turn_completed","prompt_id":"p1","stop_reason":"end_turn","usage":{"inputTokens":100,"outputTokens":20,"cachedReadTokens":40,"reasoningTokens":5,"modelCalls":3,"costUsdTicks":20000000000,"modelUsage":{"grok-4.5-build":{"inputTokens":100,"outputTokens":20,"cachedReadTokens":40,"reasoningTokens":5,"modelCalls":3,"costUsdTicks":20000000000}}}},"_meta":{"eventId":"e1","agentTimestampMs":1786838400000}}}
+{"timestamp":1786924800,"method":"_x.ai/session/update","params":{"sessionId":"grok-turn-session","update":{"sessionUpdate":"turn_completed","prompt_id":"p2","usage":{"inputTokens":50,"outputTokens":10,"cachedReadTokens":10,"reasoningTokens":2,"modelCalls":2,"costUsdTicks":5000000000,"modelUsage":{"grok-4.5-build":{"inputTokens":50,"outputTokens":10,"cachedReadTokens":10,"reasoningTokens":2,"modelCalls":2,"costUsdTicks":5000000000}}}},"_meta":{"agentTimestampMs":1786924800000}}}
+"#,
+    );
+}
+
 fn write_grok_update_only_session(grok_home: &Path) {
     let session_dir = grok_home
         .join("sessions")
@@ -197,7 +226,7 @@ fn source_flag_can_select_grok_without_subcommand() {
     assert_eq!(arr[0]["input_tokens"].as_i64(), Some(1500));
     assert_eq!(arr[0]["output_tokens"].as_i64(), Some(0));
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(1500));
-    assert!(arr[0]["cache_hit_rate"].is_null());
+    assert_eq!(arr[0]["cache_hit_rate"].as_f64(), Some(0.0));
     assert_eq!(
         arr[0]["models"].as_array().unwrap()[0].as_str(),
         Some("grok-build")
@@ -509,6 +538,115 @@ fn grok_source_falls_back_to_updates_when_signals_missing() {
         arr[0]["models"].as_array().unwrap()[0].as_str(),
         Some("grok-build")
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn grok_daily_json_reads_turn_completed_usage_by_event_date() {
+    let root = unique_temp_dir("grok-turn-usage");
+    let grok_home = root.join("grok-home");
+    write_grok_turn_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "daily",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-08-16",
+            "--until",
+            "2026-08-16",
+        ],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["date"].as_str(), Some("2026-08-16"));
+    assert_eq!(arr[0]["input_tokens"].as_i64(), Some(60));
+    assert_eq!(arr[0]["output_tokens"].as_i64(), Some(15));
+    assert_eq!(arr[0]["reasoning_tokens"].as_i64(), Some(5));
+    assert_eq!(arr[0]["cache_read_tokens"].as_i64(), Some(40));
+    assert_eq!(arr[0]["total_tokens"].as_i64(), Some(120));
+    assert_close(arr[0]["cache_hit_rate"].as_f64().unwrap(), 40.0);
+    assert_close(arr[0]["cost"].as_f64().unwrap(), 2.0);
+    assert_eq!(arr[0]["pricing_source"].as_str(), Some("recorded"));
+    assert!(arr[0].get("cost_kind").is_none() || arr[0]["cost_kind"].is_null());
+    assert_eq!(
+        arr[0]["models"].as_array().unwrap()[0].as_str(),
+        Some("grok-4.5-build")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn grok_daily_table_counts_model_calls_not_sessions() {
+    let root = unique_temp_dir("grok-turn-calls");
+    let grok_home = root.join("grok-home");
+    write_grok_turn_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "daily",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-08-16",
+            "--until",
+            "2026-08-17",
+        ],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let table = String::from_utf8(stdout).expect("utf8 table");
+    assert!(
+        table.contains("5") && table.contains("Calls"),
+        "table should count 5 model calls: {table}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn all_sources_includes_grok_server_cost_in_real_total() {
+    let root = unique_temp_dir("all-sources-grok-real");
+    let grok_home = root.join("grok-home");
+    write_claude_session(&root);
+    write_grok_turn_session(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "all",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-08-16",
+            "--until",
+            "2026-08-16",
+        ],
+        &[("HOME", &root), ("GROK_HOME", &grok_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let arr = json.as_array().expect("array output");
+    assert_eq!(arr.len(), 1);
+    assert_close(arr[0]["cost"].as_f64().unwrap(), 2.0);
+    assert!(arr[0].get("estimated_cost").is_none() || arr[0]["estimated_cost"].is_null());
 
     let _ = fs::remove_dir_all(root);
 }

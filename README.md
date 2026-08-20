@@ -87,16 +87,16 @@ ccstats daily --source cur
 
 ## Quick Start (Grok)
 
-Grok support reads local session `summary.json`, `signals.json`, and fallback `updates.jsonl` metadata under `~/.grok/sessions/`. These files expose local context-token snapshots, not precise provider input/output billable usage or Grok account quota usage, so ccstats reports Grok context tokens as input tokens.
+Grok support reads `turn_completed.usage` records from `~/.grok/sessions/**/updates.jsonl`. Those events are per-turn model request totals, including cache, output, reasoning, model-call counts, and server `costUsdTicks`. Sessions without `turn_completed.usage` still fall back to local context-token snapshots and keep that cost marked `estimated_proxy`.
 
 ```bash
 # Install
 brew install majiayu000/tap/ccstats
 
-# Today's local context-token trend
+# Today's Grok usage
 ccstats grok today
 
-# Daily local context-token trend
+# Daily Grok usage
 ccstats grok
 
 # Same source via alias
@@ -297,13 +297,13 @@ Current limitations:
 ### Grok
 
 ```bash
-# Today's Grok local context-token trend
+# Today's Grok usage
 ccstats grok today
 
-# Daily Grok local context-token breakdown
+# Daily Grok usage
 ccstats grok
 
-# Weekly Grok local context-token summary
+# Weekly Grok usage
 ccstats grok weekly
 
 # By session
@@ -318,9 +318,9 @@ ccstats daily --source gx
 
 By default, ccstats checks Grok session files under:
 
-- `~/.grok/sessions/**/summary.json`
-- `~/.grok/sessions/**/signals.json`
-- `~/.grok/sessions/**/updates.jsonl` when `signals.json` is missing
+- `~/.grok/sessions/**/updates.jsonl` for `turn_completed.usage`
+- `~/.grok/sessions/**/summary.json` for project path and snapshot fallback
+- `~/.grok/sessions/**/signals.json` only when a session has no `turn_completed.usage`
 
 You can override the Grok home directory with `GROK_HOME`:
 
@@ -330,9 +330,9 @@ GROK_HOME="/path/to/.grok" ccstats grok
 
 Current limitations:
 
-- Grok local session files expose context token usage, not exact provider input/output usage.
-- These local context-token totals may not match Grok account, quota, or 5-hour usage UI totals when those views use server-side accounting.
-- ccstats reports Grok context tokens as input tokens and leaves output, cache creation, cache read, and reasoning token fields at zero.
+- Account quota and weekly-allowance UI totals can still differ from local logs.
+- Sessions without `turn_completed.usage` keep the older context-token snapshot and mark that cost `estimated_proxy`.
+- Dates come from each `turn_completed` event. Snapshot fallback still uses the session `updated_at`.
 - Grok 5-hour billing blocks are not supported.
 
 ### Kimi Code
@@ -501,9 +501,9 @@ cache_read / (input + cache_creation + cache_read) * 100
 
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
-Claude, Codex, Cursor, and Kimi Code expose the required cache-read metric.
-Grok and mixed `--source all` output report the value as unavailable (`N/A`,
-`null`, or an empty CSV field) instead of treating missing metrics as zero.
+Claude, Codex, Cursor, Grok, and Kimi Code expose the required cache-read metric.
+Mixed `--source all` output reports the value as unavailable (`N/A`, `null`, or
+an empty CSV field) instead of treating heterogeneous metrics as zero.
 
 ### Parsing Warnings
 
@@ -521,7 +521,7 @@ Warning: ignored <N> malformed records
 | OpenAI Codex | `~/.codex/sessions/` | `CODEX_HOME` | Reasoning Tokens |
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor | Cursor usage API | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Per-event tokens, cache tokens, recorded `chargedCents` |
-| Grok | `~/.grok/sessions/` | `GROK_HOME` | Context-token session summaries, Projects |
+| Grok | `~/.grok/sessions/` | `GROK_HOME` | Per-turn usage records, Projects, Cache / reasoning tokens, Server cost ticks |
 | Kimi Code | `~/.kimi-code/sessions/` | `KIMI_CODE_HOME` | Per-turn usage records, Projects, Cache tokens |
 
 ## Architecture

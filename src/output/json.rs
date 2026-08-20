@@ -81,7 +81,12 @@ fn build_period_entry(
                 );
                 period_cost += cost;
                 model_obj["cost"] = cost_json_value(cost, options.currency);
-                pricing_meta::add_model_json(&mut model_obj, model, options.pricing_db);
+                pricing_meta::add_model_json(
+                    &mut model_obj,
+                    model,
+                    model_stats,
+                    options.pricing_db,
+                );
                 let estimated_cost =
                     calculate_estimated_proxy_cost(model_stats, model, options.pricing_db);
                 if estimated_cost > 0.0 {

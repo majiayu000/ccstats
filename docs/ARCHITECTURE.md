@@ -197,7 +197,7 @@ Source 根目录仍由环境变量覆盖：
 | Claude Code | `CLAUDE_CONFIG_DIR` | Claude config root containing `projects/` | `~/.claude` |
 | OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
 | Cursor | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Admin API key or dashboard session cookie | Optional `CURSOR_USAGE_FILE` replay |
-| Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
+| Grok | `GROK_HOME` | Grok root containing `sessions/` (`updates.jsonl` turn usage) | `~/.grok` |
 | Kimi Code | `KIMI_CODE_HOME` | Kimi Code root containing `sessions/` | `~/.kimi-code` |
 
 ## 添加新数据源

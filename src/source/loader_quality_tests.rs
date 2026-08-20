@@ -61,6 +61,7 @@ fn entry(id: &str, input_tokens: i64) -> RawEntry {
         stop_reason: Some("end_turn".to_string()),
         cost_kind: crate::core::CostKind::Real,
         endpoint: crate::core::Endpoint::Unknown,
+        call_count: 1,
         recorded_cost_usd: None,
     }
 }

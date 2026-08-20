@@ -36,14 +36,32 @@ pub(super) fn has_api_credentials() -> bool {
     env_nonempty(API_KEY_ENV) || env_nonempty(SESSION_TOKEN_ENV)
 }
 
-pub(super) fn fetch_usage_events(debug: bool) -> Result<Vec<Value>, String> {
+pub(super) fn fetch_usage_events(
+    requested_start_ms: Option<i64>,
+    requested_end_ms: Option<i64>,
+    debug: bool,
+) -> Result<Vec<Value>, String> {
     let api_key = env_nonempty(API_KEY_ENV).then(|| env::var(API_KEY_ENV).unwrap_or_default());
     let session_token =
         env_nonempty(SESSION_TOKEN_ENV).then(|| env::var(SESSION_TOKEN_ENV).unwrap_or_default());
 
     match (api_key, session_token) {
-        (Some(api_key), _) => fetch_paginated(CursorApi::Admin, Some(&api_key), None, debug),
-        (None, Some(token)) => fetch_paginated(CursorApi::Dashboard, None, Some(&token), debug),
+        (Some(api_key), _) => fetch_paginated(
+            CursorApi::Admin,
+            Some(&api_key),
+            None,
+            requested_start_ms,
+            requested_end_ms,
+            debug,
+        ),
+        (None, Some(token)) => fetch_paginated(
+            CursorApi::Dashboard,
+            None,
+            Some(&token),
+            requested_start_ms,
+            requested_end_ms,
+            debug,
+        ),
         (None, None) => Err(
             "Cursor usage API credentials were not found. Set CURSOR_API_KEY or CURSOR_SESSION_TOKEN."
                 .to_string(),
@@ -55,23 +73,33 @@ fn fetch_paginated(
     api: CursorApi,
     api_key: Option<&str>,
     session_token: Option<&str>,
+    requested_start_ms: Option<i64>,
+    requested_end_ms: Option<i64>,
     debug: bool,
 ) -> Result<Vec<Value>, String> {
-    let (start_ms, end_ms) = date_window(api, api_key, session_token, debug);
+    let (start_ms, end_ms) = date_window(
+        api,
+        api_key,
+        session_token,
+        requested_start_ms,
+        requested_end_ms,
+        debug,
+    );
     let mut events = Vec::new();
     let mut page = 1u32;
 
     loop {
         if page as usize > MAX_PAGES {
-            if debug {
-                eprintln!("Cursor usage API stopped after {MAX_PAGES} pages");
-            }
-            break;
+            return Err(format!(
+                "Cursor usage API exceeded the {MAX_PAGES}-page safety limit; refusing partial data"
+            ));
         }
 
         let body = page_body(api, start_ms, end_ms, page);
         let payload = post_json(api, api_key, session_token, &body)?;
-        let page_events = super::parser::events_from_payload(&payload);
+        let page_events = super::parser::events_from_payload(&payload).ok_or_else(|| {
+            "Cursor usage API returned an unsupported response schema".to_string()
+        })?;
         let page_len = page_events.len();
         events.extend(page_events.into_iter().cloned());
 
@@ -90,16 +118,25 @@ fn date_window(
     api: CursorApi,
     api_key: Option<&str>,
     session_token: Option<&str>,
+    requested_start_ms: Option<i64>,
+    requested_end_ms: Option<i64>,
     debug: bool,
 ) -> (i64, i64) {
     let end = Utc::now();
     let default_start = end - chrono::Duration::days(DEFAULT_LOOKBACK_DAYS);
-    if matches!(api, CursorApi::Dashboard)
+    let provider_start = if matches!(api, CursorApi::Dashboard)
         && let Some(start) = dashboard_billing_start(api_key, session_token, debug)
     {
-        return (start, end.timestamp_millis());
-    }
-    (default_start.timestamp_millis(), end.timestamp_millis())
+        start
+    } else {
+        default_start.timestamp_millis()
+    };
+    (
+        requested_start_ms.unwrap_or(provider_start),
+        requested_end_ms
+            .unwrap_or_else(|| end.timestamp_millis())
+            .min(end.timestamp_millis()),
+    )
 }
 
 fn dashboard_billing_start(
@@ -212,6 +249,7 @@ fn apply_auth<S>(
 fn http_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(FETCH_TIMEOUT))
+        .http_status_as_error(false)
         .build()
         .into()
 }
@@ -219,19 +257,25 @@ fn http_agent() -> ureq::Agent {
 fn read_json_body(response: ureq::http::Response<ureq::Body>) -> Result<Value, String> {
     let status = response.status();
     let mut body = response.into_body();
-    let parsed: Value = serde_json::from_reader(body.as_reader())
-        .map_err(|err| format!("Cursor usage API returned invalid JSON: {err}"))?;
+    let text = body
+        .read_to_string()
+        .map_err(|err| format!("Failed to read Cursor usage API response: {err}"))?;
     if !status.is_success() {
+        let parsed = serde_json::from_str::<Value>(&text).ok();
+        let fallback = text.trim().chars().take(512).collect::<String>();
         let message = parsed
-            .get("error")
+            .as_ref()
+            .and_then(|value| value.get("error").or_else(|| value.get("message")))
             .and_then(Value::as_str)
+            .or_else(|| (!fallback.is_empty()).then_some(fallback.as_str()))
             .unwrap_or("request failed");
         return Err(format!(
             "Cursor usage API returned HTTP {}: {message}",
             status.as_u16()
         ));
     }
-    Ok(parsed)
+    serde_json::from_str(&text)
+        .map_err(|err| format!("Cursor usage API returned invalid JSON: {err}"))
 }
 
 fn env_nonempty(key: &str) -> bool {
@@ -307,10 +351,25 @@ mod tests {
 
     #[test]
     fn default_date_window_is_bounded() {
-        let (start, end) = date_window(CursorApi::Admin, None, None, false);
+        let (start, end) = date_window(CursorApi::Admin, None, None, None, None, false);
         assert!(end >= start);
         let start_dt = Utc.timestamp_millis_opt(start).single().unwrap();
         let end_dt = Utc.timestamp_millis_opt(end).single().unwrap();
         assert!(end_dt - start_dt <= chrono::Duration::days(DEFAULT_LOOKBACK_DAYS + 1));
+    }
+
+    #[test]
+    fn requested_date_window_overrides_default_lookback() {
+        assert_eq!(
+            date_window(
+                CursorApi::Admin,
+                None,
+                None,
+                Some(100),
+                Some(200),
+                false
+            ),
+            (100, 200)
+        );
     }
 }

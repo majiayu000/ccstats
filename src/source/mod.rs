@@ -13,7 +13,7 @@ mod registry;
 
 use std::path::{Path, PathBuf};
 
-use crate::core::{RawEntry, ToolCall};
+use crate::core::{DateFilter, RawEntry, ToolCall};
 use crate::utils::Timezone;
 
 /// Parse result for a single source file.
@@ -89,6 +89,12 @@ pub(crate) trait Source: Send + Sync {
 
     /// Find all data files for this source
     fn find_files(&self) -> Vec<PathBuf>;
+
+    /// Find data for a requested date range. Remote sources may use the range
+    /// to bound API requests; local sources keep the default file discovery.
+    fn find_files_for_filter(&self, _filter: &DateFilter, _timezone: Timezone) -> Vec<PathBuf> {
+        self.find_files()
+    }
 
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;

@@ -335,6 +335,7 @@ fn parse_entry_with_debug(
         stop_reason: msg.stop_reason,
         cost_kind: crate::core::CostKind::Real,
         endpoint,
+        call_count: 1,
         recorded_cost_usd: None,
     })
 }
