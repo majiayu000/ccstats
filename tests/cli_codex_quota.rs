@@ -129,6 +129,27 @@ fn quota_fails_when_weekly_snapshot_is_missing() {
 }
 
 #[test]
+fn quota_does_not_fall_back_when_explicit_codex_home_is_missing() {
+    let root = unique_temp_dir("codex-quota-missing-home");
+    let codex_home = root.join("does-not-exist");
+    let observed_at = Utc::now().with_nanosecond(0).unwrap();
+    write_file(
+        &root.join(".codex/sessions/fallback.jsonl"),
+        &quota_event(observed_at, 25.0, observed_at + Duration::days(6), false),
+    );
+
+    let (ok, _stdout, stderr) = run_ccstats(
+        &["quota", "--json"],
+        &[("HOME", &root), ("CODEX_HOME", &codex_home)],
+    );
+
+    assert!(!ok);
+    assert!(String::from_utf8_lossy(&stderr).contains("no Codex weekly quota snapshot was found"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn quota_fails_when_latest_snapshot_is_stale() {
     let root = unique_temp_dir("codex-quota-stale");
     let codex_home = root.join("codex-home");

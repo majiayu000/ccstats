@@ -160,12 +160,10 @@ impl UsageTotals {
 // ============================================================================
 
 fn get_codex_sessions_dir() -> Option<PathBuf> {
-    // Check CODEX_HOME env var first
-    if let Ok(codex_home) = env::var(CODEX_HOME_ENV) {
+    // An explicit CODEX_HOME is authoritative, even when it is invalid.
+    if let Some(codex_home) = env::var_os(CODEX_HOME_ENV) {
         let path = PathBuf::from(codex_home).join(SESSION_SUBDIR);
-        if path.is_dir() {
-            return Some(path);
-        }
+        return path.is_dir().then_some(path);
     }
 
     // Fall back to ~/.codex/sessions
