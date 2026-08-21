@@ -23,6 +23,8 @@ pub(crate) enum Commands {
     Daily,
     /// Show weekly usage
     Weekly,
+    /// Estimate the current Codex weekly quota pace
+    Quota,
     /// Show monthly usage
     Monthly,
     /// Show today's usage
@@ -72,6 +74,8 @@ pub(crate) enum CodexCommands {
     Daily,
     /// Show weekly Codex usage
     Weekly,
+    /// Estimate the current Codex weekly quota pace
+    Quota,
     /// Show monthly Codex usage
     Monthly,
     /// Show today's Codex usage
@@ -126,6 +130,7 @@ pub(crate) enum SourceCommand {
     Sources,
     Daily,
     Weekly,
+    Quota,
     Monthly,
     Today,
     Session,
@@ -156,6 +161,7 @@ impl From<&Commands> for SourceCommand {
             Commands::Sources => SourceCommand::Sources,
             Commands::Daily => SourceCommand::Daily,
             Commands::Weekly => SourceCommand::Weekly,
+            Commands::Quota => SourceCommand::Quota,
             Commands::Monthly => SourceCommand::Monthly,
             Commands::Today => SourceCommand::Today,
             Commands::Session => SourceCommand::Session,
@@ -180,6 +186,7 @@ impl From<&Option<CodexCommands>> for SourceCommand {
         match cmd {
             Some(CodexCommands::Daily) | None => SourceCommand::Daily,
             Some(CodexCommands::Weekly) => SourceCommand::Weekly,
+            Some(CodexCommands::Quota) => SourceCommand::Quota,
             Some(CodexCommands::Monthly) => SourceCommand::Monthly,
             Some(CodexCommands::Today) => SourceCommand::Today,
             Some(CodexCommands::Session) => SourceCommand::Session,
@@ -230,6 +237,10 @@ pub(crate) fn parse_command(cmd: Option<&Commands>) -> ParsedCommand {
             source_hint: Some("codex"),
             command: SourceCommand::from(command),
         },
+        Some(Commands::Quota) => ParsedCommand {
+            source_hint: Some("codex"),
+            command: SourceCommand::Quota,
+        },
         Some(Commands::Grok { command }) => ParsedCommand {
             source_hint: Some("grok"),
             command: SourceCommand::from(command),
@@ -267,6 +278,19 @@ mod tests {
         }));
         assert_eq!(parsed.command, SourceCommand::Session);
         assert_eq!(parsed.source_hint, Some("codex"));
+    }
+
+    #[test]
+    fn parse_command_quota_is_codex_specific() {
+        let top_level = parse_command(Some(&Commands::Quota));
+        assert_eq!(top_level.command, SourceCommand::Quota);
+        assert_eq!(top_level.source_hint, Some("codex"));
+
+        let nested = parse_command(Some(&Commands::Codex {
+            command: Some(CodexCommands::Quota),
+        }));
+        assert_eq!(nested.command, SourceCommand::Quota);
+        assert_eq!(nested.source_hint, Some("codex"));
     }
 
     #[test]
