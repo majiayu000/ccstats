@@ -3,12 +3,112 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use ccstats::{
-    CostSummary, MultiSummaryOptions, SummaryOptions, UsageRange, UsageSource, summarize_cost,
-    summarize_cost_ranges,
+    CodexQuotaError, CodexQuotaStatus, CostSummary, MultiSummaryOptions, SummaryOptions,
+    UsageRange, UsageSource, load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
 };
-use chrono::{Datelike, Days, NaiveDate, Utc};
+use chrono::{Datelike, Days, Duration, NaiveDate, Utc};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn sdk_loads_codex_weekly_quota_from_explicit_home() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("isolated-[quota]*-home");
+    let session_file = codex_home.join("sessions").join("quota.jsonl");
+    let now = Utc::now();
+    let observed_at = now - Duration::hours(1);
+    let resets_at = now + Duration::days(6);
+    let event = serde_json::json!({
+        "timestamp": observed_at.to_rfc3339(),
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "rate_limits": {
+                "secondary": {
+                    "used_percent": 25.0,
+                    "window_minutes": 10_080,
+                    "resets_at": resets_at.timestamp(),
+                }
+            }
+        }
+    });
+    write_file(&session_file, &format!("{event}\n"));
+
+    let report = load_codex_weekly_quota(Some(&codex_home)).expect("load quota report");
+
+    assert_eq!(report.observed_at, observed_at);
+    assert_eq!(report.resets_at.timestamp(), resets_at.timestamp());
+    assert_eq!(report.window_minutes, 10_080);
+    assert_eq!(report.used_pct, 25.0);
+    assert_eq!(report.remaining_pct, 75.0);
+    assert!(report.projected_pct_at_reset > 100.0);
+    assert_eq!(report.status, CodexQuotaStatus::LikelyExhausted);
+
+    let serialized = serde_json::to_value(&report).expect("serialize quota report");
+    assert_eq!(serialized["status"], "likely_exhausted");
+    assert_eq!(
+        serialized["projected_pct_at_reset"],
+        report.projected_pct_at_reset
+    );
+}
+
+#[test]
+fn sdk_explicit_codex_home_never_falls_back() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("missing-codex-home");
+
+    let error = load_codex_weekly_quota(Some(&codex_home)).expect_err("missing sessions dir");
+
+    assert!(matches!(
+        error,
+        CodexQuotaError::SessionsDirectoryNotFound { path }
+            if path == codex_home.join("sessions")
+    ));
+}
+
+#[test]
+fn sdk_codex_weekly_quota_errors_are_typed() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    let sessions_dir = codex_home.join("sessions");
+    fs::create_dir_all(&sessions_dir).expect("create sessions dir");
+
+    let missing = load_codex_weekly_quota(Some(&codex_home)).expect_err("missing snapshot");
+    assert!(matches!(missing, CodexQuotaError::SnapshotNotFound));
+
+    let malformed_file = sessions_dir.join("malformed.jsonl");
+    write_file(&malformed_file, "{not json}\n");
+    let malformed = load_codex_weekly_quota(Some(&codex_home)).expect_err("malformed snapshot");
+    assert!(matches!(
+        malformed,
+        CodexQuotaError::SessionFile {
+            action: "read",
+            path,
+            source,
+        } if path == malformed_file && source.kind() == std::io::ErrorKind::InvalidData
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn sdk_rejects_symlinked_codex_sessions_root() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    let real_sessions = root.path().join("real-sessions");
+    fs::create_dir_all(&codex_home).expect("create Codex home");
+    fs::create_dir_all(&real_sessions).expect("create real sessions");
+    symlink(&real_sessions, codex_home.join("sessions")).expect("link sessions root");
+
+    let error = load_codex_weekly_quota(Some(&codex_home)).expect_err("reject sessions symlink");
+    assert!(matches!(
+        error,
+        CodexQuotaError::SessionDiscovery { path, source }
+            if path == codex_home.join("sessions")
+                && source.kind() == std::io::ErrorKind::InvalidInput
+    ));
+}
 
 fn write_file(path: &Path, content: &str) {
     if let Some(parent) = path.parent() {

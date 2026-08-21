@@ -4,6 +4,7 @@ mod batch;
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::path::Path;
 use std::str::FromStr;
 
 use chrono::{Datelike, Days, NaiveDate, Utc};
@@ -16,8 +17,10 @@ use crate::pricing::{
     CurrencyConverter, PricingDb, calculate_cost, calculate_estimated_proxy_cost, model_cost_kind,
     sum_estimated_proxy_model_costs, sum_model_costs,
 };
-use crate::source::{Source, get_source, load_daily};
+use crate::source::{Source, get_source, load_daily, load_weekly_quota_from_home};
 use crate::utils::Timezone;
+
+pub use crate::source::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
 
 pub use batch::{
     MultiCostSummary, MultiSummaryOptions, summarize_cost_ranges,
@@ -233,6 +236,23 @@ pub enum SdkError {
 
     #[error("{0}")]
     Configuration(String),
+}
+
+/// Load the newest provider-authoritative Codex weekly quota snapshot.
+///
+/// Pass an explicit Codex home to avoid process-global environment discovery.
+/// The home must contain a `sessions` directory and is never replaced by a
+/// fallback path. Passing `None` honors `CODEX_HOME` before `~/.codex`.
+///
+/// # Errors
+///
+/// Returns an error when the sessions directory or a usable weekly snapshot
+/// cannot be found, a session file cannot be inspected or read, or the newest
+/// snapshot is stale or malformed.
+pub fn load_codex_weekly_quota(
+    codex_home: Option<&Path>,
+) -> Result<CodexWeeklyQuota, CodexQuotaError> {
+    load_weekly_quota_from_home(codex_home)
 }
 
 /// Summarize local token usage and estimated cost.

@@ -2,7 +2,8 @@
 //! Claude Code, `OpenAI` Codex, Cursor, Grok, and Kimi Code session logs.
 //!
 //! The public SDK entry points are [`summarize_cost`] and
-//! [`summarize_cost_ranges`] for explicit options, plus
+//! [`summarize_cost_ranges`] for cost analytics, [`load_codex_weekly_quota`]
+//! for provider-authoritative Codex quota pace, plus
 //! [`summarize_cost_with_cli_config`] and
 //! [`summarize_cost_ranges_with_cli_config`] for CLI-aligned config defaults.
 //! The binary target calls [`run_cli`] to preserve the existing command-line
@@ -32,8 +33,9 @@ mod sources_cmd;
 mod utils;
 
 pub use sdk::{
-    CostSummary, ModelCostSummary, MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions,
-    TokenBreakdown, UsageRange, UsageSource, summarize_cost, summarize_cost_ranges,
+    CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, CostSummary, ModelCostSummary,
+    MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions, TokenBreakdown, UsageRange,
+    UsageSource, load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
     summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
 };
 

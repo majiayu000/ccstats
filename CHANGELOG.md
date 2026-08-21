@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Expose provider-authoritative Codex weekly quota reports through the Rust SDK with typed data and errors.
+
 ### Changed
 - Calculate Grok 4.5 and 4.6 USD cost from per-inference `unified.jsonl` token records, including prompt-cache rates and the 200k-token whole-request pricing tier, instead of using `turn_completed.costUsdTicks` as the Grok Build weekly-allowance value.
 

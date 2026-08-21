@@ -159,24 +159,25 @@ impl UsageTotals {
 // File discovery
 // ============================================================================
 
-fn get_codex_sessions_dir() -> Option<PathBuf> {
+pub(super) fn codex_sessions_dir_candidate() -> Option<PathBuf> {
     // An explicit CODEX_HOME is authoritative, even when it is invalid.
     if let Some(codex_home) = env::var_os(CODEX_HOME_ENV) {
-        let path = PathBuf::from(codex_home).join(SESSION_SUBDIR);
-        return path.is_dir().then_some(path);
+        return Some(PathBuf::from(codex_home).join(SESSION_SUBDIR));
     }
 
     // Fall back to ~/.codex/sessions
     let home = dirs::home_dir()?;
-    let path = home.join(DEFAULT_CODEX_DIR).join(SESSION_SUBDIR);
-    if path.is_dir() { Some(path) } else { None }
+    Some(home.join(DEFAULT_CODEX_DIR).join(SESSION_SUBDIR))
+}
+
+fn get_codex_sessions_dir() -> Option<PathBuf> {
+    codex_sessions_dir_candidate().filter(|path| path.is_dir())
 }
 
 pub(super) fn find_codex_files() -> Vec<PathBuf> {
     let Some(sessions_dir) = get_codex_sessions_dir() else {
         return Vec::new();
     };
-
     let mut files = Vec::new();
     if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", sessions_dir.display())) {
         for entry in entries.flatten() {

@@ -1,7 +1,7 @@
 use comfy_table::{Cell, Color};
 use serde_json::json;
 
-use crate::source::{CodexQuotaReport, QuotaStatus};
+use crate::source::{CodexQuotaStatus, CodexWeeklyQuota};
 use crate::utils::Timezone;
 
 use super::format::{create_styled_table, header_cell, right_cell, styled_cell};
@@ -14,14 +14,14 @@ fn timestamp(value: chrono::DateTime<chrono::Utc>) -> String {
     value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
-pub(crate) fn output_quota_json(report: &CodexQuotaReport) -> String {
+pub(crate) fn output_quota_json(report: &CodexWeeklyQuota) -> String {
     json!({
         "source": "codex",
         "window": "weekly",
         "window_minutes": report.window_minutes,
         "used_pct": rounded_pct(report.used_pct),
         "remaining_pct": rounded_pct(report.remaining_pct),
-        "projected_pct_at_reset": rounded_pct(report.projected_pct),
+        "projected_pct_at_reset": rounded_pct(report.projected_pct_at_reset),
         "status": report.status.as_str(),
         "observed_at": timestamp(report.observed_at),
         "resets_at": timestamp(report.resets_at),
@@ -30,7 +30,7 @@ pub(crate) fn output_quota_json(report: &CodexQuotaReport) -> String {
     .to_string()
 }
 
-pub(crate) fn output_quota_csv(report: &CodexQuotaReport) -> String {
+pub(crate) fn output_quota_csv(report: &CodexWeeklyQuota) -> String {
     let depletion = report
         .estimated_depletion_at
         .map(timestamp)
@@ -41,7 +41,7 @@ codex,weekly,{},{:.2},{:.2},{:.2},{},{},{},{}\n",
         report.window_minutes,
         report.used_pct,
         report.remaining_pct,
-        report.projected_pct,
+        report.projected_pct_at_reset,
         report.status.as_str(),
         timestamp(report.observed_at),
         timestamp(report.resets_at),
@@ -49,7 +49,7 @@ codex,weekly,{},{:.2},{:.2},{:.2},{},{},{},{}\n",
     )
 }
 
-pub(crate) fn print_quota_table(report: &CodexQuotaReport, timezone: Timezone, use_color: bool) {
+pub(crate) fn print_quota_table(report: &CodexWeeklyQuota, timezone: Timezone, use_color: bool) {
     let mut table = create_styled_table();
     table.set_header(vec![
         header_cell("Window", use_color),
@@ -63,9 +63,9 @@ pub(crate) fn print_quota_table(report: &CodexQuotaReport, timezone: Timezone, u
 
     let status_color = if use_color {
         match report.status {
-            QuotaStatus::OnTrack => Some(Color::Green),
-            QuotaStatus::Watch => Some(Color::Yellow),
-            QuotaStatus::LikelyExhausted | QuotaStatus::Exhausted => Some(Color::Red),
+            CodexQuotaStatus::OnTrack => Some(Color::Green),
+            CodexQuotaStatus::Watch => Some(Color::Yellow),
+            CodexQuotaStatus::LikelyExhausted | CodexQuotaStatus::Exhausted => Some(Color::Red),
         }
     } else {
         None
@@ -85,7 +85,7 @@ pub(crate) fn print_quota_table(report: &CodexQuotaReport, timezone: Timezone, u
         right_cell(&format!("{:.1}%", report.used_pct), status_color, false),
         right_cell(&format!("{:.1}%", report.remaining_pct), None, false),
         right_cell(
-            &format!("{:.1}%", report.projected_pct),
+            &format!("{:.1}%", report.projected_pct_at_reset),
             status_color,
             false,
         ),
@@ -113,16 +113,16 @@ mod tests {
     use chrono::DateTime;
 
     use super::*;
-    fn report() -> CodexQuotaReport {
-        CodexQuotaReport {
+    fn report() -> CodexWeeklyQuota {
+        CodexWeeklyQuota {
             observed_at: "2026-08-22T00:00:00Z".parse::<DateTime<_>>().unwrap(),
             resets_at: "2026-08-28T00:00:00Z".parse::<DateTime<_>>().unwrap(),
             estimated_depletion_at: Some("2026-08-25T00:00:00Z".parse::<DateTime<_>>().unwrap()),
             window_minutes: 10_080,
             used_pct: 25.0,
             remaining_pct: 75.0,
-            projected_pct: 175.0,
-            status: QuotaStatus::LikelyExhausted,
+            projected_pct_at_reset: 175.0,
+            status: CodexQuotaStatus::LikelyExhausted,
         }
     }
 
