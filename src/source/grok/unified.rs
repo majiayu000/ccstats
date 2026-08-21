@@ -166,15 +166,7 @@ pub(super) fn find_grok_files() -> Vec<PathBuf> {
 
     if source_path.is_file() {
         if let Some(path) = ledger_path.as_deref() {
-            match sync_ledger_at(&source_path, path, &sessions_dir) {
-                Ok(records) if records > 0 => return vec![path.to_path_buf()],
-                Ok(_) => {}
-                Err(error) => {
-                    eprintln!(
-                        "Warning: failed to persist Grok inference log; reading the live log only: {error}"
-                    );
-                }
-            }
+            return vec![sync_or_select_grok_file(&source_path, path, &sessions_dir)];
         }
         return vec![source_path];
     }
@@ -186,6 +178,29 @@ pub(super) fn find_grok_files() -> Vec<PathBuf> {
     }
 
     super::parser::find_grok_files()
+}
+
+fn sync_or_select_grok_file(
+    source_path: &Path,
+    ledger_path: &Path,
+    sessions_dir: &Path,
+) -> PathBuf {
+    match sync_ledger_at(source_path, ledger_path, sessions_dir) {
+        Ok(records) if records > 0 => ledger_path.to_path_buf(),
+        Ok(_) => source_path.to_path_buf(),
+        Err(error) if ledger_path.is_file() => {
+            eprintln!(
+                "Warning: failed to ingest the latest Grok inference log; using the last persisted ledger: {error}"
+            );
+            ledger_path.to_path_buf()
+        }
+        Err(error) => {
+            eprintln!(
+                "Warning: failed to persist Grok inference log; reading the live log only: {error}"
+            );
+            source_path.to_path_buf()
+        }
+    }
 }
 
 pub(super) fn parse_grok_file_with_debug(
@@ -640,6 +655,40 @@ mod tests {
                 .map(|entry| entry.input_tokens + entry.cache_read)
                 .sum::<i64>(),
             300
+        );
+    }
+
+    #[test]
+    fn malformed_live_tail_keeps_last_persisted_ledger_visible() {
+        let root = tempdir().expect("temp dir");
+        let sessions_dir = root.path().join("sessions");
+        let source_path = root.path().join("unified.jsonl");
+        let ledger_path = root.path().join("grok-inference.jsonl");
+        write_session_summary(&sessions_dir, "session-1", "grok-4.6");
+        fs::write(
+            &source_path,
+            inference_line("2026-08-21T05:42:57.046Z", "session-1", 1, 100, 50, 10, 4),
+        )
+        .expect("write initial source");
+        assert_eq!(
+            sync_ledger_at(&source_path, &ledger_path, &sessions_dir).expect("initial sync"),
+            1
+        );
+
+        fs::write(
+            &source_path,
+            r#"{"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":200"#,
+        )
+        .expect("write partial live record");
+
+        let selected = sync_or_select_grok_file(&source_path, &ledger_path, &sessions_dir);
+        assert_eq!(selected, ledger_path);
+        let parsed = parse_ledger_file(&selected, tz(), true);
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(
+            parsed.entries[0].input_tokens + parsed.entries[0].cache_read,
+            100
         );
     }
 }
