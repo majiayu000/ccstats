@@ -149,6 +149,22 @@ println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
 
 The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, cache hit rate, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
 
+Codex weekly quota pace is also available as structured SDK data without
+spawning the CLI:
+
+```rust
+use ccstats::load_codex_weekly_quota;
+
+let quota = load_codex_weekly_quota(None)?;
+println!("weekly used: {:.1}%", quota.used_pct);
+println!("projected at reset: {:.1}%", quota.projected_pct_at_reset);
+```
+
+Pass `Some(codex_home)` to read an explicit Codex home without modifying
+process environment variables. The explicit path is authoritative and never
+falls back to `CODEX_HOME` or `~/.codex`. Missing, stale, malformed, and
+unreadable snapshots return typed `CodexQuotaError` values.
+
 Apps that need several windows at once can use the batch API so source logs,
 pricing, and currency are loaded once for the request:
 

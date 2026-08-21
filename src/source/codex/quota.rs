@@ -4,30 +4,37 @@
 //! module reads the newest 10,080-minute window and projects its current pace;
 //! token totals are deliberately not used as a quota proxy.
 
-use std::fs::File;
+use std::ffi::OsStr;
+use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use serde::Deserialize;
+use serde::de::Error as _;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use super::parser::find_codex_files;
+use super::parser::codex_sessions_dir_candidate;
 
 const WEEKLY_WINDOW_MINUTES: i64 = 7 * 24 * 60;
 const DISCOVERY_MARGIN_MINUTES: i64 = 24 * 60;
 const MAX_CLOCK_SKEW_SECONDS: i64 = 5 * 60;
 const REVERSE_READ_CHUNK_SIZE: usize = 64 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum QuotaStatus {
+/// Projected risk for the current Codex weekly quota window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "snake_case")]
+pub enum CodexQuotaStatus {
     OnTrack,
     Watch,
     LikelyExhausted,
     Exhausted,
 }
 
-impl QuotaStatus {
-    pub(crate) fn as_str(self) -> &'static str {
+impl CodexQuotaStatus {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::OnTrack => "on_track",
             Self::Watch => "watch",
@@ -37,16 +44,58 @@ impl QuotaStatus {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct CodexQuotaReport {
-    pub(crate) observed_at: DateTime<Utc>,
-    pub(crate) resets_at: DateTime<Utc>,
-    pub(crate) estimated_depletion_at: Option<DateTime<Utc>>,
-    pub(crate) window_minutes: i64,
-    pub(crate) used_pct: f64,
-    pub(crate) remaining_pct: f64,
-    pub(crate) projected_pct: f64,
-    pub(crate) status: QuotaStatus,
+/// Provider-authoritative Codex weekly quota usage with a pace projection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct CodexWeeklyQuota {
+    pub observed_at: DateTime<Utc>,
+    pub resets_at: DateTime<Utc>,
+    pub estimated_depletion_at: Option<DateTime<Utc>>,
+    pub window_minutes: i64,
+    pub used_pct: f64,
+    pub remaining_pct: f64,
+    pub projected_pct_at_reset: f64,
+    pub status: CodexQuotaStatus,
+}
+
+/// Errors returned while discovering or reading a Codex weekly quota snapshot.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum CodexQuotaError {
+    #[error("Codex sessions directory was not found at {}", path.display())]
+    SessionsDirectoryNotFound { path: PathBuf },
+
+    #[error(
+        "no Codex weekly quota snapshot was found. Start a Codex CLI session to refresh rate-limit data."
+    )]
+    SnapshotNotFound,
+
+    #[error("failed to {action} Codex session {}: {source}", path.display())]
+    SessionFile {
+        action: &'static str,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+
+    #[error("the newest Codex weekly quota snapshot is dated in the future")]
+    SnapshotInFuture,
+
+    #[error(
+        "the newest Codex weekly quota snapshot expired at {reset}. Start a Codex CLI session to refresh it.",
+        reset = resets_at.to_rfc3339()
+    )]
+    SnapshotExpired { resets_at: DateTime<Utc> },
+
+    #[error("the newest Codex weekly quota snapshot has invalid {reason}")]
+    InvalidSnapshotTiming { reason: &'static str },
+
+    #[error("failed to discover Codex sessions under {}: {source}", path.display())]
+    SessionDiscovery {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +104,24 @@ struct QuotaSnapshot {
     resets_at: DateTime<Utc>,
     window_minutes: i64,
     used_pct: f64,
+}
+
+#[derive(Debug)]
+enum SnapshotLineError {
+    Incomplete,
+    Invalid(io::Error),
+}
+
+impl SnapshotLineError {
+    fn into_io_error(self) -> io::Error {
+        match self {
+            Self::Incomplete => io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "incomplete trailing Codex session record",
+            ),
+            Self::Invalid(error) => error,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,21 +152,103 @@ struct RateLimitWindow {
     resets_at: i64,
 }
 
-pub(crate) fn load_weekly_quota() -> Result<CodexQuotaReport, String> {
-    load_weekly_quota_at(Utc::now())
+pub(crate) fn load_weekly_quota() -> Result<CodexWeeklyQuota, CodexQuotaError> {
+    load_weekly_quota_from_home(None)
 }
 
-fn load_weekly_quota_at(now: DateTime<Utc>) -> Result<CodexQuotaReport, String> {
-    let files = recent_codex_files(find_codex_files(), now)?;
-    let latest = latest_snapshot_in_files(files)?.ok_or_else(|| {
-            "no Codex weekly quota snapshot was found. Start a Codex CLI session to refresh rate-limit data."
-                .to_string()
-        })?;
+pub(crate) fn load_weekly_quota_from_home(
+    codex_home: Option<&Path>,
+) -> Result<CodexWeeklyQuota, CodexQuotaError> {
+    let explicit_home = codex_home.is_some();
+    let sessions_dir = if let Some(codex_home) = codex_home {
+        codex_home.join("sessions")
+    } else {
+        codex_sessions_dir_candidate().ok_or(CodexQuotaError::SnapshotNotFound)?
+    };
+    if let Err(error) = validate_sessions_dir(&sessions_dir) {
+        return match (explicit_home, error) {
+            (false, CodexQuotaError::SessionsDirectoryNotFound { .. }) => {
+                Err(CodexQuotaError::SnapshotNotFound)
+            }
+            (_, error) => Err(error),
+        };
+    }
+    let files = discover_quota_files(&sessions_dir)?;
+    load_weekly_quota_from_files_at(files, Utc::now())
+}
 
+fn validate_sessions_dir(sessions_dir: &Path) -> Result<(), CodexQuotaError> {
+    match fs::symlink_metadata(sessions_dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(CodexQuotaError::SessionDiscovery {
+                path: sessions_dir.to_path_buf(),
+                source: io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Codex sessions directory must not be a symbolic link",
+                ),
+            })
+        }
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(CodexQuotaError::SessionsDirectoryNotFound {
+            path: sessions_dir.to_path_buf(),
+        }),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            Err(CodexQuotaError::SessionsDirectoryNotFound {
+                path: sessions_dir.to_path_buf(),
+            })
+        }
+        Err(source) => Err(CodexQuotaError::SessionDiscovery {
+            path: sessions_dir.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn discover_quota_files(sessions_dir: &Path) -> Result<Vec<PathBuf>, CodexQuotaError> {
+    let mut pending = vec![sessions_dir.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let entries =
+            fs::read_dir(&directory).map_err(|source| CodexQuotaError::SessionDiscovery {
+                path: directory.clone(),
+                source,
+            })?;
+        for entry in entries {
+            let entry = entry.map_err(|source| CodexQuotaError::SessionDiscovery {
+                path: directory.clone(),
+                source,
+            })?;
+            let path = entry.path();
+            let file_type =
+                entry
+                    .file_type()
+                    .map_err(|source| CodexQuotaError::SessionDiscovery {
+                        path: path.clone(),
+                        source,
+                    })?;
+            if file_type.is_dir() {
+                pending.push(path);
+            } else if file_type.is_file() && path.extension() == Some(OsStr::new("jsonl")) {
+                files.push(path);
+            }
+        }
+    }
+    Ok(files)
+}
+
+fn load_weekly_quota_from_files_at(
+    files: Vec<PathBuf>,
+    now: DateTime<Utc>,
+) -> Result<CodexWeeklyQuota, CodexQuotaError> {
+    let files = recent_codex_files(files, now)?;
+    let latest = latest_snapshot_in_files(files)?.ok_or(CodexQuotaError::SnapshotNotFound)?;
     build_report(&latest, now)
 }
 
-fn recent_codex_files(files: Vec<PathBuf>, now: DateTime<Utc>) -> Result<Vec<PathBuf>, String> {
+fn recent_codex_files(
+    files: Vec<PathBuf>,
+    now: DateTime<Utc>,
+) -> Result<Vec<PathBuf>, CodexQuotaError> {
     let cutoff = now - Duration::minutes(WEEKLY_WINDOW_MINUTES + DISCOVERY_MARGIN_MINUTES);
     files
         .into_iter()
@@ -109,10 +258,11 @@ fn recent_codex_files(files: Vec<PathBuf>, now: DateTime<Utc>) -> Result<Vec<Pat
             let modified = match path.metadata().and_then(|metadata| metadata.modified()) {
                 Ok(modified) => DateTime::<Utc>::from(modified),
                 Err(error) => {
-                    return Some(Err(format!(
-                        "failed to inspect Codex session {}: {error}",
-                        path.display()
-                    )));
+                    return Some(Err(CodexQuotaError::SessionFile {
+                        action: "inspect",
+                        path,
+                        source: error,
+                    }));
                 }
             };
             (path_is_recent || modified >= cutoff).then_some(Ok(path))
@@ -140,7 +290,7 @@ fn session_path_date(path: &Path) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
 }
 
-fn latest_snapshot_in_files(files: Vec<PathBuf>) -> Result<Option<QuotaSnapshot>, String> {
+fn latest_snapshot_in_files(files: Vec<PathBuf>) -> Result<Option<QuotaSnapshot>, CodexQuotaError> {
     let mut latest: Option<QuotaSnapshot> = None;
     for path in files {
         if let Some(snapshot) = latest_snapshot_in_file(&path)?
@@ -154,11 +304,17 @@ fn latest_snapshot_in_files(files: Vec<PathBuf>) -> Result<Option<QuotaSnapshot>
     Ok(latest)
 }
 
-fn latest_snapshot_in_file(path: &Path) -> Result<Option<QuotaSnapshot>, String> {
-    let mut file = File::open(path)
-        .map_err(|error| format!("failed to open Codex session {}: {error}", path.display()))?;
-    latest_snapshot_from_seekable(&mut file)
-        .map_err(|error| format!("failed to read Codex session {}: {error}", path.display()))
+fn latest_snapshot_in_file(path: &Path) -> Result<Option<QuotaSnapshot>, CodexQuotaError> {
+    let mut file = File::open(path).map_err(|source| CodexQuotaError::SessionFile {
+        action: "open",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    latest_snapshot_from_seekable(&mut file).map_err(|source| CodexQuotaError::SessionFile {
+        action: "read",
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 fn latest_snapshot_from_seekable<R: Read + Seek>(
@@ -194,8 +350,9 @@ fn latest_snapshot_from_seekable<R: Read + Seek>(
                 match snapshot_from_bytes(line) {
                     Ok(Some(snapshot)) => return Ok(Some(snapshot)),
                     Ok(None) => {}
-                    Err(_) if trailing_segment && !ends_with_newline => {}
-                    Err(error) => return Err(error),
+                    Err(SnapshotLineError::Incomplete)
+                        if trailing_segment && !ends_with_newline => {}
+                    Err(error) => return Err(error.into_io_error()),
                 }
             }
             trailing_segment = false;
@@ -209,15 +366,26 @@ fn latest_snapshot_from_seekable<R: Read + Seek>(
     }
     match snapshot_from_bytes(&suffix) {
         Ok(snapshot) => Ok(snapshot),
-        Err(_) if trailing_segment && !ends_with_newline => Ok(None),
-        Err(error) => Err(error),
+        Err(SnapshotLineError::Incomplete) if trailing_segment && !ends_with_newline => Ok(None),
+        Err(error) => Err(error.into_io_error()),
     }
 }
 
-fn snapshot_from_bytes(line: &[u8]) -> io::Result<Option<QuotaSnapshot>> {
-    let line = std::str::from_utf8(line)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    snapshot_from_line(line).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+fn snapshot_from_bytes(line: &[u8]) -> Result<Option<QuotaSnapshot>, SnapshotLineError> {
+    let line = std::str::from_utf8(line).map_err(|error| {
+        if error.error_len().is_none() {
+            SnapshotLineError::Incomplete
+        } else {
+            SnapshotLineError::Invalid(io::Error::new(io::ErrorKind::InvalidData, error))
+        }
+    })?;
+    snapshot_from_line(line).map_err(|error| {
+        if error.is_eof() {
+            SnapshotLineError::Incomplete
+        } else {
+            SnapshotLineError::Invalid(io::Error::new(io::ErrorKind::InvalidData, error))
+        }
+    })
 }
 
 fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaSnapshot>> {
@@ -228,12 +396,6 @@ fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaSnapshot>> {
     if entry.entry_type != Some("event_msg") {
         return Ok(None);
     }
-    let Some(observed_at) = entry
-        .timestamp
-        .and_then(|timestamp| timestamp.parse::<DateTime<Utc>>().ok())
-    else {
-        return Ok(None);
-    };
     let Some(payload) = entry.payload else {
         return Ok(None);
     };
@@ -243,25 +405,38 @@ fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaSnapshot>> {
     let Some(limits) = payload.rate_limits else {
         return Ok(None);
     };
-
-    Ok([limits.primary, limits.secondary]
+    let Some(window) = [limits.primary, limits.secondary]
         .into_iter()
         .flatten()
-        .find_map(|window| snapshot_from_window(observed_at, &window)))
+        .find(|window| window.window_minutes == WEEKLY_WINDOW_MINUTES)
+    else {
+        return Ok(None);
+    };
+    let timestamp = entry
+        .timestamp
+        .ok_or_else(|| serde_json::Error::custom("weekly quota snapshot has no timestamp"))?;
+    let observed_at = timestamp.parse::<DateTime<Utc>>().map_err(|error| {
+        serde_json::Error::custom(format!(
+            "weekly quota snapshot has invalid timestamp: {error}"
+        ))
+    })?;
+
+    snapshot_from_window(observed_at, &window).map(Some)
 }
 
 fn snapshot_from_window(
     observed_at: DateTime<Utc>,
     window: &RateLimitWindow,
-) -> Option<QuotaSnapshot> {
-    if window.window_minutes != WEEKLY_WINDOW_MINUTES
-        || !window.used_percent.is_finite()
-        || !(0.0..=100.0).contains(&window.used_percent)
-    {
-        return None;
+) -> serde_json::Result<QuotaSnapshot> {
+    if !window.used_percent.is_finite() || !(0.0..=100.0).contains(&window.used_percent) {
+        return Err(serde_json::Error::custom(
+            "weekly quota snapshot has invalid used percentage",
+        ));
     }
-    let resets_at = DateTime::from_timestamp(window.resets_at, 0)?;
-    Some(QuotaSnapshot {
+    let resets_at = DateTime::from_timestamp(window.resets_at, 0).ok_or_else(|| {
+        serde_json::Error::custom("weekly quota snapshot has invalid reset timestamp")
+    })?;
+    Ok(QuotaSnapshot {
         observed_at,
         resets_at,
         window_minutes: window.window_minutes,
@@ -269,25 +444,29 @@ fn snapshot_from_window(
     })
 }
 
-fn build_report(snapshot: &QuotaSnapshot, now: DateTime<Utc>) -> Result<CodexQuotaReport, String> {
+fn build_report(
+    snapshot: &QuotaSnapshot,
+    now: DateTime<Utc>,
+) -> Result<CodexWeeklyQuota, CodexQuotaError> {
     if snapshot.observed_at > now + Duration::seconds(MAX_CLOCK_SKEW_SECONDS) {
-        return Err("the newest Codex weekly quota snapshot is dated in the future".to_string());
+        return Err(CodexQuotaError::SnapshotInFuture);
     }
     if now >= snapshot.resets_at {
-        return Err(format!(
-            "the newest Codex weekly quota snapshot expired at {}. Start a Codex CLI session to refresh it.",
-            snapshot.resets_at.to_rfc3339()
-        ));
+        return Err(CodexQuotaError::SnapshotExpired {
+            resets_at: snapshot.resets_at,
+        });
     }
 
     let window_start = snapshot.resets_at - Duration::minutes(snapshot.window_minutes);
     let elapsed = snapshot.observed_at - window_start;
     if elapsed <= Duration::zero() || snapshot.observed_at >= snapshot.resets_at {
-        return Err("the newest Codex weekly quota snapshot has invalid window timing".to_string());
+        return Err(CodexQuotaError::InvalidSnapshotTiming {
+            reason: "window timing",
+        });
     }
     let elapsed_seconds = elapsed
         .num_nanoseconds()
-        .ok_or_else(|| "the newest Codex weekly quota snapshot has invalid timing".to_string())?
+        .ok_or(CodexQuotaError::InvalidSnapshotTiming { reason: "timing" })?
         as f64
         / 1_000_000_000.0;
 
@@ -302,23 +481,23 @@ fn build_report(snapshot: &QuotaSnapshot, now: DateTime<Utc>) -> Result<CodexQuo
         window_start + Duration::seconds(seconds_to_limit.round() as i64)
     });
     let status = if snapshot.used_pct >= 100.0 {
-        QuotaStatus::Exhausted
+        CodexQuotaStatus::Exhausted
     } else if projected_pct > 100.0 {
-        QuotaStatus::LikelyExhausted
+        CodexQuotaStatus::LikelyExhausted
     } else if projected_pct >= 90.0 {
-        QuotaStatus::Watch
+        CodexQuotaStatus::Watch
     } else {
-        QuotaStatus::OnTrack
+        CodexQuotaStatus::OnTrack
     };
 
-    Ok(CodexQuotaReport {
+    Ok(CodexWeeklyQuota {
         observed_at: snapshot.observed_at,
         resets_at: snapshot.resets_at,
         estimated_depletion_at,
         window_minutes: snapshot.window_minutes,
         used_pct: snapshot.used_pct,
         remaining_pct: (100.0 - snapshot.used_pct).max(0.0),
-        projected_pct,
+        projected_pct_at_reset: projected_pct,
         status,
     })
 }
@@ -360,16 +539,13 @@ mod tests {
     }
 
     #[test]
-    fn newest_valid_snapshot_wins_and_invalid_windows_are_ignored() {
+    fn malformed_newest_weekly_snapshot_fails_closed() {
         let input = r#"{"timestamp":"2026-08-21T08:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":20.0,"window_minutes":10080,"resets_at":1787801336}}}}
 {"timestamp":"2026-08-21T09:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":30.0,"window_minutes":10080,"resets_at":1787801336}}}}
 {"timestamp":"2026-08-21T10:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":999.0,"window_minutes":10080,"resets_at":1787801336}}}}"#;
-        let snapshot = latest_snapshot_from_seekable(&mut Cursor::new(input))
-            .unwrap()
-            .unwrap();
+        let error = latest_snapshot_from_seekable(&mut Cursor::new(input)).unwrap_err();
 
-        assert_eq!(snapshot.observed_at, utc("2026-08-21T09:00:00Z"));
-        assert_close(snapshot.used_pct, 30.0);
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
@@ -446,6 +622,20 @@ mod tests {
     }
 
     #[test]
+    fn incomplete_trailing_utf8_does_not_hide_latest_complete_snapshot() {
+        let mut input = br#"{"timestamp":"2026-08-21T09:00:00Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":30.0,"window_minutes":10080,"resets_at":1787801336}}}}
+"#
+        .to_vec();
+        input.extend_from_slice(&[0xe2, 0x82]);
+
+        let snapshot = latest_snapshot_from_seekable(&mut Cursor::new(input))
+            .unwrap()
+            .unwrap();
+
+        assert_close(snapshot.used_pct, 30.0);
+    }
+
+    #[test]
     fn projection_uses_provider_window_boundaries() {
         let snapshot = QuotaSnapshot {
             observed_at: utc("2026-08-22T00:00:00Z"),
@@ -457,8 +647,8 @@ mod tests {
         let report = build_report(&snapshot, utc("2026-08-22T01:00:00Z")).unwrap();
 
         assert_close(report.remaining_pct, 75.0);
-        assert_close(report.projected_pct, 175.0);
-        assert_eq!(report.status, QuotaStatus::LikelyExhausted);
+        assert_close(report.projected_pct_at_reset, 175.0);
+        assert_eq!(report.status, CodexQuotaStatus::LikelyExhausted);
         assert_eq!(
             report.estimated_depletion_at,
             Some(utc("2026-08-25T00:00:00Z"))
@@ -476,7 +666,11 @@ mod tests {
 
         let error = build_report(&snapshot, utc("2026-08-22T00:00:00Z")).unwrap_err();
 
-        assert!(error.contains("expired"));
+        assert!(matches!(
+            error,
+            CodexQuotaError::SnapshotExpired { resets_at }
+                if resets_at == utc("2026-08-22T00:00:00Z")
+        ));
     }
 
     #[test]
@@ -490,7 +684,7 @@ mod tests {
 
         let error = build_report(&snapshot, utc("2026-08-22T00:00:00Z")).unwrap_err();
 
-        assert!(error.contains("future"));
+        assert!(matches!(error, CodexQuotaError::SnapshotInFuture));
     }
 
     #[test]
@@ -518,7 +712,7 @@ mod tests {
 
         let report = build_report(&snapshot, utc("2026-08-21T00:00:01Z")).unwrap();
 
-        assert_close(report.projected_pct, 0.0);
+        assert_close(report.projected_pct_at_reset, 0.0);
     }
 
     #[test]
@@ -532,8 +726,8 @@ mod tests {
 
         let report = build_report(&snapshot, utc("2026-08-22T01:00:00Z")).unwrap();
 
-        assert_close(report.projected_pct, 0.0);
-        assert_eq!(report.status, QuotaStatus::OnTrack);
+        assert_close(report.projected_pct_at_reset, 0.0);
+        assert_eq!(report.status, CodexQuotaStatus::OnTrack);
         assert_eq!(report.estimated_depletion_at, None);
     }
 }
