@@ -613,6 +613,7 @@ pub(crate) fn handle_source_command(
 
     match command {
         SourceCommand::Sources => return crate::sources_cmd::handle_sources(ctx),
+        SourceCommand::Quota => return crate::quota_cmd::handle_quota(ctx),
         SourceCommand::Session => return handle_session(source, ctx),
         SourceCommand::Project => {
             if !caps.has_projects {
@@ -686,6 +687,10 @@ fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabil
 pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandContext<'_>) {
     match command {
         SourceCommand::Sources => return crate::sources_cmd::handle_sources(ctx),
+        SourceCommand::Quota => {
+            eprintln!("Error: quota analysis only supports the Codex source");
+            std::process::exit(1);
+        }
         SourceCommand::Statusline => {
             let (result, caps) = load_all_daily(ctx, true);
             if ctx.cli.json {

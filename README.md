@@ -15,6 +15,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Fast local analysis of usage JSONL logs
 - Claude Code support (`~/.claude/projects/`)
 - OpenAI Codex support (`~/.codex/sessions/`)
+- Codex weekly quota pace and reset estimates from provider snapshots
 - Cursor usage API support (`CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN`)
 - Grok support (`~/.grok/sessions/`)
 - Kimi Code support (`~/.kimi-code/sessions/`)
@@ -62,6 +63,9 @@ ccstats codex today
 
 # Daily trend
 ccstats codex daily
+
+# Weekly quota pace, remaining percentage, and reset time
+ccstats quota
 
 # Same result via unified source flag
 ccstats daily --source codex
@@ -240,6 +244,9 @@ ccstats codex daily
 # Weekly Codex summary
 ccstats codex weekly
 
+# Provider weekly quota pace (same as `ccstats quota`)
+ccstats codex quota
+
 # By session
 ccstats codex session
 
@@ -253,6 +260,30 @@ override the Codex home directory with `CODEX_HOME`:
 ```bash
 CODEX_HOME="/path/to/.codex" ccstats codex daily
 ```
+
+#### Codex weekly quota estimate
+
+`ccstats quota` reads the newest server-provided 10,080-minute rate-limit
+snapshot from local Codex session logs. It reports the used and remaining
+percentages, reset time, projected percentage at reset, and an estimated
+depletion time when the current pace would exceed 100%.
+
+```bash
+# Human-readable table
+ccstats quota
+
+# Equivalent nested command
+ccstats codex quota
+
+# Machine-readable output
+ccstats quota --json
+ccstats quota --csv
+```
+
+The projection is a linear pace estimate, not an exact token allowance. Codex
+usage depends on model choice, context, reasoning, tools, retrieval, and cache
+behavior. If no current weekly snapshot exists, the command exits with an error
+instead of estimating quota from token totals.
 
 ### Cursor
 

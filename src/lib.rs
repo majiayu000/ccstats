@@ -25,6 +25,7 @@ mod endpoints_cmd;
 mod error;
 mod output;
 mod pricing;
+mod quota_cmd;
 mod sdk;
 mod source;
 mod sources_cmd;
@@ -300,7 +301,7 @@ pub fn run_cli() {
     let budget_as_of = until.map_or(today, |end| end.min(today));
     let filter = build_date_filter(source_cmd, today, since, until);
     let show_cost = cli.show_cost();
-    let needs_pricing = is_statusline || show_cost;
+    let needs_pricing = source_cmd != SourceCommand::Quota && (is_statusline || show_cost);
     let pricing_db = load_pricing_db(&cli, needs_pricing, is_statusline);
     let source_name = resolve_source_name(
         parsed_command.source_hint,

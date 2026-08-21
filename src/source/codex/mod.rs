@@ -5,5 +5,7 @@
 
 mod config;
 mod parser;
+mod quota;
 
 pub(crate) use config::{CodexScope, CodexSource};
+pub(crate) use quota::{CodexQuotaReport, QuotaStatus, load_weekly_quota};
