@@ -41,7 +41,9 @@ pub(crate) use format::NumberFormat;
 pub(crate) use json::output_period_json_with_quality;
 pub(crate) use period::Period;
 pub(crate) use project::{ProjectTableOptions, output_project_json, print_project_table};
-pub(crate) use quota::{output_quota_csv, output_quota_json, print_quota_table};
+pub(crate) use quota::{
+    QuotaValueEstimate, output_quota_csv, output_quota_json, print_quota_table,
+};
 pub(crate) use session::{SessionTableOptions, output_session_json, print_session_table};
 pub(crate) use statusline::{print_statusline, print_statusline_json_with_quality};
 pub(crate) use table::{PeriodSummaryFooter, TokenTableOptions, print_period_table};

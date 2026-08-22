@@ -272,6 +272,7 @@ struct CodexParseContext<'a> {
     debug: bool,
     identity: CodexFileIdentity,
     scope: CodexScope,
+    missing_model: &'static str,
 }
 
 struct CodexParseState {
@@ -309,6 +310,20 @@ pub(super) fn parse_codex_file_with_scope(
     debug: bool,
     scope: CodexScope,
 ) -> ParseOutput {
+    parse_codex_file(path, timezone, debug, scope, "gpt-5")
+}
+
+pub(super) fn parse_codex_file_for_quota(path: &Path, timezone: Timezone) -> ParseOutput {
+    parse_codex_file(path, timezone, false, CodexScope::All, "unknown-model")
+}
+
+fn parse_codex_file(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+    scope: CodexScope,
+    missing_model: &'static str,
+) -> ParseOutput {
     let identity = CodexFileIdentity::from_path(path);
     let context = CodexParseContext {
         path,
@@ -316,6 +331,7 @@ pub(super) fn parse_codex_file_with_scope(
         debug,
         identity,
         scope,
+        missing_model,
     };
     let file = match open_codex_file(&context) {
         Ok(file) => file,
@@ -452,7 +468,7 @@ fn process_event_message(
         return;
     };
 
-    let model = resolve_entry_model(payload, state);
+    let model = resolve_entry_model(payload, state, context.missing_model);
     push_codex_entry(timestamp, utc_dt, total, delta, model, context, state);
 }
 
@@ -566,7 +582,11 @@ fn parse_entry_timestamp(
     }
 }
 
-fn resolve_entry_model(payload: &Payload<'_>, state: &mut CodexParseState) -> String {
+fn resolve_entry_model(
+    payload: &Payload<'_>,
+    state: &mut CodexParseState,
+    missing_model: &str,
+) -> String {
     if let Some(parsed_model) = extract_model_ref(payload) {
         let parsed_model = parsed_model.to_string();
         state.current_model = Some(parsed_model.clone());
@@ -575,7 +595,7 @@ fn resolve_entry_model(payload: &Payload<'_>, state: &mut CodexParseState) -> St
         state
             .current_model
             .clone()
-            .unwrap_or_else(|| "gpt-5".to_string())
+            .unwrap_or_else(|| missing_model.to_string())
     }
 }
 

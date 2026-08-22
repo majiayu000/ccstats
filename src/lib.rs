@@ -3,7 +3,8 @@
 //!
 //! The public SDK entry points are [`summarize_cost`] and
 //! [`summarize_cost_ranges`] for cost analytics, [`load_codex_weekly_quota`]
-//! for provider-authoritative Codex quota pace, plus
+//! for provider-authoritative Codex quota pace,
+//! [`estimate_codex_weekly_value`] for an API-equivalent weekly estimate, plus
 //! [`summarize_cost_with_cli_config`] and
 //! [`summarize_cost_ranges_with_cli_config`] for CLI-aligned config defaults.
 //! The binary target calls [`run_cli`] to preserve the existing command-line
@@ -33,9 +34,10 @@ mod sources_cmd;
 mod utils;
 
 pub use sdk::{
-    CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, CostSummary, ModelCostSummary,
-    MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions, TokenBreakdown, UsageRange,
-    UsageSource, load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
+    CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, CodexWeeklyValueError,
+    CodexWeeklyValueEstimate, CostSummary, ModelCostSummary, MultiCostSummary, MultiSummaryOptions,
+    SdkError, SummaryOptions, TokenBreakdown, UsageRange, UsageSource, estimate_codex_weekly_value,
+    load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
     summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
 };
 
@@ -258,6 +260,22 @@ fn validate_codex_scope(scope: CodexScope, source_name: &str) {
     }
 }
 
+fn validate_quota_currency(cli: &Cli, source_cmd: SourceCommand, currency_was_set: bool) {
+    if source_cmd == SourceCommand::Quota
+        && cli.show_cost()
+        && currency_was_set
+        && cli
+            .currency
+            .as_deref()
+            .is_some_and(|currency| !currency.eq_ignore_ascii_case("USD"))
+    {
+        eprintln!(
+            "Error: --currency is not supported for quota estimates; API-equivalent value is reported in USD"
+        );
+        std::process::exit(1);
+    }
+}
+
 fn dispatch_command(source_name: &str, source_cmd: SourceCommand, context: &CommandContext<'_>) {
     if source_name.eq_ignore_ascii_case(ALL_SOURCES) {
         return handle_all_sources_command(source_cmd, context);
@@ -284,12 +302,14 @@ fn dispatch_command(source_name: &str, source_cmd: SourceCommand, context: &Comm
 pub fn run_cli() {
     let raw_cli = Cli::parse();
     let cli_timezone_was_set = raw_cli.timezone.is_some();
+    let cli_currency_was_set = raw_cli.currency.is_some();
     let parsed_command = parse_command(raw_cli.command.as_ref());
     let source_cmd = parsed_command.command;
     let is_statusline = source_cmd.is_statusline();
 
     let config = load_config(is_statusline);
     let cli = raw_cli.with_config(&config);
+    validate_quota_currency(&cli, source_cmd, cli_currency_was_set);
     let timezone = resolve_timezone(cli.timezone.as_deref(), cli_timezone_was_set);
     let number_format = resolve_number_format(cli.locale.as_deref());
 
@@ -303,7 +323,7 @@ pub fn run_cli() {
     let budget_as_of = until.map_or(today, |end| end.min(today));
     let filter = build_date_filter(source_cmd, today, since, until);
     let show_cost = cli.show_cost();
-    let needs_pricing = source_cmd != SourceCommand::Quota && (is_statusline || show_cost);
+    let needs_pricing = is_statusline || show_cost;
     let pricing_db = load_pricing_db(&cli, needs_pricing, is_statusline);
     let source_name = resolve_source_name(
         parsed_command.source_hint,
@@ -311,7 +331,8 @@ pub fn run_cli() {
         source_cmd,
     );
     validate_codex_scope(cli.codex_scope, source_name);
-    let currency_converter = load_currency_converter(&cli, needs_pricing, is_statusline);
+    let needs_currency = source_cmd != SourceCommand::Quota && needs_pricing;
+    let currency_converter = load_currency_converter(&cli, needs_currency, is_statusline);
 
     dispatch_command(
         source_name,

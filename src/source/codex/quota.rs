@@ -96,6 +96,11 @@ pub enum CodexQuotaError {
         #[source]
         source: io::Error,
     },
+
+    #[error(
+        "failed to estimate weekly value because {count} Codex usage records could not be parsed"
+    )]
+    UsageParse { count: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -177,7 +182,7 @@ pub(crate) fn load_weekly_quota_from_home(
     load_weekly_quota_from_files_at(files, Utc::now())
 }
 
-fn validate_sessions_dir(sessions_dir: &Path) -> Result<(), CodexQuotaError> {
+pub(super) fn validate_sessions_dir(sessions_dir: &Path) -> Result<(), CodexQuotaError> {
     match fs::symlink_metadata(sessions_dir) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err(CodexQuotaError::SessionDiscovery {
@@ -204,7 +209,7 @@ fn validate_sessions_dir(sessions_dir: &Path) -> Result<(), CodexQuotaError> {
     }
 }
 
-fn discover_quota_files(sessions_dir: &Path) -> Result<Vec<PathBuf>, CodexQuotaError> {
+pub(super) fn discover_quota_files(sessions_dir: &Path) -> Result<Vec<PathBuf>, CodexQuotaError> {
     let mut pending = vec![sessions_dir.to_path_buf()];
     let mut files = Vec::new();
     while let Some(directory) = pending.pop() {
@@ -245,7 +250,7 @@ fn load_weekly_quota_from_files_at(
     build_report(&latest, now)
 }
 
-fn recent_codex_files(
+pub(super) fn recent_codex_files(
     files: Vec<PathBuf>,
     now: DateTime<Utc>,
 ) -> Result<Vec<PathBuf>, CodexQuotaError> {
