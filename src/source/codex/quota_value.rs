@@ -9,8 +9,7 @@ use rayon::prelude::*;
 use crate::core::{DedupAccumulator, Stats};
 use crate::utils::Timezone;
 
-use super::config::CodexScope;
-use super::parser::{codex_sessions_dir_candidate, parse_codex_file_with_scope};
+use super::parser::{codex_sessions_dir_candidate, parse_codex_file_for_quota};
 use super::quota::{
     CodexQuotaError, CodexWeeklyQuota, discover_quota_files, recent_codex_files,
     validate_sessions_dir,
@@ -54,7 +53,7 @@ fn load_weekly_window_usage_from_files(
         files
             .par_iter()
             .map(|path| {
-                let parsed = parse_codex_file_with_scope(path, utc, false, CodexScope::All);
+                let parsed = parse_codex_file_for_quota(path, utc);
                 let mut partial = DedupAccumulator::new();
                 partial.extend(parsed.entries.into_iter().filter(|entry| {
                     entry.timestamp_ms >= since_ms && entry.timestamp_ms <= until_ms
@@ -181,5 +180,18 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, CodexQuotaError::UsageParse { count: 1 }));
+    }
+
+    #[test]
+    fn missing_model_metadata_stays_unpriceable() {
+        let line =
+            usage_event("2026-08-21T00:00:00Z", 100, 100).replace("\"model\":\"gpt-5\",", "");
+        let file = write_log(&[&line]);
+
+        let usage =
+            load_weekly_window_usage_from_files(&quota(), &[file.path().to_path_buf()]).unwrap();
+
+        assert!(usage.models.contains_key("unknown-model"));
+        assert!(!usage.models.contains_key("gpt-5"));
     }
 }

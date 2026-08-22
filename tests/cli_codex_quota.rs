@@ -174,6 +174,36 @@ fn quota_no_cost_omits_value_estimate() {
     assert!(value.get("value_estimate").is_none());
     assert!(value.get("value_estimate_error").is_none());
 
+    let (csv_ok, csv_stdout, csv_stderr) = run_ccstats(
+        &["quota", "--csv", "--no-cost", "--offline"],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(csv_ok, "stderr: {}", String::from_utf8_lossy(&csv_stderr));
+    let csv = String::from_utf8(csv_stdout).unwrap();
+    assert_eq!(
+        csv.lines().next().unwrap(),
+        "source,window,window_minutes,used_pct,remaining_pct,projected_pct_at_reset,status,observed_at,resets_at,estimated_depletion_at"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn quota_rejects_non_usd_currency() {
+    let root = unique_temp_dir("codex-quota-currency");
+    let codex_home = root.join("codex-home");
+    write_current_quota_fixture(&codex_home);
+
+    let (ok, _stdout, stderr) = run_ccstats(
+        &["quota", "--currency", "EUR", "--offline"],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(!ok);
+    assert!(
+        String::from_utf8_lossy(&stderr)
+            .contains("--currency is not supported for quota estimates")
+    );
+
     let _ = fs::remove_dir_all(root);
 }
 

@@ -81,9 +81,23 @@ pub(crate) fn output_quota_csv(
         .estimated_depletion_at
         .map(timestamp)
         .unwrap_or_default();
+    let Some(value_estimate) = value_estimate else {
+        return format!(
+            "source,window,window_minutes,used_pct,remaining_pct,projected_pct_at_reset,status,observed_at,resets_at,estimated_depletion_at\n\
+codex,weekly,{},{:.2},{:.2},{:.2},{},{},{},{}\n",
+            report.window_minutes,
+            report.used_pct,
+            report.remaining_pct,
+            report.projected_pct_at_reset,
+            report.status.as_str(),
+            timestamp(report.observed_at),
+            timestamp(report.resets_at),
+            depletion,
+        );
+    };
     let (observed_cost, weekly_value, observed_tokens, weekly_tokens, window_start, error) =
         match value_estimate {
-            Some(Ok(estimate)) => (
+            Ok(estimate) => (
                 format!("{:.6}", estimate.observed_cost_usd),
                 format!("{:.6}", estimate.estimated_weekly_value_usd),
                 estimate.observed_tokens.to_string(),
@@ -91,21 +105,13 @@ pub(crate) fn output_quota_csv(
                 timestamp(estimate.window_started_at),
                 String::new(),
             ),
-            Some(Err(error)) => (
+            Err(error) => (
                 String::new(),
                 String::new(),
                 String::new(),
                 String::new(),
                 String::new(),
                 csv_field(&error.to_string()),
-            ),
-            None => (
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
             ),
         };
     format!(

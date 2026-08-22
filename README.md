@@ -300,9 +300,12 @@ ccstats quota --csv
 
 The dollar and token figures are approximations, not official provider
 allowances. They vary with the current model and cache mix; token totals are
-only comparable while that mix stays similar. Use `--no-cost` to omit the value
-estimate. If no current weekly snapshot exists, the command exits with an error
-instead of estimating quota from token totals.
+only comparable while that mix stays similar. Dollar values use ccstats' current
+model price resolution; request-level pricing tiers may not be represented. Use
+`--no-cost` to omit the value estimate. Quota estimates are reported in USD, so
+an explicit non-USD `--currency` is rejected. If no current weekly snapshot
+exists, the command exits with an error instead of estimating quota from token
+totals.
 
 ### Cursor
 

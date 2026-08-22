@@ -260,6 +260,22 @@ fn validate_codex_scope(scope: CodexScope, source_name: &str) {
     }
 }
 
+fn validate_quota_currency(cli: &Cli, source_cmd: SourceCommand, currency_was_set: bool) {
+    if source_cmd == SourceCommand::Quota
+        && cli.show_cost()
+        && currency_was_set
+        && cli
+            .currency
+            .as_deref()
+            .is_some_and(|currency| !currency.eq_ignore_ascii_case("USD"))
+    {
+        eprintln!(
+            "Error: --currency is not supported for quota estimates; API-equivalent value is reported in USD"
+        );
+        std::process::exit(1);
+    }
+}
+
 fn dispatch_command(source_name: &str, source_cmd: SourceCommand, context: &CommandContext<'_>) {
     if source_name.eq_ignore_ascii_case(ALL_SOURCES) {
         return handle_all_sources_command(source_cmd, context);
@@ -286,12 +302,14 @@ fn dispatch_command(source_name: &str, source_cmd: SourceCommand, context: &Comm
 pub fn run_cli() {
     let raw_cli = Cli::parse();
     let cli_timezone_was_set = raw_cli.timezone.is_some();
+    let cli_currency_was_set = raw_cli.currency.is_some();
     let parsed_command = parse_command(raw_cli.command.as_ref());
     let source_cmd = parsed_command.command;
     let is_statusline = source_cmd.is_statusline();
 
     let config = load_config(is_statusline);
     let cli = raw_cli.with_config(&config);
+    validate_quota_currency(&cli, source_cmd, cli_currency_was_set);
     let timezone = resolve_timezone(cli.timezone.as_deref(), cli_timezone_was_set);
     let number_format = resolve_number_format(cli.locale.as_deref());
 
