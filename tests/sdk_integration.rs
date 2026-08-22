@@ -4,9 +4,10 @@ use std::sync::Mutex;
 
 use ccstats::{
     CodexQuotaError, CodexQuotaStatus, CostSummary, MultiSummaryOptions, SummaryOptions,
-    UsageRange, UsageSource, load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
+    UsageRange, UsageSource, estimate_codex_weekly_value, load_codex_weekly_quota, summarize_cost,
+    summarize_cost_ranges,
 };
-use chrono::{Datelike, Days, Duration, NaiveDate, Utc};
+use chrono::{Datelike, Days, Duration, NaiveDate, Timelike, Utc};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -50,6 +51,65 @@ fn sdk_loads_codex_weekly_quota_from_explicit_home() {
         serialized["projected_pct_at_reset"],
         report.projected_pct_at_reset
     );
+}
+
+#[test]
+fn sdk_estimates_codex_weekly_api_equivalent_value() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    let session_file = codex_home.join("sessions").join("quota-and-usage.jsonl");
+    let observed_at = (Utc::now() - Duration::hours(1))
+        .with_nanosecond(0)
+        .expect("valid timestamp");
+    let resets_at = observed_at + Duration::days(6);
+    let event = serde_json::json!({
+        "timestamp": observed_at.to_rfc3339(),
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": {
+                "total_token_usage": {
+                    "input_tokens": 1_000_000,
+                    "cached_input_tokens": 200_000,
+                    "output_tokens": 100_000,
+                    "reasoning_output_tokens": 50_000,
+                    "total_tokens": 1_100_000,
+                },
+                "last_token_usage": {
+                    "input_tokens": 1_000_000,
+                    "cached_input_tokens": 200_000,
+                    "output_tokens": 100_000,
+                    "reasoning_output_tokens": 50_000,
+                    "total_tokens": 1_100_000,
+                },
+                "model": "gpt-5",
+            },
+            "rate_limits": {
+                "secondary": {
+                    "used_percent": 25.0,
+                    "window_minutes": 10_080,
+                    "resets_at": resets_at.timestamp(),
+                }
+            }
+        }
+    });
+    write_file(&session_file, &format!("{event}\n"));
+
+    let estimate =
+        estimate_codex_weekly_value(Some(&codex_home), true, false).expect("estimate weekly value");
+
+    assert_eq!(estimate.observed_at, observed_at);
+    assert_eq!(
+        estimate.window_started_at,
+        resets_at - Duration::minutes(10_080)
+    );
+    assert_eq!(estimate.observed_tokens, 1_100_000);
+    assert!(estimate.observed_cost_usd > 0.0);
+    assert!(
+        (estimate.estimated_weekly_value_usd / estimate.observed_cost_usd - 4.0).abs()
+            < f64::EPSILON
+    );
+    assert_eq!(estimate.estimated_weekly_tokens, 4_400_000.0);
 }
 
 #[test]

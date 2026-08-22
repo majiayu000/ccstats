@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
 
-use chrono::{Datelike, Days, NaiveDate, Utc};
+use chrono::{Datelike, Days, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -17,7 +17,9 @@ use crate::pricing::{
     CurrencyConverter, PricingDb, calculate_cost, calculate_estimated_proxy_cost, model_cost_kind,
     sum_estimated_proxy_model_costs, sum_model_costs,
 };
-use crate::source::{Source, get_source, load_daily, load_weekly_quota_from_home};
+use crate::source::{
+    Source, get_source, load_daily, load_weekly_quota_from_home, load_weekly_window_usage_from_home,
+};
 use crate::utils::Timezone;
 
 pub use crate::source::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
@@ -225,6 +227,49 @@ pub struct CostSummary {
     pub elapsed_ms: f64,
 }
 
+/// API-equivalent value inferred for the active Codex weekly quota window.
+///
+/// This is an approximation based on local token pricing and the current
+/// model/cache mix. It is not an official dollar allowance from the provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexWeeklyValueEstimate {
+    pub observed_at: chrono::DateTime<Utc>,
+    pub window_started_at: chrono::DateTime<Utc>,
+    pub resets_at: chrono::DateTime<Utc>,
+    pub used_pct: f64,
+    pub observed_cost_usd: f64,
+    pub estimated_weekly_value_usd: f64,
+    pub observed_tokens: i64,
+    pub estimated_weekly_tokens: f64,
+    pub valid_entries: i64,
+    pub dedup_skipped_entries: i64,
+}
+
+/// Errors returned while estimating Codex weekly API-equivalent value.
+#[derive(Debug, Error)]
+pub enum CodexWeeklyValueError {
+    #[error(transparent)]
+    Quota(#[from] CodexQuotaError),
+
+    #[error("cannot estimate weekly value while the provider-reported used percentage is zero")]
+    ZeroUsagePercentage,
+
+    #[error("no Codex token usage matched the active weekly quota window")]
+    NoUsageInWindow,
+
+    #[error("cannot price Codex models in the active weekly window: {models}")]
+    UnpricedModels { models: String },
+
+    #[error("no positive API-equivalent cost was available for the active weekly window")]
+    NoPricedUsageInWindow,
+
+    #[error("failed to load pricing data for the weekly value estimate: {message}")]
+    Pricing { message: String },
+
+    #[error("the weekly value calculation produced a non-finite result")]
+    NonFiniteEstimate,
+}
+
 /// Errors returned by the public SDK API.
 #[derive(Debug, Error)]
 pub enum SdkError {
@@ -253,6 +298,87 @@ pub fn load_codex_weekly_quota(
     codex_home: Option<&Path>,
 ) -> Result<CodexWeeklyQuota, CodexQuotaError> {
     load_weekly_quota_from_home(codex_home)
+}
+
+/// Estimate the API-equivalent dollar value represented by the active Codex
+/// weekly quota.
+///
+/// Local token usage is aligned to the exact provider window, from
+/// `resets_at - window_minutes` through the quota snapshot's `observed_at`.
+/// The estimate divides that observed cost and token count by the
+/// provider-reported used fraction.
+///
+/// # Errors
+///
+/// Returns an error when the quota snapshot or matching usage cannot be read,
+/// the used percentage is zero, any matched model cannot be priced, or pricing
+/// data is unavailable.
+pub fn estimate_codex_weekly_value(
+    codex_home: Option<&Path>,
+    offline: bool,
+    strict_pricing: bool,
+) -> Result<CodexWeeklyValueEstimate, CodexWeeklyValueError> {
+    let quota = load_weekly_quota_from_home(codex_home)?;
+    let pricing_db = PricingDb::try_load_quiet(offline, strict_pricing).map_err(|error| {
+        CodexWeeklyValueError::Pricing {
+            message: error.to_string(),
+        }
+    })?;
+    estimate_codex_weekly_value_with_pricing(&quota, codex_home, &pricing_db)
+}
+
+pub(crate) fn estimate_codex_weekly_value_with_pricing(
+    quota: &CodexWeeklyQuota,
+    codex_home: Option<&Path>,
+    pricing_db: &PricingDb,
+) -> Result<CodexWeeklyValueEstimate, CodexWeeklyValueError> {
+    if quota.used_pct <= 0.0 {
+        return Err(CodexWeeklyValueError::ZeroUsagePercentage);
+    }
+
+    let usage = load_weekly_window_usage_from_home(quota, codex_home)?;
+    let observed_tokens = usage.stats.total_tokens();
+    if usage.valid_entries == 0 || observed_tokens <= 0 {
+        return Err(CodexWeeklyValueError::NoUsageInWindow);
+    }
+
+    let mut unpriced_models: Vec<_> = usage
+        .models
+        .iter()
+        .filter(|(model, stats)| !calculate_cost(stats, model, pricing_db).is_finite())
+        .map(|(model, _)| model.clone())
+        .collect();
+    unpriced_models.sort();
+    if !unpriced_models.is_empty() {
+        return Err(CodexWeeklyValueError::UnpricedModels {
+            models: unpriced_models.join(", "),
+        });
+    }
+
+    let observed_cost_usd = sum_model_costs(&usage.models, pricing_db);
+    if !observed_cost_usd.is_finite() || observed_cost_usd <= 0.0 {
+        return Err(CodexWeeklyValueError::NoPricedUsageInWindow);
+    }
+
+    let scale = 100.0 / quota.used_pct;
+    let estimated_weekly_value_usd = observed_cost_usd * scale;
+    let estimated_weekly_tokens = observed_tokens as f64 * scale;
+    if !estimated_weekly_value_usd.is_finite() || !estimated_weekly_tokens.is_finite() {
+        return Err(CodexWeeklyValueError::NonFiniteEstimate);
+    }
+
+    Ok(CodexWeeklyValueEstimate {
+        observed_at: quota.observed_at,
+        window_started_at: quota.resets_at - Duration::minutes(quota.window_minutes),
+        resets_at: quota.resets_at,
+        used_pct: quota.used_pct,
+        observed_cost_usd,
+        estimated_weekly_value_usd,
+        observed_tokens,
+        estimated_weekly_tokens,
+        valid_entries: usage.valid_entries,
+        dedup_skipped_entries: usage.dedup_skipped_entries,
+    })
 }
 
 /// Summarize local token usage and estimated cost.

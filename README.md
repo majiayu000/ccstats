@@ -282,7 +282,9 @@ CODEX_HOME="/path/to/.codex" ccstats codex daily
 `ccstats quota` reads the newest server-provided 10,080-minute rate-limit
 snapshot from local Codex session logs. It reports the used and remaining
 percentages, reset time, projected percentage at reset, and an estimated
-depletion time when the current pace would exceed 100%.
+depletion time when the current pace would exceed 100%. It also prices local
+usage from the exact active quota window and divides it by the reported used
+fraction to estimate the full week's API-equivalent USD value and token count.
 
 ```bash
 # Human-readable table
@@ -296,9 +298,10 @@ ccstats quota --json
 ccstats quota --csv
 ```
 
-The projection is a linear pace estimate, not an exact token allowance. Codex
-usage depends on model choice, context, reasoning, tools, retrieval, and cache
-behavior. If no current weekly snapshot exists, the command exits with an error
+The dollar and token figures are approximations, not official provider
+allowances. They vary with the current model and cache mix; token totals are
+only comparable while that mix stays similar. Use `--no-cost` to omit the value
+estimate. If no current weekly snapshot exists, the command exits with an error
 instead of estimating quota from token totals.
 
 ### Cursor

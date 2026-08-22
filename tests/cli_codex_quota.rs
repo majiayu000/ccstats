@@ -38,6 +38,23 @@ fn quota_event(
             "type": "event_msg",
             "payload": {
                 "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": 1_000_000,
+                        "cached_input_tokens": 200_000,
+                        "output_tokens": 100_000,
+                        "reasoning_output_tokens": 50_000,
+                        "total_tokens": 1_100_000,
+                    },
+                    "last_token_usage": {
+                        "input_tokens": 1_000_000,
+                        "cached_input_tokens": 200_000,
+                        "output_tokens": 100_000,
+                        "reasoning_output_tokens": 50_000,
+                        "total_tokens": 1_100_000,
+                    },
+                    "model": "gpt-5",
+                },
                 "rate_limits": rate_limits,
             },
         })
@@ -64,12 +81,14 @@ fn quota_and_codex_quota_return_the_same_json() {
     let codex_home = root.join("codex-home");
     let resets_at = write_current_quota_fixture(&codex_home);
 
-    let (top_ok, top_stdout, top_stderr) =
-        run_ccstats(&["quota", "--json"], &[("CODEX_HOME", &codex_home)]);
+    let (top_ok, top_stdout, top_stderr) = run_ccstats(
+        &["quota", "--json", "--offline"],
+        &[("CODEX_HOME", &codex_home)],
+    );
     assert!(top_ok, "stderr: {}", String::from_utf8_lossy(&top_stderr));
 
     let (nested_ok, nested_stdout, nested_stderr) = run_ccstats(
-        &["codex", "quota", "--json"],
+        &["codex", "quota", "--json", "--offline"],
         &[("CODEX_HOME", &codex_home)],
     );
     assert!(
@@ -92,6 +111,21 @@ fn quota_and_codex_quota_return_the_same_json() {
         resets_at.to_rfc3339_opts(SecondsFormat::Secs, true)
     );
     assert!(value["estimated_depletion_at"].is_string());
+    assert_eq!(value["value_estimate"]["kind"], "api_equivalent");
+    let estimate = &value["value_estimate"];
+    let observed_cost = estimate["observed_cost_usd"].as_f64().unwrap();
+    let weekly_value = estimate["estimated_weekly_value_usd"].as_f64().unwrap();
+    let observed_tokens = estimate["observed_tokens"].as_f64().unwrap();
+    let weekly_tokens = estimate["estimated_weekly_tokens"].as_f64().unwrap();
+    assert!(observed_cost > 0.0);
+    assert!((weekly_value / observed_cost - 4.0).abs() < 0.001);
+    assert!(observed_tokens > 0.0);
+    assert!((weekly_tokens / observed_tokens - 4.0).abs() < f64::EPSILON);
+    assert_eq!(
+        estimate["window_started_at"],
+        (resets_at - Duration::minutes(10_080)).to_rfc3339_opts(SecondsFormat::Secs, true)
+    );
+    assert!(value["value_estimate_error"].is_null());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -102,15 +136,43 @@ fn quota_csv_exposes_stable_columns() {
     let codex_home = root.join("codex-home");
     write_current_quota_fixture(&codex_home);
 
-    let (ok, stdout, stderr) = run_ccstats(&["quota", "--csv"], &[("CODEX_HOME", &codex_home)]);
+    let (ok, stdout, stderr) = run_ccstats(
+        &["quota", "--csv", "--offline"],
+        &[("CODEX_HOME", &codex_home)],
+    );
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     let csv = String::from_utf8(stdout).unwrap();
     let lines: Vec<_> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "source,window,window_minutes,used_pct,remaining_pct,projected_pct_at_reset,status,observed_at,resets_at,estimated_depletion_at"
+        "source,window,window_minutes,used_pct,remaining_pct,projected_pct_at_reset,status,observed_at,resets_at,estimated_depletion_at,observed_cost_usd,estimated_weekly_value_usd,observed_tokens,estimated_weekly_tokens,value_window_started_at,value_estimate_error"
     );
     assert!(lines[1].starts_with("codex,weekly,10080,25.00,75.00,175.00,likely_exhausted"));
+    let columns: Vec<_> = lines[1].split(',').collect();
+    let observed_cost: f64 = columns[10].parse().unwrap();
+    let weekly_value: f64 = columns[11].parse().unwrap();
+    let observed_tokens: f64 = columns[12].parse().unwrap();
+    let weekly_tokens: f64 = columns[13].parse().unwrap();
+    assert!((weekly_value / observed_cost - 4.0).abs() < 0.001);
+    assert!((weekly_tokens / observed_tokens - 4.0).abs() < f64::EPSILON);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn quota_no_cost_omits_value_estimate() {
+    let root = unique_temp_dir("codex-quota-no-cost");
+    let codex_home = root.join("codex-home");
+    write_current_quota_fixture(&codex_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &["quota", "--json", "--no-cost", "--offline"],
+        &[("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let value: Value = serde_json::from_slice(&stdout).unwrap();
+    assert!(value.get("value_estimate").is_none());
+    assert!(value.get("value_estimate_error").is_none());
 
     let _ = fs::remove_dir_all(root);
 }
