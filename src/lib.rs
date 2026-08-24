@@ -4,7 +4,8 @@
 //! The public SDK entry points are [`summarize_cost`] and
 //! [`summarize_cost_ranges`] for cost analytics, [`load_codex_weekly_quota`]
 //! for provider-authoritative Codex quota pace,
-//! [`estimate_codex_weekly_value`] for an API-equivalent weekly estimate, plus
+//! [`estimate_codex_weekly_value`] and [`estimate_codex_weekly_value_for_window`]
+//! for API-equivalent weekly estimates, plus
 //! [`summarize_cost_with_cli_config`] and
 //! [`summarize_cost_ranges_with_cli_config`] for CLI-aligned config defaults.
 //! The binary target calls [`run_cli`] to preserve the existing command-line
@@ -35,10 +36,11 @@ mod utils;
 
 pub use sdk::{
     CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, CodexWeeklyValueError,
-    CodexWeeklyValueEstimate, CostSummary, ModelCostSummary, MultiCostSummary, MultiSummaryOptions,
-    SdkError, SummaryOptions, TokenBreakdown, UsageRange, UsageSource, estimate_codex_weekly_value,
-    load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
-    summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
+    CodexWeeklyValueEstimate, CodexWeeklyValueWindow, CodexWeeklyValueWindowError, CostSummary,
+    ModelCostSummary, MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions,
+    TokenBreakdown, UsageRange, UsageSource, estimate_codex_weekly_value,
+    estimate_codex_weekly_value_for_window, load_codex_weekly_quota, summarize_cost,
+    summarize_cost_ranges, summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
 };
 
 use chrono::{NaiveDate, Utc};

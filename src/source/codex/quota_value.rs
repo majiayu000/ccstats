@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Utc};
 use rayon::prelude::*;
 
 use crate::core::{DedupAccumulator, Stats};
@@ -11,8 +11,7 @@ use crate::utils::Timezone;
 
 use super::parser::{codex_sessions_dir_candidate, parse_codex_file_for_quota};
 use super::quota::{
-    CodexQuotaError, CodexWeeklyQuota, discover_quota_files, recent_codex_files,
-    validate_sessions_dir,
+    CodexQuotaError, codex_files_since, discover_quota_files, validate_sessions_dir,
 };
 
 #[derive(Debug)]
@@ -24,13 +23,14 @@ pub(crate) struct CodexWindowUsage {
 }
 
 pub(crate) fn load_weekly_window_usage_from_home(
-    quota: &CodexWeeklyQuota,
+    observed_at: DateTime<Utc>,
+    window_started_at: DateTime<Utc>,
     codex_home: Option<&Path>,
 ) -> Result<CodexWindowUsage, CodexQuotaError> {
     let sessions_dir = resolve_sessions_dir(codex_home)?;
     validate_sessions_dir(&sessions_dir)?;
-    let files = recent_codex_files(discover_quota_files(&sessions_dir)?, Utc::now())?;
-    load_weekly_window_usage_from_files(quota, &files)
+    let files = codex_files_since(discover_quota_files(&sessions_dir)?, window_started_at)?;
+    load_weekly_window_usage_from_files(observed_at, window_started_at, &files)
 }
 
 fn resolve_sessions_dir(codex_home: Option<&Path>) -> Result<PathBuf, CodexQuotaError> {
@@ -41,32 +41,34 @@ fn resolve_sessions_dir(codex_home: Option<&Path>) -> Result<PathBuf, CodexQuota
 }
 
 fn load_weekly_window_usage_from_files(
-    quota: &CodexWeeklyQuota,
+    observed_at: DateTime<Utc>,
+    window_started_at: DateTime<Utc>,
     files: &[PathBuf],
 ) -> Result<CodexWindowUsage, CodexQuotaError> {
-    let window_started_at = quota.resets_at - Duration::minutes(quota.window_minutes);
-    let since_ms = window_started_at.timestamp_millis();
-    let until_ms = quota.observed_at.timestamp_millis();
     let utc = Timezone::Named(chrono_tz::UTC);
 
-    let (accumulator, parse_errors) =
-        files
-            .par_iter()
-            .map(|path| {
-                let parsed = parse_codex_file_for_quota(path, utc);
-                let mut partial = DedupAccumulator::new();
-                partial.extend(parsed.entries.into_iter().filter(|entry| {
-                    entry.timestamp_ms >= since_ms && entry.timestamp_ms <= until_ms
-                }));
-                (partial, parsed.errors)
-            })
-            .reduce(
-                || (DedupAccumulator::new(), 0usize),
-                |(mut accumulator, errors), (partial, partial_errors)| {
-                    accumulator.merge(partial);
-                    (accumulator, errors.saturating_add(partial_errors))
-                },
-            );
+    let (accumulator, parse_errors) = files
+        .par_iter()
+        .map(|path| {
+            let parsed = parse_codex_file_for_quota(path, utc);
+            let mut partial = DedupAccumulator::new();
+            partial.extend(parsed.entries.into_iter().filter(|entry| {
+                entry
+                    .timestamp
+                    .parse::<DateTime<Utc>>()
+                    .is_ok_and(|timestamp| {
+                        timestamp >= window_started_at && timestamp <= observed_at
+                    })
+            }));
+            (partial, parsed.errors)
+        })
+        .reduce(
+            || (DedupAccumulator::new(), 0usize),
+            |(mut accumulator, errors), (partial, partial_errors)| {
+                accumulator.merge(partial);
+                (accumulator, errors.saturating_add(partial_errors))
+            },
+        );
 
     if parse_errors > 0 {
         return Err(CodexQuotaError::UsageParse {
@@ -99,12 +101,12 @@ fn load_weekly_window_usage_from_files(
 mod tests {
     use std::io::Write as _;
 
-    use chrono::DateTime;
+    use chrono::{DateTime, Duration};
     use serde_json::json;
     use tempfile::NamedTempFile;
 
     use super::*;
-    use crate::source::CodexQuotaStatus;
+    use crate::source::{CodexQuotaStatus, CodexWeeklyQuota};
 
     fn quota() -> CodexWeeklyQuota {
         CodexWeeklyQuota {
@@ -157,14 +159,19 @@ mod tests {
 
     #[test]
     fn usage_is_aligned_to_exact_provider_window_and_observation() {
-        let before = usage_event("2026-08-19T23:59:59Z", 100, 100);
+        let before = usage_event("2026-08-19T23:59:59.999999500Z", 100, 100);
         let at_start = usage_event("2026-08-20T00:00:00Z", 300, 200);
         let at_observation = usage_event("2026-08-22T00:00:00Z", 600, 300);
-        let after = usage_event("2026-08-22T00:00:01Z", 1_000, 400);
+        let after = usage_event("2026-08-22T00:00:00.000000500Z", 1_000, 400);
         let file = write_log(&[&before, &at_start, &at_observation, &after]);
 
-        let usage =
-            load_weekly_window_usage_from_files(&quota(), &[file.path().to_path_buf()]).unwrap();
+        let quota = quota();
+        let usage = load_weekly_window_usage_from_files(
+            quota.observed_at,
+            quota.resets_at - Duration::minutes(quota.window_minutes),
+            &[file.path().to_path_buf()],
+        )
+        .unwrap();
 
         assert_eq!(usage.valid_entries, 2);
         assert_eq!(usage.stats.total_tokens(), 500);
@@ -176,8 +183,13 @@ mod tests {
         let valid = usage_event("2026-08-21T00:00:00Z", 100, 100);
         let file = write_log(&[&valid, "{malformed"]);
 
-        let error = load_weekly_window_usage_from_files(&quota(), &[file.path().to_path_buf()])
-            .unwrap_err();
+        let quota = quota();
+        let error = load_weekly_window_usage_from_files(
+            quota.observed_at,
+            quota.resets_at - Duration::minutes(quota.window_minutes),
+            &[file.path().to_path_buf()],
+        )
+        .unwrap_err();
 
         assert!(matches!(error, CodexQuotaError::UsageParse { count: 1 }));
     }
@@ -188,8 +200,13 @@ mod tests {
             usage_event("2026-08-21T00:00:00Z", 100, 100).replace("\"model\":\"gpt-5\",", "");
         let file = write_log(&[&line]);
 
-        let usage =
-            load_weekly_window_usage_from_files(&quota(), &[file.path().to_path_buf()]).unwrap();
+        let quota = quota();
+        let usage = load_weekly_window_usage_from_files(
+            quota.observed_at,
+            quota.resets_at - Duration::minutes(quota.window_minutes),
+            &[file.path().to_path_buf()],
+        )
+        .unwrap();
 
         assert!(usage.models.contains_key("unknown-model"));
         assert!(!usage.models.contains_key("gpt-5"));

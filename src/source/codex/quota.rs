@@ -255,6 +255,13 @@ pub(super) fn recent_codex_files(
     now: DateTime<Utc>,
 ) -> Result<Vec<PathBuf>, CodexQuotaError> {
     let cutoff = now - Duration::minutes(WEEKLY_WINDOW_MINUTES + DISCOVERY_MARGIN_MINUTES);
+    codex_files_since(files, cutoff)
+}
+
+pub(super) fn codex_files_since(
+    files: Vec<PathBuf>,
+    cutoff: DateTime<Utc>,
+) -> Result<Vec<PathBuf>, CodexQuotaError> {
     files
         .into_iter()
         .filter_map(|path| {

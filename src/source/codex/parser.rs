@@ -458,6 +458,9 @@ fn process_event_message(
         return;
     }
     let Some(timestamp) = raw_entry.timestamp else {
+        if payload.info.is_some() {
+            state.parse_errors += 1;
+        }
         return;
     };
     let Some(info) = &payload.info else { return };
