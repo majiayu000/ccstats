@@ -3,9 +3,10 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use ccstats::{
-    CodexQuotaError, CodexQuotaStatus, CostSummary, MultiSummaryOptions, SummaryOptions,
-    UsageRange, UsageSource, estimate_codex_weekly_value, load_codex_weekly_quota, summarize_cost,
-    summarize_cost_ranges,
+    CodexQuotaError, CodexQuotaStatus, CodexWeeklyValueError, CodexWeeklyValueWindow,
+    CodexWeeklyValueWindowError, CostSummary, MultiSummaryOptions, SummaryOptions, UsageRange,
+    UsageSource, estimate_codex_weekly_value, estimate_codex_weekly_value_for_window,
+    load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
 };
 use chrono::{Datelike, Days, Duration, NaiveDate, Timelike, Utc};
 
@@ -110,6 +111,127 @@ fn sdk_estimates_codex_weekly_api_equivalent_value() {
             < f64::EPSILON
     );
     assert_eq!(estimate.estimated_weekly_tokens, 4_400_000.0);
+}
+
+#[test]
+fn sdk_estimates_codex_value_for_an_explicit_exact_window() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    let session_file = codex_home.join("sessions").join("usage.jsonl");
+    let observed_at = (Utc::now() - Duration::hours(1))
+        .with_nanosecond(0)
+        .expect("valid timestamp");
+    let resets_at = observed_at + Duration::days(6);
+    let before_window = observed_at - Duration::days(8);
+    let in_window = observed_at - Duration::hours(12);
+    let usage_event = |timestamp, total: i64, delta: i64| {
+        serde_json::json!({
+            "timestamp": timestamp,
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": total,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "reasoning_output_tokens": 0,
+                        "total_tokens": total,
+                    },
+                    "last_token_usage": {
+                        "input_tokens": delta,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 0,
+                        "reasoning_output_tokens": 0,
+                        "total_tokens": delta,
+                    },
+                    "model": "gpt-5",
+                }
+            }
+        })
+    };
+    write_file(
+        &session_file,
+        &format!(
+            "{}\n{}\n",
+            usage_event(before_window, 500_000, 500_000),
+            usage_event(in_window, 1_500_000, 1_000_000),
+        ),
+    );
+    let window = CodexWeeklyValueWindow {
+        observed_at,
+        resets_at,
+        window_minutes: 10_080,
+        used_pct: 25.0,
+    };
+
+    let estimate = estimate_codex_weekly_value_for_window(&window, Some(&codex_home), true, false)
+        .expect("estimate explicit weekly window");
+
+    assert_eq!(estimate.observed_tokens, 1_000_000);
+    assert_eq!(estimate.used_pct, 25.0);
+    assert_eq!(estimate.estimated_weekly_tokens, 4_000_000.0);
+}
+
+#[test]
+fn sdk_explicit_window_rejects_usage_without_a_timestamp() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    let session_file = codex_home.join("sessions").join("usage.jsonl");
+    let observed_at = (Utc::now() - Duration::hours(1))
+        .with_nanosecond(0)
+        .expect("valid timestamp");
+    let resets_at = observed_at + Duration::days(6);
+    let valid = serde_json::json!({
+        "timestamp": observed_at - Duration::minutes(1),
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": {
+                "last_token_usage": {
+                    "input_tokens": 1_000_000,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_output_tokens": 0,
+                    "total_tokens": 1_000_000,
+                },
+                "model": "gpt-5",
+            }
+        }
+    });
+    let missing_timestamp = serde_json::json!({
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": {
+                "last_token_usage": {
+                    "input_tokens": 500_000,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_output_tokens": 0,
+                    "total_tokens": 500_000,
+                },
+                "model": "gpt-5",
+            }
+        }
+    });
+    write_file(&session_file, &format!("{valid}\n{missing_timestamp}\n"));
+    let window = CodexWeeklyValueWindow {
+        observed_at,
+        resets_at,
+        window_minutes: 10_080,
+        used_pct: 25.0,
+    };
+
+    let error = estimate_codex_weekly_value_for_window(&window, Some(&codex_home), true, false)
+        .expect_err("missing usage timestamp must fail closed");
+
+    assert!(matches!(
+        error,
+        CodexWeeklyValueWindowError::Estimate(CodexWeeklyValueError::Quota(
+            CodexQuotaError::UsageParse { count: 1 }
+        ))
+    ));
 }
 
 #[test]
