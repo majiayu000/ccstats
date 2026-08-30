@@ -33,7 +33,7 @@ ccstats 启动时先读取可选的 TOML 配置文件，再根据命令行参数
 | `timezone` | string | IANA 时区，例如 `UTC` / `Asia/Shanghai` |
 | `locale` | string | 数字格式 locale，例如 `en` / `de` |
 | `currency` | string | 货币代码，例如 `USD` / `CNY` / `EUR` |
-| `source` | string | `claude` / `codex` / `cursor` / `grok` / `kimi` / `gemini` / `amp` / `qwen` / `cline` / `roocode` / `kilocode` / `all` 或别名 |
+| `source` | string | `claude` / `codex` / `cursor` / `grok` / `kimi` / `gemini` / `amp` / `qwen` / `cline` / `roocode` / `kilocode` / `opencode` / `pi` / `all` 或别名 |
 
 示例：
 
@@ -61,6 +61,8 @@ cost = "show"
 | Amp | `XDG_DATA_HOME` | 包含 `amp/threads/` 的用户数据根目录 | `~/.local/share` |
 | Qwen Code | `QWEN_RUNTIME_DIR`，其次 `QWEN_HOME` | 包含 `usage/` 的 Qwen 根目录 | `~/.qwen` |
 | Cline CLI | `CLINE_SESSION_DATA_DIR`，另支持 `CLINE_DATA_DIR`、`CLINE_DIR` | Cline session 目录或数据根目录 | `~/.cline/data/sessions` |
+| OpenCode | `OPENCODE_DB`，数据根目录遵循 `XDG_DATA_HOME` | 数据库绝对路径，或 OpenCode 数据目录内的相对文件名 | 平台 data dir 下的 `opencode/opencode*.db` |
+| Pi | `PI_CODING_AGENT_SESSION_DIR`，其次 `PI_CODING_AGENT_DIR` | sessions 目录，或包含 `sessions/` 的 agent 目录 | `~/.pi/agent/sessions` |
 
 ---
 
@@ -283,6 +285,59 @@ cache_read         ← cachedTokens
 官方 total fallback 是 `inputTokens + outputTokens + thoughtsTokens`，不会再次加 `cachedTokens`，这也是 cache 属于 input 子集的直接证据。ledger 的 UUID 表示独立调用，不做流式去重。
 
 未知 schema、无效时间、缺少身份字段、负 token 或 `cachedTokens > inputTokens` 会计入解析错误并跳过，不会生成错误统计。
+
+---
+
+## OpenCode
+
+### 数据库与双 schema
+
+OpenCode 默认写入平台 data directory 下的 `opencode/opencode.db`；非标准安装 channel 可能写入 `opencode-<channel>.db`。`OPENCODE_DB` 可指定绝对路径，或指定 OpenCode data directory 内的相对文件名。
+
+当前数据库可能同时包含两代消息表：
+
+- `message`：role、`modelID`、`providerID` 位于 JSON payload。
+- `session_message`：role 位于表的 `type` 列，model/provider 位于 payload 的 `model` 对象。
+
+两表中的 assistant payload 都持久化已经归一化的独立 token 桶：
+
+```text
+input_tokens       ← tokens.input
+output_tokens      ← tokens.output
+reasoning_tokens   ← tokens.reasoning
+cache_creation     ← tokens.cache.write
+cache_read         ← tokens.cache.read
+```
+
+OpenCode 写入端已经从 inclusive input 中扣除了 cache read/write，并从 output 中扣除了 reasoning；ccstats 不再次减法。正的 `cost` 保存为 client-recorded USD，零值视为缺少可用价格并允许价格层估算。
+
+同一个消息可能同时存在于两张表或多个 channel 数据库。ccstats 使用 source-wide message ID 去重，优先完成记录；session directory 用于项目聚合。损坏 JSON、负 token、无效时间或数据库读取失败都会计入 parse error。
+
+---
+
+## Pi
+
+### JSONL 与独立调用
+
+Pi 默认写入 `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl`。显式 `PI_CODING_AGENT_SESSION_DIR` 优先，其次是 `PI_CODING_AGENT_DIR/sessions`。
+
+统计三类带 usage 的真实 LLM 调用：
+
+1. assistant message；
+2. compaction summary；
+3. branch summary。
+
+```text
+input_tokens       ← usage.input
+output_tokens      ← usage.output
+reasoning_tokens   ← 0
+cache_creation     ← usage.cacheWrite
+cache_read         ← usage.cacheRead
+```
+
+Pi 官方定义明确说明 `usage.reasoning` 已包含在 `usage.output` 中，所以不能再放入 additive reasoning 桶。summary 记录没有自己的 model 字段时，使用此前最近一次 `model_change` 或 assistant 明确记录的模型；仍无法确定时明确归入 `unknown`。
+
+Pi 的“创建分支 session”会把已有路径复制到新 JSONL，但保留原 entry ID。ccstats 以 source-wide entry ID 去重，既保留新分支之后产生的调用，也不会把复制的历史再次计费。正的 `usage.cost.total` 保存为 client-recorded USD。
 
 ---
 

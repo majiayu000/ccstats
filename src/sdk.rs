@@ -60,11 +60,15 @@ pub enum UsageSource {
     RooCode,
     /// Kilo Code VS Code extension task logs.
     KiloCode,
+    /// `OpenCode` messages in its local `SQLite` database.
+    OpenCode,
+    /// Pi coding-agent JSONL sessions.
+    Pi,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 11] = [
+    pub(crate) const VARIANTS: [Self; 13] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -76,6 +80,8 @@ impl UsageSource {
         UsageSource::Cline,
         UsageSource::RooCode,
         UsageSource::KiloCode,
+        UsageSource::OpenCode,
+        UsageSource::Pi,
     ];
 
     #[must_use]
@@ -92,6 +98,8 @@ impl UsageSource {
             UsageSource::Cline => "cline",
             UsageSource::RooCode => "roocode",
             UsageSource::KiloCode => "kilocode",
+            UsageSource::OpenCode => "opencode",
+            UsageSource::Pi => "pi",
         }
     }
 
@@ -108,6 +116,8 @@ impl UsageSource {
             "cline" => Some(UsageSource::Cline),
             "roocode" => Some(UsageSource::RooCode),
             "kilocode" => Some(UsageSource::KiloCode),
+            "opencode" => Some(UsageSource::OpenCode),
+            "pi" => Some(UsageSource::Pi),
             _ => None,
         }
     }

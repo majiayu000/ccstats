@@ -128,7 +128,7 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "AMOUNT")]
     pub(crate) monthly_budget: Option<f64>,
 
-    /// Data source name or alias (e.g., "claude", "codex", "gemini", "amp", "qwen", "cline", "roocode", "kilocode", "all")
+    /// Data source name or alias (e.g., "claude", "codex", "gemini", "amp", "qwen", "cline", "opencode", "pi", "all")
     #[arg(long, global = true, value_name = "SOURCE")]
     pub(crate) source: Option<String>,
 

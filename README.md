@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics across 11 local AI coding-agent data sources.
+`ccstats` is a fast CLI for token and cost usage analytics across 13 local AI coding-agent data sources.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -21,6 +21,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Kimi Code support (`~/.kimi-code/sessions/`)
 - Gemini CLI, Amp, and Qwen Code support
 - Cline CLI plus Cline, Roo Code, and Kilo Code VS Code extension support
+- OpenCode SQLite and Pi coding-agent JSONL support
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
@@ -136,14 +137,17 @@ ccstats daily --source qwen
 ccstats daily --source cline
 ccstats daily --source roocode
 ccstats daily --source kilocode
+ccstats daily --source opencode
+ccstats daily --source pi
 ```
 
 Gemini reads both chat JSON and headless JSONL usage. Amp reconciles its usage
 ledger with assistant-message usage without double counting. Qwen reads its
 native usage ledger and separates cached input from uncached input. Cline reads
 both CLI sessions and its VS Code extension task logs; Roo Code and Kilo Code
-use the same extension-log algorithm. Client-side credit or reported-cost
-fields are not imported, so cost remains ccstats' model pricing estimate.
+use the same extension-log algorithm. OpenCode and Pi preserve positive
+client-recorded USD cost; sources without authoritative per-call cost continue
+to use ccstats' model pricing estimate.
 
 ## Crate Documentation
 
@@ -493,6 +497,8 @@ ccstats daily --source qwen
 ccstats daily --source cline
 ccstats daily --source roocode
 ccstats daily --source kilocode
+ccstats daily --source opencode
+ccstats daily --source pi
 
 # Offline mode (use cached pricing)
 ccstats today -O
@@ -554,7 +560,7 @@ Supported keys:
 | `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
 | `locale` | string | Locale used for number formatting, such as `en` or `de` |
 | `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
-| `source` | string | Source name or alias such as `claude`, `codex`, `gemini`, `amp`, `qwen`, `cline`, `roocode`, `kilocode`, or `all` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `gemini`, `amp`, `qwen`, `cline`, `opencode`, `pi`, or `all` |
 
 Source root env overrides are independent of config keys:
 
@@ -569,6 +575,8 @@ Source root env overrides are independent of config keys:
 | Amp | `XDG_DATA_HOME` | User data root containing `amp/threads/` | `~/.local/share` |
 | Qwen Code | `QWEN_RUNTIME_DIR`, then `QWEN_HOME` | Qwen root containing `usage/` | `~/.qwen` |
 | Cline CLI | `CLINE_SESSION_DATA_DIR` | Cline session directory | `~/.cline/data/sessions` |
+| OpenCode | `OPENCODE_DB`; data root follows `XDG_DATA_HOME` | Exact database path, or relative name inside the OpenCode data directory | Platform data directory under `opencode/opencode*.db` |
+| Pi | `PI_CODING_AGENT_SESSION_DIR`, then `PI_CODING_AGENT_DIR` | Exact sessions directory, or agent directory containing `sessions/` | `~/.pi/agent/sessions` |
 
 Cline also recognizes `CLINE_DATA_DIR` and `CLINE_DIR`. Roo Code and Kilo Code
 currently use their standard local directories.
@@ -594,8 +602,8 @@ cache_read / (input + cache_creation + cache_read) * 100
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
 Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
-Code, and Kilo Code expose the required cache-read metric. Mixed `--source all`
-output reports the aggregate rate across all selected usage.
+Code, Kilo Code, OpenCode, and Pi expose the required cache-read metric. Mixed
+`--source all` output reports the aggregate rate across all selected usage.
 
 ### Parsing Warnings
 
@@ -621,6 +629,8 @@ Warning: ignored <N> malformed records
 | Cline | `~/.cline/data/sessions/` and VS Code global storage | `CLINE_SESSION_DATA_DIR`, `CLINE_DATA_DIR`, `CLINE_DIR` | CLI and extension sessions, Projects, Cache tokens |
 | Roo Code | VS Code global storage | — | Extension task usage, Cache tokens |
 | Kilo Code | VS Code global storage | — | Extension task usage, Cache tokens |
+| OpenCode | Platform data directory under `opencode/opencode*.db` | `OPENCODE_DB`, `XDG_DATA_HOME` | Projects, reasoning/cache tokens, recorded cost, cross-schema deduplication |
+| Pi | `~/.pi/agent/sessions/**/*.jsonl` | `PI_CODING_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` | Projects, assistant + summary usage, cache tokens, branch-copy deduplication |
 
 ## Architecture
 
