@@ -9,8 +9,10 @@ use super::claude::ClaudeSource;
 use super::cline::ClineSource;
 use super::cline_extension::{KiloCodeSource, RooCodeSource};
 use super::codex::CodexSource;
+use super::copilot::CopilotSource;
 use super::cursor::CursorSource;
 use super::gemini::GeminiSource;
+use super::goose::GooseSource;
 use super::grok::GrokSource;
 use super::kimi::KimiSource;
 use super::opencode::OpenCodeSource;
@@ -37,6 +39,8 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(KiloCodeSource::new()),
         Box::new(OpenCodeSource::new()),
         Box::new(PiSource::new()),
+        Box::new(CopilotSource::new()),
+        Box::new(GooseSource::new()),
     ]
 });
 
@@ -142,9 +146,11 @@ mod tests {
         assert!(get_source("claude").is_some());
         assert!(get_source("cline").is_some());
         assert!(get_source("codex").is_some());
+        assert!(get_source("copilot").is_some());
         assert!(get_source("cursor").is_some());
         assert!(get_source("gemini").is_some());
         assert!(get_source("grok").is_some());
+        assert!(get_source("goose").is_some());
         assert!(get_source("kilocode").is_some());
         assert!(get_source("kimi").is_some());
         assert!(get_source("opencode").is_some());
@@ -281,7 +287,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 13);
+        assert_eq!(SOURCES.len(), 15);
     }
 
     #[test]

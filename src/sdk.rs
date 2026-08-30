@@ -64,11 +64,15 @@ pub enum UsageSource {
     OpenCode,
     /// Pi coding-agent JSONL sessions.
     Pi,
+    /// GitHub Copilot CLI `OpenTelemetry` JSONL spans.
+    Copilot,
+    /// Goose per-call usage ledger in its local `SQLite` database.
+    Goose,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 13] = [
+    pub(crate) const VARIANTS: [Self; 15] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -82,6 +86,8 @@ impl UsageSource {
         UsageSource::KiloCode,
         UsageSource::OpenCode,
         UsageSource::Pi,
+        UsageSource::Copilot,
+        UsageSource::Goose,
     ];
 
     #[must_use]
@@ -100,6 +106,8 @@ impl UsageSource {
             UsageSource::KiloCode => "kilocode",
             UsageSource::OpenCode => "opencode",
             UsageSource::Pi => "pi",
+            UsageSource::Copilot => "copilot",
+            UsageSource::Goose => "goose",
         }
     }
 
@@ -118,6 +126,8 @@ impl UsageSource {
             "kilocode" => Some(UsageSource::KiloCode),
             "opencode" => Some(UsageSource::OpenCode),
             "pi" => Some(UsageSource::Pi),
+            "copilot" => Some(UsageSource::Copilot),
+            "goose" => Some(UsageSource::Goose),
             _ => None,
         }
     }

@@ -1,6 +1,6 @@
 # Token Accounting Algorithm
 
-ccstats 从本地 JSONL 日志中统计 token 用量和费用。不同 AI 工具的 API 在字段语义上有本质差异，每个数据源的 parser 负责将原始字段**归一化为互不重叠的 5 个维度**，之后统一计算。
+ccstats 从本地 JSONL、SQLite 和 usage API 中统计 token 用量和费用。不同 AI 工具的字段语义有本质差异，每个数据源的 parser 负责将原始字段**归一化为互不重叠的 5 个维度**，之后统一计算。
 
 > 本文档为 ccstats 统计算法的权威参考。所有数值均为本地日志的最佳近似，绝对准确值以服务端账单为准。
 
@@ -33,7 +33,7 @@ ccstats 启动时先读取可选的 TOML 配置文件，再根据命令行参数
 | `timezone` | string | IANA 时区，例如 `UTC` / `Asia/Shanghai` |
 | `locale` | string | 数字格式 locale，例如 `en` / `de` |
 | `currency` | string | 货币代码，例如 `USD` / `CNY` / `EUR` |
-| `source` | string | `claude` / `codex` / `cursor` / `grok` / `kimi` / `gemini` / `amp` / `qwen` / `cline` / `roocode` / `kilocode` / `opencode` / `pi` / `all` 或别名 |
+| `source` | string | `claude` / `codex` / `cursor` / `grok` / `kimi` / `gemini` / `amp` / `qwen` / `cline` / `roocode` / `kilocode` / `opencode` / `pi` / `copilot` / `goose` / `all` 或别名 |
 
 示例：
 
@@ -63,6 +63,8 @@ cost = "show"
 | Cline CLI | `CLINE_SESSION_DATA_DIR`，另支持 `CLINE_DATA_DIR`、`CLINE_DIR` | Cline session 目录或数据根目录 | `~/.cline/data/sessions` |
 | OpenCode | `OPENCODE_DB`，数据根目录遵循 `XDG_DATA_HOME` | 数据库绝对路径，或 OpenCode 数据目录内的相对文件名 | 平台 data dir 下的 `opencode/opencode*.db` |
 | Pi | `PI_CODING_AGENT_SESSION_DIR`，其次 `PI_CODING_AGENT_DIR` | sessions 目录，或包含 `sessions/` 的 agent 目录 | `~/.pi/agent/sessions` |
+| GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | OTel file exporter 的 JSONL 文件 | 另扫描 `~/.copilot/otel/**/*.jsonl` |
+| Goose | `GOOSE_PATH_ROOT`，数据根目录遵循 `XDG_DATA_HOME` | 包含 `data/sessions/sessions.db` 的绝对 path root | `~/.local/share/goose/sessions/sessions.db` |
 
 ---
 
@@ -338,6 +340,50 @@ cache_read         ← usage.cacheRead
 Pi 官方定义明确说明 `usage.reasoning` 已包含在 `usage.output` 中，所以不能再放入 additive reasoning 桶。summary 记录没有自己的 model 字段时，使用此前最近一次 `model_change` 或 assistant 明确记录的模型；仍无法确定时明确归入 `unknown`。
 
 Pi 的“创建分支 session”会把已有路径复制到新 JSONL，但保留原 entry ID。ccstats 以 source-wide entry ID 去重，既保留新分支之后产生的调用，也不会把复制的历史再次计费。正的 `usage.cost.total` 保存为 client-recorded USD。
+
+---
+
+## GitHub Copilot CLI
+
+### OpenTelemetry chat span
+
+Copilot CLI 默认不写 token 文件。设置 `COPILOT_OTEL_FILE_EXPORTER_PATH` 后，官方 file exporter 把所有 OTel signal 写成 JSONL。ccstats 只统计 `type = "span"` 且 `gen_ai.operation.name = "chat"` 的记录，因为官方定义一条 `chat` span 对应一次 LLM 请求；`invoke_agent` 是多个 child call 的累计摘要，不能再次相加。
+
+OTel 的 cache 与 reasoning 是总桶的子集，进入 ccstats 前必须拆成互不重叠的桶：
+
+```text
+input_tokens       ← input_total - cache_read - cache_creation
+output_tokens      ← output_total - reasoning
+reasoning_tokens   ← gen_ai.usage.reasoning.output_tokens
+cache_creation     ← gen_ai.usage.cache_creation.input_tokens
+cache_read         ← gen_ai.usage.cache_read.input_tokens
+```
+
+若 cache read/write 之和超过 input，或 reasoning 超过 output，说明权威字段互相冲突；该记录计入 parse error，不做静默 clamp。模型优先使用 response model，其次 request model；session 使用 conversation ID，缺失时才退回合法 W3C trace ID。合法 trace/span identity 组成 source-wide 去重键，避免 exporter 文件副本或轮转产生重复。
+
+官方还提供 `github.copilot.cost` 与 AIU，但文档没有声明 monetary cost 的货币代码。当前不会把它无条件写成 USD；费用列继续显示模型 API 等价估算，不能解释成 Copilot 最终账单。
+
+---
+
+## Goose
+
+### 当前 per-call usage ledger
+
+Goose schema v15+ 的 `usage_ledger` 才是逐次调用账本。ccstats 将其与 `sessions` 连接以取得 working directory 和 model fallback，使用 ledger 自己的 timestamp、model、cache 与 cost provenance。`sessions.accumulated_*` 是累计状态，`sessions.input/output` 还会在 compaction 后变成当前上下文；它们不能再作为独立调用相加。
+
+Goose 官方 `Usage.input_tokens` 包含 cache read/write，所以归一化为：
+
+```text
+input_tokens       ← ledger.input_tokens - cache_read_tokens - cache_write_tokens
+output_tokens      ← ledger.output_tokens
+reasoning_tokens   ← 0
+cache_creation     ← ledger.cache_write_tokens
+cache_read         ← ledger.cache_read_tokens
+```
+
+Goose 没有 reasoning 字段，不能像 Tokscale 一样用 `total-input-output` 猜测。`cost_source = provider_reported` 的正 cost 保存为 client-recorded USD；`estimated` cost 继续由 ccstats 价格层统一估算，避免把两套估值混加。数据库读取失败、未知 schema、负 token、cache 子桶越界或无效时间都计入 parse error。
+
+旧会话只有 accumulated totals、但尚未被 Goose 自己写入 carried-forward ledger 时，无法恢复逐调用日期和模型。ccstats 不把这类累计值伪装成某天的一次调用；这是当前格式的明确边界。
 
 ---
 
