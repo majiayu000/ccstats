@@ -365,11 +365,42 @@ impl RawEntry {
 pub(crate) struct DateFilter {
     pub(crate) since: Option<chrono::NaiveDate>,
     pub(crate) until: Option<chrono::NaiveDate>,
+    pub(crate) since_timestamp_ms: Option<i64>,
+    pub(crate) until_timestamp_ms: Option<i64>,
 }
 
 impl DateFilter {
     pub(crate) fn new(since: Option<chrono::NaiveDate>, until: Option<chrono::NaiveDate>) -> Self {
-        Self { since, until }
+        Self {
+            since,
+            until,
+            since_timestamp_ms: None,
+            until_timestamp_ms: None,
+        }
+    }
+
+    pub(crate) fn with_timestamp_range(mut self, since: i64, until: i64) -> Self {
+        self.since_timestamp_ms = Some(since);
+        self.until_timestamp_ms = Some(until);
+        self
+    }
+
+    pub(crate) fn has_timestamp_range(&self) -> bool {
+        self.since_timestamp_ms.is_some() || self.until_timestamp_ms.is_some()
+    }
+
+    pub(crate) fn contains_timestamp(&self, timestamp_ms: i64) -> bool {
+        if let Some(since) = self.since_timestamp_ms
+            && timestamp_ms < since
+        {
+            return false;
+        }
+        if let Some(until) = self.until_timestamp_ms
+            && timestamp_ms > until
+        {
+            return false;
+        }
+        true
     }
 
     pub(crate) fn contains(&self, date: chrono::NaiveDate) -> bool {

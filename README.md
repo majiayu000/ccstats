@@ -149,6 +149,8 @@ println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
 
 The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, cache hit rate, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
 
+Use `UsageRange::TimestampRange` with inclusive UTC `DateTime<Utc>` bounds when an app must align usage to an exact provider quota window instead of whole local dates.
+
 Codex weekly quota pace is also available as structured SDK data without
 spawning the CLI:
 
@@ -374,7 +376,7 @@ By default, ccstats uses:
 - `~/.grok/sessions/**/updates.jsonl` for complete per-turn token totals
 - `~/.grok/logs/unified.jsonl` for per-inference API-equivalent pricing
 - `~/.grok/sessions/**/summary.json` for model, project, and session metadata
-- the platform cache directory under `ccstats/grok/<source-root>/inference-v1.jsonl` for the durable, deduplicated ledger
+- the platform application-data directory under `ccstats/grok/<source-root>/inference-v1.jsonl` for the durable, deduplicated ledger
 
 For Grok 4.5 and 4.6, requests below 200k prompt tokens use the short-context rates. Requests at or above 200k use the long-context input, cached-input, and output rates for the entire inference. `completion_tokens` already includes reasoning, so ccstats does not charge reasoning twice. Rates follow the [xAI pricing reference](https://docs.x.ai/developers/pricing).
 

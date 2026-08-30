@@ -23,7 +23,7 @@ use crate::utils::Timezone;
 pub struct MultiSummaryOptions {
     /// Usage source to read.
     pub source: UsageSource,
-    /// Date ranges to summarize, preserving this order in the returned summaries.
+    /// Date or exact UTC timestamp ranges, preserving result order.
     pub ranges: Vec<UsageRange>,
     /// Optional timezone name, such as `UTC` or `Asia/Shanghai`.
     pub timezone: Option<String>,
@@ -78,7 +78,7 @@ struct ResolvedRange {
 /// # Errors
 ///
 /// Returns an error when no ranges are requested, when the source or timezone is
-/// invalid, or when any explicit date range has `since` after `until`.
+/// invalid, or when any explicit date or timestamp range is reversed.
 pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
     let start = Instant::now();
     let MultiSummaryOptions {
@@ -145,7 +145,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
 ///
 /// Returns an error when no ranges are requested, when the resolved source or
 /// timezone is invalid, or when any explicit date range has `since` after
-/// `until`.
+/// `until`, or when an exact timestamp range is reversed.
 pub fn summarize_cost_ranges_with_cli_config(
     options: MultiSummaryOptions,
 ) -> Result<MultiCostSummary, SdkError> {
@@ -184,18 +184,28 @@ fn resolve_ranges(ranges: &[UsageRange], today: NaiveDate) -> Result<Vec<Resolve
         .iter()
         .map(|range| {
             let (since, until) = range.resolve(today)?;
+            let mut filter = DateFilter::new(since, until);
+            if let Some((since_timestamp_ms, until_timestamp_ms)) = range.timestamp_bounds() {
+                filter = filter.with_timestamp_range(since_timestamp_ms, until_timestamp_ms);
+            }
             Ok(ResolvedRange {
                 range: range.clone(),
                 since,
                 until,
-                filter: DateFilter::new(since, until),
+                filter,
             })
         })
         .collect()
 }
 
-fn contains_any_range(date: NaiveDate, ranges: &[ResolvedRange]) -> bool {
-    ranges.iter().any(|range| range.filter.contains(date))
+fn contains_any_range(entry: &RawEntry, date: NaiveDate, ranges: &[ResolvedRange]) -> bool {
+    ranges.iter().any(|range| {
+        if range.filter.has_timestamp_range() {
+            range.filter.contains_timestamp(entry.timestamp_ms)
+        } else {
+            range.filter.contains(date)
+        }
+    })
 }
 
 fn load_daily_ranges(
@@ -208,6 +218,9 @@ fn load_daily_ranges(
     if files.is_empty() {
         return ranges.iter().map(|_| LoadResult::default()).collect();
     }
+    let needs_timestamp = ranges
+        .iter()
+        .any(|range| range.filter.has_timestamp_range());
 
     let (entries, parse_errors) = files
         .par_iter()
@@ -217,8 +230,15 @@ fn load_daily_ranges(
                 .entries
                 .into_iter()
                 .filter_map(|mut entry| {
+                    if needs_timestamp && entry.timestamp_ms == 0 {
+                        entry.timestamp_ms = entry
+                            .timestamp
+                            .parse::<DateTime<Utc>>()
+                            .ok()?
+                            .timestamp_millis();
+                    }
                     let date = normalize_entry_date(&mut entry, timezone)?;
-                    contains_any_range(date, ranges).then_some(entry)
+                    contains_any_range(&entry, date, ranges).then_some(entry)
                 })
                 .collect::<Vec<_>>();
             (entries, parsed.errors)
@@ -267,8 +287,12 @@ fn aggregate_entries_for_filter(
     let filtered: Vec<_> = entries
         .iter()
         .filter(|entry| {
-            NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
-                .is_ok_and(|date| filter.contains(date))
+            if filter.has_timestamp_range() {
+                filter.contains_timestamp(entry.timestamp_ms)
+            } else {
+                NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
+                    .is_ok_and(|date| filter.contains(date))
+            }
         })
         .cloned()
         .collect();
@@ -309,6 +333,34 @@ mod tests {
 
     fn d(year: i32, month: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
+
+    fn entry_at(timestamp: &str) -> RawEntry {
+        let timestamp_ms = timestamp
+            .parse::<DateTime<Utc>>()
+            .expect("valid timestamp")
+            .timestamp_millis();
+        RawEntry {
+            timestamp: timestamp.to_string(),
+            timestamp_ms,
+            date_str: "2026-08-21".to_string(),
+            message_id: Some(timestamp.to_string()),
+            session_key: "session".to_string(),
+            session_id: "session".to_string(),
+            project_path: String::new(),
+            model: "grok-4.6".to_string(),
+            input_tokens: 10,
+            output_tokens: 0,
+            cache_creation: 0,
+            cache_creation_1h: 0,
+            cache_read: 0,
+            reasoning_tokens: 0,
+            stop_reason: Some("complete".to_string()),
+            cost_kind: crate::core::CostKind::Real,
+            endpoint: crate::core::Endpoint::Unknown,
+            call_count: 1,
+            recorded_cost_usd: Some(0.1),
+        }
     }
 
     struct CountingSource {
@@ -405,10 +457,11 @@ mod tests {
             d(2026, 12, 10),
         )
         .unwrap();
+        let entry = entry_at("2026-08-21T05:42:00Z");
 
-        assert!(contains_any_range(d(2026, 1, 10), &ranges));
-        assert!(!contains_any_range(d(2026, 6, 1), &ranges));
-        assert!(contains_any_range(d(2026, 12, 10), &ranges));
+        assert!(contains_any_range(&entry, d(2026, 1, 10), &ranges));
+        assert!(!contains_any_range(&entry, d(2026, 6, 1), &ranges));
+        assert!(contains_any_range(&entry, d(2026, 12, 10), &ranges));
     }
 
     #[test]
@@ -427,10 +480,33 @@ mod tests {
             d(2026, 5, 9),
         )
         .unwrap();
+        let entry = entry_at("2026-08-21T05:42:00Z");
 
-        assert!(contains_any_range(d(2020, 1, 1), &ranges));
-        assert!(!contains_any_range(d(2026, 5, 7), &ranges));
-        assert!(contains_any_range(d(2026, 12, 31), &ranges));
+        assert!(contains_any_range(&entry, d(2020, 1, 1), &ranges));
+        assert!(!contains_any_range(&entry, d(2026, 5, 7), &ranges));
+        assert!(contains_any_range(&entry, d(2026, 12, 31), &ranges));
+    }
+
+    #[test]
+    fn timestamp_range_filters_entries_within_the_same_day() {
+        let ranges = resolve_ranges(
+            &[UsageRange::TimestampRange {
+                since: "2026-08-21T05:41:00Z".parse().expect("valid since"),
+                until: "2026-08-21T05:43:00Z".parse().expect("valid until"),
+            }],
+            d(2026, 8, 21),
+        )
+        .expect("resolve timestamp range");
+        let entries = vec![
+            entry_at("2026-08-21T05:40:00Z"),
+            entry_at("2026-08-21T05:42:00Z"),
+            entry_at("2026-08-21T05:44:00Z"),
+        ];
+
+        let result = aggregate_entries_for_filter(&entries, &ranges[0].filter, false);
+
+        assert_eq!(result.valid, 1);
+        assert_eq!(result.day_stats["2026-08-21"].stats.input_tokens, 10);
     }
 
     #[test]

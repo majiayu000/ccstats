@@ -31,13 +31,17 @@ pub(super) fn find_cursor_files(filter: &DateFilter, timezone: Timezone) -> Vec<
     }
 
     if has_api_credentials() {
-        let start_ms = filter
-            .since
-            .and_then(|date| timezone.date_start_utc_millis(date));
-        let end_ms = filter.until.and_then(|date| {
-            date.succ_opt()
-                .and_then(|next| timezone.date_start_utc_millis(next))
-                .map(|next_start| next_start.saturating_sub(1))
+        let start_ms = filter.since_timestamp_ms.or_else(|| {
+            filter
+                .since
+                .and_then(|date| timezone.date_start_utc_millis(date))
+        });
+        let end_ms = filter.until_timestamp_ms.or_else(|| {
+            filter.until.and_then(|date| {
+                date.succ_opt()
+                    .and_then(|next| timezone.date_start_utc_millis(next))
+                    .map(|next_start| next_start.saturating_sub(1))
+            })
         });
         vec![PathBuf::from(format!(
             "{API_SENTINEL}|{}|{}",

@@ -666,6 +666,17 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
         ..SummaryOptions::default()
     })
     .expect("summarize grok");
+    let outside_window = summarize_cost(SummaryOptions {
+        source: UsageSource::Grok,
+        range: UsageRange::TimestampRange {
+            since: "2026-02-06T11:00:00Z".parse().expect("valid since"),
+            until: "2026-02-06T12:00:00Z".parse().expect("valid until"),
+        },
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        ..SummaryOptions::default()
+    })
+    .expect("summarize exact Grok window");
 
     match previous_grok_home {
         Some(value) => unsafe {
@@ -693,4 +704,6 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
         summary.models[0].estimated_cost_usd,
         summary.models[0].cost_usd
     );
+    assert_eq!(outside_window.valid_entries, 0);
+    assert_eq!(outside_window.tokens.total_tokens, 0);
 }

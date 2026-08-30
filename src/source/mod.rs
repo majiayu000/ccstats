@@ -10,6 +10,7 @@ mod grok;
 mod kimi;
 mod loader;
 mod registry;
+mod tool_loader;
 
 use std::path::{Path, PathBuf};
 
@@ -152,7 +153,8 @@ pub(crate) fn all_capabilities() -> Capabilities {
 }
 
 // Re-export loader functions
-pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions, load_tool_calls};
+pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions};
+pub(crate) use tool_loader::load_tool_calls;
 
 /// Load per-endpoint stats (native vs proxy) for a source. Claude-only; other
 /// sources return empty. Lives here (not in `loader.rs`) to keep that file
