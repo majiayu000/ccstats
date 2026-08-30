@@ -33,7 +33,7 @@ ccstats 启动时先读取可选的 TOML 配置文件，再根据命令行参数
 | `timezone` | string | IANA 时区，例如 `UTC` / `Asia/Shanghai` |
 | `locale` | string | 数字格式 locale，例如 `en` / `de` |
 | `currency` | string | 货币代码，例如 `USD` / `CNY` / `EUR` |
-| `source` | string | `claude` / `codex` / `cursor` / `grok` / `all` 或别名 |
+| `source` | string | `claude` / `codex` / `cursor` / `grok` / `kimi` / `gemini` / `amp` / `qwen` / `cline` / `roocode` / `kilocode` / `all` 或别名 |
 
 示例：
 
@@ -53,9 +53,14 @@ cost = "show"
 | 数据源 | 环境变量 | 含义 | 默认值 |
 |--------|----------|------|--------|
 | Claude Code | `CLAUDE_CONFIG_DIR` | 包含 `projects/` 的 Claude 配置根目录 | `~/.claude` |
-| OpenAI Codex | `CODEX_HOME` | 包含 `sessions/` 的 Codex 根目录 | `~/.codex` |
+| OpenAI Codex | `CODEX_HOME` | 包含 `sessions/` 和 `archived_sessions/` 的 Codex 根目录 | `~/.codex` |
 | Cursor | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Cursor usage API credentials | 无默认值；可用 `CURSOR_USAGE_FILE` 回放 |
 | Grok | `GROK_HOME` | 包含 `sessions/` 的 Grok 根目录 | `~/.grok` |
+| Kimi Code | `KIMI_CODE_HOME` | 包含 `sessions/` 的 Kimi 根目录 | `~/.kimi-code` |
+| Gemini CLI | `GEMINI_CLI_HOME` | 包含 `tmp/` 的 Gemini 根目录 | `~/.gemini` |
+| Amp | `XDG_DATA_HOME` | 包含 `amp/threads/` 的用户数据根目录 | `~/.local/share` |
+| Qwen Code | `QWEN_RUNTIME_DIR`，其次 `QWEN_HOME` | 包含 `usage/` 的 Qwen 根目录 | `~/.qwen` |
+| Cline CLI | `CLINE_SESSION_DATA_DIR`，另支持 `CLINE_DATA_DIR`、`CLINE_DIR` | Cline session 目录或数据根目录 | `~/.cline/data/sessions` |
 
 ---
 
@@ -168,6 +173,7 @@ Claude Code 的流式响应会为同一个 `message.id` 写入多条日志（每
 
 ```
 ~/.codex/sessions/*.jsonl
+~/.codex/archived_sessions/*.jsonl
 ```
 
 可通过 `CODEX_HOME` 环境变量覆盖。
@@ -234,7 +240,7 @@ Codex 日志中 `total_token_usage` 是**累积值**（session 内单调递增�
 
 ### 去重
 
-Codex 不需要去重。每条 `event_msg` 类型为 `token_count` 的记录已经是独立的计数事件。
+Codex parser 先把累计值转换成增量，再用逻辑 session、模型、完整累计向量和增量向量生成稳定事件 ID。loader 在 source 范围去重，因此同一个 session 同时出现在活动目录和归档目录时不会重复统计；只比较完整 token 向量，不用单个 `total_tokens` 判断重复。
 
 ### 模型获取
 
@@ -245,6 +251,38 @@ Codex 不需要去重。每条 `event_msg` 类型为 `token_count` 的记录已�
 4. `payload.model`
 5. 上一条 `turn_context` 事件中的模型
 6. 默认 `"gpt-5"`
+
+---
+
+## Qwen Code
+
+### 日志位置与优先级
+
+Qwen Code 的权威本地计量源是按月追加的 usage ledger，不是旧版 project chat：
+
+```text
+<qwen-root>/usage/token-usage-YYYY-MM.jsonl
+```
+
+根目录依次取 `QWEN_RUNTIME_DIR`、`QWEN_HOME`、`~/.qwen`。显式设置的根目录不会因目录暂时不存在而回退到低优先级位置。
+
+### 字段映射
+
+当前只接受官方 `schemaVersion = 1`。每行是一条完整 API 调用，核心字段为 `id`、`timestamp`、`sessionId`、`model`、`inputTokens`、`outputTokens`、`cachedTokens`、`thoughtsTokens` 和 `totalTokens`。
+
+Qwen 的 `cachedTokens` 已包含在 `inputTokens` 中，因此必须分离：
+
+```text
+input_tokens       ← inputTokens - cachedTokens
+output_tokens      ← outputTokens
+reasoning_tokens   ← thoughtsTokens
+cache_creation     ← 0
+cache_read         ← cachedTokens
+```
+
+官方 total fallback 是 `inputTokens + outputTokens + thoughtsTokens`，不会再次加 `cachedTokens`，这也是 cache 属于 input 子集的直接证据。ledger 的 UUID 表示独立调用，不做流式去重。
+
+未知 schema、无效时间、缺少身份字段、负 token 或 `cachedTokens > inputTokens` 会计入解析错误并跳过，不会生成错误统计。
 
 ---
 

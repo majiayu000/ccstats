@@ -4,11 +4,16 @@
 
 use std::sync::LazyLock;
 
+use super::amp::AmpSource;
 use super::claude::ClaudeSource;
+use super::cline::ClineSource;
+use super::cline_extension::{KiloCodeSource, RooCodeSource};
 use super::codex::CodexSource;
 use super::cursor::CursorSource;
+use super::gemini::GeminiSource;
 use super::grok::GrokSource;
 use super::kimi::KimiSource;
+use super::qwen::QwenSource;
 use super::{BoxedSource, Source};
 
 /// Pseudo-source that aggregates every registered source.
@@ -22,8 +27,12 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(CursorSource::new()),
         Box::new(GrokSource::new()),
         Box::new(KimiSource::new()),
-        // Add new sources here:
-        // Box::new(WindsurfSource::new()),
+        Box::new(GeminiSource::new()),
+        Box::new(AmpSource::new()),
+        Box::new(QwenSource::new()),
+        Box::new(ClineSource::new()),
+        Box::new(RooCodeSource::new()),
+        Box::new(KiloCodeSource::new()),
     ]
 });
 
@@ -125,11 +134,17 @@ mod tests {
 
     #[test]
     fn test_get_source_by_name() {
+        assert!(get_source("amp").is_some());
         assert!(get_source("claude").is_some());
+        assert!(get_source("cline").is_some());
         assert!(get_source("codex").is_some());
         assert!(get_source("cursor").is_some());
+        assert!(get_source("gemini").is_some());
         assert!(get_source("grok").is_some());
+        assert!(get_source("kilocode").is_some());
         assert!(get_source("kimi").is_some());
+        assert!(get_source("qwen").is_some());
+        assert!(get_source("roocode").is_some());
         assert!(get_source("unknown").is_none());
     }
 
@@ -260,7 +275,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 5);
+        assert_eq!(SOURCES.len(), 11);
     }
 
     #[test]

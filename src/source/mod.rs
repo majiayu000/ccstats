@@ -3,12 +3,17 @@
 //! Each CLI tool (Claude, Codex, etc.) implements the Source trait
 //! to provide a unified interface for loading and processing usage data.
 
+mod amp;
 mod claude;
+mod cline;
+mod cline_extension;
 mod codex;
 mod cursor;
+mod gemini;
 mod grok;
 mod kimi;
 mod loader;
+mod qwen;
 mod registry;
 
 use std::path::{Path, PathBuf};

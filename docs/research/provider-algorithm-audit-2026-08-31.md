@@ -8,7 +8,7 @@
 2. 官方写入端源码是字段语义的最高优先级证据。Qwen Code 的官方 usage ledger 和 Gemini CLI 的官方 recording types 可以直接证明 cache、reasoning 与 total 的包含关系。
 3. ccstats 的统一 token 桶必须互不重叠。每个 parser 在边界处完成一次归一化，聚合和价格层不得再次猜测。
 4. 本轮确认两个需要修复的问题：Qwen 应改读官方 usage ledger 并分离 cache；Codex 应同时扫描 `sessions` 和 `archived_sessions`。
-5. Cursor 和 Grok 仍不能宣称为精确账单来源。Cursor 的本地数据库不是公开稳定协议；Grok 本地文件当前提供的是上下文快照代理值。
+5. 最新 ccstats 已把 Cursor 切到 usage events API，把 Grok 切到逐推理 usage ledger；这两者不再使用旧的本地 SQLite/上下文快照算法。但 Cursor endpoint 仍是未公开稳定协议，provider event cost 也不等同于最终发票。
 
 ## 证据等级
 
@@ -84,7 +84,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 
 ### 4. 本地费用必须标记来源
 
-客户端 reported cost、API list-price estimate、订阅额度消耗不是同一个值。当前 `RawEntry` 没有 cost provenance，因此本轮不把 Amp credits 或 Cline reported cost 塞进估算价格字段。缺少价格时应显示未知或 fallback，而不是声称为实际账单。
+客户端 reported cost、API list-price estimate、订阅额度消耗不是同一个值。当前 `RawEntry` 已能单独保存 provider-reported USD cost；但 Amp credits 与本轮读取的 Cline message/task 记录没有得到可验证的一一归属和 USD 单位，因此仍写为 `None`，由价格层估算。缺少可靠价格时应显示未知或 fallback，而不是声称为实际账单。
 
 ### 5. 错误不能静默变成零使用量
 
@@ -96,13 +96,13 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 |---|---|---|---|
 | Claude Code | `projects/**/*.jsonl` assistant usage；独立 cache 桶；完成消息优先去重；含 sidechain | 已验证 + ccusage/Tokscale/Codeburn 交叉验证 | 核心 token 算法正确；继续保留 source-wide message id 去重 |
 | OpenAI Codex | `token_count`；last 优先、total 差分；拆分 cached 与 reasoning | 已验证 + Tokscale/CodexBar 交叉验证 | token 算法正确；遗漏 `archived_sessions`，本轮修复 |
-| Cursor | SQLite `tokenCount` 等显式字段 | 推断 | 继续标记 experimental；不估算缺失 token |
-| Grok | session context-token 快照 | 已验证为代理指标，不是账单 usage | 保留 estimated/proxy 标记，不能与实际 input/output 等同宣传 |
+| Cursor | provider usage events API；token usage 与 `chargedCents` 分开保存 | 实现与 fixture 已验证，endpoint 稳定性未知 | 不再读取 SQLite；保留私有 API 变化风险，不把订阅 `$0` 事件改写成列表价 |
+| Grok | `shell.turn.inference_done` 逐推理 usage；短/长上下文整请求定价；原子 ledger 保存被上游裁剪的事件 | 实现与 fixture 已验证 | 不再使用 context snapshot 代理值；本地日志缺失仍无法恢复 |
 | Kimi Code | wire `usage.record` 的 turn scope；含 sub-agent | 本地 fixture + 实现交叉验证 | 当前支持的是 `.kimi-code` 产品格式；订阅模型价格仍为 fallback |
 | Gemini CLI | chat JSON/JSONL 与 headless stats；input/cache 条件归一化；tool 加入输入侧 | 已验证 + Tokscale/Codeburn/Tokenleak 交叉验证 | 当前算法正确；保留 per-message，而不是把整个 session 折成一条 |
-| Amp | usage ledger 与 assistant usage 一对一合并 | 交叉验证 | token 算法可用；credits 单位和 provenance 未进入统一模型，暂不导入 |
+| Amp | usage ledger 与 assistant usage 一对一合并 | 交叉验证 | token 算法可用；credits 的 USD 单位和调用归属未验证，暂不导入 |
 | Qwen Code | 当前应读取官方 usage ledger；input 必须减 cached；thoughts 独立 | 已验证 | 现实现错误：旧路径且 cache 重复，本轮替换 |
-| Cline | CLI assistant metrics + VS Code task `api_req_started` | CLI 已验证，扩展格式交叉验证 | token 算法正确；reported cost 暂不导入 |
+| Cline | CLI assistant metrics + VS Code task `api_req_started` | CLI 已验证，扩展格式交叉验证 | token 算法正确；当前读取记录未证明 reported cost 的稳定归属，暂不导入 |
 | Roo Code | VS Code task `api_req_started`，读取最后 environment model | 推断/交叉验证 | 保持支持并在格式变化时用真实 fixture 更新 |
 | Kilo Code | 与 Roo/Cline extension task 格式相同 | 推断/交叉验证 | 保持支持；不要与 Kilo gateway 的在线 quota 混淆 |
 
@@ -125,7 +125,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - 直接复制 Tokscale parser：会把已确认的 Qwen 旧路径和重复计数带进来。
 - 使用一个通用字段别名表处理所有供应商：相同名称在不同 API 中可能是包含值或独立值。
 - 根据 prompt/response 文本重新 tokenizer：模型 tokenizer、隐藏 system prompt、tool schema 和服务端缓存都不可完整重建。
-- 在没有 provenance 字段时导入 credits/reported cost：会把实际值和估算值混在一起。
+- 在没有验证 USD 单位和调用归属时导入 credits/reported cost：即使模型支持 provenance，也会把不同口径的值混在一起。
 
 ## 后续数据源顺序
 

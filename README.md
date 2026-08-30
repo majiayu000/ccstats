@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics for Claude Code, OpenAI Codex, Cursor, Grok, and Kimi Code logs.
+`ccstats` is a fast CLI for token and cost usage analytics across 11 local AI coding-agent data sources.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -19,6 +19,8 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Cursor usage API support (`CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN`)
 - Grok support (`~/.grok/sessions/`)
 - Kimi Code support (`~/.kimi-code/sessions/`)
+- Gemini CLI, Amp, and Qwen Code support
+- Cline CLI plus Cline, Roo Code, and Kilo Code VS Code extension support
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
@@ -124,6 +126,24 @@ ccstats kimi
 # Same source via alias
 ccstats daily --source km
 ```
+
+## Quick Start (Additional Sources)
+
+```bash
+ccstats daily --source gemini
+ccstats daily --source amp
+ccstats daily --source qwen
+ccstats daily --source cline
+ccstats daily --source roocode
+ccstats daily --source kilocode
+```
+
+Gemini reads both chat JSON and headless JSONL usage. Amp reconciles its usage
+ledger with assistant-message usage without double counting. Qwen reads its
+native usage ledger and separates cached input from uncached input. Cline reads
+both CLI sessions and its VS Code extension task logs; Roo Code and Kilo Code
+use the same extension-log algorithm. Client-side credit or reported-cost
+fields are not imported, so cost remains ccstats' model pricing estimate.
 
 ## Crate Documentation
 
@@ -466,6 +486,14 @@ ccstats daily --source gx
 ccstats daily --source kimi
 ccstats daily --source km
 
+# Additional local agent sources
+ccstats daily --source gemini
+ccstats daily --source amp
+ccstats daily --source qwen
+ccstats daily --source cline
+ccstats daily --source roocode
+ccstats daily --source kilocode
+
 # Offline mode (use cached pricing)
 ccstats today -O
 
@@ -526,17 +554,24 @@ Supported keys:
 | `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
 | `locale` | string | Locale used for number formatting, such as `en` or `de` |
 | `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
-| `source` | string | Source name or alias such as `claude`, `codex`, `cursor`, `grok`, `kimi`, or `all` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `gemini`, `amp`, `qwen`, `cline`, `roocode`, `kilocode`, or `all` |
 
 Source root env overrides are independent of config keys:
 
 | Source | Env var | Value | Default when unset |
 |--------|---------|-------|--------------------|
 | Claude Code | `CLAUDE_CONFIG_DIR` | Claude config root containing `projects/` | `~/.claude` |
-| OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
+| OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` and `archived_sessions/` | `~/.codex` |
 | Cursor | `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN` | Admin API key or dashboard session cookie | No default; optional `CURSOR_USAGE_FILE` replay |
 | Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
 | Kimi Code | `KIMI_CODE_HOME` | Kimi Code root containing `sessions/` | `~/.kimi-code` |
+| Gemini CLI | `GEMINI_CLI_HOME` | Gemini CLI root containing `tmp/` | `~/.gemini` |
+| Amp | `XDG_DATA_HOME` | User data root containing `amp/threads/` | `~/.local/share` |
+| Qwen Code | `QWEN_RUNTIME_DIR`, then `QWEN_HOME` | Qwen root containing `usage/` | `~/.qwen` |
+| Cline CLI | `CLINE_SESSION_DATA_DIR` | Cline session directory | `~/.cline/data/sessions` |
+
+Cline also recognizes `CLINE_DATA_DIR` and `CLINE_DIR`. Roo Code and Kilo Code
+currently use their standard local directories.
 
 ### Session CSV Columns
 
@@ -558,8 +593,9 @@ cache_read / (input + cache_creation + cache_read) * 100
 
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
-Claude, Codex, Cursor, Grok, and Kimi Code expose the required cache-read metric.
-Mixed `--source all` output reports the aggregate rate across all selected usage.
+Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
+Code, and Kilo Code expose the required cache-read metric. Mixed `--source all`
+output reports the aggregate rate across all selected usage.
 
 ### Parsing Warnings
 
@@ -574,11 +610,17 @@ Warning: ignored <N> malformed records
 | Source | Directory | Override | Features |
 |--------|-----------|----------|----------|
 | Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Billing Blocks, Deduplication |
-| OpenAI Codex | `~/.codex/sessions/` | `CODEX_HOME` | Reasoning Tokens |
+| OpenAI Codex | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` | Reasoning Tokens, cumulative-event deduplication |
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor | Cursor usage API | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Per-event tokens, cache tokens, recorded `chargedCents` |
 | Grok | `~/.grok/logs/unified.jsonl` | `GROK_HOME` | Per-inference usage, Projects, Cache / reasoning tokens, 200k pricing tier, durable ledger |
 | Kimi Code | `~/.kimi-code/sessions/` | `KIMI_CODE_HOME` | Per-turn usage records, Projects, Cache tokens |
+| Gemini CLI | `~/.gemini/tmp/` | `GEMINI_CLI_HOME` | Chat/headless formats, Reasoning and cache tokens |
+| Amp | `~/.local/share/amp/threads/` | `XDG_DATA_HOME` | Ledger/message reconciliation, Cache tokens |
+| Qwen Code | `~/.qwen/usage/token-usage-*.jsonl` | `QWEN_RUNTIME_DIR`, `QWEN_HOME` | Native usage ledger, Reasoning and cache tokens |
+| Cline | `~/.cline/data/sessions/` and VS Code global storage | `CLINE_SESSION_DATA_DIR`, `CLINE_DATA_DIR`, `CLINE_DIR` | CLI and extension sessions, Projects, Cache tokens |
+| Roo Code | VS Code global storage | — | Extension task usage, Cache tokens |
+| Kilo Code | VS Code global storage | — | Extension task usage, Cache tokens |
 
 ## Architecture
 
@@ -592,6 +634,10 @@ See [docs/algorithm/authoritative-token-accounting.md](docs/algorithm/authoritat
 - Token accounting rules
 - Source-specific normalization
 - Deduplication semantics
+
+See [docs/research/provider-algorithm-audit-2026-08-31.md](docs/research/provider-algorithm-audit-2026-08-31.md)
+for the pinned competitor comparison, official-schema evidence, and
+adopt/adapt/reject decisions behind the additional providers.
 
 ## License
 

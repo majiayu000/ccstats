@@ -40,7 +40,7 @@ pub use codex_weekly::{
 pub enum UsageSource {
     /// Claude Code logs under `~/.claude/projects`.
     Claude,
-    /// `OpenAI` Codex logs under `~/.codex/sessions`, or `CODEX_HOME`.
+    /// `OpenAI` Codex active and archived logs under `~/.codex`, or `CODEX_HOME`.
     Codex,
     /// Cursor composer usage data.
     Cursor,
@@ -48,16 +48,34 @@ pub enum UsageSource {
     Grok,
     /// Kimi Code wire logs under `~/.kimi-code/sessions`, or `KIMI_CODE_HOME`.
     Kimi,
+    /// Gemini CLI chats under `~/.gemini/tmp`, or `GEMINI_CLI_HOME`.
+    Gemini,
+    /// Amp thread logs under the XDG data directory.
+    Amp,
+    /// Qwen Code usage ledger under `~/.qwen/usage`, or its root env overrides.
+    Qwen,
+    /// Cline CLI sessions and VS Code extension task logs.
+    Cline,
+    /// Roo Code VS Code extension task logs.
+    RooCode,
+    /// Kilo Code VS Code extension task logs.
+    KiloCode,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 5] = [
+    pub(crate) const VARIANTS: [Self; 11] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
         UsageSource::Grok,
         UsageSource::Kimi,
+        UsageSource::Gemini,
+        UsageSource::Amp,
+        UsageSource::Qwen,
+        UsageSource::Cline,
+        UsageSource::RooCode,
+        UsageSource::KiloCode,
     ];
 
     #[must_use]
@@ -68,6 +86,12 @@ impl UsageSource {
             UsageSource::Cursor => "cursor",
             UsageSource::Grok => "grok",
             UsageSource::Kimi => "kimi",
+            UsageSource::Gemini => "gemini",
+            UsageSource::Amp => "amp",
+            UsageSource::Qwen => "qwen",
+            UsageSource::Cline => "cline",
+            UsageSource::RooCode => "roocode",
+            UsageSource::KiloCode => "kilocode",
         }
     }
 
@@ -78,6 +102,12 @@ impl UsageSource {
             "cursor" => Some(UsageSource::Cursor),
             "grok" => Some(UsageSource::Grok),
             "kimi" => Some(UsageSource::Kimi),
+            "gemini" => Some(UsageSource::Gemini),
+            "amp" => Some(UsageSource::Amp),
+            "qwen" => Some(UsageSource::Qwen),
+            "cline" => Some(UsageSource::Cline),
+            "roocode" => Some(UsageSource::RooCode),
+            "kilocode" => Some(UsageSource::KiloCode),
             _ => None,
         }
     }

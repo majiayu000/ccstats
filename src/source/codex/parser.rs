@@ -1,6 +1,6 @@
 //! `OpenAI` Codex CLI JSONL parser
 //!
-//! Parses JSONL logs from ~/.codex/sessions/ directory.
+//! Parses JSONL logs from active and archived directories under `~/.codex`.
 //! Codex log format uses cumulative token counts that need delta computation.
 
 use chrono::{DateTime, Utc};
@@ -20,6 +20,7 @@ use super::config::CodexScope;
 const DEFAULT_CODEX_DIR: &str = ".codex";
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
 const SESSION_SUBDIR: &str = "sessions";
+const ARCHIVED_SESSION_SUBDIR: &str = "archived_sessions";
 const CODEX_USAGE_MESSAGE_PREFIX: &str = "source-wide:codex-token-count";
 const SESSION_USAGE_MESSAGE_PREFIX: &str = "codex-token-count";
 
@@ -159,32 +160,35 @@ impl UsageTotals {
 // File discovery
 // ============================================================================
 
-pub(super) fn codex_sessions_dir_candidate() -> Option<PathBuf> {
-    // An explicit CODEX_HOME is authoritative, even when it is invalid.
+fn codex_root_candidate() -> Option<PathBuf> {
     if let Some(codex_home) = env::var_os(CODEX_HOME_ENV) {
-        return Some(PathBuf::from(codex_home).join(SESSION_SUBDIR));
+        return Some(PathBuf::from(codex_home));
     }
 
-    // Fall back to ~/.codex/sessions
-    let home = dirs::home_dir()?;
-    Some(home.join(DEFAULT_CODEX_DIR).join(SESSION_SUBDIR))
+    dirs::home_dir().map(|home| home.join(DEFAULT_CODEX_DIR))
 }
 
-fn get_codex_sessions_dir() -> Option<PathBuf> {
-    codex_sessions_dir_candidate().filter(|path| path.is_dir())
+pub(super) fn codex_sessions_dir_candidate() -> Option<PathBuf> {
+    codex_root_candidate().map(|root| root.join(SESSION_SUBDIR))
+}
+
+fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for subdir in [SESSION_SUBDIR, ARCHIVED_SESSION_SUBDIR] {
+        let sessions_dir = root.join(subdir);
+        if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", sessions_dir.display())) {
+            files.extend(entries.flatten().filter(|path| path.is_file()));
+        }
+    }
+    files.sort();
+    files.dedup();
+    files
 }
 
 pub(super) fn find_codex_files() -> Vec<PathBuf> {
-    let Some(sessions_dir) = get_codex_sessions_dir() else {
-        return Vec::new();
-    };
-    let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", sessions_dir.display())) {
-        for entry in entries.flatten() {
-            files.push(entry);
-        }
-    }
-    files
+    codex_root_candidate()
+        .map(|root| find_codex_files_in_root(&root))
+        .unwrap_or_default()
 }
 
 // ============================================================================
