@@ -17,6 +17,7 @@ use super::grok::GrokSource;
 use super::kimi::KimiSource;
 use super::opencode::{KiloCliSource, MiMoCodeSource, OpenCodeSource};
 use super::pi::{KimchiSource, PiSource, SenpiSource};
+use super::pi_forks::{GjcSource, OmpSource, PrimeSource};
 use super::qwen::QwenSource;
 use super::{BoxedSource, Source};
 
@@ -43,6 +44,9 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(PiSource::new()),
         Box::new(SenpiSource::new()),
         Box::new(KimchiSource::new()),
+        Box::new(GjcSource::new()),
+        Box::new(PrimeSource::new()),
+        Box::new(OmpSource::new()),
         Box::new(CopilotSource::new()),
         Box::new(GooseSource::new()),
     ]
@@ -155,13 +159,16 @@ mod tests {
         assert!(get_source("gemini").is_some());
         assert!(get_source("grok").is_some());
         assert!(get_source("goose").is_some());
+        assert!(get_source("gjc").is_some());
         assert!(get_source("kilocode").is_some());
         assert!(get_source("kilo").is_some());
         assert!(get_source("kimchi").is_some());
         assert!(get_source("kimi").is_some());
         assert!(get_source("mimocode").is_some());
         assert!(get_source("opencode").is_some());
+        assert!(get_source("omp").is_some());
         assert!(get_source("pi").is_some());
+        assert!(get_source("prime").is_some());
         assert!(get_source("qwen").is_some());
         assert!(get_source("roocode").is_some());
         assert!(get_source("senpi").is_some());
@@ -295,7 +302,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 19);
+        assert_eq!(SOURCES.len(), 22);
     }
 
     #[test]

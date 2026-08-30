@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics across 19 local AI coding-agent data sources.
+`ccstats` is a fast CLI for token and cost usage analytics across 22 local AI coding-agent data sources.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -22,7 +22,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Gemini CLI, Amp, and Qwen Code support
 - Cline CLI plus Cline, Roo Code, and Kilo Code VS Code extension support
 - OpenCode, MiMo Code, and Kilo CLI SQLite support
-- Pi, Senpi, and Kimchi coding-agent JSONL support
+- Pi, Senpi, Kimchi, Gajae Code, Prime Agent, and Oh My Pi JSONL support
 - GitHub Copilot CLI OpenTelemetry and Goose per-call ledger support
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
@@ -145,6 +145,9 @@ ccstats daily --source kilo
 ccstats daily --source pi
 ccstats daily --source senpi
 ccstats daily --source kimchi
+ccstats daily --source gjc
+ccstats daily --source prime
+ccstats daily --source omp
 ccstats daily --source copilot
 ccstats daily --source goose
 ```
@@ -154,11 +157,12 @@ ledger with assistant-message usage without double counting. Qwen reads its
 native usage ledger and separates cached input from uncached input. Cline reads
 both CLI sessions and its VS Code extension task logs; Roo Code and Kilo Code
 use the same extension-log algorithm. The OpenCode family reconciles dual
-schemas and fork-copied history; the Pi family counts each format's independent
-LLM calls without adding child rollups twice. Source-recorded OpenCode-family,
-Pi-family, and provider-reported Goose ledger costs retain their provenance. Copilot's documented
-monetary field has no published currency code, so it remains separate from
-ccstats' USD estimate instead of being mislabeled.
+schemas and fork-copied history. The Pi-derived sources use separate rules for
+GJC task residuals, Prime child attribution, and OMP task rollups so parent and
+child usage is counted exactly once. Source-recorded OpenCode/Pi-family costs
+and provider-reported Goose ledger costs retain their provenance. Copilot's
+documented monetary field has no published currency code, so it remains
+separate from ccstats' USD estimate instead of being mislabeled.
 
 ## Crate Documentation
 
@@ -575,7 +579,7 @@ Supported keys:
 | `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
 | `locale` | string | Locale used for number formatting, such as `en` or `de` |
 | `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
-| `source` | string | Source name or alias such as `claude`, `codex`, `opencode`, `mimocode`, `kilo`, `pi`, `senpi`, `kimchi`, `copilot`, `goose`, or `all` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `opencode`, `mimocode`, `kilo`, `pi`, `senpi`, `kimchi`, `gjc`, `prime`, `omp`, `copilot`, `goose`, or `all` |
 
 Source root env overrides are independent of config keys:
 
@@ -596,6 +600,9 @@ Source root env overrides are independent of config keys:
 | Pi | `PI_CODING_AGENT_SESSION_DIR`, then `PI_CODING_AGENT_DIR` | Exact sessions directory, or agent directory containing `sessions/` | `~/.pi/agent/sessions` |
 | Senpi | `SENPI_CODING_AGENT_SESSION_DIR`, then `SENPI_CODING_AGENT_DIR` | Exact sessions directory, or agent directory containing `sessions/`; `~` is expanded | Nearest project `.senpi/agent/sessions`, then `~/.senpi/agent/sessions` |
 | Kimchi | — | Fixed by the Kimchi launcher | `~/.config/kimchi/harness/sessions` |
+| Gajae Code | `GJC_CODING_AGENT_DIR`; `GJC_CONFIG_DIR`; data root follows `XDG_DATA_HOME` | Agent directory containing `sessions/`, or config directory name | `~/.gjc/agent/sessions` or migrated `$XDG_DATA_HOME/gjc/sessions` |
+| Prime Agent | `PRIME_AGENT_SESSION_DIR`, then `PRIME_AGENT_CODING_AGENT_DIR`; current project/global `settings.json` is also read | Exact sessions directory, or agent directory containing `sessions/` | `~/.prime/agent/sessions` |
+| Oh My Pi | `PI_CODING_AGENT_SESSION_DIR`; `OMP_PROFILE`, then `PI_PROFILE`; `PI_CODING_AGENT_DIR`; `PI_CONFIG_DIR`; data root follows `XDG_DATA_HOME` | Exact sessions directory, active profile, or non-profile agent directory | `~/.omp/agent/sessions` or the active profile/XDG equivalent |
 | GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | Exact OTel JSONL exporter file | Also scans `~/.copilot/otel/**/*.jsonl` |
 | Goose | `GOOSE_PATH_ROOT`; data root follows `XDG_DATA_HOME` | Absolute Goose path root containing `data/sessions/sessions.db` | `~/.local/share/goose/sessions/sessions.db` |
 
@@ -626,8 +633,8 @@ cache_read / (input + cache_creation + cache_read) * 100
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
 Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
-Code, Kilo Code, OpenCode, MiMo Code, Kilo CLI, Pi, Senpi, Kimchi, GitHub
-Copilot CLI, and Goose expose the required
+Code, Kilo Code, OpenCode, MiMo Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code,
+Prime Agent, Oh My Pi, GitHub Copilot CLI, and Goose expose the required
 cache-read metric. Mixed `--source all` output reports the aggregate rate across
 all selected usage.
 
@@ -661,6 +668,9 @@ Warning: ignored <N> malformed records
 | Pi | `~/.pi/agent/sessions/**/*.jsonl` | `PI_CODING_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` | Projects, assistant + summary usage, cache tokens, branch-copy deduplication |
 | Senpi | `~/.senpi/agent/sessions/**/*.jsonl` | `SENPI_CODING_AGENT_SESSION_DIR`, `SENPI_CODING_AGENT_DIR` | Assistant, compaction, branch summary, and tool-result usage with branch-copy deduplication |
 | Kimchi | `~/.config/kimchi/harness/sessions/**/*.jsonl` | — | Child transcripts plus remote/missing-child `details.tokenUsage` fallback without rollup double counting |
+| Gajae Code | `~/.gjc/agent/sessions/**/*.jsonl` or XDG data root | `GJC_CODING_AGENT_DIR`, `GJC_CONFIG_DIR`, `XDG_DATA_HOME` | v5 patch replay, reasoning/cache tokens, fork deduplication, partial task-rollup residuals |
+| Prime Agent | `~/.prime/agent/sessions/**/*.jsonl` | `PRIME_AGENT_SESSION_DIR`, `PRIME_AGENT_CODING_AGENT_DIR` | Project/global session settings, child-attribution reconstruction, recursive transcript and fork deduplication |
+| Oh My Pi | Active default/named profile sessions | `PI_CODING_AGENT_SESSION_DIR`, `OMP_PROFILE`, `PI_PROFILE`, `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `XDG_DATA_HOME` | Profile-aware discovery, orchestration/reasoning/cache tokens, recursive task transcript and fork deduplication |
 | GitHub Copilot CLI | `~/.copilot/otel/**/*.jsonl` | `COPILOT_OTEL_FILE_EXPORTER_PATH` | Per-request `chat` spans, reasoning/cache normalization, cross-file deduplication |
 | Goose | `~/.local/share/goose/sessions/sessions.db` | `GOOSE_PATH_ROOT`, `XDG_DATA_HOME` | Per-call ledger, Projects, cache tokens, provider-reported cost provenance |
 
