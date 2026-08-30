@@ -417,6 +417,94 @@ Goose 没有 reasoning 字段，不能像 Tokscale 一样用 `total-input-output
 
 ---
 
+## OpenClaw
+
+OpenClaw 的当前 session transcript 可能位于
+`$OPENCLAW_STATE_DIR/agents/<agent>/sessions/`，也可能写入
+`agents/<agent>/agent/openclaw-agent.sqlite` 的 `transcript_events` 与
+`session_transcript_archives`。默认 state root 是 `$OPENCLAW_HOME/.openclaw`，
+其次使用系统 home；`OPENCLAW_STATE_DIR` 优先并按 effective home 展开 `~`。
+文件冷归档只读取 primary `.jsonl` 以及 `.jsonl.reset.*`、
+`.jsonl.deleted.*`（含 zstd），明确排除 checkpoint、trajectory 和 backup。
+`openclaw.json` 中有效的 `session.store` 与 `agents.list[].agentDir` 也进入发现；
+`OPENCLAW_CONFIG_PATH` 可覆盖配置文件位置。单个坏 archive 只增加 parse error，
+同一 SQLite store 中已经成功读取的 active transcript 仍会保留。
+ccstats 只读取 `type = message` 且 role 为 assistant 的 usage；
+`model_change` 与 `custom/model-snapshot` 只更新后续消息的 model/provider
+上下文。session header 的 `cwd` 归属项目。
+
+OpenClaw 的五个 usage 字段已经互不重叠：
+
+```text
+input_tokens       ← usage.input
+output_tokens      ← usage.output
+cache_creation     ← usage.cacheWrite
+cache_creation_1h  ← usage.cacheWrite1h（且必须不大于 cacheWrite）
+cache_read         ← usage.cacheRead
+reasoning_tokens   ← 0（当前持久化 schema 没有独立 reasoning 桶）
+```
+
+session fork 可能复制历史 entry，但 entry id 保持不变。因此 message id 使用
+source-wide entry id，跨 transcript 只保留一次真实调用。费用只有在
+`usage.cost.totalOrigin = provider-billed` 时作为 recorded USD；没有该标记的
+`cost.total` 是 OpenClaw 根据本地 model catalog 计算的估值，继续由 ccstats
+价格层统一处理。显式 provider-billed 零值保留。
+
+## Xum
+
+Xum 是 coder/mux 当前产品名；当前 canonical root 是 `XUM_ROOT`，默认
+`~/.xum`。ccstats 读取 `sessions/<workspace>/session-usage.json`，不再扫描旧
+Mux root。`byModel` 的五个 component 原生互斥：input、cached、cacheCreate、
+output 和 reasoning 可以直接映射为 ccstats 的五个 additive bucket。
+
+Xum 删除 child workspace 时会先把 child `byModel` 累加到 parent，再在
+`rolledUpFrom` 写幂等记录。若 parent 与 child snapshot 同时存在，统计两者会
+双计。ccstats 在同一个 Xum root 内建立 roll-up 引用关系，只允许 schema、
+token 与 cost 都合法且确实含用量的 parent 压掉 child。无效 parent 不具有
+所有权；roll-up 环会产生 parse error，并在每个强连通环中只保留字典序最小
+的 canonical ledger，避免静默删空或双计。三层无环链只留下最高仍存在的
+累计账本。
+
+五个 bucket 的 `cost_usd` 是 Xum 持久化的计费结果：五桶成本全部存在、有限、
+非负时始终求和锁定，即使 aggregate 同时带有 `costsIncluded = true`，因为同一
+模型可能混合 included 与付费调用。缺桶时禁止部分成本与估价混加；此时
+`costsIncluded = true` 才作为明确的订阅/路由覆盖语义保留 recorded zero。
+累计 snapshot 没有逐调用次数和逐调用时间，因此
+`call_count = 0`，整份累计值归到 `lastRequest.timestamp`；这是格式本身的
+日期精度边界。
+
+## Hermes Agent
+
+Hermes 当前账本位于 `$HERMES_HOME/state.db` 的
+`session_model_usage`，并以 `sessions` 的当前 aggregate 补齐尚未进入细分表的
+residual。复合主键包含 session、model、billing provider、base
+URL、billing mode 与 task；ccstats 每个持久化 row 独立产出一条记录，不把
+这些计费维度过早合并。调用次数来自 `api_call_count`，时间优先使用
+`first_seen`，项目来自 `sessions.cwd`。
+
+Hermes `CanonicalUsage` 中 cache read/write 是 input 之外的独立 prompt 桶，
+但 reasoning 是 output 的子集，因此：
+
+```text
+input_tokens       ← input_tokens
+output_tokens      ← output_tokens - reasoning_tokens
+reasoning_tokens   ← reasoning_tokens
+cache_creation     ← cache_write_tokens
+cache_read         ← cache_read_tokens
+```
+
+`cost_status = actual` 使用 `actual_cost_usd`，`included` 保存显式零；
+`estimated` 与 `unknown` 交给 ccstats 价格层。当前实现只接受官方当前 schema；
+缺表、字段漂移、负数、reasoning 越界、未知 cost status 或无效时间都作为
+parse error。session residual 对 input/cache/calls/cost 逐项相减；output 先拆成
+`visible = output - reasoning`，分别 reconcile visible 与 reasoning 后再重建
+inclusive output，避免两边各自合法却生成 `reasoning > output` 的残差。只有
+成功产出 entry 的细分 row 才能从 aggregate 扣除；空 session model 归为
+`unknown`。已有合法细分 row 始终保留，因此不会把 task/billing 维度合并回
+session。
+
+---
+
 ## Cursor
 
 ### 数据来源

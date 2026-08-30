@@ -82,11 +82,17 @@ pub enum UsageSource {
     Copilot,
     /// Goose per-call usage ledger in its local `SQLite` database.
     Goose,
+    /// `OpenClaw` v3 assistant transcript usage.
+    OpenClaw,
+    /// Xum cumulative per-workspace usage snapshots.
+    Xum,
+    /// Hermes Agent current per-model/task usage ledger.
+    Hermes,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 22] = [
+    pub(crate) const VARIANTS: [Self; 25] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -109,6 +115,9 @@ impl UsageSource {
         UsageSource::Omp,
         UsageSource::Copilot,
         UsageSource::Goose,
+        UsageSource::OpenClaw,
+        UsageSource::Xum,
+        UsageSource::Hermes,
     ];
 
     #[must_use]
@@ -136,6 +145,9 @@ impl UsageSource {
             UsageSource::Omp => "omp",
             UsageSource::Copilot => "copilot",
             UsageSource::Goose => "goose",
+            UsageSource::OpenClaw => "openclaw",
+            UsageSource::Xum => "xum",
+            UsageSource::Hermes => "hermes",
         }
     }
 
@@ -163,6 +175,9 @@ impl UsageSource {
             "omp" => Some(UsageSource::Omp),
             "copilot" => Some(UsageSource::Copilot),
             "goose" => Some(UsageSource::Goose),
+            "openclaw" => Some(UsageSource::OpenClaw),
+            "xum" => Some(UsageSource::Xum),
+            "hermes" => Some(UsageSource::Hermes),
             _ => None,
         }
     }

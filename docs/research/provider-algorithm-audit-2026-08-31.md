@@ -14,6 +14,7 @@
 8. Copilot CLI 官方将一次 LLM 请求定义为一条 `chat` span；Tokscale 只从 input 扣 cache read、也不从 output 扣 reasoning，会重复计算 cache creation 与 reasoning。ccstats 同时拆除两个 inclusive 子集，并忽略 `invoke_agent` 汇总。
 9. Goose 最新权威数据是 schema v15+ `usage_ledger`。Tokscale 仍读取 session 累计快照、把整段用量记到 session 创建日，并用 total 差额猜 reasoning；ccstats 改读逐调用 ledger，保留 cache、项目、模型、时间和 cost provenance。
 10. MiMo Code、Kilo CLI、Senpi、Kimchi、GJC、Prime Agent、Oh My Pi 已逐一核对当前写入端并实现；它们共享基础格式，但 fork 复制、patch、child attribution、task rollup 和目录语义不同，不能作为普通 Pi 记录直接相加。
+11. Batch 5 新增 OpenClaw、Xum 与 Hermes Agent，总 source 数达到 25。三项均以当前官方写入端为准：OpenClaw 同时读取 JSONL/zstd 与当前 SQLite store，只采用 provider-billed cost；Xum 处理 `rolledUpFrom` child 双计并锁定完整五桶成本；Hermes 保留 task/billing 维度、补 session residual 并从 output 拆除 reasoning。Tokscale 对这些边界均不完整。
 
 ## 证据等级
 
@@ -51,6 +52,9 @@
 | [GJC](https://github.com/Yeachan-Heo/gajae-code/tree/7d23ed3d9e8cb6e5062ba2840462d59fe18eb784) | `7d23ed3` | 当前 v5 stats parser，证明其已偏离普通 Pi v3 |
 | [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent/tree/c382f09856d4a8c8d2b765179657047d58691f25) | `c382f09` | parent aggregate、child transcript 与 fork aggregate 的 RLM 语义 |
 | [Oh My Pi](https://github.com/can1357/oh-my-pi/tree/969062200754ea02cfac922e5ebb8c608c079e15) | `9690622` | profile/XDG 路径、child transcript、parent task rollup 与 orchestration usage |
+| [OpenClaw](https://github.com/openclaw/openclaw/tree/2181ae7ba2e836451e90068ec1a41e31bef87f93) | `2181ae7` | v3 transcript、usage/cost provenance、state root 与 fork entry identity |
+| [Xum](https://github.com/coder/mux/tree/ad7f569ef21cc293ecbb71f8b718e30d11da4b27) | `ad7f569` | 当前产品名/root、五桶累计 usage 与 child roll-up ledger |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent/tree/4f22543509d1b91dc45bcb369447126c5eb14fb7) | `4f22543` | 当前 SQLite 复合主键、task/API call、reasoning 与 cost status |
 
 官方 schema 证据：
 
@@ -71,6 +75,9 @@
 - [GJC session manager](https://github.com/Yeachan-Heo/gajae-code/blob/7d23ed3d9e8cb6e5062ba2840462d59fe18eb784/packages/coding-agent/src/session/session-manager.ts) 证明 v5 header/patch、fork copy 与 task child transcript；[AI Usage](https://github.com/Yeachan-Heo/gajae-code/blob/7d23ed3d9e8cb6e5062ba2840462d59fe18eb784/packages/ai/src/types.ts) 证明 reasoning 和 cache TTL 的包含关系。
 - [Prime Agent session manager](https://github.com/PrimeIntellect-ai/prime-agent/blob/c382f09856d4a8c8d2b765179657047d58691f25/packages/coding-agent/src/core/session-manager.ts) 证明 `child_usage_attributed` 会用 aggregate 覆盖 parent；[context tree](https://github.com/PrimeIntellect-ai/prime-agent/blob/c382f09856d4a8c8d2b765179657047d58691f25/packages/coding-agent/src/core/context-tree.ts) 证明 own usage 是最后 aggregate 减全部 child usage。
 - [Oh My Pi dirs](https://github.com/can1357/oh-my-pi/blob/969062200754ea02cfac922e5ebb8c608c079e15/packages/utils/src/dirs.ts) 证明 active profile/XDG 目录语义；[task types](https://github.com/can1357/oh-my-pi/blob/969062200754ea02cfac922e5ebb8c608c079e15/packages/coding-agent/src/task/types.ts) 证明 `details.usage` 与 `results[].usage` 都是 child rollup，而非额外调用。
+- [OpenClaw Usage](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/packages/llm-core/src/types.ts) 定义互斥 input/output/cache 桶、1h cache 子桶与 `totalOrigin = provider-billed`；[SQLite schema](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/src/state/openclaw-agent-schema.sql)、[SDK store path](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/src/agents/sessions/sdk.ts) 和 [artifact classifier](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/src/config/sessions/artifacts.ts) 分别证明 current DB、默认路径以及 reset/deleted 与 checkpoint 的边界。
+- [Xum session usage schema](https://github.com/coder/mux/blob/ad7f569ef21cc293ecbb71f8b718e30d11da4b27/src/common/orpc/schemas/chatStats.ts) 定义五个互斥桶、`costsIncluded` 和 `rolledUpFrom`；[roll-up 实现](https://github.com/coder/mux/blob/ad7f569ef21cc293ecbb71f8b718e30d11da4b27/src/node/services/sessionUsageService.ts) 证明 parent 已累加 child，剩余 child snapshot 不能再次统计。
+- [Hermes current schema](https://github.com/NousResearch/hermes-agent/blob/4f22543509d1b91dc45bcb369447126c5eb14fb7/hermes_state_common.py) 定义 `session_model_usage` 的 endpoint/mode/task 复合主键；[CanonicalUsage](https://github.com/NousResearch/hermes-agent/blob/4f22543509d1b91dc45bcb369447126c5eb14fb7/agent/usage_pricing.py) 定义 reasoning 是 output 子集、cache 是独立 prompt 桶和 actual/estimated/included cost status；[Insights](https://github.com/NousResearch/hermes-agent/blob/4f22543509d1b91dc45bcb369447126c5eb14fb7/agent/insights.py) 证明当前 session aggregate 必须减去细分 rows 后作为 residual。
 
 ## Tokscale 52-client 差距分解
 
@@ -81,8 +88,10 @@ Tokscale 的 registry 数量适合衡量发现覆盖面，不适合直接衡量�
 | 已覆盖且已审计 | Claude、Codex、Cursor、Gemini、Amp、Kimi、Qwen、Cline、Roo、Kilo Code、Grok | 11 个现有 source | 保持逐来源证据，不回退为通用 extractor |
 | OpenCode SQLite 族 | OpenCode、MiMo Code、Kilo CLI | 同一消息 payload，路径、表版本、成本 provenance 和 fork ID 有差异 | 三者已按各自当前 schema 实现；MiMo/Kilo 用 message/session creation time 识别复制历史 |
 | Pi JSONL 族 | Pi、GJC、Senpi、Kimchi、Prime Agent、Oh My Pi | 基础 assistant usage 相近；子调用与聚合层并不相同 | 六者已按各自 reconciliation 实现；不使用通用 rollup extractor |
-| 本批新增的独立格式 | GitHub Copilot CLI、Goose | Copilot 是每调用 OTel span；Goose 是 SQLite usage ledger | 已实现，且不与 aggregate span、session snapshot 或 premium request quota 混算 |
-| 独立本地格式候选 | Droid、OpenClaw、Mux、Crush、Hermes、Codebuff、Zed、Kiro、Trae、Warp、Junie、Augment 等 | JSONL、SQLite、IDE cache 混合 | 逐个取得官方 schema 或真实 fixture 后进入 |
+| 已实现的独立格式 | GitHub Copilot CLI、Goose、OpenClaw、Xum、Hermes | OTel per-call、SQLite ledger、JSONL per-call、JSON aggregate 混合 | 已按各自 provenance 与 reconciliation 实现，不把累计层再次相加 |
+| 独立本地格式候选 | Droid、Codebuff、Zed、Junie、Augment、Reasonix、DSH、Fx、LM Studio、Unsloth 等 | JSONL、SQLite、IDE cache 混合 | 逐个取得官方 schema 或真实 fixture 后进入 |
+| 在线 quota / subscription | Antigravity、Trae、Warp | 运行中 RPC、authenticated cache 或 GraphQL aggregate | 独立 product track，不伪装为本地 token ledger |
+| 无权威 token ledger | Crush、Kiro、Command Code、MiniMax headless capture | cost-only、按文本估算或由 Tokscale 自行捕获 | 拒绝进入 authoritative source registry |
 | 产品层而非 token parser | usage/quota、headless wrapper、profile、leaderboard、device/group、autosubmit、MCP | 系统边界不同 | 单列产品路线；不为追求 source 数量混入核心账本 |
 
 这意味着“全方位补齐”应分成两条可验证轨道：先补 authoritative local accounting，再补 quota/桌面/社区产品能力。把两者塞进同一个 parser PR 会让错误数字更难发现。
@@ -114,6 +123,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - Cline CLI：持久化 `inputTokens` 包含 cache read/write，因此先扣除两个 cache 桶。
 - Copilot CLI：OTel input/output 分别包含 cache read/write 与 reasoning detail，两个方向都要拆除子集。
 - Goose：官方 input 包含 cache read/write；官方没有 reasoning 字段，不从 total 差额推断。
+- OpenClaw/Xum：持久化五桶已经互斥，不再做减法；OpenClaw 当前没有独立 reasoning 桶。
+- Hermes：cache 是独立 prompt 桶，reasoning 是 output 子集，只从 output 扣 reasoning。
 
 ### 2. 累积快照必须先转增量
 
@@ -167,6 +178,9 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 | Gajae Code | v5 assistant + patch replay；只扣已有 direct child result usage，缺失 child 用 task residual 补总量；fork artifact 沿 parent lineage 解析 | 官方源码已验证 + adversarial fork fixture | 实现为第 20 个 source；reasoning/TTL 分桶、保留显式零成本，nested child 独立计数且 fork 不重复 residual |
 | Prime Agent | parent 最后 aggregate 减全部 child attribution；recursive child 独立计数；attribution 前分支从 ancestor 恢复 own usage | 官方源码已验证 + adversarial pre-attribution fork fixture | 实现为第 21 个 source；状态重建后再按 usage/cost-aware fingerprint 去重，支持 project/global sessionDir |
 | Oh My Pi | active profile/XDG；assistant orchestration；递归 child/advisor transcript；过滤 lower-priority profile 派生 agent dir | 官方源码已验证 + env-priority fixture | 实现为第 22 个 source；忽略 task 两层 rollup，保留 reasoning/cache/orchestration，显式 default profile 不串读 named profile |
+| OpenClaw | 当前 v3 JSONL/reset/deleted zstd + 默认/配置 SQLite events/archives；entry id 跨 store/fork 去重；cost origin 与 cache TTL 分离 | 官方源码已验证 + JSONL/SQLite/zstd/custom-store/dedup/error-isolation E2E | 实现为第 23 个 source；排除 checkpoint/trajectory/bak，坏 archive 不吞 active rows，只锁定 provider-billed USD |
+| Xum | 当前 `~/.xum` cumulative `session-usage.json`；同 root `rolledUpFrom` reconciliation；混合 included/paid 的完整五桶 cost | 官方源码已验证 + parent/child/invalid-parent/cycle/mixed-cost E2E | 实现为第 24 个 source；不读取旧 Mux root，坏 parent 不吞 child，环内保留单一 canonical ledger 并报错，累计调用次数保持未知 0 |
+| Hermes Agent | 当前 `session_model_usage` 每个合法 task/billing row + session residual；visible-output/reasoning 拆分；API call count | 官方源码已验证 + multi-task/null-model/bad-row/residual/cost-status E2E | 实现为第 25 个 source；不使用 Tokscale 的 message_count，aggregate 只扣成功细分行并补剩余差额 |
 
 ## 本轮采用、适配、拒绝决策
 
@@ -188,6 +202,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - MiMo/Kilo 复用已验证的 OpenCode payload 映射，但分别适配官方路径、双表和 creation-time fork reconciliation。
 - Senpi 复用 Pi v3 的四类 usage carrier；Kimchi 在 sibling child 存在时关闭 parent rollup，缺失/remote 时解析 `details.tokenUsage`。
 - GJC 适配 v5 patch 与部分 task residual；Prime 按 attribution 重建 parent own usage；OMP 按 active profile 发现并只统计递归 transcript，不累计 task rollup。
+- OpenClaw 适配 current JSONL/SQLite/cold archive、entry identity、cache TTL 与 cost origin；Xum 只让合法无环 parent 压掉 child，并在五桶成本完整时锁定 ledger cost；Hermes 保持复合计费维度、补 session residual，并按 cost status 分流 actual/included 与 estimated。
 
 ### 拒绝
 
@@ -198,6 +213,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - 把 Copilot `invoke_agent` 和 child `chat` 一起相加，或把未声明 currency 的 `github.copilot.cost` 直接标成 USD。
 - 把 Goose `total-input-output` 猜成 reasoning，或把累计 session snapshot 伪装成创建日的一次调用。
 - 把 GJC v5 当普通 Pi v3、把 Prime parent aggregate 与 child/fork transcript 全相加、或把 Oh My Pi task rollup 与 child transcript 全相加；三者已用独立状态重建与 fixture 代替这种通用 parser。
+- 把 OpenClaw 本地估值当 provider invoice、把 Xum parent 与 rolled-up child 再次相加、或用 Hermes session message count 代替 `api_call_count`。
+- 把 Kiro/Command Code 文本估算、Crush cost-only 或 Warp quota aggregate 注册成 authoritative token ledger。
 
 ## 后续数据源批次
 
@@ -207,7 +224,10 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 2. Batch 2（已完成）：GitHub Copilot CLI OTel + Goose per-call SQLite ledger。
 3. Batch 3（已完成）：MiMo Code、Kilo CLI、Senpi、Kimchi；逐个验证写入端、目录、fork/child reconciliation 和端到端输出。
 4. Batch 4（已完成）：GJC、Prime Agent、Oh My Pi；验证 patch、child attribution、task rollup、profile/XDG 与 recursive fork。
-5. Batch 5：Droid、Kiro、Zed、Warp 等独立格式。没有官方 schema 时必须取得匿名化真实 fixture 和第二实现交叉验证。
-6. Product track：桌面应用、quota、实时观测与多机器历史；与 authoritative token ledger 保持 provenance 隔离。
+5. Batch 5（已完成）：OpenClaw、Xum、Hermes Agent；验证 JSONL/SQLite/zstd、fork/store dedup、child roll-up/环、完整成本、session residual、task/billing 维度与调用次数。
+6. Batch 6：Reasonix + Fx；修复 Tokscale 遗漏的完整 USD provenance，以及 inclusive cache/reasoning 双计。
+7. Batch 7：Unsloth；按官方 fork clone keeper 规则做跨 thread reconciliation，并同时覆盖 chat/API 两条 lane。
+8. 后续 authoritative candidates：Droid、Codebuff、Zed、Junie、DSH、LM Studio 等；没有官方 schema 时必须取得匿名化真实 fixture 和第二实现交叉验证。
+9. Product track：桌面应用、quota、实时观测与多机器历史；与 authoritative token ledger 保持 provenance 隔离。
 
 每一批独立提交与 PR，包含官方证据链接、最小真实格式 fixture、RED/GREEN 测试记录、数据路径和已知限制。这样覆盖面可以持续增长，但不会用错误数字换取“支持数量”。
