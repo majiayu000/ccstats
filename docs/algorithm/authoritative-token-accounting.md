@@ -62,7 +62,11 @@ cost = "show"
 | Qwen Code | `QWEN_RUNTIME_DIR`，其次 `QWEN_HOME` | 包含 `usage/` 的 Qwen 根目录 | `~/.qwen` |
 | Cline CLI | `CLINE_SESSION_DATA_DIR`，另支持 `CLINE_DATA_DIR`、`CLINE_DIR` | Cline session 目录或数据根目录 | `~/.cline/data/sessions` |
 | OpenCode | `OPENCODE_DB`，数据根目录遵循 `XDG_DATA_HOME` | 数据库绝对路径，或 OpenCode 数据目录内的相对文件名 | 平台 data dir 下的 `opencode/opencode*.db` |
+| MiMo Code | `MIMOCODE_DB`；`MIMOCODE_HOME`；数据根目录遵循 `XDG_DATA_HOME` | 数据库绝对路径，或包含 `data/` 的 MiMo home | `~/.local/share/mimocode/mimocode*.db` |
+| Kilo CLI | `KILO_DB`，数据根目录遵循 `XDG_DATA_HOME` | 数据库绝对路径，或 Kilo data directory 内的相对文件名 | `~/.local/share/kilo/kilo*.db`，并扫描 legacy channel 数据库 |
 | Pi | `PI_CODING_AGENT_SESSION_DIR`，其次 `PI_CODING_AGENT_DIR` | sessions 目录，或包含 `sessions/` 的 agent 目录 | `~/.pi/agent/sessions` |
+| Senpi | `SENPI_CODING_AGENT_SESSION_DIR`，其次 `SENPI_CODING_AGENT_DIR` | sessions 目录，或包含 `sessions/` 的 agent 目录；展开 `~` | 最近的项目 `.senpi/agent/sessions`，其次 `~/.senpi/agent/sessions` |
+| Kimchi | 无 | launcher 固定目录 | `~/.config/kimchi/harness/sessions` |
 | GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | OTel file exporter 的 JSONL 文件 | 另扫描 `~/.copilot/otel/**/*.jsonl` |
 | Goose | `GOOSE_PATH_ROOT`，数据根目录遵循 `XDG_DATA_HOME` | 包含 `data/sessions/sessions.db` 的绝对 path root | `~/.local/share/goose/sessions/sessions.db` |
 
@@ -315,6 +319,12 @@ OpenCode 写入端已经从 inclusive input 中扣除了 cache read/write，并�
 
 同一个消息可能同时存在于两张表或多个 channel 数据库。ccstats 使用 source-wide message ID 去重，优先完成记录；session directory 用于项目聚合。损坏 JSON、负 token、无效时间或数据库读取失败都会计入 parse error。
 
+### MiMo Code 与 Kilo CLI
+
+MiMo Code 和 Kilo CLI 复用 OpenCode 消息族的五个独立 token 桶，但目录、schema 和 fork 行为分别由各自当前源码确定。MiMo Code 读取 `message`；Kilo CLI 同时读取 legacy `message` 与当前 `session_message`。官方 fork 不持久化 parent ID，但复制消息会保留原 `message.time.created`，而新 session 有更晚的 `session.time_created`。ccstats 只把“消息早于所属 session”视为 copy 候选，并要求同数据库中同模型、同毫秒时间和同五桶的唯一原 session 同时存在才去重。directory 不参与 key，因为官方允许跨目录 fork；原 session 后来被删除时，两份以上相同 copy 仍归一为一份。这样保留 fork 后的新调用，也避免普通的相似调用被误删。
+
+MiMo Code 和 Kilo CLI 的持久化 `cost` 是来源记录值，可能来自上游响应或本地计算；ccstats 保留其 provenance，不把它描述成 provider 发票。与 OpenCode 不同，这两个 fork 的显式零值有格式语义并会保留。数据库 schema 缺失、session creation time 读取失败、非法成本或 token 会明确计入 parse error。
+
 ---
 
 ## Pi
@@ -323,11 +333,12 @@ OpenCode 写入端已经从 inclusive input 中扣除了 cache read/write，并�
 
 Pi 默认写入 `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl`。显式 `PI_CODING_AGENT_SESSION_DIR` 优先，其次是 `PI_CODING_AGENT_DIR/sessions`。
 
-统计三类带 usage 的真实 LLM 调用：
+统计四类带 usage 的真实 LLM 调用：
 
 1. assistant message；
 2. compaction summary；
-3. branch summary。
+3. branch summary；
+4. `toolResult.message.usage` 中的子调用汇总。
 
 ```text
 input_tokens       ← usage.input
@@ -340,6 +351,12 @@ cache_read         ← usage.cacheRead
 Pi 官方定义明确说明 `usage.reasoning` 已包含在 `usage.output` 中，所以不能再放入 additive reasoning 桶。summary 记录没有自己的 model 字段时，使用此前最近一次 `model_change` 或 assistant 明确记录的模型；仍无法确定时明确归入 `unknown`。
 
 Pi 的“创建分支 session”会把已有路径复制到新 JSONL，但保留原 entry ID。ccstats 以 source-wide entry ID 去重，既保留新分支之后产生的调用，也不会把复制的历史再次计费。正的 `usage.cost.total` 保存为 client-recorded USD。
+
+### Senpi 与 Kimchi
+
+Senpi 使用 Pi v3 的四类 usage carrier 和相同的 branch-copy entry ID，因此沿用相同的 token 归一化与 source-wide 去重。发现顺序支持显式 session/agent env、从当前目录向上查找的非 symlink 项目 `.senpi/agent`、project/global `settings.jsonc` 或 `settings.json` 的 `sessionDir`，以及 home 默认目录；JSONC 支持 BOM、注释和尾逗号，project 的 null/空串会重置 global 值，路径会展开 `~`。一次性的 `--session-dir` 不会持久化，需把同值传给 `SENPI_CODING_AGENT_SESSION_DIR`。
+
+Kimchi 的 child transcript 是真实独立调用，而 parent tool result 的 `details.tokenUsage` 是同一 child 的累计回传。`details.sessionFile` 指向且 child 能通过正式 session/header/timestamp/cost 校验产出 `RawEntry` 时，ccstats 统计 child 并忽略 parent rollup；只有 header、无有效 usage、child 未落盘或 remote agent 没有 session file 时，统计 parent details 作为权威 fallback。Kimchi launcher 固定 session 路径，因此不暴露一个实际上不会生效的目录覆盖项。
 
 ---
 

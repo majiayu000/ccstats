@@ -39,6 +39,7 @@ fn create_opencode_db(path: &Path) {
             CREATE TABLE session (
                 id TEXT PRIMARY KEY,
                 directory TEXT NOT NULL,
+                parent_id TEXT,
                 title TEXT NOT NULL,
                 time_created INTEGER NOT NULL,
                 time_updated INTEGER NOT NULL
@@ -65,8 +66,8 @@ fn create_opencode_db(path: &Path) {
     connection
         .execute(
             "INSERT INTO session
-             (id, directory, title, time_created, time_updated)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             (id, directory, parent_id, title, time_created, time_updated)
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5)",
             params![
                 "ses_e2e",
                 "/tmp/opencode-project",

@@ -123,6 +123,7 @@ dependencies = [
  "comfy-table",
  "dirs",
  "glob",
+ "jsonc-parser",
  "rayon",
  "rusqlite",
  "serde",
@@ -691,6 +692,15 @@ checksum = "8c942ebf8e95485ca0d52d97da7c5a2c387d0e7f0ba4c35e93bfcaee045955b3"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0560e3f9a9a03ea6b6e90b41138c5db9e21526c99eb192c1a26c68176593285"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

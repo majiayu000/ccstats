@@ -1,6 +1,5 @@
 //! Pi coding-agent JSONL usage source.
 
-use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -13,14 +12,42 @@ use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-const PI_AGENT_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
-const PI_SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
+use super::pi_paths::{find_kimchi_files, find_pi_files, find_senpi_files};
 
 pub(crate) struct PiSource;
+pub(crate) struct SenpiSource;
+pub(crate) struct KimchiSource;
 
 impl PiSource {
     pub(crate) const fn new() -> Self {
         Self
+    }
+}
+
+impl SenpiSource {
+    pub(crate) const fn new() -> Self {
+        Self
+    }
+}
+
+impl KimchiSource {
+    pub(crate) const fn new() -> Self {
+        Self
+    }
+}
+
+fn pi_capabilities() -> Capabilities {
+    Capabilities {
+        has_projects: true,
+        has_billing_blocks: false,
+        // Pi-family formats document reasoning as a subset of output.
+        has_reasoning_tokens: false,
+        has_cache_creation: true,
+        has_cache_read: true,
+        // Branching copies existing entry ids into a new session file.
+        needs_dedup: true,
+        has_tool_calls: false,
+        has_endpoints: false,
     }
 }
 
@@ -38,18 +65,7 @@ impl Source for PiSource {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            has_projects: true,
-            has_billing_blocks: false,
-            // Pi documents reasoning as a subset of output.
-            has_reasoning_tokens: false,
-            has_cache_creation: true,
-            has_cache_read: true,
-            // Branching copies existing entry ids into a new session file.
-            needs_dedup: true,
-            has_tool_calls: false,
-            has_endpoints: false,
-        }
+        pi_capabilities()
     }
 
     fn find_files(&self) -> Vec<PathBuf> {
@@ -57,36 +73,111 @@ impl Source for PiSource {
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-        parse_pi_file(path, timezone, debug)
+        parse_pi_file(path, timezone, debug, PiProfile::pi())
     }
 }
 
-fn non_empty_env(name: &str) -> Option<PathBuf> {
-    env::var_os(name)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+impl Source for SenpiSource {
+    fn name(&self) -> &'static str {
+        "senpi"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Senpi"
+    }
+
+    fn aliases(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        pi_capabilities()
+    }
+
+    fn find_files(&self) -> Vec<PathBuf> {
+        find_senpi_files()
+    }
+
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
+        parse_pi_file(path, timezone, debug, PiProfile::senpi())
+    }
 }
 
-fn pi_sessions_dir() -> Option<PathBuf> {
-    non_empty_env(PI_SESSION_DIR_ENV)
-        .or_else(|| non_empty_env(PI_AGENT_DIR_ENV).map(|root| root.join("sessions")))
-        .or_else(|| dirs::home_dir().map(|home| home.join(".pi/agent/sessions")))
+impl Source for KimchiSource {
+    fn name(&self) -> &'static str {
+        "kimchi"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Kimchi"
+    }
+
+    fn aliases(&self) -> &'static [&'static str] {
+        &["kimchi-coding"]
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        pi_capabilities()
+    }
+
+    fn find_files(&self) -> Vec<PathBuf> {
+        find_kimchi_files()
+    }
+
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
+        parse_pi_file(path, timezone, debug, PiProfile::kimchi())
+    }
 }
 
-fn find_pi_files() -> Vec<PathBuf> {
-    let Some(root) = pi_sessions_dir() else {
-        return Vec::new();
-    };
-    let patterns = [root.join("*.jsonl"), root.join("**").join("*.jsonl")];
-    let mut files = Vec::new();
-    for pattern in patterns {
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
-            files.extend(matches.flatten().filter(|path| path.is_file()));
+#[derive(Debug, Clone, Copy)]
+struct PiProfile {
+    source: &'static str,
+    display_name: &'static str,
+    count_message_tool_result_usage: bool,
+    count_kimchi_details_usage: bool,
+    suppress_linked_rollups: bool,
+}
+
+impl PiProfile {
+    const fn pi() -> Self {
+        Self {
+            source: "pi",
+            display_name: "Pi",
+            count_message_tool_result_usage: true,
+            count_kimchi_details_usage: false,
+            suppress_linked_rollups: false,
         }
     }
-    files.sort();
-    files.dedup();
-    files
+
+    const fn senpi() -> Self {
+        Self {
+            source: "senpi",
+            display_name: "Senpi",
+            count_message_tool_result_usage: true,
+            count_kimchi_details_usage: false,
+            suppress_linked_rollups: false,
+        }
+    }
+
+    const fn kimchi() -> Self {
+        Self {
+            source: "kimchi",
+            display_name: "Kimchi",
+            count_message_tool_result_usage: false,
+            count_kimchi_details_usage: true,
+            suppress_linked_rollups: true,
+        }
+    }
+
+    const fn kimchi_probe() -> Self {
+        Self {
+            source: "kimchi",
+            display_name: "Kimchi",
+            count_message_tool_result_usage: false,
+            count_kimchi_details_usage: true,
+            suppress_linked_rollups: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +209,15 @@ struct PiMessage {
     model: Option<String>,
     usage: Option<PiUsage>,
     stop_reason: Option<String>,
+    details: Option<KimchiDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KimchiDetails {
+    model_name: Option<String>,
+    session_file: Option<String>,
+    token_usage: Option<PiUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,6 +253,7 @@ impl PiModelState {
 }
 
 struct PiUsageContext<'a> {
+    source: &'a str,
     entry_id: &'a str,
     timestamp: &'a str,
     session_id: &'a str,
@@ -177,10 +278,11 @@ fn usage_entry(
     {
         return Err("negative token count");
     }
-    let recorded_cost_usd = usage
-        .cost
-        .map(|cost| cost.total)
-        .filter(|cost| cost.is_finite() && *cost > 0.0);
+    let recorded_cost_usd = match usage.cost.map(|cost| cost.total) {
+        Some(cost) if !cost.is_finite() || cost < 0.0 => return Err("invalid cost"),
+        Some(cost) if cost > 0.0 => Some(cost),
+        _ => None,
+    };
     if usage.input == 0
         && usage.output == 0
         && usage.cache_read == 0
@@ -209,8 +311,8 @@ fn usage_entry(
             .date_naive()
             .format(DATE_FORMAT)
             .to_string(),
-        message_id: Some(source_wide_message_id("pi", context.entry_id)),
-        session_key: format!("pi::{}", context.session_id),
+        message_id: Some(source_wide_message_id(context.source, context.entry_id)),
+        session_key: format!("{}::{}", context.source, context.session_id),
         session_id: context.session_id.to_string(),
         project_path: context.project_path.to_string(),
         model,
@@ -229,11 +331,54 @@ fn usage_entry(
     }))
 }
 
+fn linked_transcript_produces_entry(path: &Path) -> bool {
+    !parse_pi_file(
+        path,
+        Timezone::Named(chrono_tz::UTC),
+        false,
+        PiProfile::kimchi_probe(),
+    )
+    .entries
+    .is_empty()
+}
+
+fn tool_result_usage(
+    message: PiMessage,
+    path: &Path,
+    profile: PiProfile,
+) -> Option<(PiUsage, Option<String>)> {
+    if profile.count_message_tool_result_usage {
+        return message.usage.map(|usage| (usage, None));
+    }
+    if !profile.count_kimchi_details_usage {
+        return None;
+    }
+    let details = message.details?;
+    if profile.suppress_linked_rollups
+        && details.session_file.as_deref().is_some_and(|session_file| {
+            let session_file = Path::new(session_file);
+            let linked_file = if session_file.is_absolute() {
+                session_file.to_path_buf()
+            } else {
+                path.parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .join(session_file)
+            };
+            linked_transcript_produces_entry(&linked_file)
+        })
+    {
+        return None;
+    }
+    details.token_usage.map(|usage| (usage, details.model_name))
+}
+
 fn parse_entry(
     entry: PiEntry,
     header: &PiHeader,
+    path: &Path,
     model_state: &mut PiModelState,
     timezone: Timezone,
+    profile: PiProfile,
 ) -> Result<Option<RawEntry>, &'static str> {
     match entry.entry_type.as_str() {
         "model_change" => {
@@ -244,28 +389,50 @@ fn parse_entry(
             let Some(message) = entry.message else {
                 return Err("message record is missing message");
             };
-            if message.role != "assistant" {
-                return Ok(None);
+            match message.role.as_str() {
+                "assistant" => {
+                    let Some(usage) = message.usage else {
+                        return Ok(None);
+                    };
+                    model_state.update(message.provider.as_deref(), message.model.as_deref());
+                    usage_entry(
+                        usage,
+                        PiUsageContext {
+                            source: profile.source,
+                            entry_id: &entry.id,
+                            timestamp: &entry.timestamp,
+                            session_id: &header.id,
+                            project_path: &header.cwd,
+                            model: message.model.as_deref(),
+                            stop_reason: message
+                                .stop_reason
+                                .filter(|reason| !reason.trim().is_empty())
+                                .or_else(|| Some("assistant".to_string())),
+                            timezone,
+                        },
+                    )
+                }
+                "toolResult" => {
+                    let Some((usage, details_model)) = tool_result_usage(message, path, profile)
+                    else {
+                        return Ok(None);
+                    };
+                    usage_entry(
+                        usage,
+                        PiUsageContext {
+                            source: profile.source,
+                            entry_id: &entry.id,
+                            timestamp: &entry.timestamp,
+                            session_id: &header.id,
+                            project_path: &header.cwd,
+                            model: details_model.as_deref().or(model_state.model.as_deref()),
+                            stop_reason: Some("tool_result".to_string()),
+                            timezone,
+                        },
+                    )
+                }
+                _ => Ok(None),
             }
-            let Some(usage) = message.usage else {
-                return Ok(None);
-            };
-            model_state.update(message.provider.as_deref(), message.model.as_deref());
-            usage_entry(
-                usage,
-                PiUsageContext {
-                    entry_id: &entry.id,
-                    timestamp: &entry.timestamp,
-                    session_id: &header.id,
-                    project_path: &header.cwd,
-                    model: message.model.as_deref(),
-                    stop_reason: message
-                        .stop_reason
-                        .filter(|reason| !reason.trim().is_empty())
-                        .or_else(|| Some("assistant".to_string())),
-                    timezone,
-                },
-            )
         }
         "compaction" | "branch_summary" => {
             let Some(usage) = entry.usage else {
@@ -274,6 +441,7 @@ fn parse_entry(
             usage_entry(
                 usage,
                 PiUsageContext {
+                    source: profile.source,
                     entry_id: &entry.id,
                     timestamp: &entry.timestamp,
                     session_id: &header.id,
@@ -288,12 +456,16 @@ fn parse_entry(
     }
 }
 
-fn parse_pi_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
+fn parse_pi_file(path: &Path, timezone: Timezone, debug: bool, profile: PiProfile) -> ParseOutput {
     let file = match fs::File::open(path) {
         Ok(file) => file,
         Err(error) => {
             if debug {
-                eprintln!("Failed to open Pi session {}: {error}", path.display());
+                eprintln!(
+                    "Failed to open {} session {}: {error}",
+                    profile.display_name,
+                    path.display()
+                );
             }
             return ParseOutput {
                 entries: Vec::new(),
@@ -335,7 +507,11 @@ fn parse_pi_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
             }
             Ok(_) | Err(_) => {
                 if debug {
-                    eprintln!("Invalid Pi session header in {}", path.display());
+                    eprintln!(
+                        "Invalid {} session header in {}",
+                        profile.display_name,
+                        path.display()
+                    );
                 }
                 return ParseOutput {
                     entries: Vec::new(),
@@ -345,7 +521,7 @@ fn parse_pi_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         }
     };
 
-    parse_pi_entries(lines, &header, path, timezone, debug)
+    parse_pi_entries(lines, &header, path, timezone, debug, profile)
 }
 
 fn parse_pi_entries(
@@ -354,6 +530,7 @@ fn parse_pi_entries(
     path: &Path,
     timezone: Timezone,
     debug: bool,
+    profile: PiProfile,
 ) -> ParseOutput {
     let mut output = ParseOutput::default();
     let mut model_state = PiModelState::default();
@@ -389,14 +566,15 @@ fn parse_pi_entries(
                 continue;
             }
         };
-        match parse_entry(entry, header, &mut model_state, timezone) {
+        match parse_entry(entry, header, path, &mut model_state, timezone, profile) {
             Ok(Some(entry)) => output.entries.push(entry),
             Ok(None) => {}
             Err(error) => {
                 output.errors += 1;
                 if debug {
                     eprintln!(
-                        "Invalid Pi usage in {} line {}: {error}",
+                        "Invalid {} usage in {} line {}: {error}",
+                        profile.display_name,
                         path.display(),
                         line_index + 1
                     );
@@ -424,6 +602,7 @@ mod tests {
         let entry = usage_entry(
             usage,
             PiUsageContext {
+                source: "pi",
                 entry_id: "entry-1",
                 timestamp: "2026-08-31T03:00:00Z",
                 session_id: "session-1",
@@ -455,6 +634,7 @@ mod tests {
             usage_entry(
                 usage,
                 PiUsageContext {
+                    source: "pi",
                     entry_id: "entry-1",
                     timestamp: "2026-08-31T03:00:00Z",
                     session_id: "session-1",
