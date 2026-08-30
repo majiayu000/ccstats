@@ -16,8 +16,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{CostKind, RawEntry};
-use crate::source::ParseOutput;
+use crate::core::{CostKind, DateFilter, DedupAccumulator, RawEntry};
+use crate::source::{CostCoverage, ParseOutput};
 use crate::utils::Timezone;
 
 const APP_CACHE_DIR: &str = "ccstats";
@@ -163,21 +163,23 @@ pub(super) fn find_grok_files() -> Vec<PathBuf> {
     let source_path = grok_home.join("logs").join(UNIFIED_LOG);
     let sessions_dir = grok_home.join("sessions");
     let ledger_path = ledger_path(&grok_home);
+    let mut files = super::parser::find_grok_files();
 
     if source_path.is_file() {
-        if let Some(path) = ledger_path.as_deref() {
-            return vec![sync_or_select_grok_file(&source_path, path, &sessions_dir)];
-        }
-        return vec![source_path];
-    }
-
-    if let Some(path) = ledger_path
+        files.push(if let Some(path) = ledger_path.as_deref() {
+            sync_or_select_grok_file(&source_path, path, &sessions_dir)
+        } else {
+            source_path
+        });
+    } else if let Some(path) = ledger_path
         && path.is_file()
     {
-        return vec![path];
+        files.push(path);
     }
 
-    super::parser::find_grok_files()
+    files.sort();
+    files.dedup();
+    files
 }
 
 fn sync_or_select_grok_file(
@@ -211,7 +213,7 @@ pub(super) fn parse_grok_file_with_debug(
     match path.file_name().and_then(|name| name.to_str()) {
         Some(LEDGER_FILE) => parse_ledger_file(path, timezone, debug),
         Some(UNIFIED_LOG) => parse_live_unified_file(path, timezone, debug),
-        _ => super::parser::parse_grok_session_file_with_debug(path, timezone, debug),
+        _ => super::parser::parse_grok_usage_file_with_debug(path, timezone, debug),
     }
 }
 
@@ -486,10 +488,7 @@ fn records_to_parse_output(
             };
             let prompt_tokens = record.prompt_tokens.max(0);
             let cache_read = record.cached_prompt_tokens.clamp(0, prompt_tokens);
-            let input_tokens = prompt_tokens.saturating_sub(cache_read);
             let completion_tokens = record.completion_tokens.max(0);
-            let reasoning_tokens = record.reasoning_tokens.clamp(0, completion_tokens);
-            let output_tokens = completion_tokens.saturating_sub(reasoning_tokens);
             let recorded_cost_usd =
                 api_cost_usd(&record.model, prompt_tokens, cache_read, completion_tokens);
             let date_str = timezone
@@ -510,21 +509,107 @@ fn records_to_parse_output(
                 },
                 project_path: record.project_path,
                 model: record.model,
-                input_tokens,
-                output_tokens,
+                // Complete usage comes from turn_completed records. These
+                // inference entries contribute only their exact request-boundary
+                // API-equivalent cost, otherwise captured tokens are counted twice.
+                input_tokens: 0,
+                output_tokens: 0,
                 cache_creation: 0,
                 cache_creation_1h: 0,
-                cache_read,
-                reasoning_tokens,
+                cache_read: 0,
+                reasoning_tokens: 0,
                 stop_reason: Some("inference_done".to_string()),
                 cost_kind: CostKind::Real,
                 endpoint: crate::core::Endpoint::Unknown,
-                call_count: 1,
+                call_count: 0,
                 recorded_cost_usd,
             })
         })
         .collect();
     ParseOutput { entries, errors }
+}
+
+pub(super) fn cost_coverage(filter: &DateFilter, timezone: Timezone) -> Option<CostCoverage> {
+    cost_coverage_from_files(&find_grok_files(), filter, timezone)
+}
+
+fn cost_coverage_from_files(
+    files: &[PathBuf],
+    filter: &DateFilter,
+    timezone: Timezone,
+) -> Option<CostCoverage> {
+    let mut usage = DedupAccumulator::new();
+    let mut priced_tokens = 0_i64;
+
+    for path in files {
+        match path.file_name().and_then(|name| name.to_str()) {
+            Some(LEDGER_FILE) => {
+                let Ok(records) = load_ledger(path) else {
+                    continue;
+                };
+                priced_tokens = priced_tokens.saturating_add(priced_tokens_in_records(
+                    records.into_values(),
+                    filter,
+                    timezone,
+                ));
+            }
+            Some(UNIFIED_LOG) => {
+                let sessions_dir = grok_home()
+                    .map(|home| home.join("sessions"))
+                    .unwrap_or_default();
+                let Ok(records) = read_inference_records(path, &sessions_dir) else {
+                    continue;
+                };
+                priced_tokens = priced_tokens
+                    .saturating_add(priced_tokens_in_records(records, filter, timezone));
+            }
+            _ => {
+                let parsed = super::parser::parse_grok_usage_file_with_debug(path, timezone, false);
+                usage.extend(parsed.entries.into_iter().filter(|entry| {
+                    chrono::NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
+                        .is_ok_and(|date| filter.contains(date))
+                }));
+            }
+        }
+    }
+
+    let (entries, _) = usage.finalize();
+    let total_tokens = entries.into_iter().fold(0_i64, |total, entry| {
+        total.saturating_add(entry.to_stats().total_tokens())
+    });
+    if total_tokens == 0 && priced_tokens == 0 {
+        None
+    } else {
+        Some(CostCoverage {
+            total_tokens,
+            priced_tokens,
+        })
+    }
+}
+
+fn priced_tokens_in_records(
+    records: impl IntoIterator<Item = InferenceRecord>,
+    filter: &DateFilter,
+    timezone: Timezone,
+) -> i64 {
+    records.into_iter().fold(0_i64, |total, record| {
+        let Ok(utc_dt) = record.timestamp.parse::<DateTime<Utc>>() else {
+            return total;
+        };
+        let date = timezone.to_fixed_offset(utc_dt).date_naive();
+        if !filter.contains(date) {
+            return total;
+        }
+        let prompt_tokens = record.prompt_tokens.max(0);
+        let cache_read = record.cached_prompt_tokens.clamp(0, prompt_tokens);
+        let completion_tokens = record.completion_tokens.max(0);
+        if api_cost_usd(&record.model, prompt_tokens, cache_read, completion_tokens).is_none() {
+            return total;
+        }
+        total
+            .saturating_add(prompt_tokens)
+            .saturating_add(completion_tokens)
+    })
 }
 
 #[cfg(test)]
@@ -612,11 +697,8 @@ mod tests {
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
         let entry = &parsed.entries[0];
-        assert_eq!(entry.input_tokens, 316);
-        assert_eq!(entry.cache_read, 148_224);
-        assert_eq!(entry.output_tokens, 407);
-        assert_eq!(entry.reasoning_tokens, 949);
-        assert_eq!(entry.to_stats().total_tokens(), 149_896);
+        assert_eq!(entry.to_stats().total_tokens(), 0);
+        assert_eq!(entry.call_count, 0);
         assert!((entry.recorded_cost_usd.expect("calculated cost") - 0.082_88).abs() < 1e-12);
     }
 
@@ -648,14 +730,18 @@ mod tests {
         let parsed = parse_ledger_file(&ledger_path, tz(), true);
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 2);
-        assert_eq!(
+        assert!(
             parsed
                 .entries
                 .iter()
-                .map(|entry| entry.input_tokens + entry.cache_read)
-                .sum::<i64>(),
-            300
+                .all(|entry| entry.to_stats().total_tokens() == 0)
         );
+        let cost: f64 = parsed
+            .entries
+            .iter()
+            .filter_map(|entry| entry.recorded_cost_usd)
+            .sum();
+        assert!((cost - 0.000_48).abs() < 1e-12);
     }
 
     #[test]
@@ -686,9 +772,7 @@ mod tests {
         let parsed = parse_ledger_file(&selected, tz(), true);
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
-        assert_eq!(
-            parsed.entries[0].input_tokens + parsed.entries[0].cache_read,
-            100
-        );
+        assert_eq!(parsed.entries[0].to_stats().total_tokens(), 0);
+        assert!((parsed.entries[0].recorded_cost_usd.unwrap() - 0.000_185).abs() < 1e-12);
     }
 }

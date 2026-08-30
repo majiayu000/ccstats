@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
-use crate::core::{CostKind, RawEntry};
+use crate::core::{CostKind, RawEntry, source_wide_message_id};
 use crate::utils::Timezone;
 
 use super::parser::{GrokSessionContext, first_non_empty};
@@ -213,11 +213,14 @@ fn parse_turn_line(
     let event_id = params
         .and_then(|params| params.meta.as_ref())
         .and_then(|meta| meta.event_id.as_deref());
-    let base_message_id = first_non_empty(&[event_id, prompt_id]).unwrap_or_else(|| {
-        let mut hasher = DefaultHasher::new();
-        line.hash(&mut hasher);
-        format!("turn:{:016x}", hasher.finish())
-    });
+    let base_message_id = first_non_empty(&[event_id])
+        .map(|event_id| source_wide_message_id("grok", &event_id))
+        .or_else(|| first_non_empty(&[prompt_id]))
+        .unwrap_or_else(|| {
+            let mut hasher = DefaultHasher::new();
+            line.hash(&mut hasher);
+            format!("turn:{:016x}", hasher.finish())
+        });
     let stop_reason = update.and_then(|update| update.stop_reason.clone());
 
     let total_usage = normalize_usage(&usage.tokens);
@@ -426,7 +429,10 @@ mod tests {
         assert_eq!(entry.reasoning_tokens, 1145);
         assert_eq!(entry.call_count, 5);
         assert_eq!(entry.date_str, "2026-04-16");
-        assert_eq!(entry.message_id.as_deref(), Some("e1:grok-4.5-build"));
+        assert_eq!(
+            entry.message_id.as_deref(),
+            Some("source-wide:grok:e1:grok-4.5-build")
+        );
         assert_eq!(entry.stop_reason.as_deref(), Some("end_turn"));
         assert_eq!(entry.cost_kind, CostKind::Real);
         assert_eq!(entry.recorded_cost_usd, Some(0.13816));

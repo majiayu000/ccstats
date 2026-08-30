@@ -4,10 +4,11 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::core::DateFilter;
+use crate::source::{Capabilities, CostCoverage, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::unified::{find_grok_files, parse_grok_file_with_debug};
+use super::unified::{cost_coverage, find_grok_files, parse_grok_file_with_debug};
 
 /// Grok data source.
 pub(crate) struct GrokSource;
@@ -56,5 +57,9 @@ impl Source for GrokSource {
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_grok_file_with_debug(path, timezone, debug)
+    }
+
+    fn cost_coverage(&self, filter: &DateFilter, timezone: Timezone) -> Option<CostCoverage> {
+        cost_coverage(filter, timezone)
     }
 }

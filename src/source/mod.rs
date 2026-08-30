@@ -16,6 +16,28 @@ use std::path::{Path, PathBuf};
 use crate::core::{DateFilter, RawEntry, ToolCall};
 use crate::utils::Timezone;
 
+/// Coverage of a locally calculated API-equivalent cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct CostCoverage {
+    pub(crate) total_tokens: i64,
+    pub(crate) priced_tokens: i64,
+}
+
+impl CostCoverage {
+    pub(crate) fn percent(self) -> f64 {
+        if self.total_tokens <= 0 {
+            0.0
+        } else {
+            self.priced_tokens.max(0).min(self.total_tokens) as f64 / self.total_tokens as f64
+                * 100.0
+        }
+    }
+
+    pub(crate) fn is_partial(self) -> bool {
+        self.priced_tokens < self.total_tokens
+    }
+}
+
 /// Parse result for a single source file.
 #[derive(Debug, Default)]
 pub(crate) struct ParseOutput {
@@ -98,6 +120,11 @@ pub(crate) trait Source: Send + Sync {
 
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
+
+    /// Coverage metadata when a source prices only observed request records.
+    fn cost_coverage(&self, _filter: &DateFilter, _timezone: Timezone) -> Option<CostCoverage> {
+        None
+    }
 
     /// Find files that may contain tool-call records for this source.
     fn find_tool_call_files(&self) -> Vec<PathBuf> {
