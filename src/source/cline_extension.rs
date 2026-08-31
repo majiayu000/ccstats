@@ -223,6 +223,13 @@ fn session_id(path: &Path) -> String {
         .to_string()
 }
 
+fn request_model(model_info: Option<UiModelInfo>) -> Option<String> {
+    model_info
+        .and_then(|info| info.model_id)
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty())
+}
+
 fn usage_token_buckets(payload: &Value) -> Result<Option<(i64, i64, i64, i64)>, &'static str> {
     let buckets = (
         value_i64(payload.get("tokensIn")).unwrap_or(0),
@@ -278,12 +285,7 @@ pub(super) fn parse_extension_file(
         {
             continue;
         }
-        let Some(model) = message
-            .model_info
-            .and_then(|info| info.model_id)
-            .map(|model| model.trim().to_string())
-            .filter(|model| !model.is_empty())
-        else {
+        let Some(model) = request_model(message.model_info) else {
             output.errors += 1;
             continue;
         };
