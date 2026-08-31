@@ -154,6 +154,37 @@ fn openclaw_reads_exact_calls_and_deduplicates_copied_entries() {
 }
 
 #[test]
+fn openclaw_reports_an_invalid_explicit_config_path() {
+    let root = unique_temp_dir("openclaw-invalid-config");
+    let sessions = root.join("agents/main/sessions");
+    write_file(
+        &sessions.join("valid.jsonl"),
+        concat!(
+            r#"{"type":"session","version":3,"id":"valid","timestamp":"2026-08-31T01:00:00Z","cwd":"/tmp/openclaw"}"#,
+            "\n",
+            r#"{"type":"message","id":"call","timestamp":"2026-08-31T01:00:01Z","message":{"role":"assistant","provider":"openai","model":"gpt-5","timestamp":1788138001000,"usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0}}}"#,
+            "\n"
+        ),
+    );
+    let config = root.join("broken-config.json");
+    write_file(&config, "{broken");
+
+    let json = daily_json(
+        "openclaw",
+        &[
+            ("OPENCLAW_STATE_DIR", &root),
+            ("OPENCLAW_CONFIG_PATH", &config),
+            ("HOME", &root),
+        ],
+    );
+
+    let row = &json.as_array().unwrap()[0];
+    assert_eq!(row["input_tokens"].as_i64(), Some(1));
+    assert_eq!(row["data_quality"]["parse_errors"].as_u64(), Some(1));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn xum_suppresses_children_already_rolled_into_parent() {
     let root = unique_temp_dir("xum-e2e");
     let sessions = root.join("sessions");
@@ -548,6 +579,26 @@ fn xum_uses_complete_bucket_costs_and_preserves_children_of_invalid_rollups() {
     assert_eq!(row["input_tokens"].as_i64(), Some(10));
     assert_eq!(row["cost"].as_f64(), Some(0.06));
     assert_eq!(row["data_quality"]["parse_errors"].as_i64(), Some(2));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn xum_rejects_partially_invalid_rollup_parents_atomically() {
+    let root = unique_temp_dir("xum-partial-rollup");
+    write_file(
+        &root.join("sessions/child/session-usage.json"),
+        r#"{"version":1,"byModel":{"custom:model":{"input":{"tokens":10},"cached":{"tokens":0},"cacheCreate":{"tokens":0},"output":{"tokens":1},"reasoning":{"tokens":0}}},"lastRequest":{"timestamp":1788141600000}}"#,
+    );
+    write_file(
+        &root.join("sessions/parent/session-usage.json"),
+        r#"{"version":1,"byModel":{"custom:model":{"input":{"tokens":20},"cached":{"tokens":0},"cacheCreate":{"tokens":0},"output":{"tokens":2},"reasoning":{"tokens":0}},"custom:":{"input":{"tokens":99},"cached":{"tokens":0},"cacheCreate":{"tokens":0},"output":{"tokens":1},"reasoning":{"tokens":0}}},"lastRequest":{"timestamp":1788141600000},"rolledUpFrom":{"child":{}}}"#,
+    );
+
+    let json = daily_json("xum", &[("XUM_ROOT", &root), ("HOME", &root)]);
+
+    let row = &json.as_array().unwrap()[0];
+    assert_eq!(row["input_tokens"].as_i64(), Some(10));
+    assert_eq!(row["data_quality"]["parse_errors"].as_u64(), Some(1));
     let _ = fs::remove_dir_all(root);
 }
 

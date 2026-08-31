@@ -167,7 +167,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 | Amp | usage ledger 与 assistant usage 一对一合并 | 交叉验证 | token 算法可用；credits 的 USD 单位和调用归属未验证，暂不导入 |
 | Qwen Code | 当前应读取官方 usage ledger；input 必须减 cached；thoughts 独立 | 已验证 | 现实现错误：旧路径且 cache 重复，本轮替换 |
 | Cline | CLI assistant metrics + VS Code task `api_req_started` | CLI 已验证，扩展格式交叉验证 | token 算法正确；当前读取记录未证明 reported cost 的稳定归属，暂不导入 |
-| Roo Code | VS Code task `api_req_started`，读取最后 environment model | 推断/交叉验证 | 保持支持并在格式变化时用真实 fixture 更新 |
+| Roo Code | VS Code task `api_req_started`，读取请求自身的 `modelInfo` | 推断/交叉验证 | 缺少请求级模型时拒绝该记录，避免按任务最终模型错误计价 |
 | Kilo Code | 与 Roo/Cline extension task 格式相同 | 推断/交叉验证 | 保持支持；不要与 Kilo gateway 的在线 quota 混淆 |
 
 本批新增结果：
