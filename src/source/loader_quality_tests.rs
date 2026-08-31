@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 
 use crate::core::{DateFilter, RawEntry};
 use crate::source::{Capabilities, ParseOutput, Source};
@@ -68,6 +68,17 @@ fn entry(id: &str, input_tokens: i64) -> RawEntry {
     }
 }
 
+fn entry_at(id: &str, timestamp: &str) -> RawEntry {
+    let mut entry = entry(id, 10);
+    entry.timestamp = timestamp.to_string();
+    entry.timestamp_ms = timestamp
+        .parse::<DateTime<Utc>>()
+        .expect("valid timestamp")
+        .timestamp_millis();
+    entry.date_str = "2026-08-21".to_string();
+    entry
+}
+
 fn filter() -> DateFilter {
     DateFilter::new(
         NaiveDate::from_ymd_opt(2026, 2, 6),
@@ -110,4 +121,38 @@ fn load_daily_dedup_reports_skipped_and_parse_errors() {
     assert_eq!(result.valid, 1);
     assert_eq!(result.skipped, 1);
     assert_eq!(result.parse_errors, 3);
+}
+
+#[test]
+fn load_daily_honors_exact_timestamp_bounds() {
+    let since = "2026-08-21T05:41:00Z"
+        .parse::<DateTime<Utc>>()
+        .expect("valid since")
+        .timestamp_millis();
+    let until = "2026-08-21T05:43:00Z"
+        .parse::<DateTime<Utc>>()
+        .expect("valid until")
+        .timestamp_millis();
+    let source = TestSource {
+        needs_dedup: false,
+        files: vec![(
+            PathBuf::from("grok-ledger.jsonl"),
+            {
+                let mut inside = entry_at("inside", "2026-08-21T05:42:00Z");
+                inside.date_str = "invalid".to_string();
+                vec![
+                    entry_at("before", "2026-08-21T05:40:00Z"),
+                    inside,
+                    entry_at("after", "2026-08-21T05:44:00Z"),
+                ]
+            },
+            0,
+        )],
+    };
+    let filter = DateFilter::new(None, None).with_timestamp_range(since, until);
+
+    let result = load_daily(&source, &filter, tz(), true, false);
+
+    assert_eq!(result.valid, 1);
+    assert_eq!(result.day_stats["2026-08-21"].stats.input_tokens, 10);
 }

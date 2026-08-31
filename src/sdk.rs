@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use chrono::{Datelike, Days, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Days, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -98,7 +98,7 @@ impl FromStr for UsageSource {
     }
 }
 
-/// Date range to summarize.
+/// Date or exact UTC timestamp range to summarize.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageRange {
@@ -114,9 +114,21 @@ pub enum UsageRange {
         since: Option<NaiveDate>,
         until: Option<NaiveDate>,
     },
+    /// Explicit inclusive UTC timestamp range.
+    TimestampRange {
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    },
 }
 
 impl UsageRange {
+    fn timestamp_bounds(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+        match self {
+            UsageRange::TimestampRange { since, until } => Some((*since, *until)),
+            _ => None,
+        }
+    }
+
     pub(in crate::sdk) fn resolve(
         &self,
         today: NaiveDate,
@@ -134,6 +146,15 @@ impl UsageRange {
                 (Some(start), Some(today))
             }
             UsageRange::DateRange { since, until } => (*since, *until),
+            UsageRange::TimestampRange { since, until } => {
+                if since > until {
+                    return Err(SdkError::InvalidTimestampRange {
+                        since: *since,
+                        until: *until,
+                    });
+                }
+                (Some(since.date_naive()), Some(until.date_naive()))
+            }
         };
 
         if let (Some(since), Some(until)) = range
@@ -154,7 +175,7 @@ impl UsageRange {
 pub struct SummaryOptions {
     /// Usage source to read.
     pub source: UsageSource,
-    /// Date range to summarize.
+    /// Date or exact UTC timestamp range to summarize.
     pub range: UsageRange,
     /// Optional timezone name, such as `UTC` or `Asia/Shanghai`.
     pub timezone: Option<String>,
@@ -263,6 +284,12 @@ pub enum SdkError {
     #[error("invalid date range: since {since} is after until {until}")]
     InvalidDateRange { since: NaiveDate, until: NaiveDate },
 
+    #[error("invalid timestamp range: since {since} is after until {until}")]
+    InvalidTimestampRange {
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    },
+
     #[error("{0}")]
     Configuration(String),
 }
@@ -272,13 +299,16 @@ pub enum SdkError {
 /// # Errors
 ///
 /// Returns an error when the source or timezone is invalid, or when an explicit
-/// date range has `since` after `until`.
+/// date or timestamp range has `since` after `until`.
 pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> {
     let timezone = Timezone::parse(options.timezone.as_deref())
         .map_err(|err| SdkError::Configuration(err.to_string()))?;
     let today = timezone.to_fixed_offset(Utc::now()).date_naive();
     let (since, until) = options.range.resolve(today)?;
-    let filter = DateFilter::new(since, until);
+    let mut filter = DateFilter::new(since, until);
+    if let Some((since_timestamp, until_timestamp)) = options.range.timestamp_bounds() {
+        filter = filter.with_exact_timestamp_range(since_timestamp, until_timestamp);
+    }
 
     let source = get_source(options.source.as_str()).ok_or_else(|| SdkError::InvalidSource {
         name: options.source.as_str().to_string(),
@@ -317,7 +347,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
 /// # Errors
 ///
 /// Returns an error when the resolved source or timezone is invalid, or when an
-/// explicit date range has `since` after `until`.
+/// explicit date or timestamp range has `since` after `until`.
 pub fn summarize_cost_with_cli_config(options: SummaryOptions) -> Result<CostSummary, SdkError> {
     let config = load_cli_config()?;
     summarize_cost(apply_cli_config(options, &config))
@@ -566,6 +596,35 @@ mod tests {
         assert!(
             range
                 .resolve(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn usage_range_accepts_exact_utc_timestamps_and_rejects_reversed_bounds() {
+        let payload = serde_json::json!({
+            "timestamp_range": {
+                "since": "2026-08-21T05:41:00Z",
+                "until": "2026-08-21T05:43:00Z"
+            }
+        });
+        let range: UsageRange = serde_json::from_value(payload.clone()).expect("timestamp range");
+
+        assert_eq!(
+            serde_json::to_value(&range).expect("serialize range"),
+            payload
+        );
+
+        let reversed: UsageRange = serde_json::from_value(serde_json::json!({
+            "timestamp_range": {
+                "since": "2026-08-21T05:43:00Z",
+                "until": "2026-08-21T05:41:00Z"
+            }
+        }))
+        .expect("deserialize reversed range");
+        assert!(
+            reversed
+                .resolve(NaiveDate::from_ymd_opt(2026, 8, 21).expect("valid date"))
                 .is_err()
         );
     }

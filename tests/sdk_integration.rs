@@ -633,6 +633,57 @@ fn sdk_batch_respects_timezone_boundaries_like_single_range() {
 }
 
 #[test]
+fn sdk_exact_ranges_preserve_submillisecond_boundaries() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    let session_file = codex_home.join("sessions").join("submillisecond.jsonl");
+    write_file(
+        &session_file,
+        r#"{"timestamp":"2026-08-21T05:41:00.000100Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":110},"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":110},"model":"gpt-5"}}}
+"#,
+    );
+    let range = UsageRange::TimestampRange {
+        since: "2026-08-21T05:41:00.000200Z".parse().expect("valid since"),
+        until: "2026-08-21T05:41:00.000300Z".parse().expect("valid until"),
+    };
+    let previous_codex_home = std::env::var_os("CODEX_HOME");
+    unsafe {
+        std::env::set_var("CODEX_HOME", &codex_home);
+    }
+
+    let single = summarize_cost(SummaryOptions {
+        source: UsageSource::Codex,
+        range: range.clone(),
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        ..SummaryOptions::default()
+    })
+    .expect("summarize exact range");
+    let batch = summarize_cost_ranges(MultiSummaryOptions {
+        source: UsageSource::Codex,
+        ranges: vec![range],
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        strict_pricing: false,
+        currency: None,
+    })
+    .expect("summarize exact range batch");
+
+    match previous_codex_home {
+        Some(value) => unsafe {
+            std::env::set_var("CODEX_HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("CODEX_HOME");
+        },
+    }
+
+    assert_eq!(single.valid_entries, 0);
+    assert_eq!(batch.summaries[0].valid_entries, 0);
+}
+
+#[test]
 fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let root = tempfile::tempdir().expect("temp dir");
@@ -666,6 +717,17 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
         ..SummaryOptions::default()
     })
     .expect("summarize grok");
+    let outside_window = summarize_cost(SummaryOptions {
+        source: UsageSource::Grok,
+        range: UsageRange::TimestampRange {
+            since: "2026-02-06T11:00:00Z".parse().expect("valid since"),
+            until: "2026-02-06T12:00:00Z".parse().expect("valid until"),
+        },
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        ..SummaryOptions::default()
+    })
+    .expect("summarize exact Grok window");
 
     assert_eq!(summary.source, UsageSource::Grok);
     assert_eq!(summary.source_name, "grok");
@@ -684,6 +746,8 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
         summary.models[0].estimated_cost_usd,
         summary.models[0].cost_usd
     );
+    assert_eq!(outside_window.valid_entries, 0);
+    assert_eq!(outside_window.tokens.total_tokens, 0);
 
     let single_json = serde_json::to_value(&summary).expect("serialize single Grok summary");
     assert_eq!(
