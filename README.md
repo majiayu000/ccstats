@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics across 13 local AI coding-agent data sources.
+`ccstats` is a fast CLI for token and cost usage analytics across 15 local AI coding-agent data sources.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -22,6 +22,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Gemini CLI, Amp, and Qwen Code support
 - Cline CLI plus Cline, Roo Code, and Kilo Code VS Code extension support
 - OpenCode SQLite and Pi coding-agent JSONL support
+- GitHub Copilot CLI OpenTelemetry and Goose per-call ledger support
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
@@ -139,15 +140,18 @@ ccstats daily --source roocode
 ccstats daily --source kilocode
 ccstats daily --source opencode
 ccstats daily --source pi
+ccstats daily --source copilot
+ccstats daily --source goose
 ```
 
 Gemini reads both chat JSON and headless JSONL usage. Amp reconciles its usage
 ledger with assistant-message usage without double counting. Qwen reads its
 native usage ledger and separates cached input from uncached input. Cline reads
 both CLI sessions and its VS Code extension task logs; Roo Code and Kilo Code
-use the same extension-log algorithm. OpenCode and Pi preserve positive
-client-recorded USD cost; sources without authoritative per-call cost continue
-to use ccstats' model pricing estimate.
+use the same extension-log algorithm. OpenCode, Pi, and provider-reported Goose
+ledger rows preserve positive client-recorded USD cost. Copilot's documented
+monetary field has no published currency code, so it remains separate from
+ccstats' USD estimate instead of being mislabeled.
 
 ## Crate Documentation
 
@@ -563,7 +567,7 @@ Supported keys:
 | `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
 | `locale` | string | Locale used for number formatting, such as `en` or `de` |
 | `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
-| `source` | string | Source name or alias such as `claude`, `codex`, `gemini`, `amp`, `qwen`, `cline`, `opencode`, `pi`, or `all` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `gemini`, `cline`, `opencode`, `pi`, `copilot`, `goose`, or `all` |
 
 Source root env overrides are independent of config keys:
 
@@ -580,6 +584,8 @@ Source root env overrides are independent of config keys:
 | Cline CLI | `CLINE_SESSION_DATA_DIR` | Cline session directory | `~/.cline/data/sessions` |
 | OpenCode | `OPENCODE_DB`; data root follows `XDG_DATA_HOME` | Exact database path, or relative name inside the OpenCode data directory | Platform data directory under `opencode/opencode*.db` |
 | Pi | `PI_CODING_AGENT_SESSION_DIR`, then `PI_CODING_AGENT_DIR` | Exact sessions directory, or agent directory containing `sessions/` | `~/.pi/agent/sessions` |
+| GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | Exact OTel JSONL exporter file | Also scans `~/.copilot/otel/**/*.jsonl` |
+| Goose | `GOOSE_PATH_ROOT`; data root follows `XDG_DATA_HOME` | Absolute Goose path root containing `data/sessions/sessions.db` | `~/.local/share/goose/sessions/sessions.db` |
 
 Cline also recognizes `CLINE_DATA_DIR` and `CLINE_DIR`. Roo Code and Kilo Code
 currently use their standard local directories.
@@ -605,8 +611,9 @@ cache_read / (input + cache_creation + cache_read) * 100
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
 Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
-Code, Kilo Code, OpenCode, and Pi expose the required cache-read metric. Mixed
-`--source all` output reports the aggregate rate across all selected usage.
+Code, Kilo Code, OpenCode, Pi, GitHub Copilot CLI, and Goose expose the required
+cache-read metric. Mixed `--source all` output reports the aggregate rate across
+all selected usage.
 
 ### Parsing Warnings
 
@@ -634,6 +641,8 @@ Warning: ignored <N> malformed records
 | Kilo Code | VS Code global storage | — | Extension task usage, Cache tokens |
 | OpenCode | Platform data directory under `opencode/opencode*.db` | `OPENCODE_DB`, `XDG_DATA_HOME` | Projects, reasoning/cache tokens, recorded cost, cross-schema deduplication |
 | Pi | `~/.pi/agent/sessions/**/*.jsonl` | `PI_CODING_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` | Projects, assistant + summary usage, cache tokens, branch-copy deduplication |
+| GitHub Copilot CLI | `~/.copilot/otel/**/*.jsonl` | `COPILOT_OTEL_FILE_EXPORTER_PATH` | Per-request `chat` spans, reasoning/cache normalization, cross-file deduplication |
+| Goose | `~/.local/share/goose/sessions/sessions.db` | `GOOSE_PATH_ROOT`, `XDG_DATA_HOME` | Per-call ledger, Projects, cache tokens, provider-reported cost provenance |
 
 ## Architecture
 

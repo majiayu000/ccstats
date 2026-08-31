@@ -11,6 +11,8 @@
 5. 最新 ccstats 已把 Cursor 切到 usage events API，把 Grok 切到逐推理 usage ledger；这两者不再使用旧的本地 SQLite/上下文快照算法。但 Cursor endpoint 仍是未公开稳定协议，provider event cost 也不等同于最终发票。
 6. Tokscale 在固定提交中登记 52 个 client，ccstats 本批实现前登记 11 个 source；41 的原始差额不等于 41 个独立算法。OpenCode、MiMo Code、Kilo CLI 共享一个 SQLite 消息族，Pi、GJC、Senpi、Kimchi、Prime Agent、Oh My Pi 共享一个 JSONL 消息族，另有在线 quota、headless capture 和社交提交等不同系统边界。
 7. OpenCode 与 Pi 已取得当前官方写入端源码证据，可以进入实现。Pi 官方还会给 compaction / branch summary 保存独立 usage，Tokscale 当前普通 Pi parser 未统计这两类真实调用；ccstats 应补上而不是继承这个遗漏。
+8. Copilot CLI 官方将一次 LLM 请求定义为一条 `chat` span；Tokscale 只从 input 扣 cache read、也不从 output 扣 reasoning，会重复计算 cache creation 与 reasoning。ccstats 同时拆除两个 inclusive 子集，并忽略 `invoke_agent` 汇总。
+9. Goose 最新权威数据是 schema v15+ `usage_ledger`。Tokscale 仍读取 session 累计快照、把整段用量记到 session 创建日，并用 total 差额猜 reasoning；ccstats 改读逐调用 ledger，保留 cache、项目、模型、时间和 cost provenance。
 
 ## 证据等级
 
@@ -39,6 +41,8 @@
 | [token-history](https://github.com/keli-wen/token-history/tree/2351bb6ae4606dc0c364abe184ba9ba498ba447c) | `2351bb6` | 以现有 CLI 为输入的历史采集和可视化管线 |
 | [OpenCode](https://github.com/anomalyco/opencode/tree/10765ff2a9da8c3b88e4de873aa383a49c318912) | `10765ff` | 当前 SQLite 路径、v1/v2 message schema、cache 与 cost 归一化 |
 | [Pi](https://github.com/earendil-works/pi/tree/853a80d26c90a14c1886f0ebb8ffaae133ca2185) | `853a80d` | 当前 JSONL session schema、usage/cost 语义、目录环境变量 |
+| [GitHub Copilot CLI](https://github.com/github/copilot-cli/tree/be82101e70f0253b57519bebb9cc9d0f6dfb2ed2) | `be82101` | 当前 OTel 版本与字段变更记录；公开仓库不含运行时源码 |
+| [Goose](https://github.com/aaif-goose/goose/tree/8ae4e4ba02836529790f47109b8785e8b42843a7) | `8ae4e4b` | 当前 SQLite schema、usage ledger、cache/cost 语义与路径 |
 
 官方 schema 证据：
 
@@ -50,6 +54,8 @@
 - [OpenCode `getUsage`](https://github.com/anomalyco/opencode/blob/10765ff2a9da8c3b88e4de873aa383a49c318912/packages/opencode/src/session/session.ts) 会先从 AI SDK inclusive input 中扣除 cache read/write，并把 reasoning 从 output 中扣除；持久化后的五个桶已经互不重叠，consumer 不应再次做减法。
 - [Pi `Usage`](https://github.com/earendil-works/pi/blob/853a80d26c90a14c1886f0ebb8ffaae133ca2185/packages/ai/src/types.ts) 明确 `reasoning` 是 `output` 的子集，而 `totalTokens` 等于 input、output、cache read、cache write 之和；因此 reasoning 只能作为说明，不能再加入 ccstats 的 additive reasoning 桶。
 - [Pi session schema](https://github.com/earendil-works/pi/blob/853a80d26c90a14c1886f0ebb8ffaae133ca2185/packages/coding-agent/src/core/session-manager.ts) 证明 assistant message、compaction 与 branch summary 都可能携带 usage；后两者是独立 LLM 调用，不应静默丢弃。
+- [Copilot CLI OTel 官方文档](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#opentelemetry-monitoring) 定义 file exporter、每请求一条 `chat` span、累计 `invoke_agent` span，以及当前 token/cache/cost 属性；[OpenTelemetry GenAI registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) 定义 cache/reasoning detail bucket 的语义。
+- [Goose `Usage`](https://github.com/aaif-goose/goose/blob/8ae4e4ba02836529790f47109b8785e8b42843a7/crates/goose-provider-types/src/conversation/token_usage.rs) 明确 input 包含 cache read/write；[`session_manager`](https://github.com/aaif-goose/goose/blob/8ae4e4ba02836529790f47109b8785e8b42843a7/crates/goose/src/session/session_manager.rs) 定义 schema v16 `usage_ledger`、逐调用 model/time/cache/cost 与 session project。
 
 ## Tokscale 52-client 差距分解
 
@@ -60,7 +66,7 @@ Tokscale 的 registry 数量适合衡量发现覆盖面，不适合直接衡量�
 | 已覆盖且已审计 | Claude、Codex、Cursor、Gemini、Amp、Kimi、Qwen、Cline、Roo、Kilo Code、Grok | 11 个现有 source | 保持逐来源证据，不回退为通用 extractor |
 | OpenCode SQLite 族 | OpenCode、MiMo Code、Kilo CLI | 同一消息 payload，路径、表版本、成本 provenance 有差异 | 先实现官方 OpenCode；fork 在取得当前写入端 fixture 后复用已验证映射 |
 | Pi JSONL 族 | Pi、GJC、Senpi、Kimchi、Prime Agent、Oh My Pi | 基础 assistant usage 相同；Prime 另有 child/aggregate reconciliation | 先实现官方 Pi 并覆盖 summary usage；fork 分别验证目录与额外记账 |
-| 官方可验证的下一批 | GitHub Copilot CLI、Goose | Copilot 是 OTel；Goose 是 SQLite | 下一批实现，不能与 premium request quota 混算 |
+| 本批新增的独立格式 | GitHub Copilot CLI、Goose | Copilot 是每调用 OTel span；Goose 是 SQLite usage ledger | 已实现，且不与 aggregate span、session snapshot 或 premium request quota 混算 |
 | 独立本地格式候选 | Droid、OpenClaw、Mux、Crush、Hermes、Codebuff、Zed、Kiro、Trae、Warp、Junie、Augment 等 | JSONL、SQLite、IDE cache 混合 | 逐个取得官方 schema 或真实 fixture 后进入 |
 | 产品层而非 token parser | usage/quota、headless wrapper、profile、leaderboard、device/group、autosubmit、MCP | 系统边界不同 | 单列产品路线；不为追求 source 数量混入核心账本 |
 
@@ -91,6 +97,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - Gemini/Qwen：cached 是 input 的子集；thoughts 是独立于 candidates/output 的输出侧桶。
 - Claude：input、output、cache read、cache creation 原生就是分离字段，不再做减法。
 - Cline CLI：持久化 `inputTokens` 包含 cache read/write，因此先扣除两个 cache 桶。
+- Copilot CLI：OTel input/output 分别包含 cache read/write 与 reasoning detail，两个方向都要拆除子集。
+- Goose：官方 input 包含 cache read/write；官方没有 reasoning 字段，不从 total 差额推断。
 
 ### 2. 累积快照必须先转增量
 
@@ -135,6 +143,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 |---|---|---|---|
 | OpenCode | 当前 SQLite `message` + `session_message`；五个桶已在写入端分离；跨表/跨 channel ID 去重 | 官方源码已验证 + Tokscale/ccusage 交叉验证 | 实现为第 12 个 source；保留项目、reasoning、cache 与正的 recorded cost |
 | Pi | JSONL assistant + compaction + branch summary；reasoning 属于 output 子集；branch copy 按 entry ID 去重 | 官方源码已验证 + Tokscale fixture 交叉验证 | 实现为第 13 个 source；补上 Tokscale 普通 Pi parser 未统计的 summary usage |
+| GitHub Copilot CLI | OTel file exporter 的 per-request `chat` span；拆分 cache/reasoning inclusive bucket；trace/span 跨文件去重 | 官方文档已验证 + Tokscale current fixture 交叉验证 | 实现为第 14 个 source；不累计 `invoke_agent`，修复 Tokscale cache creation/reasoning 双计 |
+| Goose | schema v15+ `usage_ledger`；逐调用时间/model/cache/cost，join session project | 官方源码已验证 + Tokscale parser 对比 | 实现为第 15 个 source；不使用 session snapshot，不猜 reasoning，只接受 provider-reported cost provenance |
 
 ## 本轮采用、适配、拒绝决策
 
@@ -151,6 +161,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - CodexBar 的“本地 cost”和“在线 quota”分层概念，但不引入其桌面账户管理层。
 - Tokscale 的 OpenCode 双表发现与跨表去重思路，但以当前 OpenCode 官方 schema 为字段语义权威。
 - Tokscale 的 Pi assistant 记录筛选；额外统计官方 schema 已证明的 compaction / branch summary usage。
+- Copilot 使用 Tokscale 已观察到的 file-export JSONL 外形和 trace/span 去重思路，但记录选择与字段语义以当前 GitHub/OTel 文档为准。
+- Goose 采用官方 usage ledger，而不是适配 Tokscale 的 session aggregate query。
 
 ### 拒绝
 
@@ -158,13 +170,15 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - 使用一个通用字段别名表处理所有供应商：相同名称在不同 API 中可能是包含值或独立值。
 - 根据 prompt/response 文本重新 tokenizer：模型 tokenizer、隐藏 system prompt、tool schema 和服务端缓存都不可完整重建。
 - 在没有验证 USD 单位和调用归属时导入 credits/reported cost：即使模型支持 provenance，也会把不同口径的值混在一起。
+- 把 Copilot `invoke_agent` 和 child `chat` 一起相加，或把未声明 currency 的 `github.copilot.cost` 直接标成 USD。
+- 把 Goose `total-input-output` 猜成 reasoning，或把累计 session snapshot 伪装成创建日的一次调用。
 
 ## 后续数据源批次
 
 新增来源必须先取得官方 schema 或两个独立 fixture，再进入实现。建议顺序：
 
-1. Batch 1：OpenCode + Pi + discovery→parse→aggregate→CLI 端到端矩阵。两者都有当前官方 schema，分别建立 SQLite 与 JSONL 的基准实现。
-2. Batch 2：GitHub Copilot CLI OTel + Goose SQLite。两者都有官方文档证明 token 数据落点。
+1. Batch 1（已完成）：OpenCode + Pi + discovery→parse→aggregate→CLI 端到端矩阵。
+2. Batch 2（已完成）：GitHub Copilot CLI OTel + Goose per-call SQLite ledger。
 3. Batch 3：OpenCode/Pi fork family。逐个确认写入端版本、目录覆盖和 fork 特有的去重/child usage 后复用基准算法。
 4. Batch 4：Droid、Kiro、Zed、Warp 等独立格式。没有官方 schema 时必须取得匿名化真实 fixture 和第二实现交叉验证。
 5. Product track：桌面应用、quota、实时观测与多机器历史；与 authoritative token ledger 保持 provenance 隔离。
