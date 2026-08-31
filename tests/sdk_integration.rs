@@ -667,15 +667,6 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     })
     .expect("summarize grok");
 
-    match previous_grok_home {
-        Some(value) => unsafe {
-            std::env::set_var("GROK_HOME", value);
-        },
-        None => unsafe {
-            std::env::remove_var("GROK_HOME");
-        },
-    }
-
     assert_eq!(summary.source, UsageSource::Grok);
     assert_eq!(summary.source_name, "grok");
     assert_eq!(summary.valid_entries, 1);
@@ -692,5 +683,41 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     assert_eq!(
         summary.models[0].estimated_cost_usd,
         summary.models[0].cost_usd
+    );
+
+    let single_json = serde_json::to_value(&summary).expect("serialize single Grok summary");
+    assert_eq!(
+        single_json["api_equivalent_cost_coverage"]["total_tokens"],
+        1500
+    );
+    assert_eq!(
+        single_json["api_equivalent_cost_coverage"]["priced_tokens"],
+        0
+    );
+
+    let batch = summarize_cost_ranges(MultiSummaryOptions {
+        source: UsageSource::Grok,
+        ranges: vec![UsageRange::DateRange {
+            since: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+            until: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+        }],
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        strict_pricing: false,
+        currency: None,
+    })
+    .expect("summarize Grok batch");
+    match previous_grok_home {
+        Some(value) => unsafe {
+            std::env::set_var("GROK_HOME", value);
+        },
+        None => unsafe {
+            std::env::remove_var("GROK_HOME");
+        },
+    }
+    let batch_json = serde_json::to_value(&batch).expect("serialize batch Grok summary");
+    assert_eq!(
+        batch_json["summaries"][0]["api_equivalent_cost_coverage"]["total_tokens"],
+        1500
     );
 }

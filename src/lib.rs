@@ -35,12 +35,13 @@ mod sources_cmd;
 mod utils;
 
 pub use sdk::{
-    CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, CodexWeeklyValueError,
-    CodexWeeklyValueEstimate, CodexWeeklyValueWindow, CodexWeeklyValueWindowError, CostSummary,
-    ModelCostSummary, MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions,
-    TokenBreakdown, UsageRange, UsageSource, estimate_codex_weekly_value,
-    estimate_codex_weekly_value_for_window, load_codex_weekly_quota, summarize_cost,
-    summarize_cost_ranges, summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
+    ApiEquivalentCostCoverage, CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota,
+    CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
+    CodexWeeklyValueWindowError, CostSummary, ModelCostSummary, MultiCostSummary,
+    MultiSummaryOptions, SdkError, SummaryOptions, TokenBreakdown, UsageRange, UsageSource,
+    estimate_codex_weekly_value, estimate_codex_weekly_value_for_window, load_codex_weekly_quota,
+    summarize_cost, summarize_cost_ranges, summarize_cost_ranges_with_cli_config,
+    summarize_cost_with_cli_config,
 };
 
 use chrono::{NaiveDate, Utc};

@@ -523,7 +523,9 @@ fn render_period_result(
                     cost_mode,
                 },
             );
-            cost_coverage::print_note(cost_coverage);
+            if ctx.cli.show_cost() {
+                cost_coverage::print_note(cost_coverage);
+            }
             if let Some(budget) = monthly_budget {
                 let reports = monthly_budget_reports(
                     &result.day_stats,
@@ -662,12 +664,18 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
         print_no_data_hint("All Sources", "usage");
         return;
     }
+    let cost_coverage = all_sources()
+        .filter_map(|source| source.cost_coverage(ctx.filter, ctx.timezone))
+        .reduce(|left, right| CostCoverage {
+            total_tokens: left.total_tokens.saturating_add(right.total_tokens),
+            priced_tokens: left.priced_tokens.saturating_add(right.priced_tokens),
+        });
     render_period_result(
         &result,
         period,
         &caps,
         None,
-        None,
+        cost_coverage,
         ctx,
         CostDisplayMode::RealOnly,
     );

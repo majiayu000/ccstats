@@ -73,11 +73,9 @@ struct UpdateEnvelope {
 }
 
 fn get_grok_sessions_dir() -> Option<PathBuf> {
-    if let Ok(grok_home) = env::var(GROK_HOME_ENV) {
+    if let Some(grok_home) = env::var_os(GROK_HOME_ENV) {
         let path = PathBuf::from(grok_home).join(SESSIONS_SUBDIR);
-        if path.is_dir() {
-            return Some(path);
-        }
+        return path.is_dir().then_some(path);
     }
 
     let home = dirs::home_dir()?;

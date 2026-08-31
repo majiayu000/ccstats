@@ -34,7 +34,7 @@ impl CostCoverage {
     }
 
     pub(crate) fn is_partial(self) -> bool {
-        self.priced_tokens < self.total_tokens
+        self.total_tokens <= 0 || self.priced_tokens != self.total_tokens
     }
 }
 
@@ -163,4 +163,20 @@ pub(crate) fn load_endpoints(
     timezone: Timezone,
 ) -> Vec<crate::core::EndpointStats> {
     loader::DataLoader::new(source, false, false).load_endpoints(filter, timezone)
+}
+
+#[cfg(test)]
+mod cost_coverage_tests {
+    use super::CostCoverage;
+
+    #[test]
+    fn priced_tokens_without_a_total_are_incomplete() {
+        let coverage = CostCoverage {
+            total_tokens: 0,
+            priced_tokens: 120,
+        };
+
+        assert!(coverage.is_partial());
+        assert!(coverage.percent().abs() < f64::EPSILON);
+    }
 }
