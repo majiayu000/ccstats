@@ -135,10 +135,13 @@ fn doctor_reports_openclaw_config_errors_instead_of_detecting_the_sentinel() {
 #[test]
 fn doctor_reports_senpi_config_errors_instead_of_detecting_the_sentinel() {
     let root = unique_temp_dir("doctor-senpi-config");
-    write_file(&root.join(".senpi/settings.jsonc"), "{broken");
+    let project = root.join("project");
+    let workspace = project.join("workspace");
+    write_file(&project.join(".senpi/settings.jsonc"), "{broken");
+    fs::create_dir_all(&workspace).expect("create workspace");
     let (ok, stdout, stderr) = run_ccstats(
         &["doctor", "--json"],
-        &[("HOME", &root), ("CCSTATS_TEST_CWD", &root)],
+        &[("HOME", &root), ("CCSTATS_TEST_CWD", &workspace)],
     );
 
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
