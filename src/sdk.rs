@@ -17,7 +17,7 @@ use crate::pricing::{
     CurrencyConverter, PricingDb, calculate_cost, calculate_estimated_proxy_cost, model_cost_kind,
     sum_estimated_proxy_model_costs, sum_model_costs,
 };
-use crate::source::{Source, get_source, load_daily};
+use crate::source::{CostCoverage, Source, get_source, load_daily};
 use crate::utils::Timezone;
 
 pub use crate::source::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
@@ -231,6 +231,28 @@ pub struct ModelCostSummary {
     pub tokens: TokenBreakdown,
 }
 
+/// Coverage of API-equivalent pricing for sources with partial request telemetry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApiEquivalentCostCoverage {
+    pub total_tokens: i64,
+    pub priced_tokens: i64,
+    pub percent: f64,
+    pub complete: bool,
+    pub cost_is_lower_bound: bool,
+}
+
+impl From<CostCoverage> for ApiEquivalentCostCoverage {
+    fn from(coverage: CostCoverage) -> Self {
+        Self {
+            total_tokens: coverage.total_tokens,
+            priced_tokens: coverage.priced_tokens,
+            percent: coverage.percent(),
+            complete: !coverage.is_partial(),
+            cost_is_lower_bound: coverage.is_partial(),
+        }
+    }
+}
+
 /// Structured usage and cost summary for SDK consumers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CostSummary {
@@ -246,6 +268,7 @@ pub struct CostSummary {
     pub estimated_cost: Option<f64>,
     pub estimated_cost_usd: Option<f64>,
     pub cost_kind: String,
+    pub api_equivalent_cost_coverage: Option<ApiEquivalentCostCoverage>,
     pub tokens: TokenBreakdown,
     pub models: Vec<ModelCostSummary>,
     pub valid_entries: i64,
@@ -301,6 +324,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
     );
 
     let result = load_daily(source, &filter, timezone, true, false);
+    let cost_coverage = source.cost_coverage(&filter, timezone);
     Ok(build_cost_summary(
         options.source,
         source,
@@ -311,6 +335,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
         &pricing_db,
         currency.as_ref(),
         &currency_code,
+        cost_coverage,
     ))
 }
 
@@ -376,6 +401,7 @@ pub(in crate::sdk) fn build_cost_summary(
     pricing_db: &PricingDb,
     currency: Option<&CurrencyConverter>,
     currency_code: &str,
+    cost_coverage: Option<CostCoverage>,
 ) -> CostSummary {
     let (stats, models) = merge_days(&result.day_stats);
     let cost_usd = finite_cost(sum_model_costs(&models, pricing_db));
@@ -396,6 +422,7 @@ pub(in crate::sdk) fn build_cost_summary(
         estimated_cost: convert_cost(estimated_cost_usd, currency),
         estimated_cost_usd,
         cost_kind: model_cost_kind(&models).as_str().to_string(),
+        api_equivalent_cost_coverage: cost_coverage.map(Into::into),
         tokens: TokenBreakdown::from_stats(&stats, supports_cache_read),
         models: summarize_models(&models, pricing_db, currency, supports_cache_read),
         valid_entries: result.valid,

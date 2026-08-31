@@ -111,6 +111,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         .into_iter()
         .zip(results.iter())
         .map(|(range, result)| {
+            let cost_coverage = source.cost_coverage(&range.filter, timezone);
             build_cost_summary(
                 usage_source,
                 source,
@@ -121,6 +122,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
                 &pricing_db,
                 currency.as_ref(),
                 &currency_code,
+                cost_coverage,
             )
         })
         .collect();

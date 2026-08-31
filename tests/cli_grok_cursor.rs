@@ -95,6 +95,25 @@ fn write_partial_grok_inference_log(grok_home: &Path) {
     );
 }
 
+fn write_grok_snapshot_with_inference(grok_home: &Path) {
+    let session_dir = grok_home
+        .join("sessions")
+        .join("%2Ftmp%2Fgrok-project")
+        .join("grok-snapshot-session");
+    write_file(
+        &session_dir.join("signals.json"),
+        r#"{"contextTokensUsed":1500,"primaryModelId":"grok-4.5-build"}"#,
+    );
+    write_file(
+        &session_dir.join("summary.json"),
+        r#"{"updated_at":"2026-08-16T10:00:00Z","current_model_id":"grok-4.5-build"}"#,
+    );
+    write_file(
+        &grok_home.join("logs/unified.jsonl"),
+        r#"{"ts":"2026-08-16T10:00:00Z","sid":"grok-snapshot-session","msg":"shell.turn.inference_done","ctx":{"loop_index":1,"prompt_tokens":100,"cached_prompt_tokens":50,"completion_tokens":10,"reasoning_tokens":0}}"#,
+    );
+}
+
 fn write_grok_update_only_session(grok_home: &Path) {
     let session_dir = grok_home
         .join("sessions")
@@ -192,6 +211,144 @@ fn grok_keeps_complete_turn_tokens_and_marks_partial_api_cost() {
     );
     assert!(
         table.contains("displayed cost is a lower bound"),
+        "table: {table}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn grok_does_not_add_snapshot_estimate_to_inference_cost() {
+    let root = unique_temp_dir("grok-snapshot-inference-cost");
+    let grok_home = root.join("grok-home");
+    write_grok_snapshot_with_inference(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "daily",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-08-16",
+            "--until",
+            "2026-08-16",
+        ],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let row = &json.as_array().expect("array output")[0];
+    assert_eq!(row["total_tokens"].as_i64(), Some(1500));
+    assert_close(row["cost"].as_f64().expect("inference cost"), 0.000_175);
+    assert!(
+        row["estimated_cost"]
+            .as_f64()
+            .is_some_and(|cost| cost > 0.0)
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn explicit_grok_home_never_reads_default_sessions() {
+    let root = unique_temp_dir("grok-home-isolation");
+    let explicit_home = root.join("isolated-grok-home");
+    write_grok_turn_session(&root.join(".grok"));
+    write_file(
+        &explicit_home.join("logs/unified.jsonl"),
+        r#"{"ts":"2026-08-16T00:00:00Z","sid":"isolated-session","msg":"shell.turn.inference_done","ctx":{"loop_index":1,"prompt_tokens":100,"cached_prompt_tokens":40,"completion_tokens":20,"reasoning_tokens":5}}"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-08-16",
+            "--until",
+            "2026-08-16",
+        ],
+        &[("GROK_HOME", &explicit_home), ("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let row = &json.as_array().expect("array output")[0];
+    assert_eq!(row["total_tokens"].as_i64(), Some(0));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn all_sources_preserves_partial_grok_cost_coverage() {
+    let root = unique_temp_dir("all-sources-grok-coverage");
+    let grok_home = root.join("grok-home");
+    write_grok_turn_session(&grok_home);
+    write_partial_grok_inference_log(&grok_home);
+    write_claude_session_at(&root, "2026-08-16T12:00:00Z");
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "all",
+            "-j",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-08-16",
+            "--until",
+            "2026-08-17",
+        ],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let coverage = &json.as_array().expect("array output")[0]["api_equivalent_cost_coverage"];
+    assert_eq!(coverage["total_tokens"].as_i64(), Some(180));
+    assert_eq!(coverage["priced_tokens"].as_i64(), Some(120));
+    assert_eq!(coverage["cost_is_lower_bound"].as_bool(), Some(true));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn no_cost_table_omits_api_cost_lower_bound_note() {
+    let root = unique_temp_dir("grok-no-cost-coverage-note");
+    let grok_home = root.join("grok-home");
+    write_grok_turn_session(&grok_home);
+    write_partial_grok_inference_log(&grok_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "grok",
+            "daily",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-08-16",
+            "--until",
+            "2026-08-17",
+        ],
+        &[("GROK_HOME", &grok_home), ("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let table = String::from_utf8(stdout).expect("utf8 table");
+    assert!(
+        !table.contains("displayed cost is a lower bound"),
         "table: {table}"
     );
 

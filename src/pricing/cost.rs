@@ -44,10 +44,11 @@ fn combine_recorded_and_priced(recorded_usd: f64, priced: f64, priced_tokens: Co
 
 pub(crate) fn calculate_cost(stats: &Stats, model: &str, pricing_db: &PricingDb) -> f64 {
     if stats.recorded_cost_entries > 0 {
+        let priced = stats.priced_tokens.saturating_sub(&stats.estimated_proxy);
         combine_recorded_and_priced(
             stats.recorded_cost_usd,
-            calculate_token_cost(stats.priced_tokens, model, pricing_db),
-            stats.priced_tokens,
+            calculate_token_cost(priced, model, pricing_db),
+            priced,
         )
     } else {
         calculate_token_cost(stats.cost_tokens(), model, pricing_db)
@@ -408,5 +409,27 @@ mod tests {
             pricing_source_for_model_stats("fable-5", &stats, &db),
             PricingSource::Mixed
         );
+    }
+
+    #[test]
+    fn recorded_cost_does_not_include_overlapping_proxy_estimate() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let estimated_proxy = CostTokens {
+            input_tokens: 1_000_000,
+            count: 1,
+            ..Default::default()
+        };
+        let stats = Stats {
+            input_tokens: 1_000_000,
+            count: 1,
+            recorded_cost_entries: 1,
+            recorded_cost_usd: 2.5,
+            priced_tokens: estimated_proxy,
+            estimated_proxy,
+            ..Default::default()
+        };
+
+        assert!((calculate_cost(&stats, "fable-5", &db) - 2.5).abs() < 1e-12);
+        assert!((calculate_estimated_proxy_cost(&stats, "fable-5", &db) - 10.0).abs() < 1e-12);
     }
 }
