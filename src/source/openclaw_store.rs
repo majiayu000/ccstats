@@ -34,7 +34,10 @@ pub(super) fn find_transcript_stores() -> Vec<PathBuf> {
                 .filter(|path| is_counted_transcript(path) || is_sqlite_store(path)),
         );
     }
-    paths.extend(configured_stores(&root, &home));
+    match configured_stores(&root, &home) {
+        Ok(configured) => paths.extend(configured),
+        Err(config_path) => paths.push(config_path),
+    }
     paths.sort();
     paths.dedup();
     paths
@@ -114,20 +117,20 @@ struct AgentConfig {
     agent_dir: Option<String>,
 }
 
-fn configured_stores(root: &Path, home: &Path) -> Vec<PathBuf> {
-    let config_path = env::var_os(OPENCLAW_CONFIG_PATH_ENV)
+fn configured_stores(root: &Path, home: &Path) -> Result<Vec<PathBuf>, PathBuf> {
+    let explicit_config = env::var_os(OPENCLAW_CONFIG_PATH_ENV)
         .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .map_or_else(
-            || root.join("openclaw.json"),
-            |path| resolve_path(&path, home),
-        );
-    let Ok(content) = fs::read_to_string(config_path) else {
-        return Vec::new();
+        .map(PathBuf::from);
+    let config_path = explicit_config.clone().map_or_else(
+        || root.join("openclaw.json"),
+        |path| resolve_path(&path, home),
+    );
+    let content = match fs::read_to_string(&config_path) {
+        Ok(content) => content,
+        Err(_) if explicit_config.is_none() && !config_path.exists() => return Ok(Vec::new()),
+        Err(_) => return Err(config_path),
     };
-    let Ok(config) = json5::from_str::<OpenClawConfig>(&content) else {
-        return Vec::new();
-    };
+    let config = json5::from_str::<OpenClawConfig>(&content).map_err(|_| config_path.clone())?;
     let mut agent_ids = vec!["main"];
     agent_ids.extend(
         config
@@ -161,7 +164,7 @@ fn configured_stores(root: &Path, home: &Path) -> Vec<PathBuf> {
         let path = resolve_path(Path::new(&agent_dir), home).join("openclaw-agent.sqlite");
         path.is_file().then_some(path)
     }));
-    paths
+    Ok(paths)
 }
 
 fn configured_session_store_paths(store: &Path) -> Vec<PathBuf> {

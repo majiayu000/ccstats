@@ -126,6 +126,7 @@ fn build_entry(
     row: TranscriptRow,
     session_id: &str,
     project_path: &str,
+    session_started_ms: Option<i64>,
     current_provider: Option<&str>,
     current_model: Option<&str>,
     timezone: Timezone,
@@ -176,6 +177,7 @@ fn build_entry(
         .unwrap_or_else(|| UNKNOWN.to_string());
     let timestamp = timestamp_from_row(message.timestamp, row.timestamp.as_deref())?;
     let timestamp_ms = timestamp.timestamp_millis();
+    let is_copied_history = session_started_ms.is_some_and(|started| timestamp_ms < started);
 
     Ok(Some(RawEntry {
         timestamp: timestamp.to_rfc3339(),
@@ -196,7 +198,7 @@ fn build_entry(
         cache_creation_1h: usage.cache_write_1h,
         cache_read: usage.cache_read,
         reasoning_tokens: 0,
-        stop_reason: Some("completed".to_string()),
+        stop_reason: (!is_copied_history).then(|| "completed".to_string()),
         cost_kind: CostKind::Real,
         endpoint: Endpoint::Unknown,
         call_count: 1,
@@ -236,6 +238,7 @@ fn parse_lines(lines: Vec<String>, timezone: Timezone) -> ParseOutput {
     let mut output = ParseOutput::default();
     let mut session_id = None;
     let mut project_path = None;
+    let mut session_started_ms = None;
     let mut current_provider = None;
     let mut current_model = None;
 
@@ -249,12 +252,15 @@ fn parse_lines(lines: Vec<String>, timezone: Timezone) -> ParseOutput {
         };
         match row.kind.as_str() {
             "session" => {
-                if row.version.is_some_and(|version| version != 3)
-                    || row.id.as_deref().is_none_or(str::is_empty)
-                {
+                if row.version != Some(3) || row.id.as_deref().is_none_or(str::is_empty) {
                     output.errors += 1;
                     continue;
                 }
+                session_started_ms = row
+                    .timestamp
+                    .as_deref()
+                    .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                    .map(|value| value.timestamp_millis());
                 session_id = row.id;
                 project_path = non_empty(row.cwd);
             }
@@ -279,6 +285,7 @@ fn parse_lines(lines: Vec<String>, timezone: Timezone) -> ParseOutput {
                     row,
                     session_id,
                     project_path,
+                    session_started_ms,
                     current_provider.as_deref(),
                     current_model.as_deref(),
                     timezone,
@@ -293,3 +300,7 @@ fn parse_lines(lines: Vec<String>, timezone: Timezone) -> ParseOutput {
     }
     output
 }
+
+#[cfg(test)]
+#[path = "openclaw_tests.rs"]
+mod tests;
