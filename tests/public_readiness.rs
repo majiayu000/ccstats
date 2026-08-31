@@ -49,3 +49,38 @@ fn public_docs_describe_the_full_registry_without_exact_setup_promises() {
     assert!(changelog.contains("all 29 registered sources"));
     assert!(doctor.contains("registered source diagnostics"));
 }
+
+#[test]
+fn changelog_names_every_source_added_across_the_nine_provider_batches() {
+    let changelog = fs::read_to_string("CHANGELOG.md").expect("changelog");
+    let release = changelog
+        .split_once("## [0.5.1]")
+        .expect("0.5.1 release")
+        .1
+        .split_once("## [0.5.0]")
+        .expect("0.5.0 release follows 0.5.1")
+        .0;
+
+    assert!(release.contains("5 to 29 sources across nine provider batches"));
+    for batch in [
+        "Gemini CLI, Amp, Qwen Code, Cline, Roo Code, and Kilo Code",
+        "OpenCode, MiMo Code, and Kilo CLI",
+        "Pi, Senpi, and Kimchi",
+        "Gajae Code, Prime Agent, and Oh My Pi",
+        "GitHub Copilot CLI and Goose",
+        "OpenClaw, Xum, and Hermes Agent",
+        "Reasonix and Vercel Fx",
+        "Unsloth Studio",
+        "DeepSeek Harness",
+    ] {
+        assert!(release.contains(batch), "0.5.1 does not name batch {batch}");
+    }
+}
+
+#[test]
+fn crate_docs_name_the_final_two_registered_sources() {
+    let crate_docs = fs::read_to_string("src/lib.rs").expect("crate docs");
+
+    assert!(crate_docs.contains("Unsloth Studio"));
+    assert!(crate_docs.contains("DeepSeek Harness"));
+}

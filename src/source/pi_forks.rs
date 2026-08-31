@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
 use crate::utils::Timezone;
 use chrono::{DateTime, Utc};
 
 use super::pi_fork_paths::{
-    find_gjc_files, find_omp_files, find_prime_files, inherited_project_path,
-    linked_child_transcript, parent_transcript,
+    diagnose_omp_files, diagnose_prime_files, find_gjc_files, find_omp_files, find_prime_files,
+    inherited_project_path, linked_child_transcript, parent_transcript,
 };
 use super::pi_fork_schema::{
     ForkUsage, PrimeAttribution, SessionEntry, SessionHeader, SessionRecord,
@@ -97,7 +97,7 @@ fn capabilities(has_reasoning: bool) -> Capabilities {
 }
 
 macro_rules! source_impl {
-    ($source:ty, $name:literal, $display:literal, $aliases:expr, $profile:expr, $find:ident) => {
+    ($source:ty, $name:literal, $display:literal, $aliases:expr, $profile:expr, $find:ident, $diagnose:expr, $error:literal) => {
         impl Source for $source {
             fn name(&self) -> &'static str {
                 $name
@@ -113,6 +113,21 @@ macro_rules! source_impl {
 
             fn capabilities(&self) -> Capabilities {
                 capabilities($profile.has_reasoning)
+            }
+
+            fn diagnose(&self) -> SourceDiagnostic {
+                match ($diagnose)() {
+                    Err(()) => SourceDiagnostic::missing($error),
+                    Ok(0) => SourceDiagnostic::missing(concat!(
+                        "No ",
+                        $display,
+                        " local usage files found"
+                    )),
+                    Ok(files) => SourceDiagnostic::detected(
+                        files,
+                        format!("Found {files} {} local usage file(s)", $display),
+                    ),
+                }
             }
 
             fn find_files(&self) -> Vec<PathBuf> {
@@ -132,7 +147,9 @@ source_impl!(
     "Gajae Code",
     &["gajae-code"],
     ForkProfile::gjc(),
-    find_gjc_files
+    find_gjc_files,
+    || Ok(find_gjc_files().len()),
+    "Gajae Code configuration could not be read or parsed"
 );
 source_impl!(
     PrimeSource,
@@ -140,7 +157,9 @@ source_impl!(
     "Prime Agent",
     &["prime-agent"],
     ForkProfile::prime(),
-    find_prime_files
+    find_prime_files,
+    diagnose_prime_files,
+    "Prime Agent configuration could not be read or parsed"
 );
 source_impl!(
     OmpSource,
@@ -148,7 +167,9 @@ source_impl!(
     "Oh My Pi",
     &["oh-my-pi"],
     ForkProfile::omp(),
-    find_omp_files
+    find_omp_files,
+    diagnose_omp_files,
+    "OMP_PROFILE is invalid"
 );
 
 fn parse_timestamp(

@@ -2,7 +2,8 @@
 //! Claude Code, `OpenAI` Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp,
 //! Qwen Code, Cline, Roo Code, Kilo Code, `OpenCode`, `MiMo` Code, Kilo CLI, Pi,
 //! Senpi, Kimchi, Gajae Code, Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose,
-//! `OpenClaw`, Xum, Hermes Agent, Reasonix, and Vercel Fx local usage data.
+//! `OpenClaw`, Xum, Hermes Agent, Reasonix, Vercel Fx, Unsloth Studio, and
+//! `DeepSeek Harness` local usage data.
 //!
 //! The public SDK entry points are [`summarize_cost`] and
 //! [`summarize_cost_ranges`] for cost analytics, [`load_codex_weekly_quota`]

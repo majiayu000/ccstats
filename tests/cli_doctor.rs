@@ -133,6 +133,84 @@ fn doctor_reports_openclaw_config_errors_instead_of_detecting_the_sentinel() {
 }
 
 #[test]
+fn doctor_reports_senpi_config_errors_instead_of_detecting_the_sentinel() {
+    let root = unique_temp_dir("doctor-senpi-config");
+    write_file(&root.join(".senpi/settings.jsonc"), "{broken");
+    let (ok, stdout, stderr) = run_ccstats(
+        &["doctor", "--json"],
+        &[("HOME", &root), ("CCSTATS_TEST_CWD", &root)],
+    );
+
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let rows: Value = serde_json::from_slice(&stdout).expect("doctor json");
+    let senpi = rows
+        .as_array()
+        .expect("array output")
+        .iter()
+        .find(|row| row["name"] == "senpi")
+        .expect("Senpi diagnostic");
+    assert_eq!(senpi["status"], "missing");
+    assert_eq!(senpi["files"], 0);
+    assert_eq!(
+        senpi["detail"],
+        "Senpi configuration could not be read or parsed"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn doctor_reports_prime_config_errors_instead_of_detecting_the_sentinel() {
+    let root = unique_temp_dir("doctor-prime-config");
+    write_file(&root.join(".prime/agent/settings.json"), "{broken");
+    let (ok, stdout, stderr) = run_ccstats(
+        &["doctor", "--json"],
+        &[("HOME", &root), ("CCSTATS_TEST_CWD", &root)],
+    );
+
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let rows: Value = serde_json::from_slice(&stdout).expect("doctor json");
+    let prime = rows
+        .as_array()
+        .expect("array output")
+        .iter()
+        .find(|row| row["name"] == "prime")
+        .expect("Prime diagnostic");
+    assert_eq!(prime["status"], "missing");
+    assert_eq!(prime["files"], 0);
+    assert_eq!(
+        prime["detail"],
+        "Prime Agent configuration could not be read or parsed"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn doctor_reports_invalid_omp_profile_instead_of_detecting_the_sentinel() {
+    let root = unique_temp_dir("doctor-omp-profile");
+    let invalid_profile = Path::new("../escape");
+    let (ok, stdout, stderr) = run_ccstats(
+        &["doctor", "--json"],
+        &[("HOME", &root), ("OMP_PROFILE", invalid_profile)],
+    );
+
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let rows: Value = serde_json::from_slice(&stdout).expect("doctor json");
+    let omp = rows
+        .as_array()
+        .expect("array output")
+        .iter()
+        .find(|row| row["name"] == "omp")
+        .expect("Oh My Pi diagnostic");
+    assert_eq!(omp["status"], "missing");
+    assert_eq!(omp["files"], 0);
+    assert_eq!(omp["detail"], "OMP_PROFILE is invalid");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn doctor_table_gives_a_next_step_when_no_sources_are_detected() {
     let root = unique_temp_dir("doctor-empty");
     let (ok, stdout, stderr) = run_ccstats(&["doctor"], &[("HOME", &root)]);
