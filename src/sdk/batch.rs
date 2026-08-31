@@ -188,8 +188,8 @@ fn resolve_ranges(ranges: &[UsageRange], today: NaiveDate) -> Result<Vec<Resolve
         .map(|range| {
             let (since, until) = range.resolve(today)?;
             let mut filter = DateFilter::new(since, until);
-            if let Some((since_timestamp_ms, until_timestamp_ms)) = range.timestamp_bounds() {
-                filter = filter.with_timestamp_range(since_timestamp_ms, until_timestamp_ms);
+            if let Some((since_timestamp, until_timestamp)) = range.timestamp_bounds() {
+                filter = filter.with_exact_timestamp_range(since_timestamp, until_timestamp);
             }
             Ok(ResolvedRange {
                 range: range.clone(),
@@ -204,7 +204,9 @@ fn resolve_ranges(ranges: &[UsageRange], today: NaiveDate) -> Result<Vec<Resolve
 fn contains_any_range(entry: &RawEntry, date: NaiveDate, ranges: &[ResolvedRange]) -> bool {
     ranges.iter().any(|range| {
         if range.filter.has_timestamp_range() {
-            range.filter.contains_timestamp(entry.timestamp_ms)
+            range
+                .filter
+                .contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms)
         } else {
             range.filter.contains(date)
         }
@@ -217,7 +219,8 @@ fn load_daily_ranges(
     timezone: Timezone,
 ) -> Vec<LoadResult> {
     let start = Instant::now();
-    let files = source.find_files();
+    let discovery_filter = discovery_filter(ranges);
+    let files = source.find_files_for_filter(&discovery_filter, timezone);
     if files.is_empty() {
         return ranges.iter().map(|_| LoadResult::default()).collect();
     }
@@ -287,7 +290,7 @@ fn aggregate_entries_for_filter(
         .iter()
         .filter(|entry| {
             if filter.has_timestamp_range() {
-                filter.contains_timestamp(entry.timestamp_ms)
+                filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms)
             } else {
                 NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
                     .is_ok_and(|date| filter.contains(date))
@@ -310,6 +313,37 @@ fn aggregate_entries_for_filter(
     load_result_from_entries(filtered, 0)
 }
 
+fn discovery_filter(ranges: &[ResolvedRange]) -> DateFilter {
+    let since = ranges
+        .iter()
+        .all(|range| range.since.is_some())
+        .then(|| ranges.iter().filter_map(|range| range.since).min())
+        .flatten();
+    let until = ranges
+        .iter()
+        .all(|range| range.until.is_some())
+        .then(|| ranges.iter().filter_map(|range| range.until).max())
+        .flatten();
+    let mut filter = DateFilter::new(since, until);
+    if ranges
+        .iter()
+        .all(|range| range.filter.has_timestamp_range())
+        && let (Some(since), Some(until)) = (
+            ranges
+                .iter()
+                .filter_map(|range| range.range.timestamp_bounds().map(|bounds| bounds.0))
+                .min(),
+            ranges
+                .iter()
+                .filter_map(|range| range.range.timestamp_bounds().map(|bounds| bounds.1))
+                .max(),
+        )
+    {
+        filter = filter.with_exact_timestamp_range(since, until);
+    }
+    filter
+}
+
 fn load_result_from_entries(entries: Vec<RawEntry>, skipped: i64) -> LoadResult {
     let valid = entries.len() as i64;
     LoadResult {
@@ -325,7 +359,7 @@ fn load_result_from_entries(entries: Vec<RawEntry>, skipped: i64) -> LoadResult 
 mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
     use crate::core::RawEntry;
     use crate::source::{Capabilities, ParseOutput};
@@ -359,6 +393,8 @@ mod tests {
             endpoint: crate::core::Endpoint::Unknown,
             call_count: 1,
             recorded_cost_usd: Some(0.1),
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         }
     }
 
@@ -420,6 +456,56 @@ mod tests {
                 }],
                 errors: 0,
             }
+        }
+    }
+
+    struct BoundedSource {
+        unfiltered_calls: AtomicUsize,
+        filtered_calls: AtomicUsize,
+        since_ms: AtomicI64,
+        until_ms: AtomicI64,
+    }
+
+    impl Default for BoundedSource {
+        fn default() -> Self {
+            Self {
+                unfiltered_calls: AtomicUsize::new(0),
+                filtered_calls: AtomicUsize::new(0),
+                since_ms: AtomicI64::new(0),
+                until_ms: AtomicI64::new(0),
+            }
+        }
+    }
+
+    impl Source for BoundedSource {
+        fn name(&self) -> &'static str {
+            "bounded"
+        }
+
+        fn capabilities(&self) -> Capabilities {
+            Capabilities::default()
+        }
+
+        fn find_files(&self) -> Vec<PathBuf> {
+            self.unfiltered_calls.fetch_add(1, Ordering::SeqCst);
+            Vec::new()
+        }
+
+        fn find_files_for_filter(&self, filter: &DateFilter, _timezone: Timezone) -> Vec<PathBuf> {
+            self.filtered_calls.fetch_add(1, Ordering::SeqCst);
+            self.since_ms.store(
+                filter.since_timestamp_ms.unwrap_or_default(),
+                Ordering::SeqCst,
+            );
+            self.until_ms.store(
+                filter.until_timestamp_ms.unwrap_or_default(),
+                Ordering::SeqCst,
+            );
+            Vec::new()
+        }
+
+        fn parse_file(&self, _path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {
+            ParseOutput::default()
         }
     }
 
@@ -504,7 +590,8 @@ mod tests {
             entry_at("2026-08-21T05:44:00Z"),
         ];
 
-        let result = aggregate_entries_for_filter(&entries, &ranges[0].filter, false);
+        let source = CountingSource::new(Vec::new());
+        let result = aggregate_entries_for_filter(&entries, &ranges[0].filter, &source);
 
         assert_eq!(result.valid, 1);
         assert_eq!(result.day_stats["2026-08-21"].stats.input_tokens, 10);
@@ -543,6 +630,45 @@ mod tests {
                 priced_tokens: 30,
                 estimated_proxy: 0,
             })
+        );
+    }
+
+    #[test]
+    fn timestamp_ranges_bound_shared_source_discovery() {
+        let source = BoundedSource::default();
+        let ranges = resolve_ranges(
+            &[
+                UsageRange::TimestampRange {
+                    since: "2026-08-21T05:00:00Z".parse().expect("valid since"),
+                    until: "2026-08-21T06:00:00Z".parse().expect("valid until"),
+                },
+                UsageRange::TimestampRange {
+                    since: "2026-08-21T08:00:00Z".parse().expect("valid since"),
+                    until: "2026-08-21T09:00:00Z".parse().expect("valid until"),
+                },
+            ],
+            d(2026, 8, 21),
+        )
+        .expect("resolve ranges");
+
+        let results = load_daily_ranges(&source, &ranges, Timezone::Named(chrono_tz::UTC));
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(source.unfiltered_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(source.filtered_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            source.since_ms.load(Ordering::SeqCst),
+            "2026-08-21T05:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("valid since")
+                .timestamp_millis()
+        );
+        assert_eq!(
+            source.until_ms.load(Ordering::SeqCst),
+            "2026-08-21T09:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("valid until")
+                .timestamp_millis()
         );
     }
 

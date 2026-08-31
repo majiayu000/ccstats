@@ -122,11 +122,9 @@ pub enum UsageRange {
 }
 
 impl UsageRange {
-    fn timestamp_bounds(&self) -> Option<(i64, i64)> {
+    fn timestamp_bounds(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
         match self {
-            UsageRange::TimestampRange { since, until } => {
-                Some((since.timestamp_millis(), until.timestamp_millis()))
-            }
+            UsageRange::TimestampRange { since, until } => Some((*since, *until)),
             _ => None,
         }
     }
@@ -308,8 +306,8 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
     let today = timezone.to_fixed_offset(Utc::now()).date_naive();
     let (since, until) = options.range.resolve(today)?;
     let mut filter = DateFilter::new(since, until);
-    if let Some((since_timestamp_ms, until_timestamp_ms)) = options.range.timestamp_bounds() {
-        filter = filter.with_timestamp_range(since_timestamp_ms, until_timestamp_ms);
+    if let Some((since_timestamp, until_timestamp)) = options.range.timestamp_bounds() {
+        filter = filter.with_exact_timestamp_range(since_timestamp, until_timestamp);
     }
 
     let source = get_source(options.source.as_str()).ok_or_else(|| SdkError::InvalidSource {

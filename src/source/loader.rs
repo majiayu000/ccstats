@@ -118,7 +118,7 @@ impl<'a> DataLoader<'a> {
                     };
                     entry.timestamp_ms = utc_dt.timestamp_millis();
                 }
-                if !filter.contains_timestamp(entry.timestamp_ms) {
+                if !filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms) {
                     continue;
                 }
                 if Self::parse_date_parts_fast(&entry.date_str).is_none() {
