@@ -337,6 +337,8 @@ fn parse_entry_with_debug(
         endpoint,
         call_count: 1,
         recorded_cost_usd: None,
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
     })
 }
 
