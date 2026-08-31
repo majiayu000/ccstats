@@ -98,7 +98,7 @@ ccstats daily --source cur
 
 ## Quick Start (Grok)
 
-Grok support reads each `shell.turn.inference_done` record from `~/.grok/logs/unified.jsonl`. It reports uncached input, cached prompt, completion, and reasoning tokens, then calculates Grok 4.5/4.6 USD cost per inference using xAI's short- or long-context price for the whole request. Observed records are kept in an atomic ccstats ledger because Grok trims the live log in place.
+Grok support reports complete, globally deduplicated token totals from session `turn_completed.usage` records. It separately prices each observed `shell.turn.inference_done` record using xAI's short- or long-context API rate for the whole request. Because Grok trims `unified.jsonl`, the output includes priced-token coverage and marks the API-equivalent cost as a lower bound when inference history is incomplete and no `estimated_proxy` contribution is included.
 
 ```bash
 # Install
@@ -194,6 +194,8 @@ println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
 ```
 
 The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, cache hit rate, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
+
+Use `UsageRange::TimestampRange` with inclusive UTC `DateTime<Utc>` bounds when an app must align usage to an exact provider quota window instead of whole local dates.
 
 Codex weekly quota pace is also available as structured SDK data without
 spawning the CLI:
@@ -417,13 +419,14 @@ ccstats daily --source gx
 
 By default, ccstats uses:
 
-- `~/.grok/logs/unified.jsonl` for per-inference token records
+- `~/.grok/sessions/**/updates.jsonl` for complete per-turn token totals
+- `~/.grok/logs/unified.jsonl` for per-inference API-equivalent pricing
 - `~/.grok/sessions/**/summary.json` for model, project, and session metadata
-- the platform cache directory under `ccstats/grok/<source-root>/inference-v1.jsonl` for the durable, deduplicated ledger
+- the platform application-data directory under `ccstats/grok/<source-root>/inference-v1.jsonl` for the durable, deduplicated ledger
 
-For Grok 4.5 and 4.6, requests below 200k prompt tokens use the short-context rates. Requests at or above 200k use the long-context input, cached-input, and output rates for the entire inference. `completion_tokens` already includes reasoning, so ccstats separates the displayed fields without charging reasoning twice. Rates follow the [xAI pricing reference](https://docs.x.ai/developers/pricing).
+For Grok 4.5 and 4.6, requests below 200k prompt tokens use the short-context rates. Requests at or above 200k use the long-context input, cached-input, and output rates for the entire inference. `completion_tokens` already includes reasoning, so ccstats does not charge reasoning twice. Rates follow the [xAI pricing reference](https://docs.x.ai/developers/pricing).
 
-If `unified.jsonl` is unavailable, ccstats retains the older session `turn_completed.usage` and context-snapshot fallback for installations that do not emit inference telemetry.
+Structured period output includes `api_equivalent_cost_coverage` with `total_tokens`, `priced_tokens`, `percent`, `complete`, and `cost_is_lower_bound`. If a session has no `turn_completed.usage`, ccstats retains its explicitly labeled `estimated_proxy` context-snapshot fallback.
 
 You can override the Grok home directory with `GROK_HOME`:
 
@@ -433,9 +436,9 @@ GROK_HOME="/path/to/.grok" ccstats grok
 
 Current limitations:
 
-- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run.
-- Session fallback totals use the fields available in those files and can differ from the Grok Build weekly allowance.
-- Grok models without a published ccstats per-inference tier fall back to the normal pricing resolver.
+- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run or between ccstats runs, so incomplete API-equivalent cost is reported as a lower bound only when no `estimated_proxy` contribution is included.
+- `turn_completed.usage.costUsdTicks` is not used as an API-equivalent price.
+- Grok models without a published ccstats per-inference tier remain unpriced and reduce priced-token coverage.
 - Grok 5-hour billing blocks are not supported.
 
 ### Kimi Code
@@ -667,7 +670,7 @@ Warning: ignored <N> malformed records
 | OpenAI Codex | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` | Reasoning Tokens, cumulative-event deduplication |
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor | Cursor usage API | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Per-event tokens, cache tokens, recorded `chargedCents` |
-| Grok | `~/.grok/logs/unified.jsonl` | `GROK_HOME` | Per-inference usage, Projects, Cache / reasoning tokens, 200k pricing tier, durable ledger |
+| Grok | `~/.grok/sessions/`, `~/.grok/logs/unified.jsonl` | `GROK_HOME` | Complete turn tokens, per-inference API pricing, coverage metadata, Projects, Cache / reasoning tokens, 200k pricing tier |
 | Kimi Code | `~/.kimi-code/sessions/` | `KIMI_CODE_HOME` | Per-turn usage records, Projects, Cache tokens |
 | Gemini CLI | `~/.gemini/tmp/` | `GEMINI_CLI_HOME` | Chat/headless formats, Reasoning and cache tokens |
 | Amp | `~/.local/share/amp/threads/` | `XDG_DATA_HOME` | Ledger/message reconciliation, Cache tokens |

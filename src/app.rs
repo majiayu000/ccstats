@@ -1,4 +1,6 @@
-use std::fmt::Write as _;
+mod codex_scope;
+mod cost_coverage;
+
 use std::time::Instant;
 
 use crate::cli::{Cli, SourceCommand, TopDimension};
@@ -20,8 +22,8 @@ use crate::output::{
 };
 use crate::pricing::{CostDisplayMode, PricingDb};
 use crate::source::{
-    Capabilities, CodexScope, Source, all_capabilities, all_sources, load_blocks, load_daily,
-    load_projects, load_sessions, load_tool_calls,
+    Capabilities, CodexScope, CostCoverage, Source, all_capabilities, all_sources, load_blocks,
+    load_daily, load_projects, load_sessions, load_tool_calls,
 };
 use crate::utils::{Timezone, filter_json};
 
@@ -68,47 +70,6 @@ fn source_label(source: &dyn Source, ctx: &CommandContext<'_>) -> String {
     }
 }
 
-fn annotate_json_codex_scope(json: &str, scope: Option<CodexScope>) -> String {
-    let Some(scope) = scope else {
-        return json.to_string();
-    };
-    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(json) else {
-        return json.to_string();
-    };
-
-    match &mut value {
-        serde_json::Value::Array(rows) => {
-            for row in rows {
-                if let serde_json::Value::Object(object) = row {
-                    object.insert(
-                        "codex_scope".to_string(),
-                        serde_json::Value::String(scope.as_str().to_string()),
-                    );
-                }
-            }
-        }
-        serde_json::Value::Object(object) => {
-            object.insert(
-                "codex_scope".to_string(),
-                serde_json::Value::String(scope.as_str().to_string()),
-            );
-        }
-        _ => {}
-    }
-
-    serde_json::to_string(&value).unwrap_or_else(|_| json.to_string())
-}
-
-fn annotate_csv_codex_scope(mut csv: String, scope: Option<CodexScope>) -> String {
-    if let Some(scope) = scope {
-        if !csv.ends_with('\n') {
-            csv.push('\n');
-        }
-        let _ = writeln!(csv, "# codex_scope,{}", scope.as_str());
-    }
-    csv
-}
-
 fn print_codex_scope_note(scope: Option<CodexScope>) {
     if let Some(scope) = scope {
         println!("\n  Codex scope: {}", scope.as_str());
@@ -146,7 +107,7 @@ fn render_session(sessions: &[SessionStats], source: &dyn Source, ctx: &CommandC
                 source.capabilities().has_cache_read,
                 ctx.currency,
             );
-            print!("{}", annotate_csv_codex_scope(csv, scope));
+            print!("{}", codex_scope::annotate_csv(csv, scope));
         }
         OutputFormat::Json => {
             let json = output_session_json(
@@ -157,7 +118,7 @@ fn render_session(sessions: &[SessionStats], source: &dyn Source, ctx: &CommandC
                 source.capabilities().has_cache_read,
                 ctx.currency,
             );
-            let json = annotate_json_codex_scope(&json, scope);
+            let json = codex_scope::annotate_json(&json, scope);
             print_json(&json, ctx.jq_filter);
         }
         OutputFormat::Table => {
@@ -313,7 +274,7 @@ fn handle_top(
                 options.supports_cache_read,
                 ctx.currency,
             );
-            print!("{}", annotate_csv_codex_scope(csv, options.codex_scope));
+            print!("{}", codex_scope::annotate_csv(csv, options.codex_scope));
         }
         OutputFormat::Json => {
             let json = output_top_json(
@@ -324,7 +285,7 @@ fn handle_top(
                 options.supports_cache_read,
                 ctx.currency,
             );
-            let json = annotate_json_codex_scope(&json, options.codex_scope);
+            let json = codex_scope::annotate_json(&json, options.codex_scope);
             print_json(&json, ctx.jq_filter);
         }
         OutputFormat::Table => print_top_table(
@@ -443,7 +404,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             Some(result.data_quality()),
             CostDisplayMode::Total,
         );
-        let json = annotate_json_codex_scope(&json, scope);
+        let json = codex_scope::annotate_json(&json, scope);
         print_json(&json, ctx.jq_filter);
     } else {
         print_statusline(
@@ -467,6 +428,7 @@ fn render_period_result(
     ctx: &CommandContext<'_>,
     cost_mode: CostDisplayMode,
 ) {
+    let cost_coverage = CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
     let monthly_budget = (period == Period::Month)
         .then_some(ctx.cli.monthly_budget)
         .flatten();
@@ -504,7 +466,8 @@ fn render_period_result(
                     cost_mode,
                 )
             };
-            print!("{}", annotate_csv_codex_scope(csv, codex_scope));
+            let csv = cost_coverage::annotate_csv(csv, cost_coverage);
+            print!("{}", codex_scope::annotate_csv(csv, codex_scope));
         }
         OutputFormat::Json => {
             let mut json = output_period_json_with_quality(
@@ -531,7 +494,8 @@ fn render_period_result(
                 );
                 json = add_monthly_budget_to_json(&json, &reports);
             }
-            json = annotate_json_codex_scope(&json, codex_scope);
+            json = cost_coverage::annotate_json(&json, &result.day_stats, period);
+            json = codex_scope::annotate_json(&json, codex_scope);
             print_json(&json, ctx.jq_filter);
         }
         OutputFormat::Table => {
@@ -559,6 +523,9 @@ fn render_period_result(
                     cost_mode,
                 },
             );
+            if ctx.cli.show_cost() {
+                cost_coverage::print_note(cost_coverage);
+            }
             if let Some(budget) = monthly_budget {
                 let reports = monthly_budget_reports(
                     &result.day_stats,
@@ -683,6 +650,22 @@ fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabil
     (combined, caps)
 }
 
+fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
+    let period = match command {
+        SourceCommand::Daily | SourceCommand::Today => Period::Day,
+        SourceCommand::Weekly => Period::Week,
+        SourceCommand::Monthly => Period::Month,
+        _ => return,
+    };
+
+    let (result, caps) = load_all_daily(ctx, false);
+    if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {
+        print_no_data_hint("All Sources", "usage");
+        return;
+    }
+    render_period_result(&result, period, &caps, None, ctx, CostDisplayMode::RealOnly);
+}
+
 /// Handle aggregate commands across every registered data source.
 pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandContext<'_>) {
     match command {
@@ -771,17 +754,5 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
         | SourceCommand::Monthly => {}
     }
 
-    let period = match command {
-        SourceCommand::Daily | SourceCommand::Today => Period::Day,
-        SourceCommand::Weekly => Period::Week,
-        SourceCommand::Monthly => Period::Month,
-        _ => return,
-    };
-
-    let (result, caps) = load_all_daily(ctx, false);
-    if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {
-        print_no_data_hint("All Sources", "usage");
-        return;
-    }
-    render_period_result(&result, period, &caps, None, ctx, CostDisplayMode::RealOnly);
+    handle_all_period(command, ctx);
 }

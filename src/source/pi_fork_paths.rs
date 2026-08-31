@@ -206,11 +206,24 @@ fn home_config_root(home: &Path, config: &Path) -> PathBuf {
     home.join(relative)
 }
 
+fn platform_data_root(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    xdg_data_home.or_else(|| {
+        let home = home?;
+        if cfg!(target_os = "macos") {
+            Some(home.join("Library/Application Support"))
+        } else if cfg!(target_os = "linux") {
+            Some(home.join(".local/share"))
+        } else {
+            None
+        }
+    })
+}
+
 fn xdg_app_root(app: &str, suffix: &[&str]) -> Option<PathBuf> {
     if !cfg!(any(target_os = "linux", target_os = "macos")) {
         return None;
     }
-    let mut root = env_path("XDG_DATA_HOME")?.join(app);
+    let mut root = platform_data_root(env_path("XDG_DATA_HOME"), dirs::home_dir())?.join(app);
     for part in suffix {
         root.push(part);
     }
@@ -410,4 +423,23 @@ pub(super) fn find_omp_files() -> Vec<PathBuf> {
         }
     };
     root.as_deref().map(find_jsonl).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_data_root_falls_back_to_home_when_xdg_is_unset() {
+        let home = PathBuf::from("/home/tester");
+        let expected = if cfg!(target_os = "macos") {
+            Some(home.join("Library/Application Support"))
+        } else if cfg!(target_os = "linux") {
+            Some(home.join(".local/share"))
+        } else {
+            None
+        };
+
+        assert_eq!(platform_data_root(None, Some(home)), expected);
+    }
 }

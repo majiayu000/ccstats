@@ -140,6 +140,13 @@ fn valid_rollup_parent(path: &Path, usage: &UsageFile) -> bool {
             .any(|bucket| bucket.tokens > 0 || bucket.cost_usd.is_some_and(|cost| cost > 0.0))
 }
 
+fn invalid_rollup_output(path: &Path, usage: &UsageFile, errors: usize) -> Option<ParseOutput> {
+    (!usage.rolled_up_from.is_empty() && !valid_rollup_parent(path, usage)).then_some(ParseOutput {
+        entries: Vec::new(),
+        errors: errors + 1,
+    })
+}
+
 fn workspace_id(path: &Path) -> Option<String> {
     path.parent()
         .and_then(Path::file_name)
@@ -277,6 +284,44 @@ fn file_timestamp(path: &Path) -> Option<i64> {
         .and_then(|duration| i64::try_from(duration.as_millis()).ok())
 }
 
+fn usage_entry(
+    timestamp: DateTime<Utc>,
+    date_str: &str,
+    workspace_id: &str,
+    model_key: &str,
+    model: &str,
+    usage: &ModelUsage,
+    recorded_cost_usd: Option<f64>,
+) -> RawEntry {
+    RawEntry {
+        timestamp: timestamp.to_rfc3339(),
+        timestamp_ms: timestamp.timestamp_millis(),
+        date_str: date_str.to_string(),
+        message_id: Some(source_wide_message_id(
+            "xum",
+            &format!("{workspace_id}:{model_key}"),
+        )),
+        session_key: format!("xum::{workspace_id}"),
+        session_id: workspace_id.to_string(),
+        project_path: UNKNOWN.to_string(),
+        model: model.to_string(),
+        input_tokens: usage.input.tokens,
+        output_tokens: usage.output.tokens,
+        cache_creation: usage.cache_create.tokens,
+        cache_creation_1h: 0,
+        cache_read: usage.cached.tokens,
+        reasoning_tokens: usage.reasoning.tokens,
+        stop_reason: Some("aggregate".to_string()),
+        cost_kind: CostKind::Real,
+        endpoint: Endpoint::Unknown,
+        call_count: 0,
+        reported_total_tokens: None,
+        recorded_cost_usd,
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
+    }
+}
+
 fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
     let rollup_errors = match rollup_disposition(path) {
         RollupDisposition::Suppress => return ParseOutput::default(),
@@ -307,6 +352,9 @@ fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput
             };
         }
     };
+    if let Some(output) = invalid_rollup_output(path, &usage, rollup_errors) {
+        return output;
+    }
     let timestamp_ms = usage
         .last_request
         .map(|request| request.timestamp)
@@ -351,29 +399,15 @@ fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput
             output.errors += 1;
             continue;
         };
-        let identity = format!("{workspace_id}:{model_key}");
-        output.entries.push(RawEntry {
-            timestamp: timestamp.to_rfc3339(),
-            timestamp_ms: timestamp.timestamp_millis(),
-            date_str: date_str.clone(),
-            message_id: Some(source_wide_message_id("xum", &identity)),
-            session_key: format!("xum::{workspace_id}"),
-            session_id: workspace_id.clone(),
-            project_path: UNKNOWN.to_string(),
-            model: model.to_string(),
-            input_tokens: model_usage.input.tokens,
-            output_tokens: model_usage.output.tokens,
-            cache_creation: model_usage.cache_create.tokens,
-            cache_creation_1h: 0,
-            cache_read: model_usage.cached.tokens,
-            reasoning_tokens: model_usage.reasoning.tokens,
-            stop_reason: Some("aggregate".to_string()),
-            cost_kind: CostKind::Real,
-            endpoint: Endpoint::Unknown,
-            call_count: 0,
-            reported_total_tokens: None,
+        output.entries.push(usage_entry(
+            timestamp,
+            &date_str,
+            &workspace_id,
+            &model_key,
+            model,
+            &model_usage,
             recorded_cost_usd,
-        });
+        ));
     }
     output
 }

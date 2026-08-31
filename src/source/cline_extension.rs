@@ -150,6 +150,21 @@ struct UiMessage {
     say: Option<String>,
     text: Option<String>,
     ts: Option<Value>,
+    #[serde(rename = "modelInfo")]
+    model_info: Option<UiModelInfo>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct UiModelInfo {
+    model_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskHistoryEntry {
+    id: String,
+    cwd_on_task_initialization: Option<String>,
 }
 
 fn value_i64(value: Option<&Value>) -> Option<i64> {
@@ -183,41 +198,20 @@ fn numeric_timestamp(value: i64) -> Option<i64> {
     }
 }
 
-fn extract_tag(block: &str, tag: &str) -> Option<String> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let start = block.find(&open)? + open.len();
-    let rest = &block[start..];
-    let end = rest.find(&close)?;
-    let value = rest[..end].trim();
-    (!value.is_empty()).then(|| value.to_string())
-}
-
-fn task_model(path: &Path) -> String {
-    const START: &str = "<environment_details>";
-    const END: &str = "</environment_details>";
-
-    let history = path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("api_conversation_history.json");
-    let Ok(content) = fs::read_to_string(history) else {
-        return UNKNOWN.to_string();
+fn task_project(path: &Path, task_id: &str) -> String {
+    let Some(extension_root) = path.parent().and_then(Path::parent).and_then(Path::parent) else {
+        return String::new();
     };
-    let mut offset = 0;
-    let mut model = None;
-    while let Some(relative_start) = content[offset..].find(START) {
-        let start = offset + relative_start + START.len();
-        let Some(relative_end) = content[start..].find(END) else {
-            break;
-        };
-        let end = start + relative_end;
-        if let Some(found) = extract_tag(&content[start..end], "model") {
-            model = Some(found);
-        }
-        offset = end + END.len();
-    }
-    model.unwrap_or_else(|| UNKNOWN.to_string())
+    let Ok(content) = fs::read_to_string(extension_root.join("state/taskHistory.json")) else {
+        return String::new();
+    };
+    serde_json::from_str::<Vec<TaskHistoryEntry>>(&content)
+        .ok()
+        .and_then(|entries| entries.into_iter().find(|entry| entry.id == task_id))
+        .and_then(|entry| entry.cwd_on_task_initialization)
+        .map(|project| project.trim().to_string())
+        .filter(|project| !project.is_empty())
+        .unwrap_or_default()
 }
 
 fn session_id(path: &Path) -> String {
@@ -227,6 +221,29 @@ fn session_id(path: &Path) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or(UNKNOWN)
         .to_string()
+}
+
+fn request_model(model_info: Option<UiModelInfo>) -> Option<String> {
+    model_info
+        .and_then(|info| info.model_id)
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty())
+}
+
+fn usage_token_buckets(payload: &Value) -> Result<Option<(i64, i64, i64, i64)>, &'static str> {
+    let buckets = (
+        value_i64(payload.get("tokensIn")).unwrap_or(0),
+        value_i64(payload.get("tokensOut")).unwrap_or(0),
+        value_i64(payload.get("cacheReads")).unwrap_or(0),
+        value_i64(payload.get("cacheWrites")).unwrap_or(0),
+    );
+    if [buckets.0, buckets.1, buckets.2, buckets.3]
+        .into_iter()
+        .any(|tokens| tokens < 0)
+    {
+        return Err("negative token bucket");
+    }
+    Ok((buckets != (0, 0, 0, 0)).then_some(buckets))
 }
 
 pub(super) fn parse_extension_file(
@@ -260,7 +277,7 @@ pub(super) fn parse_extension_file(
         }
     };
     let session_id = session_id(path);
-    let model = task_model(path);
+    let project_path = task_project(path, &session_id);
     let mut output = ParseOutput::default();
     for message in messages {
         if message.kind.as_deref() != Some("say")
@@ -268,6 +285,10 @@ pub(super) fn parse_extension_file(
         {
             continue;
         }
+        let Some(model) = request_model(message.model_info) else {
+            output.errors += 1;
+            continue;
+        };
         let Some(text) = message.text else {
             output.errors += 1;
             continue;
@@ -290,13 +311,15 @@ pub(super) fn parse_extension_file(
             output.errors += 1;
             continue;
         };
-        let input_tokens = value_i64(payload.get("tokensIn")).unwrap_or(0).max(0);
-        let output_tokens = value_i64(payload.get("tokensOut")).unwrap_or(0).max(0);
-        let cache_read = value_i64(payload.get("cacheReads")).unwrap_or(0).max(0);
-        let cache_creation = value_i64(payload.get("cacheWrites")).unwrap_or(0).max(0);
-        if input_tokens == 0 && output_tokens == 0 && cache_read == 0 && cache_creation == 0 {
-            continue;
-        }
+        let (input_tokens, output_tokens, cache_read, cache_creation) =
+            match usage_token_buckets(&payload) {
+                Ok(Some(tokens)) => tokens,
+                Ok(None) => continue,
+                Err(_) => {
+                    output.errors += 1;
+                    continue;
+                }
+            };
         output.entries.push(RawEntry {
             timestamp: utc.to_rfc3339(),
             timestamp_ms,
@@ -308,8 +331,8 @@ pub(super) fn parse_extension_file(
             message_id: None,
             session_key: format!("{source}:{}", path.parent().unwrap_or(path).display()),
             session_id: session_id.clone(),
-            project_path: String::new(),
-            model: model.clone(),
+            project_path: project_path.clone(),
+            model,
             input_tokens,
             output_tokens,
             cache_creation,
@@ -322,6 +345,8 @@ pub(super) fn parse_extension_file(
             call_count: 1,
             reported_total_tokens: None,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         });
     }
     output
@@ -341,7 +366,7 @@ mod tests {
         let path = task.join("ui_messages.json");
         fs::write(
             &path,
-            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","text":"{\"tokensIn\":100,\"tokensOut\":20,\"cacheReads\":30,\"cacheWrites\":5,\"apiProtocol\":\"anthropic\"}"}]"#,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"claude-sonnet-4"},"text":"{\"tokensIn\":100,\"tokensOut\":20,\"cacheReads\":30,\"cacheWrites\":5,\"apiProtocol\":\"anthropic\"}"}]"#,
         )
         .unwrap();
         fs::write(
@@ -361,5 +386,98 @@ mod tests {
         assert_eq!(entry.output_tokens, 20);
         assert_eq!(entry.cache_read, 30);
         assert_eq!(entry.cache_creation, 5);
+    }
+
+    #[test]
+    fn api_request_events_preserve_each_request_model() {
+        let temp = tempdir().unwrap();
+        let task = temp.path().join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[
+                {"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"claude-sonnet-4"},"text":"{\"tokensIn\":10}"},
+                {"type":"say","say":"api_req_started","ts":"2026-08-31T03:05:05Z","modelInfo":{"modelId":"gpt-5"},"text":"{\"tokensIn\":20}"}
+            ]"#,
+        )
+        .unwrap();
+        fs::write(
+            task.join("api_conversation_history.json"),
+            "<environment_details><model>gpt-5</model></environment_details>",
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert_eq!(parsed.entries.len(), 2);
+        assert_eq!(parsed.entries[0].model, "claude-sonnet-4");
+        assert_eq!(parsed.entries[1].model, "gpt-5");
+    }
+
+    #[test]
+    fn api_request_without_request_local_model_is_rejected() {
+        let temp = tempdir().unwrap();
+        let task = temp.path().join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","text":"{\"tokensIn\":10}"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            task.join("api_conversation_history.json"),
+            "<environment_details><model>final-task-model</model></environment_details>",
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 1);
+    }
+
+    #[test]
+    fn api_request_with_negative_token_bucket_is_rejected() {
+        let temp = tempdir().unwrap();
+        let task = temp.path().join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"gpt-5"},"text":"{\"tokensIn\":-1,\"tokensOut\":20}"}]"#,
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 1);
+    }
+
+    #[test]
+    fn extension_entries_use_task_history_project() {
+        let temp = tempdir().unwrap();
+        let extension = temp.path().join("extension");
+        let task = extension.join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        fs::create_dir_all(extension.join("state")).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"gpt-5"},"text":"{\"tokensIn\":10}"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            extension.join("state/taskHistory.json"),
+            r#"[{"id":"task-1","cwdOnTaskInitialization":"/work/project"}]"#,
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].project_path, "/work/project");
     }
 }
