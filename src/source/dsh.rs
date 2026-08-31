@@ -4,28 +4,50 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
-use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::utils::Timezone;
 
 use super::dsh_format::{
     matches_storage_identity, packed_row_span, supported_event, valid_event_envelope,
     valid_header_shape,
 };
+use super::dsh_usage::{Usage, usage_entry};
 use super::{Capabilities, ParseOutput, Source, dsh_zstd};
 
-const MAX_TOKEN_COUNT: i64 = 1_i64 << 40;
 const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
-pub(crate) struct DshSource;
+pub(crate) struct DshSource {
+    mixed_roots: Mutex<BTreeMap<PathBuf, bool>>,
+}
 
 impl DshSource {
-    pub(crate) const fn new() -> Self {
-        Self
+    pub(crate) fn new() -> Self {
+        Self {
+            mixed_roots: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    fn discover_root(&self, root: &Path) -> Vec<PathBuf> {
+        let (files, mixed) = find_session_files(root);
+        self.mixed_roots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(root.to_path_buf(), mixed);
+        files
+    }
+
+    fn discovered_root_is_mixed(&self, path: &Path) -> Option<bool> {
+        let root = session_root(path)?;
+        self.mixed_roots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(root)
+            .copied()
     }
 }
 
@@ -53,12 +75,18 @@ impl Source for DshSource {
 
     fn find_files(&self) -> Vec<PathBuf> {
         dsh_home()
-            .map(|home| find_session_files(&home.join("sessions")))
+            .map(|home| self.discover_root(&home.join("sessions")))
             .unwrap_or_default()
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-        parse_file(path, timezone, debug)
+        let Some(root_is_mixed) = self.discovered_root_is_mixed(path) else {
+            return ParseOutput {
+                entries: Vec::new(),
+                errors: 1,
+            };
+        };
+        parse_file(path, timezone, debug, root_is_mixed)
     }
 }
 
@@ -89,7 +117,7 @@ fn dsh_home() -> Option<PathBuf> {
     configured_home().or_else(|| dirs::home_dir().map(|home| home.join(".dsh")))
 }
 
-fn find_session_files(root: &Path) -> Vec<PathBuf> {
+fn find_session_files(root: &Path) -> (Vec<PathBuf>, bool) {
     let mut by_directory = BTreeMap::<PathBuf, Vec<PathBuf>>::new();
     for project in child_directories(root) {
         for session in child_directories(&project) {
@@ -116,11 +144,13 @@ fn find_session_files(root: &Path) -> Vec<PathBuf> {
     });
     let has_plain = files.iter().any(|path| is_plain(path));
     let has_zstd = files.iter().any(|path| !is_plain(path));
-    if has_plain && has_zstd {
+    let mixed = has_plain && has_zstd;
+    let files = if mixed {
         files.into_iter().take(1).collect()
     } else {
         files
-    }
+    };
+    (files, mixed)
 }
 
 fn child_directories(root: &Path) -> Vec<PathBuf> {
@@ -171,18 +201,6 @@ struct Event {
     seq: i64,
     time: i64,
     data: serde_json::Value,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(clippy::struct_field_names)] // names mirror the official TokenUsage schema
-struct Usage {
-    input_tokens: i64,
-    output_tokens: i64,
-    total_tokens: Option<i64>,
-    cache_read_tokens: Option<i64>,
-    cache_write_tokens: Option<i64>,
-    reasoning_tokens: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -247,9 +265,12 @@ struct MessageSource {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RetryStarted {
+    retry_id: String,
     turn: i64,
     step: i64,
+    retry: i64,
 }
 
 #[derive(Deserialize)]
@@ -268,10 +289,8 @@ struct LastAttempt {
     identity: String,
 }
 
-fn parse_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-    if root_has_mixed_encoding(path)
-        || sibling_encoding(path).is_some_and(|sibling| sibling.is_file())
-    {
+fn parse_file(path: &Path, timezone: Timezone, debug: bool, root_is_mixed: bool) -> ParseOutput {
+    if root_is_mixed || sibling_encoding(path).is_some_and(|sibling| sibling.is_file()) {
         return ParseOutput {
             entries: Vec::new(),
             errors: 1,
@@ -296,20 +315,8 @@ fn parse_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
     }
 }
 
-fn root_has_mixed_encoding(path: &Path) -> bool {
-    let Some(root) = path.parent().and_then(Path::parent).and_then(Path::parent) else {
-        return false;
-    };
-    let files = child_directories(root)
-        .into_iter()
-        .flat_map(|project| child_directories(&project))
-        .flat_map(|session| {
-            ["session.jsonl", "session.jsonl.zstd"].map(|filename| session.join(filename))
-        })
-        .filter(|candidate| candidate.is_file())
-        .collect::<Vec<_>>();
-    files.iter().any(|candidate| is_plain(candidate))
-        && files.iter().any(|candidate| !is_plain(candidate))
+fn session_root(path: &Path) -> Option<&Path> {
+    path.parent().and_then(Path::parent).and_then(Path::parent)
 }
 
 fn sibling_encoding(path: &Path) -> Option<PathBuf> {
@@ -406,25 +413,17 @@ fn parse_log(bytes: &[u8], path: &Path, timezone: Timezone) -> ParseOutput {
         };
         expected_seq = next_seq;
         if event.seq < seed_length {
-            if event.kind == "request/header"
-                && let Ok(next) = serde_json::from_value::<RequestHeaderData>(event.data)
-                && non_blank(&next.header.config.provider).is_some()
-                && non_blank(&next.header.config.model).is_some()
-            {
-                route = Some(next.header.config);
+            if event.kind == "request/header" && !replace_route(event.data, &mut route) {
+                output.errors += 1;
             }
             continue;
         }
         match event.kind.as_str() {
-            "request/header" => match serde_json::from_value::<RequestHeaderData>(event.data) {
-                Ok(next)
-                    if non_blank(&next.header.config.provider).is_some()
-                        && non_blank(&next.header.config.model).is_some() =>
-                {
-                    route = Some(next.header.config);
+            "request/header" => {
+                if !replace_route(event.data, &mut route) {
+                    output.errors += 1;
                 }
-                _ => output.errors += 1,
-            },
+            }
             "assistant/chunk" => {
                 let Ok(data) = serde_json::from_value::<ChunkData>(event.data) else {
                     output.errors += 1;
@@ -501,17 +500,21 @@ fn parse_log(bytes: &[u8], path: &Path, timezone: Timezone) -> ParseOutput {
                     );
                 }
             }
-            "llm/retry-started" => match serde_json::from_value::<RetryStarted>(event.data) {
-                Ok(retry)
-                    if last_attempt
+            "llm/retry-started" => {
+                let Ok(retry) = serde_json::from_value::<RetryStarted>(event.data) else {
+                    output.errors += 1;
+                    break;
+                };
+                if !valid_retry_boundary(&retry)
+                    || last_attempt
                         .as_ref()
-                        .is_some_and(|last| last.turn == retry.turn && last.step == retry.step) =>
+                        .is_some_and(|last| last.turn != retry.turn || last.step != retry.step)
                 {
-                    last_attempt = None;
+                    output.errors += 1;
+                    break;
                 }
-                Ok(_) => {}
-                Err(_) => output.errors += 1,
-            },
+                last_attempt = None;
+            }
             "compaction/summary" => {
                 let Ok(data) = serde_json::from_value::<CompactionData>(event.data) else {
                     output.errors += 1;
@@ -527,7 +530,15 @@ fn parse_log(bytes: &[u8], path: &Path, timezone: Timezone) -> ParseOutput {
                     continue;
                 }
                 let identity = format!("{}:compaction:{}", header.id, data.compaction_id);
-                match usage_entry(&header, event.time, model, usage, timezone, &identity) {
+                match usage_entry(
+                    &header.id,
+                    header.cwd.as_deref(),
+                    event.time,
+                    model,
+                    usage,
+                    timezone,
+                    &identity,
+                ) {
                     Ok(entry) => output.entries.push(entry),
                     Err(_) => output.errors += 1,
                 }
@@ -555,6 +566,27 @@ fn valid_header(header: &Header) -> bool {
             .cwd
             .as_deref()
             .is_none_or(|cwd| Path::new(cwd).is_absolute())
+}
+
+fn replace_route(data: serde_json::Value, route: &mut Option<Route>) -> bool {
+    *route = None;
+    let Ok(next) = serde_json::from_value::<RequestHeaderData>(data) else {
+        return false;
+    };
+    if non_blank(&next.header.config.provider).is_none()
+        || non_blank(&next.header.config.model).is_none()
+    {
+        return false;
+    }
+    *route = Some(next.header.config);
+    true
+}
+
+fn valid_retry_boundary(retry: &RetryStarted) -> bool {
+    non_blank(&retry.retry_id).is_some()
+        && (0..=MAX_SAFE_INTEGER).contains(&retry.turn)
+        && (0..=MAX_SAFE_INTEGER).contains(&retry.step)
+        && (1..=MAX_SAFE_INTEGER).contains(&retry.retry)
 }
 
 fn invalidate_attempt(
@@ -622,7 +654,15 @@ fn record_attempt(
         || format!("{}:attempt:{}", header.id, *attempt_number),
         |(_, identity)| identity.clone(),
     );
-    if let Ok(entry) = usage_entry(header, event_time, model, usage, timezone, &identity) {
+    if let Ok(entry) = usage_entry(
+        &header.id,
+        header.cwd.as_deref(),
+        event_time,
+        model,
+        usage,
+        timezone,
+        &identity,
+    ) {
         if let Some((entry_index, _)) = replacement {
             output.entries[entry_index] = entry;
         } else {
@@ -723,77 +763,5 @@ fn non_blank(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
-fn checked_count(value: i64) -> Result<i64, &'static str> {
-    (0..=MAX_TOKEN_COUNT)
-        .contains(&value)
-        .then_some(value)
-        .ok_or("invalid token count")
-}
-
-fn usage_entry(
-    header: &Header,
-    event_time: i64,
-    model: String,
-    usage: Usage,
-    timezone: Timezone,
-    identity: &str,
-) -> Result<RawEntry, &'static str> {
-    let input = checked_count(usage.input_tokens)?;
-    let output = checked_count(usage.output_tokens)?;
-    let cache_read = checked_count(usage.cache_read_tokens.unwrap_or(0))?;
-    let cache_write = checked_count(usage.cache_write_tokens.unwrap_or(0))?;
-    let reasoning = checked_count(usage.reasoning_tokens.unwrap_or(0))?;
-    if reasoning > output {
-        return Err("reasoning exceeds output");
-    }
-    let known_prompt = input
-        .checked_add(cache_read)
-        .and_then(|value| value.checked_add(cache_write))
-        .ok_or("token total overflow")?;
-    let component_total = known_prompt
-        .checked_add(output)
-        .ok_or("token total overflow")?;
-    let reported_total = match usage.total_tokens {
-        Some(total) => {
-            let total = checked_count(total)?;
-            let exact_prompt = total.checked_sub(output).ok_or("total below output")?;
-            if exact_prompt < known_prompt
-                || (usage.cache_read_tokens.is_some()
-                    && usage.cache_write_tokens.is_some()
-                    && total != component_total)
-            {
-                return Err("contradictory total token count");
-            }
-            Some(total)
-        }
-        None => None,
-    };
-    let timestamp =
-        DateTime::<Utc>::from_timestamp_millis(event_time).ok_or("invalid timestamp")?;
-    Ok(RawEntry {
-        timestamp: timestamp.to_rfc3339(),
-        timestamp_ms: event_time,
-        date_str: timezone
-            .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
-            .to_string(),
-        message_id: Some(source_wide_message_id("dsh", identity)),
-        session_key: format!("dsh::{}", header.id),
-        session_id: header.id.clone(),
-        project_path: header.cwd.clone().unwrap_or_default(),
-        model,
-        input_tokens: input,
-        output_tokens: output - reasoning,
-        cache_creation: cache_write,
-        cache_creation_1h: 0,
-        cache_read,
-        reasoning_tokens: reasoning,
-        stop_reason: Some("usage".to_string()),
-        cost_kind: CostKind::Real,
-        endpoint: Endpoint::Unknown,
-        call_count: 1,
-        reported_total_tokens: reported_total,
-        recorded_cost_usd: None,
-    })
-}
+#[cfg(test)]
+mod tests;

@@ -11,6 +11,7 @@ use zstd::stream::raw::{Decoder as RawDecoder, InBuffer, Operation, OutBuffer};
 
 const ZSTD_MAGIC: u32 = 0xFD2F_B528;
 const MAX_SESSION_BYTES: usize = 128 * 1024 * 1024;
+const MAX_STABLE_READ_ATTEMPTS: usize = 3;
 
 enum FrameScan {
     Complete(usize),
@@ -156,32 +157,46 @@ fn revision(path: &Path) -> Result<FileRevision, String> {
     })
 }
 
-pub(super) fn read_stable(path: &Path) -> Result<Vec<u8>, String> {
-    loop {
-        let before = revision(path)?;
-        if before.len > MAX_SESSION_BYTES as u64 {
-            return Err(format!(
-                "DSH session exceeds the {} MiB safety limit",
-                MAX_SESSION_BYTES / 1024 / 1024
-            ));
-        }
-        let mut bytes = Vec::new();
-        File::open(path)
-            .map_err(|error| error.to_string())?
-            .take(MAX_SESSION_BYTES as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| error.to_string())?;
-        if bytes.len() > MAX_SESSION_BYTES {
-            return Err(format!(
-                "DSH session exceeds the {} MiB safety limit",
-                MAX_SESSION_BYTES / 1024 / 1024
-            ));
-        }
-        let after = revision(path)?;
+fn read_snapshot(path: &Path) -> Result<(FileRevision, Vec<u8>, FileRevision), String> {
+    let before = revision(path)?;
+    if before.len > MAX_SESSION_BYTES as u64 {
+        return Err(format!(
+            "DSH session exceeds the {} MiB safety limit",
+            MAX_SESSION_BYTES / 1024 / 1024
+        ));
+    }
+    let mut bytes = Vec::new();
+    File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(MAX_SESSION_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > MAX_SESSION_BYTES {
+        return Err(format!(
+            "DSH session exceeds the {} MiB safety limit",
+            MAX_SESSION_BYTES / 1024 / 1024
+        ));
+    }
+    let after = revision(path)?;
+    Ok((before, bytes, after))
+}
+
+fn read_until_stable(
+    mut read_attempt: impl FnMut() -> Result<(FileRevision, Vec<u8>, FileRevision), String>,
+) -> Result<Vec<u8>, String> {
+    for _ in 0..MAX_STABLE_READ_ATTEMPTS {
+        let (before, bytes, after) = read_attempt()?;
         if before == after {
             return Ok(bytes);
         }
     }
+    Err(format!(
+        "DSH session changed during {MAX_STABLE_READ_ATTEMPTS} consecutive reads"
+    ))
+}
+
+pub(super) fn read_stable(path: &Path) -> Result<Vec<u8>, String> {
+    read_until_stable(|| read_snapshot(path))
 }
 
 fn scan_frame(bytes: &[u8], start: usize) -> Result<FrameScan, String> {
@@ -214,6 +229,11 @@ fn scan_frame(bytes: &[u8], start: usize) -> Result<FrameScan, String> {
     let content_size_flag = descriptor >> 6;
     let single_segment = descriptor & 0x20 != 0;
     let checksum = descriptor & 0x04 != 0;
+    if !checksum {
+        return Err(format!(
+            "corrupt Zstandard session log: frame at byte {start} omits the required checksum"
+        ));
+    }
     let dictionary_bytes = match descriptor & 0x03 {
         0 => 0,
         1 => 1,
@@ -262,20 +282,67 @@ fn scan_frame(bytes: &[u8], start: usize) -> Result<FrameScan, String> {
             break;
         }
     }
-    if checksum {
-        if bytes.len().saturating_sub(offset) < 4 {
-            return Ok(FrameScan::Torn);
-        }
-        offset += 4;
+    if bytes.len().saturating_sub(offset) < 4 {
+        return Ok(FrameScan::Torn);
     }
+    offset += 4;
     Ok(FrameScan::Complete(offset))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::io::Write;
+    use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{PrefixDecodeError, decode_prefix_bounded};
+    use super::{
+        FileRevision, MAX_STABLE_READ_ATTEMPTS, PrefixDecodeError, decode_prefix_bounded,
+        read_until_stable, scan_frame,
+    };
+
+    fn file_revision(len: u64) -> FileRevision {
+        FileRevision {
+            len,
+            modified: UNIX_EPOCH + Duration::from_secs(len),
+            #[cfg(unix)]
+            dev: 1,
+            #[cfg(unix)]
+            ino: 1,
+            #[cfg(unix)]
+            mtime_nsec: i64::try_from(len).expect("test revision fits i64"),
+            #[cfg(unix)]
+            ctime_nsec: i64::try_from(len).expect("test revision fits i64"),
+        }
+    }
+
+    #[test]
+    fn stable_read_stops_after_the_retry_limit() {
+        let calls = Cell::new(0_u64);
+        let result = read_until_stable(|| {
+            let before = calls.get();
+            calls.set(before + 1);
+            Ok((file_revision(before), Vec::new(), file_revision(before + 1)))
+        });
+
+        let error = result.expect_err("continuously changing session must stop");
+        assert_eq!(calls.get(), MAX_STABLE_READ_ATTEMPTS as u64);
+        assert!(error.contains("changed during"), "{error}");
+    }
+
+    #[test]
+    fn frame_without_official_checksum_is_rejected() {
+        let mut encoder = zstd::stream::Encoder::new(Vec::new(), 1).expect("zstd encoder");
+        encoder
+            .include_checksum(false)
+            .expect("disable frame checksum");
+        encoder.write_all(b"one record\n").expect("encode frame");
+        let frame = encoder.finish().expect("finish frame");
+
+        let Err(error) = scan_frame(&frame, 0) else {
+            panic!("checksum-less frame must fail");
+        };
+        assert!(error.contains("required checksum"), "{error}");
+    }
 
     #[test]
     fn torn_prefix_limit_is_not_classified_as_recoverable_corruption() {

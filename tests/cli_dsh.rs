@@ -602,6 +602,147 @@ fn dsh_keeps_zero_calls_seed_zero_children_and_ignores_plain_torn_noise() {
 }
 
 #[test]
+fn dsh_invalid_request_headers_clear_stale_routes_even_in_seeded_history() {
+    let root = unique_temp_dir("dsh-invalid-routes");
+    let home = root.join("home");
+    write_plain_session(
+        &home,
+        "--workspace-seeded-route--",
+        "seeded-route",
+        &[
+            header("seeded-route", "/workspace/seeded-route", None, Some(2)),
+            request_header(0, "stale-seeded-model"),
+            json!({
+                "type": "request/header",
+                "seq": 1,
+                "time": DAY_START + 1_000,
+                "data": {"header": {}}
+            }),
+            usage_chunk(2, 1, json!({"inputTokens": 50, "outputTokens": 10})),
+        ],
+    );
+    write_plain_session(
+        &home,
+        "--workspace-live-route--",
+        "live-route",
+        &[
+            header("live-route", "/workspace/live-route", None, None),
+            request_header(0, "stale-live-model"),
+            json!({
+                "type": "request/header",
+                "seq": 1,
+                "time": DAY_START + 1_000,
+                "data": {"header": {"config": {"provider": "fixture", "model": " "}}}
+            }),
+            usage_chunk(2, 1, json!({"inputTokens": 60, "outputTokens": 10})),
+        ],
+    );
+    write_plain_session(
+        &home,
+        "--workspace-healthy-route--",
+        "healthy-route",
+        &[
+            header("healthy-route", "/workspace/healthy-route", None, None),
+            assistant(
+                0,
+                "healthy-model",
+                json!({"inputTokens": 3, "outputTokens": 1}),
+            ),
+        ],
+    );
+
+    let json = daily_json(&home);
+    let row = &json.as_array().expect("array")[0];
+    assert_eq!(row["total_tokens"].as_i64(), Some(4));
+    assert_eq!(row["data_quality"]["valid_entries"].as_i64(), Some(1));
+    assert_eq!(row["data_quality"]["parse_errors"].as_u64(), Some(4));
+    let models = row["models"].as_array().expect("models");
+    assert!(models.iter().all(|model| model != "stale-seeded-model"));
+    assert!(models.iter().all(|model| model != "stale-live-model"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn dsh_rejects_malformed_or_mismatched_retry_boundaries_without_phantom_attempts() {
+    let root = unique_temp_dir("dsh-retry-boundaries");
+    let home = root.join("home");
+    let cases = [
+        (
+            "invalid-id",
+            1,
+            1,
+            json!({"retryId": "", "turn": 1, "step": 1, "retry": 1}),
+            5,
+        ),
+        (
+            "missing-retry",
+            1,
+            2,
+            json!({"retryId": "retry-2", "turn": 1, "step": 2}),
+            6,
+        ),
+        (
+            "mismatched-turn",
+            1,
+            3,
+            json!({"retryId": "retry-3", "turn": 2, "step": 3, "retry": 1}),
+            7,
+        ),
+        (
+            "mismatched-step",
+            1,
+            4,
+            json!({"retryId": "retry-4", "turn": 1, "step": 99, "retry": 1}),
+            8,
+        ),
+    ];
+    for (id, turn, step, retry_data, input_tokens) in cases {
+        write_plain_session(
+            &home,
+            &format!("--workspace-{id}--"),
+            id,
+            &[
+                header(id, &format!("/workspace/{id}"), None, None),
+                request_header(0, "original-model"),
+                usage_chunk(
+                    1,
+                    step,
+                    json!({"inputTokens": input_tokens, "outputTokens": 1}),
+                ),
+                json!({
+                    "type": "llm/retry-started",
+                    "seq": 2,
+                    "time": DAY_START + 2_000,
+                    "data": retry_data
+                }),
+                json!({
+                    "type": "assistant/chunk",
+                    "seq": 3,
+                    "time": DAY_START + 3_000,
+                    "data": {
+                        "turn": turn,
+                        "step": step,
+                        "chunk": {
+                            "type": "usage",
+                            "usage": {"inputTokens": 100, "outputTokens": 1}
+                        }
+                    }
+                }),
+            ],
+        );
+    }
+
+    let json = daily_json(&home);
+    let row = &json.as_array().expect("array")[0];
+    assert_eq!(row["input_tokens"].as_i64(), Some(26));
+    assert_eq!(row["output_tokens"].as_i64(), Some(4));
+    assert_eq!(row["total_tokens"].as_i64(), Some(30));
+    assert_eq!(row["data_quality"]["valid_entries"].as_i64(), Some(4));
+    assert_eq!(row["data_quality"]["parse_errors"].as_u64(), Some(4));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn dsh_enforces_storage_identity_and_logical_sequence_before_counting() {
     let root = unique_temp_dir("dsh-storage-integrity");
     let home = root.join("[dsh]*home");

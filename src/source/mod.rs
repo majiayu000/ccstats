@@ -12,6 +12,7 @@ mod copilot;
 mod cursor;
 mod dsh;
 mod dsh_format;
+mod dsh_usage;
 mod dsh_zstd;
 mod gemini;
 mod goose;
