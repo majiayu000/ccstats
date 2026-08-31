@@ -57,8 +57,10 @@ pub enum UsageSource {
     /// Cline CLI sessions and VS Code extension task logs.
     Cline,
     /// Roo Code VS Code extension task logs.
+    #[serde(rename = "roocode")]
     RooCode,
     /// Kilo Code VS Code extension task logs.
+    #[serde(rename = "kilocode")]
     KiloCode,
 }
 
@@ -522,6 +524,26 @@ mod tests {
 
         let err = " unknown ".parse::<UsageSource>().unwrap_err();
         assert!(matches!(err, SdkError::InvalidSource { name } if name == "unknown"));
+    }
+
+    #[test]
+    fn extension_usage_sources_use_canonical_serde_names() {
+        assert_eq!(
+            serde_json::to_string(&UsageSource::RooCode).unwrap(),
+            r#""roocode""#
+        );
+        assert_eq!(
+            serde_json::to_string(&UsageSource::KiloCode).unwrap(),
+            r#""kilocode""#
+        );
+        assert_eq!(
+            serde_json::from_str::<UsageSource>(r#""roocode""#).unwrap(),
+            UsageSource::RooCode
+        );
+        assert_eq!(
+            serde_json::from_str::<UsageSource>(r#""kilocode""#).unwrap(),
+            UsageSource::KiloCode
+        );
     }
 
     #[test]
