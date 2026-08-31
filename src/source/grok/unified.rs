@@ -509,7 +509,7 @@ fn parse_ledger_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutpu
     }
 }
 
-fn records_to_parse_output(
+pub(super) fn records_to_parse_output(
     records: impl IntoIterator<Item = InferenceRecord>,
     timezone: Timezone,
 ) -> ParseOutput {

@@ -111,6 +111,12 @@ pub(crate) fn annotate_csv(
             report.provider_percent()
         )
         .expect("writing to String cannot fail");
+        writeln!(
+            csv,
+            "# grok_excluded_request_tokens,{}",
+            report.excluded_request_tokens
+        )
+        .expect("writing to String cannot fail");
         csv.push_str("# grok_actual_billed_usd,unavailable\n");
         csv.push_str("# pricing_source,calculated_api_equivalent\n");
     }
@@ -145,12 +151,18 @@ pub(crate) fn print_note(report: Option<GrokCostReport>, currency: Option<&Curre
         _ => println!("  API equivalent range: unavailable"),
     }
     println!(
-        "  Request coverage: {} / {} tokens ({:.2}%, {})",
+        "  Request coverage: {} / {} completed-turn tokens ({:.2}%, {})",
         report.priced_tokens,
         report.total_tokens,
         report.coverage_percent(),
         report.status()
     );
+    if report.excluded_request_tokens > 0 {
+        println!(
+            "  In-flight/unmatched requests excluded: {} tokens",
+            report.excluded_request_tokens
+        );
+    }
     match report.provider_reported_cost_usd {
         Some(cost) => println!(
             "  Provider metric: {} ({:.2}% token coverage)",
@@ -196,6 +208,7 @@ fn grok_summary(report: GrokCostReport) -> serde_json::Value {
             "total_tokens": report.total_tokens,
             "coverage_percent": report.coverage_percent(),
             "coverage_status": report.status(),
+            "excluded_request_tokens": report.excluded_request_tokens,
         },
         "provider_metric": {
             "reported_usd": report.provider_reported_cost_usd,
