@@ -223,6 +223,22 @@ fn session_id(path: &Path) -> String {
         .to_string()
 }
 
+fn usage_token_buckets(payload: &Value) -> Result<Option<(i64, i64, i64, i64)>, &'static str> {
+    let buckets = (
+        value_i64(payload.get("tokensIn")).unwrap_or(0),
+        value_i64(payload.get("tokensOut")).unwrap_or(0),
+        value_i64(payload.get("cacheReads")).unwrap_or(0),
+        value_i64(payload.get("cacheWrites")).unwrap_or(0),
+    );
+    if [buckets.0, buckets.1, buckets.2, buckets.3]
+        .into_iter()
+        .any(|tokens| tokens < 0)
+    {
+        return Err("negative token bucket");
+    }
+    Ok((buckets != (0, 0, 0, 0)).then_some(buckets))
+}
+
 pub(super) fn parse_extension_file(
     path: &Path,
     source: &str,
@@ -293,20 +309,15 @@ pub(super) fn parse_extension_file(
             output.errors += 1;
             continue;
         };
-        let input_tokens = value_i64(payload.get("tokensIn")).unwrap_or(0);
-        let output_tokens = value_i64(payload.get("tokensOut")).unwrap_or(0);
-        let cache_read = value_i64(payload.get("cacheReads")).unwrap_or(0);
-        let cache_creation = value_i64(payload.get("cacheWrites")).unwrap_or(0);
-        if [input_tokens, output_tokens, cache_read, cache_creation]
-            .into_iter()
-            .any(|tokens| tokens < 0)
-        {
-            output.errors += 1;
-            continue;
-        }
-        if input_tokens == 0 && output_tokens == 0 && cache_read == 0 && cache_creation == 0 {
-            continue;
-        }
+        let (input_tokens, output_tokens, cache_read, cache_creation) =
+            match usage_token_buckets(&payload) {
+                Ok(Some(tokens)) => tokens,
+                Ok(None) => continue,
+                Err(_) => {
+                    output.errors += 1;
+                    continue;
+                }
+            };
         output.entries.push(RawEntry {
             timestamp: utc.to_rfc3339(),
             timestamp_ms,
