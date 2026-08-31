@@ -245,6 +245,8 @@ fn usage_entry(
         call_count: context.call_count,
         reported_total_tokens: None,
         recorded_cost_usd: normalized.recorded_cost_usd,
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
     }))
 }
 

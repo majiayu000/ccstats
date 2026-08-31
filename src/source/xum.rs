@@ -383,6 +383,8 @@ fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput
             call_count: 0,
             reported_total_tokens: None,
             recorded_cost_usd,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         });
     }
     output

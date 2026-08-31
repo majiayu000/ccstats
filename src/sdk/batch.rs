@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::consts::DATE_FORMAT;
 use crate::core::{DateFilter, DedupAccumulator, LoadResult, RawEntry, aggregate_daily};
 use crate::pricing::PricingDb;
-use crate::source::{Source, get_source};
+use crate::source::{CostCoverage, Source, get_source};
 use crate::utils::Timezone;
 
 /// Options for [`summarize_cost_ranges`].
@@ -23,7 +23,7 @@ use crate::utils::Timezone;
 pub struct MultiSummaryOptions {
     /// Usage source to read.
     pub source: UsageSource,
-    /// Date ranges to summarize, preserving this order in the returned summaries.
+    /// Date or exact UTC timestamp ranges, preserving result order.
     pub ranges: Vec<UsageRange>,
     /// Optional timezone name, such as `UTC` or `Asia/Shanghai`.
     pub timezone: Option<String>,
@@ -78,7 +78,7 @@ struct ResolvedRange {
 /// # Errors
 ///
 /// Returns an error when no ranges are requested, when the source or timezone is
-/// invalid, or when any explicit date range has `since` after `until`.
+/// invalid, or when any explicit date or timestamp range is reversed.
 pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
     let start = Instant::now();
     let MultiSummaryOptions {
@@ -111,6 +111,8 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         .into_iter()
         .zip(results.iter())
         .map(|(range, result)| {
+            let cost_coverage =
+                CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
             build_cost_summary(
                 usage_source,
                 source,
@@ -121,6 +123,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
                 &pricing_db,
                 currency.as_ref(),
                 &currency_code,
+                cost_coverage,
             )
         })
         .collect();
@@ -145,7 +148,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
 ///
 /// Returns an error when no ranges are requested, when the resolved source or
 /// timezone is invalid, or when any explicit date range has `since` after
-/// `until`.
+/// `until`, or when an exact timestamp range is reversed.
 pub fn summarize_cost_ranges_with_cli_config(
     options: MultiSummaryOptions,
 ) -> Result<MultiCostSummary, SdkError> {
@@ -184,18 +187,30 @@ fn resolve_ranges(ranges: &[UsageRange], today: NaiveDate) -> Result<Vec<Resolve
         .iter()
         .map(|range| {
             let (since, until) = range.resolve(today)?;
+            let mut filter = DateFilter::new(since, until);
+            if let Some((since_timestamp, until_timestamp)) = range.timestamp_bounds() {
+                filter = filter.with_exact_timestamp_range(since_timestamp, until_timestamp);
+            }
             Ok(ResolvedRange {
                 range: range.clone(),
                 since,
                 until,
-                filter: DateFilter::new(since, until),
+                filter,
             })
         })
         .collect()
 }
 
-fn contains_any_range(date: NaiveDate, ranges: &[ResolvedRange]) -> bool {
-    ranges.iter().any(|range| range.filter.contains(date))
+fn contains_any_range(entry: &RawEntry, date: NaiveDate, ranges: &[ResolvedRange]) -> bool {
+    ranges.iter().any(|range| {
+        if range.filter.has_timestamp_range() {
+            range
+                .filter
+                .contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms)
+        } else {
+            range.filter.contains(date)
+        }
+    })
 }
 
 fn load_daily_ranges(
@@ -204,10 +219,14 @@ fn load_daily_ranges(
     timezone: Timezone,
 ) -> Vec<LoadResult> {
     let start = Instant::now();
-    let files = source.find_files();
+    let discovery_filter = discovery_filter(ranges);
+    let files = source.find_files_for_filter(&discovery_filter, timezone);
     if files.is_empty() {
         return ranges.iter().map(|_| LoadResult::default()).collect();
     }
+    let needs_timestamp = ranges
+        .iter()
+        .any(|range| range.filter.has_timestamp_range());
 
     let (entries, parse_errors) = files
         .par_iter()
@@ -217,8 +236,15 @@ fn load_daily_ranges(
                 .entries
                 .into_iter()
                 .filter_map(|mut entry| {
+                    if needs_timestamp && entry.timestamp_ms == 0 {
+                        entry.timestamp_ms = entry
+                            .timestamp
+                            .parse::<DateTime<Utc>>()
+                            .ok()?
+                            .timestamp_millis();
+                    }
                     let date = normalize_entry_date(&mut entry, timezone)?;
-                    contains_any_range(date, ranges).then_some(entry)
+                    contains_any_range(&entry, date, ranges).then_some(entry)
                 })
                 .collect::<Vec<_>>();
             (entries, parsed.errors)
@@ -235,11 +261,7 @@ fn load_daily_ranges(
     ranges
         .iter()
         .map(|range| {
-            let mut result = aggregate_entries_for_filter(
-                &entries,
-                &range.filter,
-                source.capabilities().needs_dedup,
-            );
+            let mut result = aggregate_entries_for_filter(&entries, &range.filter, source);
             result.parse_errors = parse_errors;
             result.elapsed_ms = elapsed_ms;
             result
@@ -262,13 +284,17 @@ fn normalize_entry_date(entry: &mut RawEntry, timezone: Timezone) -> Option<Naiv
 fn aggregate_entries_for_filter(
     entries: &[RawEntry],
     filter: &DateFilter,
-    needs_dedup: bool,
+    source: &dyn Source,
 ) -> LoadResult {
     let filtered: Vec<_> = entries
         .iter()
         .filter(|entry| {
-            NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
-                .is_ok_and(|date| filter.contains(date))
+            if filter.has_timestamp_range() {
+                filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms)
+            } else {
+                NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
+                    .is_ok_and(|date| filter.contains(date))
+            }
         })
         .cloned()
         .collect();
@@ -277,14 +303,45 @@ fn aggregate_entries_for_filter(
         return LoadResult::default();
     }
 
-    if needs_dedup {
+    if source.capabilities().needs_dedup {
         let mut accumulator = DedupAccumulator::new();
         accumulator.extend(filtered);
         let (deduped, skipped) = accumulator.finalize();
-        return load_result_from_entries(deduped, skipped);
+        return load_result_from_entries(source.finalize_entries(deduped), skipped);
     }
 
     load_result_from_entries(filtered, 0)
+}
+
+fn discovery_filter(ranges: &[ResolvedRange]) -> DateFilter {
+    let since = ranges
+        .iter()
+        .all(|range| range.since.is_some())
+        .then(|| ranges.iter().filter_map(|range| range.since).min())
+        .flatten();
+    let until = ranges
+        .iter()
+        .all(|range| range.until.is_some())
+        .then(|| ranges.iter().filter_map(|range| range.until).max())
+        .flatten();
+    let mut filter = DateFilter::new(since, until);
+    if ranges
+        .iter()
+        .all(|range| range.filter.has_timestamp_range())
+        && let (Some(since), Some(until)) = (
+            ranges
+                .iter()
+                .filter_map(|range| range.range.timestamp_bounds().map(|bounds| bounds.0))
+                .min(),
+            ranges
+                .iter()
+                .filter_map(|range| range.range.timestamp_bounds().map(|bounds| bounds.1))
+                .max(),
+        )
+    {
+        filter = filter.with_exact_timestamp_range(since, until);
+    }
+    filter
 }
 
 fn load_result_from_entries(entries: Vec<RawEntry>, skipped: i64) -> LoadResult {
@@ -302,13 +359,44 @@ fn load_result_from_entries(entries: Vec<RawEntry>, skipped: i64) -> LoadResult 
 mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
     use crate::core::RawEntry;
     use crate::source::{Capabilities, ParseOutput};
 
     fn d(year: i32, month: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
+
+    fn entry_at(timestamp: &str) -> RawEntry {
+        let timestamp_ms = timestamp
+            .parse::<DateTime<Utc>>()
+            .expect("valid timestamp")
+            .timestamp_millis();
+        RawEntry {
+            timestamp: timestamp.to_string(),
+            timestamp_ms,
+            date_str: "2026-08-21".to_string(),
+            message_id: Some(timestamp.to_string()),
+            session_key: "session".to_string(),
+            session_id: "session".to_string(),
+            project_path: String::new(),
+            model: "grok-4.6".to_string(),
+            input_tokens: 10,
+            output_tokens: 0,
+            cache_creation: 0,
+            cache_creation_1h: 0,
+            cache_read: 0,
+            reasoning_tokens: 0,
+            reported_total_tokens: None,
+            stop_reason: Some("complete".to_string()),
+            cost_kind: crate::core::CostKind::Real,
+            endpoint: crate::core::Endpoint::Unknown,
+            call_count: 1,
+            recorded_cost_usd: Some(0.1),
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
+        }
     }
 
     struct CountingSource {
@@ -365,9 +453,61 @@ mod tests {
                     call_count: 1,
                     reported_total_tokens: None,
                     recorded_cost_usd: None,
+                    api_equivalent_priced_tokens: 15,
+                    api_equivalent_coverage_tokens: 15,
                 }],
                 errors: 0,
             }
+        }
+    }
+
+    struct BoundedSource {
+        unfiltered_calls: AtomicUsize,
+        filtered_calls: AtomicUsize,
+        since_ms: AtomicI64,
+        until_ms: AtomicI64,
+    }
+
+    impl Default for BoundedSource {
+        fn default() -> Self {
+            Self {
+                unfiltered_calls: AtomicUsize::new(0),
+                filtered_calls: AtomicUsize::new(0),
+                since_ms: AtomicI64::new(0),
+                until_ms: AtomicI64::new(0),
+            }
+        }
+    }
+
+    impl Source for BoundedSource {
+        fn name(&self) -> &'static str {
+            "bounded"
+        }
+
+        fn capabilities(&self) -> Capabilities {
+            Capabilities::default()
+        }
+
+        fn find_files(&self) -> Vec<PathBuf> {
+            self.unfiltered_calls.fetch_add(1, Ordering::SeqCst);
+            Vec::new()
+        }
+
+        fn find_files_for_filter(&self, filter: &DateFilter, _timezone: Timezone) -> Vec<PathBuf> {
+            self.filtered_calls.fetch_add(1, Ordering::SeqCst);
+            self.since_ms.store(
+                filter.since_timestamp_ms.unwrap_or_default(),
+                Ordering::SeqCst,
+            );
+            self.until_ms.store(
+                filter.until_timestamp_ms.unwrap_or_default(),
+                Ordering::SeqCst,
+            );
+            Vec::new()
+        }
+
+        fn parse_file(&self, _path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {
+            ParseOutput::default()
         }
     }
 
@@ -406,10 +546,11 @@ mod tests {
             d(2026, 12, 10),
         )
         .unwrap();
+        let entry = entry_at("2026-08-21T05:42:00Z");
 
-        assert!(contains_any_range(d(2026, 1, 10), &ranges));
-        assert!(!contains_any_range(d(2026, 6, 1), &ranges));
-        assert!(contains_any_range(d(2026, 12, 10), &ranges));
+        assert!(contains_any_range(&entry, d(2026, 1, 10), &ranges));
+        assert!(!contains_any_range(&entry, d(2026, 6, 1), &ranges));
+        assert!(contains_any_range(&entry, d(2026, 12, 10), &ranges));
     }
 
     #[test]
@@ -428,10 +569,34 @@ mod tests {
             d(2026, 5, 9),
         )
         .unwrap();
+        let entry = entry_at("2026-08-21T05:42:00Z");
 
-        assert!(contains_any_range(d(2020, 1, 1), &ranges));
-        assert!(!contains_any_range(d(2026, 5, 7), &ranges));
-        assert!(contains_any_range(d(2026, 12, 31), &ranges));
+        assert!(contains_any_range(&entry, d(2020, 1, 1), &ranges));
+        assert!(!contains_any_range(&entry, d(2026, 5, 7), &ranges));
+        assert!(contains_any_range(&entry, d(2026, 12, 31), &ranges));
+    }
+
+    #[test]
+    fn timestamp_range_filters_entries_within_the_same_day() {
+        let ranges = resolve_ranges(
+            &[UsageRange::TimestampRange {
+                since: "2026-08-21T05:41:00Z".parse().expect("valid since"),
+                until: "2026-08-21T05:43:00Z".parse().expect("valid until"),
+            }],
+            d(2026, 8, 21),
+        )
+        .expect("resolve timestamp range");
+        let entries = vec![
+            entry_at("2026-08-21T05:40:00Z"),
+            entry_at("2026-08-21T05:42:00Z"),
+            entry_at("2026-08-21T05:44:00Z"),
+        ];
+
+        let source = CountingSource::new(Vec::new());
+        let result = aggregate_entries_for_filter(&entries, &ranges[0].filter, &source);
+
+        assert_eq!(result.valid, 1);
+        assert_eq!(result.day_stats["2026-08-21"].stats.input_tokens, 10);
     }
 
     #[test]
@@ -460,6 +625,53 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].valid, 2);
         assert_eq!(results[1].valid, 2);
+        assert_eq!(
+            CostCoverage::from_stats(results[0].day_stats.values().map(|day| &day.stats)),
+            Some(CostCoverage {
+                total_tokens: 30,
+                priced_tokens: 30,
+                estimated_proxy: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn timestamp_ranges_bound_shared_source_discovery() {
+        let source = BoundedSource::default();
+        let ranges = resolve_ranges(
+            &[
+                UsageRange::TimestampRange {
+                    since: "2026-08-21T05:00:00Z".parse().expect("valid since"),
+                    until: "2026-08-21T06:00:00Z".parse().expect("valid until"),
+                },
+                UsageRange::TimestampRange {
+                    since: "2026-08-21T08:00:00Z".parse().expect("valid since"),
+                    until: "2026-08-21T09:00:00Z".parse().expect("valid until"),
+                },
+            ],
+            d(2026, 8, 21),
+        )
+        .expect("resolve ranges");
+
+        let results = load_daily_ranges(&source, &ranges, Timezone::Named(chrono_tz::UTC));
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(source.unfiltered_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(source.filtered_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            source.since_ms.load(Ordering::SeqCst),
+            "2026-08-21T05:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("valid since")
+                .timestamp_millis()
+        );
+        assert_eq!(
+            source.until_ms.load(Ordering::SeqCst),
+            "2026-08-21T09:00:00Z"
+                .parse::<DateTime<Utc>>()
+                .expect("valid until")
+                .timestamp_millis()
+        );
     }
 
     #[test]

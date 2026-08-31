@@ -27,6 +27,7 @@ mod pi_forks;
 mod pi_paths;
 mod qwen;
 mod registry;
+mod tool_loader;
 mod unsloth;
 mod xum;
 
@@ -335,6 +336,8 @@ mod reasonix {
                 },
                 reported_total_tokens: None,
                 recorded_cost_usd,
+                api_equivalent_priced_tokens: 0,
+                api_equivalent_coverage_tokens: 0,
             },
             cost_error,
         )))
@@ -389,8 +392,51 @@ mod fx_recovery;
 
 use std::path::{Path, PathBuf};
 
-use crate::core::{DateFilter, RawEntry, ToolCall};
+use crate::core::{DateFilter, RawEntry, Stats, ToolCall};
 use crate::utils::Timezone;
+
+/// Coverage of a locally calculated API-equivalent cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct CostCoverage {
+    pub(crate) total_tokens: i64,
+    pub(crate) priced_tokens: i64,
+    pub(crate) estimated_proxy: i64,
+}
+
+impl CostCoverage {
+    pub(crate) fn from_stats<'a>(stats: impl IntoIterator<Item = &'a Stats>) -> Option<Self> {
+        let mut coverage = Self::default();
+        for stats in stats {
+            coverage.total_tokens = coverage
+                .total_tokens
+                .saturating_add(stats.api_equivalent_coverage_tokens);
+            coverage.priced_tokens = coverage
+                .priced_tokens
+                .saturating_add(stats.api_equivalent_priced_tokens);
+            coverage.estimated_proxy = coverage
+                .estimated_proxy
+                .saturating_add(stats.estimated_proxy.total_tokens());
+        }
+        (coverage.total_tokens > 0 || coverage.priced_tokens > 0).then_some(coverage)
+    }
+
+    pub(crate) fn percent(self) -> f64 {
+        if self.total_tokens <= 0 {
+            0.0
+        } else {
+            self.priced_tokens.max(0).min(self.total_tokens) as f64 / self.total_tokens as f64
+                * 100.0
+        }
+    }
+
+    pub(crate) fn is_partial(self) -> bool {
+        self.total_tokens <= 0 || self.priced_tokens != self.total_tokens
+    }
+
+    pub(crate) fn cost_is_lower_bound(self) -> bool {
+        self.is_partial() && self.estimated_proxy == 0
+    }
+}
 
 /// Parse result for a single source file.
 #[derive(Clone, Debug, Default)]
@@ -475,6 +521,10 @@ pub(crate) trait Source: Send + Sync {
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
 
+    fn finalize_entries(&self, entries: Vec<RawEntry>) -> Vec<RawEntry> {
+        entries
+    }
+
     /// Find files that may contain tool-call records for this source.
     fn find_tool_call_files(&self) -> Vec<PathBuf> {
         Vec::new()
@@ -501,7 +551,8 @@ pub(crate) fn all_capabilities() -> Capabilities {
 }
 
 // Re-export loader functions
-pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions, load_tool_calls};
+pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions};
+pub(crate) use tool_loader::load_tool_calls;
 
 /// Load per-endpoint stats (native vs proxy) for a source. Claude-only; other
 /// sources return empty. Lives here (not in `loader.rs`) to keep that file
@@ -512,4 +563,21 @@ pub(crate) fn load_endpoints(
     timezone: Timezone,
 ) -> Vec<crate::core::EndpointStats> {
     loader::DataLoader::new(source, false, false).load_endpoints(filter, timezone)
+}
+
+#[cfg(test)]
+mod cost_coverage_tests {
+    use super::CostCoverage;
+
+    #[test]
+    fn priced_tokens_without_a_total_are_incomplete() {
+        let coverage = CostCoverage {
+            total_tokens: 0,
+            priced_tokens: 120,
+            estimated_proxy: 0,
+        };
+
+        assert!(coverage.is_partial());
+        assert!(coverage.percent().abs() < f64::EPSILON);
+    }
 }
