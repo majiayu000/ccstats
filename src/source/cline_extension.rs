@@ -150,6 +150,21 @@ struct UiMessage {
     say: Option<String>,
     text: Option<String>,
     ts: Option<Value>,
+    #[serde(rename = "modelInfo")]
+    model_info: Option<UiModelInfo>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct UiModelInfo {
+    model_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskHistoryEntry {
+    id: String,
+    cwd_on_task_initialization: Option<String>,
 }
 
 fn value_i64(value: Option<&Value>) -> Option<i64> {
@@ -220,6 +235,22 @@ fn task_model(path: &Path) -> String {
     model.unwrap_or_else(|| UNKNOWN.to_string())
 }
 
+fn task_project(path: &Path, task_id: &str) -> String {
+    let Some(extension_root) = path.parent().and_then(Path::parent).and_then(Path::parent) else {
+        return String::new();
+    };
+    let Ok(content) = fs::read_to_string(extension_root.join("state/taskHistory.json")) else {
+        return String::new();
+    };
+    serde_json::from_str::<Vec<TaskHistoryEntry>>(&content)
+        .ok()
+        .and_then(|entries| entries.into_iter().find(|entry| entry.id == task_id))
+        .and_then(|entry| entry.cwd_on_task_initialization)
+        .map(|project| project.trim().to_string())
+        .filter(|project| !project.is_empty())
+        .unwrap_or_default()
+}
+
 fn session_id(path: &Path) -> String {
     path.parent()
         .and_then(Path::file_name)
@@ -260,7 +291,8 @@ pub(super) fn parse_extension_file(
         }
     };
     let session_id = session_id(path);
-    let model = task_model(path);
+    let fallback_model = task_model(path);
+    let project_path = task_project(path, &session_id);
     let mut output = ParseOutput::default();
     for message in messages {
         if message.kind.as_deref() != Some("say")
@@ -268,6 +300,12 @@ pub(super) fn parse_extension_file(
         {
             continue;
         }
+        let model = message
+            .model_info
+            .and_then(|info| info.model_id)
+            .map(|model| model.trim().to_string())
+            .filter(|model| !model.is_empty())
+            .unwrap_or_else(|| fallback_model.clone());
         let Some(text) = message.text else {
             output.errors += 1;
             continue;
@@ -308,8 +346,8 @@ pub(super) fn parse_extension_file(
             message_id: None,
             session_key: format!("{source}:{}", path.parent().unwrap_or(path).display()),
             session_id: session_id.clone(),
-            project_path: String::new(),
-            model: model.clone(),
+            project_path: project_path.clone(),
+            model,
             input_tokens,
             output_tokens,
             cache_creation,
@@ -360,5 +398,57 @@ mod tests {
         assert_eq!(entry.output_tokens, 20);
         assert_eq!(entry.cache_read, 30);
         assert_eq!(entry.cache_creation, 5);
+    }
+
+    #[test]
+    fn api_request_events_preserve_each_request_model() {
+        let temp = tempdir().unwrap();
+        let task = temp.path().join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[
+                {"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"claude-sonnet-4"},"text":"{\"tokensIn\":10}"},
+                {"type":"say","say":"api_req_started","ts":"2026-08-31T03:05:05Z","modelInfo":{"modelId":"gpt-5"},"text":"{\"tokensIn\":20}"}
+            ]"#,
+        )
+        .unwrap();
+        fs::write(
+            task.join("api_conversation_history.json"),
+            "<environment_details><model>gpt-5</model></environment_details>",
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert_eq!(parsed.entries.len(), 2);
+        assert_eq!(parsed.entries[0].model, "claude-sonnet-4");
+        assert_eq!(parsed.entries[1].model, "gpt-5");
+    }
+
+    #[test]
+    fn extension_entries_use_task_history_project() {
+        let temp = tempdir().unwrap();
+        let extension = temp.path().join("extension");
+        let task = extension.join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        fs::create_dir_all(extension.join("state")).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","text":"{\"tokensIn\":10}"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            extension.join("state/taskHistory.json"),
+            r#"[{"id":"task-1","cwdOnTaskInitialization":"/work/project"}]"#,
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].project_path, "/work/project");
     }
 }
