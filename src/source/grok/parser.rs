@@ -73,11 +73,9 @@ struct UpdateEnvelope {
 }
 
 fn get_grok_sessions_dir() -> Option<PathBuf> {
-    if let Ok(grok_home) = env::var(GROK_HOME_ENV) {
+    if let Some(grok_home) = env::var_os(GROK_HOME_ENV) {
         let path = PathBuf::from(grok_home).join(SESSIONS_SUBDIR);
-        if path.is_dir() {
-            return Some(path);
-        }
+        return path.is_dir().then_some(path);
     }
 
     let home = dirs::home_dir()?;
@@ -304,10 +302,28 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn parse_grok_session_file_with_debug(
     path: &Path,
     timezone: Timezone,
     debug: bool,
+) -> ParseOutput {
+    parse_grok_session_file(path, timezone, debug, true)
+}
+
+pub(super) fn parse_grok_usage_file_with_debug(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+) -> ParseOutput {
+    parse_grok_session_file(path, timezone, debug, false)
+}
+
+fn parse_grok_session_file(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+    use_server_cost: bool,
 ) -> ParseOutput {
     let Some(session_dir) = path.parent() else {
         return ParseOutput {
@@ -342,7 +358,7 @@ pub(super) fn parse_grok_session_file_with_debug(
         session_id: session_id.clone(),
     };
 
-    let usage = super::usage::parse_turn_completed_usage(
+    let mut usage = super::usage::parse_turn_completed_usage(
         &session_dir.join(UPDATES_FILE),
         timezone,
         debug,
@@ -350,6 +366,14 @@ pub(super) fn parse_grok_session_file_with_debug(
     );
     errors += usage.errors;
     if usage.saw_usage_record {
+        if !use_server_cost {
+            // The API-equivalent cost comes exclusively from per-inference
+            // telemetry. A zero recorded cost keeps complete turn tokens in
+            // the usage total without pricing them a second time.
+            for entry in &mut usage.entries {
+                entry.recorded_cost_usd = Some(0.0);
+            }
+        }
         return ParseOutput {
             entries: usage.entries,
             errors,
@@ -404,6 +428,8 @@ pub(super) fn parse_grok_session_file_with_debug(
             endpoint: crate::core::Endpoint::Unknown,
             call_count: 1,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: total_tokens,
         }],
         errors,
     }
