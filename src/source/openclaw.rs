@@ -257,11 +257,16 @@ fn parse_lines(lines: Vec<String>, timezone: Timezone) -> ParseOutput {
                     output.errors += 1;
                     continue;
                 }
-                session_started_ms = row
+                let Some(started_ms) = row
                     .timestamp
                     .as_deref()
                     .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-                    .map(|value| value.timestamp_millis());
+                    .map(|value| value.timestamp_millis())
+                else {
+                    output.errors += 1;
+                    continue;
+                };
+                session_started_ms = Some(started_ms);
                 session_id = row.id;
                 project_path = non_empty(row.cwd);
             }
