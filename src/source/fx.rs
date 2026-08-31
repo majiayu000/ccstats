@@ -237,6 +237,8 @@ fn entry(fact: &Fact, timezone: Timezone) -> Result<RawEntry, &'static str> {
         endpoint: Endpoint::Unknown,
         call_count: 1,
         recorded_cost_usd: Some(fact.total_cost),
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
     })
 }
 
