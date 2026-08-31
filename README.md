@@ -91,7 +91,7 @@ ccstats daily --source cur
 
 ## Quick Start (Grok)
 
-Grok support reports complete, globally deduplicated token totals from session `turn_completed.usage` records. It separately prices each observed `shell.turn.inference_done` record using xAI's short- or long-context API rate for the whole request. Because Grok trims `unified.jsonl`, the output includes priced-token coverage and marks the API-equivalent cost as a lower bound when inference history is incomplete.
+Grok support reports complete, globally deduplicated token totals from session `turn_completed.usage` records. It separately prices each observed `shell.turn.inference_done` record using xAI's short- or long-context API rate for the whole request. Because Grok trims `unified.jsonl`, the output includes priced-token coverage and marks the API-equivalent cost as a lower bound when inference history is incomplete and no `estimated_proxy` contribution is included.
 
 ```bash
 # Install
@@ -390,7 +390,7 @@ GROK_HOME="/path/to/.grok" ccstats grok
 
 Current limitations:
 
-- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run or between ccstats runs, so incomplete API-equivalent cost is reported as a lower bound.
+- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run or between ccstats runs, so incomplete API-equivalent cost is reported as a lower bound only when no `estimated_proxy` contribution is included.
 - `turn_completed.usage.costUsdTicks` is not used as an API-equivalent price.
 - Grok models without a published ccstats per-inference tier remain unpriced and reduce priced-token coverage.
 - Grok 5-hour billing blocks are not supported.
