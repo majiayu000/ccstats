@@ -4,14 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-31
+
 ### Added
 - Expose provider-authoritative Codex weekly quota reports through the Rust SDK with typed data and errors.
+- Add `ccstats doctor` for read-only, machine-readable source setup diagnostics.
+- Document privacy boundaries, network access, and the release process.
 
 ### Changed
 - Calculate Grok 4.5 and 4.6 USD cost from per-inference `unified.jsonl` token records, including prompt-cache rates and the 200k-token whole-request pricing tier, instead of using `turn_completed.costUsdTicks` as the Grok Build weekly-allowance value.
+- Improve the README first-run path, positioning, installation maintenance, and package metadata.
 
 ### Fixed
 - Preserve Grok inference records in an atomic ccstats ledger so upstream head trimming does not remove usage that ccstats has already observed.
+- Publish crates.io through short-lived OIDC credentials before creating GitHub Releases or updating Homebrew.
 
 ## [0.5.0] - 2026-08-20
 

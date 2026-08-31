@@ -2,13 +2,15 @@
 //!
 //! Defines the `CursorSource` implementation of the Source trait.
 
+use std::env;
 use std::path::{Path, PathBuf};
 
 use crate::core::DateFilter;
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
 use crate::utils::Timezone;
 
-use super::parser::{find_cursor_files, parse_cursor_with_debug};
+use super::client::has_api_credentials;
+use super::parser::{USAGE_FILE_ENV, find_cursor_files, parse_cursor_with_debug};
 
 /// Cursor usage API data source.
 pub(crate) struct CursorSource;
@@ -48,6 +50,32 @@ impl Source for CursorSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+        }
+    }
+
+    fn setup_hint(&self) -> &'static str {
+        "Set CURSOR_API_KEY, CURSOR_SESSION_TOKEN, or CURSOR_USAGE_FILE"
+    }
+
+    fn diagnose(&self) -> SourceDiagnostic {
+        if let Some(path) = env::var_os(USAGE_FILE_ENV).filter(|path| !path.is_empty()) {
+            let path = PathBuf::from(path);
+            return if path.is_file() {
+                SourceDiagnostic::detected(1, "Cursor replay file is available")
+            } else {
+                SourceDiagnostic::missing(format!(
+                    "CURSOR_USAGE_FILE does not point to a file: {}",
+                    path.display()
+                ))
+            };
+        }
+
+        if has_api_credentials() {
+            SourceDiagnostic::configured(
+                "Cursor API credentials are set; the provider was not contacted",
+            )
+        } else {
+            SourceDiagnostic::missing("No Cursor API credentials or replay file found")
         }
     }
 

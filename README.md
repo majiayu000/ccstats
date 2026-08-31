@@ -1,56 +1,127 @@
 # ccstats
 
+[![CI](https://github.com/majiayu000/ccstats/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/ccstats/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/ccstats.svg)](https://crates.io/crates/ccstats)
+[![Crates.io Downloads](https://img.shields.io/crates/d/ccstats.svg)](https://crates.io/crates/ccstats)
 [![GitHub Release](https://img.shields.io/github/v/release/majiayu000/ccstats)](https://github.com/majiayu000/ccstats/releases)
+[![docs.rs](https://img.shields.io/docsrs/ccstats)](https://docs.rs/ccstats/latest/ccstats/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/majiayu000/ccstats/blob/main/LICENSE)
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics for Claude Code, OpenAI Codex, Cursor, Grok, and Kimi Code logs.
+`ccstats` is a fast, local-first CLI and Rust SDK for understanding token usage,
+cost, cache efficiency, and quota pace across Claude Code, OpenAI Codex,
+Cursor, Grok, and Kimi Code.
 
-Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
+One binary turns the usage metadata your coding agents already produce into
+terminal reports and structured JSON/CSV. No ccstats account or telemetry is
+required.
 
-## Highlights
+## 30-second start
 
-- Fast local analysis of usage JSONL logs
-- Claude Code support (`~/.claude/projects/`)
-- OpenAI Codex support (`~/.codex/sessions/`)
-- Codex weekly quota pace and reset estimates from provider snapshots
-- Cursor usage API support (`CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN`)
-- Grok support (`~/.grok/sessions/`)
-- Kimi Code support (`~/.kimi-code/sessions/`)
-- Daily/weekly/monthly/project/session views
-- Top-N leaderboard ranking models or projects by cost share
-- Optional model-level token and cost breakdown
-- Reusable Rust SDK for embedding local usage and cost summaries in other apps
+```bash
+brew install majiayu000/tap/ccstats
+ccstats doctor
+ccstats daily --source all
+```
+
+`doctor` is read-only and never contacts remote providers. It shows which
+sources are detected, which API-backed sources are configured, and the exact
+setup step for anything missing.
+
+## Why ccstats
+
+- **Fast and portable** — a small Rust binary with no Node.js or Python runtime.
+- **Automation-ready** — table, JSON, CSV, jq filtering, statusline output, and
+  a reusable Rust SDK share the same accounting logic.
+- **Accuracy over guesswork** — source-aware deduplication, cache/reasoning token
+  handling, parse-quality metadata, strict pricing mode, and visible pricing
+  provenance.
+- **Useful beyond spend** — daily/weekly/monthly trends, projects, sessions,
+  top consumers, Claude tool usage, and Codex quota pace.
+- **Local-first** — local session data stays on the machine; network access is
+  bounded by feature and pricing refreshes can be disabled with `--offline`.
+
+ccstats is intentionally CLI-first. If your primary need is an always-visible
+menu-bar app, a graphical dashboard, gamification, or cloud leaderboards, a GUI
+tracker is a better fit. Choose ccstats when speed, scripting, reproducibility,
+and inspectable accounting rules matter most.
+
+## Supported sources
+
+| Source | Usage input | Start here |
+|--------|-------------|------------|
+| Claude Code | `~/.claude/projects/` | `ccstats today` |
+| OpenAI Codex | `~/.codex/sessions/` and local quota snapshots | `ccstats codex today` / `ccstats quota` |
+| Cursor | Official usage API or an explicit replay file | `ccstats today --source cursor` |
+| Grok | `~/.grok/logs/unified.jsonl` with session fallback | `ccstats grok today` |
+| Kimi Code | `~/.kimi-code/sessions/` wire logs | `ccstats kimi today` |
+
+Run `ccstats sources` for aliases and per-source capabilities, or `ccstats
+doctor --json` for machine-readable setup diagnostics.
+
+## Privacy and network access
+
+ccstats extracts usage metadata from known source locations. It does not store
+or upload prompt text, responses, or source-code content. Local parsing requires
+no ccstats account.
+
+Network access occurs only when a selected feature needs it:
+
+- pricing refresh downloads the public LiteLLM pricing catalog;
+- non-USD output downloads exchange rates;
+- Cursor usage calls Cursor's API with credentials supplied by the user.
+
+Use `--offline` to prevent pricing and exchange-rate refreshes. See the full
+[privacy and data-access reference](docs/PRIVACY.md) for files read, caches
+written, and endpoints contacted.
 
 ## Installation
 
 ### Homebrew (macOS/Linux)
+
 ```bash
 brew install majiayu000/tap/ccstats
 ```
 
 ### Cargo binstall (prebuilt binary)
+
 ```bash
 cargo binstall ccstats
 ```
 
 ### Cargo install (from source)
+
 ```bash
 cargo install ccstats
 ```
 
 ### Shell script
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | sh
 
 # Install a specific version
-curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.2.63 sh
+curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.5.0 sh
 ```
 
 ### Manual download
+
 Download prebuilt archives and SHA-256 checksums from [GitHub Releases](https://github.com/majiayu000/ccstats/releases).
+
+### Upgrade and uninstall
+
+```bash
+# Homebrew
+brew upgrade majiayu000/tap/ccstats
+
+# Cargo
+cargo install ccstats --locked --force
+
+# Uninstall Homebrew or Cargo installs
+brew uninstall ccstats
+cargo uninstall ccstats
+```
 
 ## Quick Start (Codex)
 

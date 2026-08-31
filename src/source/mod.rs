@@ -23,6 +23,56 @@ pub(crate) struct ParseOutput {
     pub(crate) errors: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DiagnosticStatus {
+    Detected,
+    Configured,
+    Missing,
+}
+
+impl DiagnosticStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Detected => "detected",
+            Self::Configured => "configured",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SourceDiagnostic {
+    pub(crate) status: DiagnosticStatus,
+    pub(crate) files: usize,
+    pub(crate) detail: String,
+}
+
+impl SourceDiagnostic {
+    pub(crate) fn detected(files: usize, detail: impl Into<String>) -> Self {
+        Self {
+            status: DiagnosticStatus::Detected,
+            files,
+            detail: detail.into(),
+        }
+    }
+
+    pub(crate) fn configured(detail: impl Into<String>) -> Self {
+        Self {
+            status: DiagnosticStatus::Configured,
+            files: 0,
+            detail: detail.into(),
+        }
+    }
+
+    pub(crate) fn missing(detail: impl Into<String>) -> Self {
+        Self {
+            status: DiagnosticStatus::Missing,
+            files: 0,
+            detail: detail.into(),
+        }
+    }
+}
+
 /// Capabilities that a data source may support
 #[derive(Debug, Clone, Default)]
 #[allow(clippy::struct_excessive_bools)]
@@ -86,6 +136,22 @@ pub(crate) trait Source: Send + Sync {
 
     /// Capabilities of this source
     fn capabilities(&self) -> Capabilities;
+
+    /// Actionable setup guidance used by the read-only doctor command.
+    fn setup_hint(&self) -> &'static str {
+        "Run the source once so it creates local usage data"
+    }
+
+    /// Inspect whether this source can provide data without parsing logs or
+    /// contacting remote services.
+    fn diagnose(&self) -> SourceDiagnostic {
+        let files = self.find_files().len();
+        if files == 0 {
+            SourceDiagnostic::missing("No local usage files found")
+        } else {
+            SourceDiagnostic::detected(files, format!("Found {files} local usage file(s)"))
+        }
+    }
 
     /// Find all data files for this source
     fn find_files(&self) -> Vec<PathBuf>;

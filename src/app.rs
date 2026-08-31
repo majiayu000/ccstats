@@ -612,6 +612,7 @@ pub(crate) fn handle_source_command(
     let caps = source.capabilities();
 
     match command {
+        SourceCommand::Doctor => return crate::doctor_cmd::handle_doctor(ctx),
         SourceCommand::Sources => return crate::sources_cmd::handle_sources(ctx),
         SourceCommand::Quota => return crate::quota_cmd::handle_quota(ctx),
         SourceCommand::Session => return handle_session(source, ctx),
@@ -686,6 +687,7 @@ fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabil
 /// Handle aggregate commands across every registered data source.
 pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandContext<'_>) {
     match command {
+        SourceCommand::Doctor => return crate::doctor_cmd::handle_doctor(ctx),
         SourceCommand::Sources => return crate::sources_cmd::handle_sources(ctx),
         SourceCommand::Quota => {
             eprintln!("Error: quota analysis only supports the Codex source");

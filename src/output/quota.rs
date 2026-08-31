@@ -6,7 +6,8 @@ use crate::source::{CodexQuotaStatus, CodexWeeklyQuota};
 use crate::utils::Timezone;
 
 use super::format::{
-    NumberFormat, create_styled_table, format_compact, header_cell, right_cell, styled_cell,
+    NumberFormat, create_styled_table, csv_escape, format_compact, header_cell, right_cell,
+    styled_cell,
 };
 
 fn rounded_pct(value: f64) -> f64 {
@@ -65,14 +66,6 @@ pub(crate) fn output_quota_json(
     output.to_string()
 }
 
-fn csv_field(value: &str) -> String {
-    if value.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_string()
-    }
-}
-
 pub(crate) fn output_quota_csv(
     report: &CodexWeeklyQuota,
     value_estimate: QuotaValueEstimate<'_>,
@@ -111,7 +104,7 @@ codex,weekly,{},{:.2},{:.2},{:.2},{},{},{},{}\n",
                 String::new(),
                 String::new(),
                 String::new(),
-                csv_field(&error.to_string()),
+                csv_escape(&error.to_string()),
             ),
         };
     format!(

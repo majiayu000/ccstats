@@ -209,7 +209,7 @@ pub(super) fn right_cell(text: &str, color: Option<Color>, bold: bool) -> Cell {
 ///
 /// Wraps the value in double quotes and doubles any embedded quotes if the
 /// input contains a comma, double quote, newline, or carriage return.
-pub(super) fn csv_escape(s: &str) -> String {
+pub(crate) fn csv_escape(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {

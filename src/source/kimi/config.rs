@@ -50,6 +50,10 @@ impl Source for KimiSource {
         }
     }
 
+    fn setup_hint(&self) -> &'static str {
+        "Run Kimi Code once or set KIMI_CODE_HOME to its data root"
+    }
+
     fn find_files(&self) -> Vec<PathBuf> {
         find_kimi_files()
     }

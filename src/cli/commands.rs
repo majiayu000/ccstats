@@ -17,6 +17,8 @@ pub(crate) enum TopDimension {
 /// Main CLI commands
 #[derive(Subcommand)]
 pub(crate) enum Commands {
+    /// Check source setup without contacting remote providers
+    Doctor,
     /// List available data sources and aliases
     Sources,
     /// Show daily usage (default)
@@ -127,6 +129,7 @@ pub(crate) enum KimiCommands {
 /// Normalized command that works across all sources
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceCommand {
+    Doctor,
     Sources,
     Daily,
     Weekly,
@@ -158,6 +161,7 @@ impl From<&Commands> for SourceCommand {
     #[allow(clippy::match_same_arms)] // Codex default intentionally maps to Daily
     fn from(cmd: &Commands) -> Self {
         match cmd {
+            Commands::Doctor => SourceCommand::Doctor,
             Commands::Sources => SourceCommand::Sources,
             Commands::Daily => SourceCommand::Daily,
             Commands::Weekly => SourceCommand::Weekly,
@@ -322,6 +326,13 @@ mod tests {
     fn parse_command_sources_has_no_source_hint() {
         let parsed = parse_command(Some(&Commands::Sources));
         assert_eq!(parsed.command, SourceCommand::Sources);
+        assert_eq!(parsed.source_hint, None);
+    }
+
+    #[test]
+    fn parse_command_doctor_has_no_source_hint() {
+        let parsed = parse_command(Some(&Commands::Doctor));
+        assert_eq!(parsed.command, SourceCommand::Doctor);
         assert_eq!(parsed.source_hint, None);
     }
 }
