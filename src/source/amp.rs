@@ -166,7 +166,6 @@ impl TokenBuckets {
 struct AmpRecord {
     model: String,
     timestamp_ms: i64,
-    has_explicit_timestamp: bool,
     message_id: Option<i64>,
     ledger_to_message_id: Option<i64>,
     tokens: TokenBuckets,
@@ -219,7 +218,6 @@ fn ledger_records(thread: &mut AmpThread, fallback: Option<i64>) -> (Vec<AmpReco
             Some(AmpRecord {
                 model,
                 timestamp_ms,
-                has_explicit_timestamp: explicit_timestamp.is_some(),
                 message_id: None,
                 ledger_to_message_id: event.to_message_id.filter(|id| *id > 0),
                 tokens,
@@ -229,22 +227,15 @@ fn ledger_records(thread: &mut AmpThread, fallback: Option<i64>) -> (Vec<AmpReco
     (records, errors)
 }
 
-fn message_records(thread: AmpThread, fallback: Option<i64>) -> (Vec<AmpRecord>, usize) {
-    let mut errors = 0;
-    let records = thread
+fn message_records(thread: AmpThread) -> Vec<AmpRecord> {
+    thread
         .messages
         .into_iter()
         .filter(|message| message.role.as_deref() == Some("assistant"))
         .filter_map(|message| {
             let usage = message.usage?;
             let model = non_empty(usage.model)?;
-            let base = fallback;
-            let Some(base) = base else {
-                errors += 1;
-                return None;
-            };
             let message_id = message.message_id.filter(|id| *id > 0);
-            let timestamp_ms = base.saturating_add(message_id.unwrap_or(0).saturating_mul(1_000));
             let tokens = TokenBuckets {
                 input: positive(usage.input_tokens),
                 output: positive(usage.output_tokens),
@@ -256,15 +247,13 @@ fn message_records(thread: AmpThread, fallback: Option<i64>) -> (Vec<AmpRecord>,
             }
             Some(AmpRecord {
                 model,
-                timestamp_ms,
-                has_explicit_timestamp: false,
+                timestamp_ms: 0,
                 message_id,
                 ledger_to_message_id: None,
                 tokens,
             })
         })
-        .collect();
-    (records, errors)
+        .collect()
 }
 
 fn matching_ledger(
@@ -293,39 +282,34 @@ fn matching_ledger(
 }
 
 fn merge_records(ledger: AmpRecord, message: &AmpRecord) -> AmpRecord {
-    if ledger.has_explicit_timestamp {
-        ledger
-    } else {
-        AmpRecord {
-            timestamp_ms: message.timestamp_ms,
-            message_id: message.message_id,
-            ..ledger
-        }
+    AmpRecord {
+        message_id: message.message_id,
+        ..ledger
     }
 }
 
-fn merge_usage_records(mut ledger: Vec<AmpRecord>, messages: Vec<AmpRecord>) -> Vec<AmpRecord> {
+fn merge_usage_records(
+    mut ledger: Vec<AmpRecord>,
+    messages: Vec<AmpRecord>,
+) -> (Vec<AmpRecord>, usize) {
     if ledger.is_empty() {
-        let mut messages = messages;
-        messages.sort_by_key(|record| record.timestamp_ms);
-        return messages;
+        return (Vec::new(), messages.len());
     }
 
     let mut consumed = vec![false; ledger.len()];
     let mut search_start = 0;
-    let mut unmatched = Vec::new();
+    let mut unmatched = 0usize;
     for message in messages {
         if let Some(index) = matching_ledger(&ledger, &consumed, search_start, &message) {
             consumed[index] = true;
             search_start = index.saturating_add(1);
             ledger[index] = merge_records(ledger[index].clone(), &message);
         } else {
-            unmatched.push(message);
+            unmatched += 1;
         }
     }
-    ledger.extend(unmatched);
     ledger.sort_by_key(|record| record.timestamp_ms);
-    ledger
+    (ledger, unmatched)
 }
 
 fn into_raw_entry(
@@ -395,8 +379,8 @@ fn parse_amp_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
     });
     let fallback = valid_base_timestamp(thread.created, file_modified_ms(path));
     let (ledger, ledger_errors) = ledger_records(&mut thread, fallback);
-    let (messages, message_errors) = message_records(thread, fallback);
-    let records = merge_usage_records(ledger, messages);
+    let messages = message_records(thread);
+    let (records, message_errors) = merge_usage_records(ledger, messages);
     let mut invalid_timestamps = 0;
     let entries = records
         .into_iter()
@@ -465,5 +449,29 @@ mod tests {
         assert_eq!(entry.output_tokens, 20);
         assert_eq!(entry.cache_read, 30);
         assert_eq!(entry.cache_creation, 5);
+    }
+
+    #[test]
+    fn message_usage_without_a_real_timestamp_is_reported_and_skipped() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("T-thread.json");
+        fs::write(
+            &path,
+            r#"{
+                "id": "thread-1",
+                "created": 1788145445000,
+                "messages": [{
+                    "role": "assistant",
+                    "messageId": 86400,
+                    "usage": {"model": "claude-sonnet-4", "inputTokens": 10}
+                }]
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_amp_file(&path, Timezone::Named(chrono_tz::UTC), false);
+
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 1);
     }
 }
