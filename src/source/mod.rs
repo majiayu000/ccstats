@@ -13,6 +13,8 @@ mod gemini;
 mod grok;
 mod kimi;
 mod loader;
+mod opencode;
+mod pi;
 mod qwen;
 mod registry;
 mod tool_loader;

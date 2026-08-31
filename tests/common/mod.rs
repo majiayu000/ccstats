@@ -12,6 +12,10 @@ const SOURCE_ENV_VARS: &[&str] = &[
     "CURSOR_SESSION_TOKEN",
     "GROK_HOME",
     "KIMI_CODE_HOME",
+    "OPENCODE_DB",
+    "PI_CODING_AGENT_DIR",
+    "PI_CODING_AGENT_SESSION_DIR",
+    "XDG_DATA_HOME",
 ];
 
 pub(crate) fn unique_temp_dir(prefix: &str) -> PathBuf {
