@@ -46,3 +46,21 @@ fn session_without_v3_marker_is_rejected() {
     assert!(parsed.entries.is_empty());
     assert_eq!(parsed.errors, 2);
 }
+
+#[test]
+fn v3_session_without_valid_header_timestamp_is_rejected() {
+    for timestamp in [None, Some("not-a-timestamp")] {
+        let timestamp =
+            timestamp.map_or_else(String::new, |value| format!(r#","timestamp":"{value}""#));
+        let parsed = parse_lines(
+            vec![
+                format!(r#"{{"type":"session","version":3,"id":"fork"{timestamp},"cwd":"/fork"}}"#),
+                message(),
+            ],
+            Timezone::Named(chrono_tz::UTC),
+        );
+
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 2);
+    }
+}
