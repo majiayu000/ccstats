@@ -377,9 +377,11 @@ fn entries_from_stats(
             let (input, cached) = if usage.input_includes_cache {
                 let input = usage.input.max(0);
                 let cached = usage.cached.max(0);
-                (input.saturating_sub(cached.min(input)), cached)
+                (input, cached)
             } else {
-                (usage.input.max(0), usage.cached.max(0))
+                let input = usage.input.max(0);
+                let cached = usage.cached.max(0);
+                (input.saturating_add(cached), cached)
             };
             build_entry(
                 path,
@@ -660,6 +662,30 @@ mod tests {
         };
 
         assert_eq!(normalized_session_input(&tokens), (800, 200));
+    }
+
+    #[test]
+    fn headless_cache_inclusive_input_is_normalized_once() {
+        let mut errors = 0;
+        let entries = parse_headless_value(
+            Path::new("event.jsonl"),
+            &serde_json::json!({
+                "timestamp": "2026-08-31T03:04:05Z",
+                "stats": {
+                    "tokens": {"input": 100, "output": 5, "cached": 20}
+                }
+            }),
+            Timezone::Named(chrono_tz::UTC),
+            "session-1",
+            Some("gemini-2.5-pro".to_string()),
+            None,
+            &mut errors,
+        );
+
+        assert_eq!(errors, 0);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].input_tokens, 80);
+        assert_eq!(entries[0].cache_read, 20);
     }
 
     #[test]
