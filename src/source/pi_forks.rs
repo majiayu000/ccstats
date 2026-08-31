@@ -379,7 +379,9 @@ fn task_residual_entry(
         else {
             continue;
         };
-        let child_entries = parse_file(&child_path, timezone, false, ForkProfile::gjc())
+        let child_output = parse_file(&child_path, timezone, false, ForkProfile::gjc());
+        let child_has_errors = child_output.errors > 0;
+        let child_entries = child_output
             .entries
             .into_iter()
             .filter(|entry| entry.call_count > 0)
@@ -387,7 +389,7 @@ fn task_residual_entry(
         if child_entries.is_empty() {
             continue;
         }
-        if let Some(usage) = result.usage.clone() {
+        if !child_has_errors && let Some(usage) = result.usage.clone() {
             totals.add_usage(usage)?;
         } else {
             for child_entry in child_entries {
