@@ -1,5 +1,6 @@
 //! Pi coding-agent JSONL usage source.
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -103,9 +104,9 @@ struct PiEntry {
     #[serde(rename = "type")]
     entry_type: String,
     id: String,
+    parent_id: Option<String>,
     timestamp: String,
     message: Option<PiMessage>,
-    provider: Option<String>,
     model_id: Option<String>,
     usage: Option<PiUsage>,
 }
@@ -114,7 +115,6 @@ struct PiEntry {
 #[serde(rename_all = "camelCase")]
 struct PiMessage {
     role: String,
-    provider: Option<String>,
     model: Option<String>,
     usage: Option<PiUsage>,
     stop_reason: Option<String>,
@@ -135,23 +135,6 @@ struct PiCost {
     total: f64,
 }
 
-#[derive(Debug, Default)]
-struct PiModelState {
-    provider: Option<String>,
-    model: Option<String>,
-}
-
-impl PiModelState {
-    fn update(&mut self, provider: Option<&str>, model: Option<&str>) {
-        if let Some(provider) = provider.map(str::trim).filter(|value| !value.is_empty()) {
-            self.provider = Some(provider.to_string());
-        }
-        if let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) {
-            self.model = Some(model.to_string());
-        }
-    }
-}
-
 struct PiUsageContext<'a> {
     entry_id: &'a str,
     timestamp: &'a str,
@@ -166,6 +149,9 @@ fn usage_entry(
     usage: PiUsage,
     context: PiUsageContext<'_>,
 ) -> Result<Option<RawEntry>, &'static str> {
+    if context.entry_id.trim().is_empty() {
+        return Err("empty entry id");
+    }
     if [
         usage.input,
         usage.output,
@@ -232,12 +218,27 @@ fn usage_entry(
 fn parse_entry(
     entry: PiEntry,
     header: &PiHeader,
-    model_state: &mut PiModelState,
+    lineage_models: &mut HashMap<String, String>,
     timezone: Timezone,
 ) -> Result<Option<RawEntry>, &'static str> {
+    let inherited_model = entry
+        .parent_id
+        .as_deref()
+        .and_then(|parent| lineage_models.get(parent))
+        .cloned();
+    if let Some(model) = inherited_model.as_ref() {
+        lineage_models.insert(entry.id.clone(), model.clone());
+    }
     match entry.entry_type.as_str() {
         "model_change" => {
-            model_state.update(entry.provider.as_deref(), entry.model_id.as_deref());
+            if let Some(model) = entry
+                .model_id
+                .map(|model| model.trim().to_string())
+                .filter(|model| !model.is_empty())
+                .or(inherited_model)
+            {
+                lineage_models.insert(entry.id, model);
+            }
             Ok(None)
         }
         "message" => {
@@ -250,7 +251,16 @@ fn parse_entry(
             let Some(usage) = message.usage else {
                 return Ok(None);
             };
-            model_state.update(message.provider.as_deref(), message.model.as_deref());
+            let model = message
+                .model
+                .as_deref()
+                .map(str::trim)
+                .filter(|model| !model.is_empty())
+                .map(str::to_string)
+                .or(inherited_model);
+            if let Some(model) = model.as_ref() {
+                lineage_models.insert(entry.id.clone(), model.clone());
+            }
             usage_entry(
                 usage,
                 PiUsageContext {
@@ -258,7 +268,7 @@ fn parse_entry(
                     timestamp: &entry.timestamp,
                     session_id: &header.id,
                     project_path: &header.cwd,
-                    model: message.model.as_deref(),
+                    model: model.as_deref(),
                     stop_reason: message
                         .stop_reason
                         .filter(|reason| !reason.trim().is_empty())
@@ -278,7 +288,7 @@ fn parse_entry(
                     timestamp: &entry.timestamp,
                     session_id: &header.id,
                     project_path: &header.cwd,
-                    model: model_state.model.as_deref(),
+                    model: inherited_model.as_deref(),
                     stop_reason: Some(entry.entry_type),
                     timezone,
                 },
@@ -356,7 +366,7 @@ fn parse_pi_entries(
     debug: bool,
 ) -> ParseOutput {
     let mut output = ParseOutput::default();
-    let mut model_state = PiModelState::default();
+    let mut lineage_models = HashMap::new();
     for (line_index, line) in lines {
         let line = match line {
             Ok(line) => line,
@@ -389,7 +399,7 @@ fn parse_pi_entries(
                 continue;
             }
         };
-        match parse_entry(entry, header, &mut model_state, timezone) {
+        match parse_entry(entry, header, &mut lineage_models, timezone) {
             Ok(Some(entry)) => output.entries.push(entry),
             Ok(None) => {}
             Err(error) => {
@@ -410,6 +420,8 @@ fn parse_pi_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use tempfile::tempdir;
 
     #[test]
     fn reasoning_stays_inside_output_and_reported_cost_is_preserved() {
@@ -466,5 +478,59 @@ mod tests {
             ),
             Err("negative token count")
         ));
+    }
+
+    #[test]
+    fn empty_usage_entry_id_is_an_explicit_error() {
+        let usage = PiUsage {
+            input: 1,
+            output: 0,
+            cache_read: 0,
+            cache_write: 0,
+            cost: None,
+        };
+
+        assert!(matches!(
+            usage_entry(
+                usage,
+                PiUsageContext {
+                    entry_id: "",
+                    timestamp: "2026-08-31T03:00:00Z",
+                    session_id: "session-1",
+                    project_path: "/tmp/project",
+                    model: Some("gpt-5"),
+                    stop_reason: Some("stop".to_string()),
+                    timezone: Timezone::Named(chrono_tz::UTC),
+                },
+            ),
+            Err("empty entry id")
+        ));
+    }
+
+    #[test]
+    fn summary_model_follows_its_parent_lineage() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        fs::write(
+            &path,
+            r#"{"type":"session","version":3,"id":"session-1","timestamp":"2026-08-31T03:00:00Z","cwd":"/tmp/project"}
+{"type":"model_change","id":"model-a","parentId":null,"timestamp":"2026-08-31T03:00:01Z","provider":"a","modelId":"model-a"}
+{"type":"message","id":"assistant-a","parentId":"model-a","timestamp":"2026-08-31T03:00:02Z","message":{"role":"assistant","provider":"a","model":"model-a","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0}}}
+{"type":"model_change","id":"model-b","parentId":"assistant-a","timestamp":"2026-08-31T03:00:03Z","provider":"b","modelId":"model-b"}
+{"type":"message","id":"assistant-b","parentId":"model-b","timestamp":"2026-08-31T03:00:04Z","message":{"role":"assistant","provider":"b","model":"model-b","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0}}}
+{"type":"branch_summary","id":"summary-a","parentId":"assistant-a","timestamp":"2026-08-31T03:00:05Z","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0}}
+"#,
+        )
+        .unwrap();
+
+        let parsed = parse_pi_file(&path, Timezone::Named(chrono_tz::UTC), false);
+
+        assert_eq!(parsed.errors, 0);
+        let summary = parsed
+            .entries
+            .iter()
+            .find(|entry| entry.stop_reason.as_deref() == Some("branch_summary"))
+            .unwrap();
+        assert_eq!(summary.model, "model-a");
     }
 }
