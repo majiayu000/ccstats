@@ -409,4 +409,25 @@ mod tests {
             PricingSource::Mixed
         );
     }
+
+    #[test]
+    fn recorded_cost_preserves_unrelated_proxy_estimate_after_aggregation() {
+        let db = pricing_db_with("fable-5", fable_pricing());
+        let unrelated_proxy = CostTokens {
+            input_tokens: 1_000_000,
+            count: 1,
+            ..Default::default()
+        };
+        let stats = Stats {
+            input_tokens: 1_000_000,
+            count: 1,
+            recorded_cost_entries: 1,
+            recorded_cost_usd: 2.5,
+            priced_tokens: unrelated_proxy,
+            estimated_proxy: unrelated_proxy,
+            ..Default::default()
+        };
+
+        assert!((calculate_cost(&stats, "fable-5", &db) - 12.5).abs() < 1e-12);
+    }
 }
