@@ -29,6 +29,12 @@ pub(crate) struct Stats {
     /// Number of source records that contributed `recorded_cost_usd`.
     #[serde(default)]
     pub(crate) recorded_cost_entries: i64,
+    /// Tokens covered by exact API-equivalent request telemetry.
+    #[serde(default)]
+    pub(crate) api_equivalent_priced_tokens: i64,
+    /// Usage tokens eligible for API-equivalent coverage reporting.
+    #[serde(default)]
+    pub(crate) api_equivalent_coverage_tokens: i64,
     /// Tokens that still need local pricing (records without a provider cost).
     #[serde(default)]
     pub(crate) priced_tokens: CostTokens,
@@ -52,6 +58,12 @@ impl Stats {
         self.recorded_cost_entries = self
             .recorded_cost_entries
             .saturating_add(other.recorded_cost_entries);
+        self.api_equivalent_priced_tokens = self
+            .api_equivalent_priced_tokens
+            .saturating_add(other.api_equivalent_priced_tokens);
+        self.api_equivalent_coverage_tokens = self
+            .api_equivalent_coverage_tokens
+            .saturating_add(other.api_equivalent_coverage_tokens);
         self.priced_tokens.add(&other.priced_tokens);
     }
 
@@ -179,6 +191,14 @@ pub(crate) struct CostTokens {
 }
 
 impl CostTokens {
+    pub(crate) fn total_tokens(self) -> i64 {
+        self.input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.reasoning_tokens)
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
+    }
+
     pub(crate) fn add(&mut self, other: &Self) {
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
@@ -321,6 +341,12 @@ pub(crate) struct RawEntry {
     /// Provider-reported USD cost for this record, when the source logs one.
     #[serde(default)]
     pub(crate) recorded_cost_usd: Option<f64>,
+    /// Tokens represented by exact API-equivalent request telemetry.
+    #[serde(default)]
+    pub(crate) api_equivalent_priced_tokens: i64,
+    /// Usage tokens eligible for API-equivalent coverage reporting.
+    #[serde(default)]
+    pub(crate) api_equivalent_coverage_tokens: i64,
 }
 
 fn default_call_count() -> i64 {
@@ -345,6 +371,8 @@ impl RawEntry {
             estimated_proxy: CostTokens::default(),
             recorded_cost_usd: 0.0,
             recorded_cost_entries: 0,
+            api_equivalent_priced_tokens: self.api_equivalent_priced_tokens.max(0),
+            api_equivalent_coverage_tokens: self.api_equivalent_coverage_tokens.max(0),
             priced_tokens: CostTokens::default(),
         };
         if self.cost_kind == CostKind::EstimatedProxy {
@@ -625,6 +653,8 @@ mod tests {
             endpoint: Endpoint::Unknown,
             call_count: 1,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         };
         let s = entry.to_stats();
         assert_eq!(s.input_tokens, 100);
@@ -661,6 +691,8 @@ mod tests {
             endpoint: Endpoint::Unknown,
             call_count: 5,
             recorded_cost_usd: Some(1.25),
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         };
         let stats = entry.to_stats();
         assert_eq!(stats.count, 5);
