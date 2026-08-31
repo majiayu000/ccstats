@@ -97,9 +97,7 @@ fn gjc_partial_child_subtracts_only_emitted_usage_from_parent_rollup() {
         parent_output.entries[0].output_tokens + child_output.entries[0].output_tokens,
         10
     );
-    assert_eq!(
-        parent_output.entries[0].recorded_cost_usd.unwrap()
-            + child_output.entries[0].recorded_cost_usd.unwrap(),
-        1.0
-    );
+    let total_cost = parent_output.entries[0].recorded_cost_usd.unwrap()
+        + child_output.entries[0].recorded_cost_usd.unwrap();
+    assert!((total_cost - 1.0).abs() < f64::EPSILON);
 }
