@@ -13,6 +13,7 @@
 7. OpenCode 与 Pi 已取得当前官方写入端源码证据，可以进入实现。Pi 官方还会给 compaction / branch summary 保存独立 usage，Tokscale 当前普通 Pi parser 未统计这两类真实调用；ccstats 应补上而不是继承这个遗漏。
 8. Copilot CLI 官方将一次 LLM 请求定义为一条 `chat` span；Tokscale 只从 input 扣 cache read、也不从 output 扣 reasoning，会重复计算 cache creation 与 reasoning。ccstats 同时拆除两个 inclusive 子集，并忽略 `invoke_agent` 汇总。
 9. Goose 最新权威数据是 schema v15+ `usage_ledger`。Tokscale 仍读取 session 累计快照、把整段用量记到 session 创建日，并用 total 差额猜 reasoning；ccstats 改读逐调用 ledger，保留 cache、项目、模型、时间和 cost provenance。
+10. MiMo Code、Kilo CLI、Senpi、Kimchi 已逐一核对当前写入端并实现；它们共享基础格式，但 fork 复制、双 schema、tool-result rollup 和目录语义不同。GJC、Prime Agent、Oh My Pi 已确认存在额外聚合层，不能作为普通 Pi 记录直接相加，当前明确不宣称支持。
 
 ## 证据等级
 
@@ -43,6 +44,13 @@
 | [Pi](https://github.com/earendil-works/pi/tree/853a80d26c90a14c1886f0ebb8ffaae133ca2185) | `853a80d` | 当前 JSONL session schema、usage/cost 语义、目录环境变量 |
 | [GitHub Copilot CLI](https://github.com/github/copilot-cli/tree/be82101e70f0253b57519bebb9cc9d0f6dfb2ed2) | `be82101` | 当前 OTel 版本与字段变更记录；公开仓库不含运行时源码 |
 | [Goose](https://github.com/aaif-goose/goose/tree/8ae4e4ba02836529790f47109b8785e8b42843a7) | `8ae4e4b` | 当前 SQLite schema、usage ledger、cache/cost 语义与路径 |
+| [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code/tree/be5af909aeccdeb1b707ac4c5f9214e6fe4b8d2b) | `be5af90` | OpenCode fork 的 DB 路径、message/session 时间、fork copy 与 cost 写入 |
+| [Kilo CLI](https://github.com/Kilo-Org/kilocode/tree/bbf6a278d791842ababfbc8d58f902cb0f6b9bf4) | `bbf6a27` | Kilo DB 路径、legacy/current 双表与 fork copy 行为 |
+| [Senpi](https://github.com/code-yeongyu/senpi/tree/7ac3cf302950a4b258421748f944ed1281007c4b) | `7ac3cf3` | Pi v3 session 目录、四类 usage carrier 与 branch copy |
+| [Kimchi](https://github.com/getkimchi/kimchi/tree/eacd20f15c2e2ed2b8d24fc52f08fa7638b8f759) | `eacd20f` | 固定 session 目录、child transcript 与 parent rollup 关系 |
+| [GJC](https://github.com/Yeachan-Heo/gajae-code/tree/7d23ed3d9e8cb6e5062ba2840462d59fe18eb784) | `7d23ed3` | 当前 v5 stats parser，证明其已偏离普通 Pi v3 |
+| [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent/tree/c382f09856d4a8c8d2b765179657047d58691f25) | `c382f09` | parent aggregate、child transcript 与 fork aggregate 的 RLM 语义 |
+| [Oh My Pi](https://github.com/can1357/oh-my-pi/tree/969062200754ea02cfac922e5ebb8c608c079e15) | `9690622` | profile/XDG 路径、child transcript、parent task rollup 与 orchestration usage |
 
 官方 schema 证据：
 
@@ -56,6 +64,10 @@
 - [Pi session schema](https://github.com/earendil-works/pi/blob/853a80d26c90a14c1886f0ebb8ffaae133ca2185/packages/coding-agent/src/core/session-manager.ts) 证明 assistant message、compaction 与 branch summary 都可能携带 usage；后两者是独立 LLM 调用，不应静默丢弃。
 - [Copilot CLI OTel 官方文档](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#opentelemetry-monitoring) 定义 file exporter、每请求一条 `chat` span、累计 `invoke_agent` span，以及当前 token/cache/cost 属性；[OpenTelemetry GenAI registry](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) 定义 cache/reasoning detail bucket 的语义。
 - [Goose `Usage`](https://github.com/aaif-goose/goose/blob/8ae4e4ba02836529790f47109b8785e8b42843a7/crates/goose-provider-types/src/conversation/token_usage.rs) 明确 input 包含 cache read/write；[`session_manager`](https://github.com/aaif-goose/goose/blob/8ae4e4ba02836529790f47109b8785e8b42843a7/crates/goose/src/session/session_manager.rs) 定义 schema v16 `usage_ledger`、逐调用 model/time/cache/cost 与 session project。
+- [MiMo Code session schema](https://github.com/XiaomiMiMo/MiMo-Code/blob/be5af909aeccdeb1b707ac4c5f9214e6fe4b8d2b/packages/opencode/src/session/session.sql.ts) 与 [fork 实现](https://github.com/XiaomiMiMo/MiMo-Code/blob/be5af909aeccdeb1b707ac4c5f9214e6fe4b8d2b/packages/opencode/src/session/session.ts) 证明消息/session creation time；fork 会复制 usage、保留原消息时间并改写消息 ID，但不写 parent ID。
+- [Kilo CLI schema](https://github.com/Kilo-Org/kilocode/blob/bbf6a278d791842ababfbc8d58f902cb0f6b9bf4/packages/core/src/session/sql.ts) 同时定义 `message` 与 `session_message`，[fork 实现](https://github.com/Kilo-Org/kilocode/blob/bbf6a278d791842ababfbc8d58f902cb0f6b9bf4/packages/opencode/src/session/session.ts) 证明复制历史使用新 ID 且 copied cost 归零。
+- [Senpi session format](https://github.com/code-yeongyu/senpi/blob/7ac3cf302950a4b258421748f944ed1281007c4b/packages/coding-agent/docs/session-format.md) 与 [session manager](https://github.com/code-yeongyu/senpi/blob/7ac3cf302950a4b258421748f944ed1281007c4b/packages/coding-agent/src/core/session-manager.ts) 证明 assistant、compaction、branch summary、tool-result usage 和 branch-copy ID。
+- [Kimchi child writer](https://github.com/getkimchi/kimchi/blob/eacd20f15c2e2ed2b8d24fc52f08fa7638b8f759/src/extensions/agents/manager/session-file.ts) 与 [launcher](https://github.com/getkimchi/kimchi/blob/eacd20f15c2e2ed2b8d24fc52f08fa7638b8f759/src/entry.ts) 证明 child transcript 独立落盘、parent tool-result 只是 rollup，而且目录被 launcher 固定。
 
 ## Tokscale 52-client 差距分解
 
@@ -64,8 +76,8 @@ Tokscale 的 registry 数量适合衡量发现覆盖面，不适合直接衡量�
 | 分组 | 代表 client | 算法关系 | ccstats 决策 |
 |---|---|---|---|
 | 已覆盖且已审计 | Claude、Codex、Cursor、Gemini、Amp、Kimi、Qwen、Cline、Roo、Kilo Code、Grok | 11 个现有 source | 保持逐来源证据，不回退为通用 extractor |
-| OpenCode SQLite 族 | OpenCode、MiMo Code、Kilo CLI | 同一消息 payload，路径、表版本、成本 provenance 有差异 | 先实现官方 OpenCode；fork 在取得当前写入端 fixture 后复用已验证映射 |
-| Pi JSONL 族 | Pi、GJC、Senpi、Kimchi、Prime Agent、Oh My Pi | 基础 assistant usage 相同；Prime 另有 child/aggregate reconciliation | 先实现官方 Pi 并覆盖 summary usage；fork 分别验证目录与额外记账 |
+| OpenCode SQLite 族 | OpenCode、MiMo Code、Kilo CLI | 同一消息 payload，路径、表版本、成本 provenance 和 fork ID 有差异 | 三者已按各自当前 schema 实现；MiMo/Kilo 用 message/session creation time 识别复制历史 |
+| Pi JSONL 族 | Pi、GJC、Senpi、Kimchi、Prime Agent、Oh My Pi | 基础 assistant usage 相近；子调用与聚合层并不相同 | Pi/Senpi/Kimchi 已实现；GJC/Prime/OMP 等各自专用 reconciliation 后再接入 |
 | 本批新增的独立格式 | GitHub Copilot CLI、Goose | Copilot 是每调用 OTel span；Goose 是 SQLite usage ledger | 已实现，且不与 aggregate span、session snapshot 或 premium request quota 混算 |
 | 独立本地格式候选 | Droid、OpenClaw、Mux、Crush、Hermes、Codebuff、Zed、Kiro、Trae、Warp、Junie、Augment 等 | JSONL、SQLite、IDE cache 混合 | 逐个取得官方 schema 或真实 fixture 后进入 |
 | 产品层而非 token parser | usage/quota、headless wrapper、profile、leaderboard、device/group、autosubmit、MCP | 系统边界不同 | 单列产品路线；不为追求 source 数量混入核心账本 |
@@ -145,6 +157,10 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 | Pi | JSONL assistant + compaction + branch summary；reasoning 属于 output 子集；branch copy 按 entry ID 去重 | 官方源码已验证 + Tokscale fixture 交叉验证 | 实现为第 13 个 source；补上 Tokscale 普通 Pi parser 未统计的 summary usage |
 | GitHub Copilot CLI | OTel file exporter 的 per-request `chat` span；拆分 cache/reasoning inclusive bucket；trace/span 跨文件去重 | 官方文档已验证 + Tokscale current fixture 交叉验证 | 实现为第 14 个 source；不累计 `invoke_agent`，修复 Tokscale cache creation/reasoning 双计 |
 | Goose | schema v15+ `usage_ledger`；逐调用时间/model/cache/cost，join session project | 官方源码已验证 + Tokscale parser 对比 | 实现为第 15 个 source；不使用 session snapshot，不猜 reasoning，只接受 provider-reported cost provenance |
+| MiMo Code | OpenCode-family `message`；独立 token 桶；按 copy timestamp + model/five-bucket + unique original session 识别新 ID fork copy | 官方源码已验证 | 实现为第 16 个 source；支持跨目录与 original-deleted multi-copy fork，保留显式 recorded cost，包括零值 |
+| Kilo CLI | legacy `message` + current `session_message`；跨表 ID 和 fork lineage 去重 | 官方源码已验证 | 实现为第 17 个 source；同时覆盖当前/旧表，不把 copied-zero history 当新调用 |
+| Senpi | Pi v3 四类 usage carrier；branch copy 保留 entry ID；JSONC settings 合并 | 官方源码已验证 | 实现为第 18 个 source；统计 tool-result 子调用、跨分支去重并发现 project/global sessionDir |
+| Kimchi | parent `details.tokenUsage` + sibling child transcript；remote 没有 session file | 官方源码已验证 | 实现为第 19 个 source；含 usage 的本地 child 优先，header-only/缺失/remote 时 parent details fallback |
 
 ## 本轮采用、适配、拒绝决策
 
@@ -163,6 +179,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - Tokscale 的 Pi assistant 记录筛选；额外统计官方 schema 已证明的 compaction / branch summary usage。
 - Copilot 使用 Tokscale 已观察到的 file-export JSONL 外形和 trace/span 去重思路，但记录选择与字段语义以当前 GitHub/OTel 文档为准。
 - Goose 采用官方 usage ledger，而不是适配 Tokscale 的 session aggregate query。
+- MiMo/Kilo 复用已验证的 OpenCode payload 映射，但分别适配官方路径、双表和 creation-time fork reconciliation。
+- Senpi 复用 Pi v3 的四类 usage carrier；Kimchi 在 sibling child 存在时关闭 parent rollup，缺失/remote 时解析 `details.tokenUsage`。
 
 ### 拒绝
 
@@ -172,6 +190,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - 在没有验证 USD 单位和调用归属时导入 credits/reported cost：即使模型支持 provenance，也会把不同口径的值混在一起。
 - 把 Copilot `invoke_agent` 和 child `chat` 一起相加，或把未声明 currency 的 `github.copilot.cost` 直接标成 USD。
 - 把 Goose `total-input-output` 猜成 reasoning，或把累计 session snapshot 伪装成创建日的一次调用。
+- 把 GJC v5 当普通 Pi v3、把 Prime parent aggregate 与 child/fork transcript 全相加、或把 Oh My Pi task rollup 与 child transcript 全相加。三者需要独立 adapter 和 fixture，不能为增加来源数量静默双计。
 
 ## 后续数据源批次
 
@@ -179,7 +198,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 
 1. Batch 1（已完成）：OpenCode + Pi + discovery→parse→aggregate→CLI 端到端矩阵。
 2. Batch 2（已完成）：GitHub Copilot CLI OTel + Goose per-call SQLite ledger。
-3. Batch 3：OpenCode/Pi fork family。逐个确认写入端版本、目录覆盖和 fork 特有的去重/child usage 后复用基准算法。
+3. Batch 3（已完成）：MiMo Code、Kilo CLI、Senpi、Kimchi；逐个验证写入端、目录、fork/child reconciliation 和端到端输出。
 4. Batch 4：Droid、Kiro、Zed、Warp 等独立格式。没有官方 schema 时必须取得匿名化真实 fixture 和第二实现交叉验证。
 5. Product track：桌面应用、quota、实时观测与多机器历史；与 authoritative token ledger 保持 provenance 隔离。
 

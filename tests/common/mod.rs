@@ -14,9 +14,14 @@ const SOURCE_ENV_VARS: &[&str] = &[
     "GROK_HOME",
     "GOOSE_PATH_ROOT",
     "KIMI_CODE_HOME",
+    "KILO_DB",
+    "MIMOCODE_DB",
+    "MIMOCODE_HOME",
     "OPENCODE_DB",
     "PI_CODING_AGENT_DIR",
     "PI_CODING_AGENT_SESSION_DIR",
+    "SENPI_CODING_AGENT_DIR",
+    "SENPI_CODING_AGENT_SESSION_DIR",
     "XDG_DATA_HOME",
 ];
 
@@ -84,7 +89,11 @@ pub(crate) fn run_ccstats(args: &[&str], envs: &[(&str, &Path)]) -> (bool, Vec<u
         cmd.env_remove(key);
     }
     for (k, v) in envs {
-        cmd.env(k, v);
+        if *k == "CCSTATS_TEST_CWD" {
+            cmd.current_dir(v);
+        } else {
+            cmd.env(k, v);
+        }
     }
     let output = cmd.output().expect("run ccstats");
     (output.status.success(), output.stdout, output.stderr)

@@ -64,8 +64,16 @@ pub enum UsageSource {
     KiloCode,
     /// `OpenCode` messages in its local `SQLite` database.
     OpenCode,
+    /// `MiMo` Code messages in its local `SQLite` database.
+    MiMoCode,
+    /// Kilo CLI messages in its local `SQLite` database.
+    Kilo,
     /// Pi coding-agent JSONL sessions.
     Pi,
+    /// Senpi coding-agent JSONL sessions.
+    Senpi,
+    /// Kimchi harness JSONL sessions.
+    Kimchi,
     /// GitHub Copilot CLI `OpenTelemetry` JSONL spans.
     Copilot,
     /// Goose per-call usage ledger in its local `SQLite` database.
@@ -74,7 +82,7 @@ pub enum UsageSource {
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 15] = [
+    pub(crate) const VARIANTS: [Self; 19] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -87,7 +95,11 @@ impl UsageSource {
         UsageSource::RooCode,
         UsageSource::KiloCode,
         UsageSource::OpenCode,
+        UsageSource::MiMoCode,
+        UsageSource::Kilo,
         UsageSource::Pi,
+        UsageSource::Senpi,
+        UsageSource::Kimchi,
         UsageSource::Copilot,
         UsageSource::Goose,
     ];
@@ -107,7 +119,11 @@ impl UsageSource {
             UsageSource::RooCode => "roocode",
             UsageSource::KiloCode => "kilocode",
             UsageSource::OpenCode => "opencode",
+            UsageSource::MiMoCode => "mimocode",
+            UsageSource::Kilo => "kilo",
             UsageSource::Pi => "pi",
+            UsageSource::Senpi => "senpi",
+            UsageSource::Kimchi => "kimchi",
             UsageSource::Copilot => "copilot",
             UsageSource::Goose => "goose",
         }
@@ -127,7 +143,11 @@ impl UsageSource {
             "roocode" => Some(UsageSource::RooCode),
             "kilocode" => Some(UsageSource::KiloCode),
             "opencode" => Some(UsageSource::OpenCode),
+            "mimocode" => Some(UsageSource::MiMoCode),
+            "kilo" => Some(UsageSource::Kilo),
             "pi" => Some(UsageSource::Pi),
+            "senpi" => Some(UsageSource::Senpi),
+            "kimchi" => Some(UsageSource::Kimchi),
             "copilot" => Some(UsageSource::Copilot),
             "goose" => Some(UsageSource::Goose),
             _ => None,

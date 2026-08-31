@@ -12,14 +12,46 @@ use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
+use super::opencode_fork::{read_session_creation_times, reconcile_fork_copies};
+
 const OPENCODE_DB_ENV: &str = "OPENCODE_DB";
+const MIMOCODE_DB_ENV: &str = "MIMOCODE_DB";
+const MIMOCODE_HOME_ENV: &str = "MIMOCODE_HOME";
+const KILO_DB_ENV: &str = "KILO_DB";
 const XDG_DATA_HOME_ENV: &str = "XDG_DATA_HOME";
 
 pub(crate) struct OpenCodeSource;
+pub(crate) struct MiMoCodeSource;
+pub(crate) struct KiloCliSource;
 
 impl OpenCodeSource {
     pub(crate) const fn new() -> Self {
         Self
+    }
+}
+
+impl MiMoCodeSource {
+    pub(crate) const fn new() -> Self {
+        Self
+    }
+}
+
+impl KiloCliSource {
+    pub(crate) const fn new() -> Self {
+        Self
+    }
+}
+
+fn opencode_capabilities() -> Capabilities {
+    Capabilities {
+        has_projects: true,
+        has_billing_blocks: false,
+        has_reasoning_tokens: true,
+        has_cache_creation: true,
+        has_cache_read: true,
+        needs_dedup: true,
+        has_tool_calls: false,
+        has_endpoints: false,
     }
 }
 
@@ -37,16 +69,7 @@ impl Source for OpenCodeSource {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            has_projects: true,
-            has_billing_blocks: false,
-            has_reasoning_tokens: true,
-            has_cache_creation: true,
-            has_cache_read: true,
-            needs_dedup: true,
-            has_tool_calls: false,
-            has_endpoints: false,
-        }
+        opencode_capabilities()
     }
 
     fn find_files(&self) -> Vec<PathBuf> {
@@ -54,7 +77,68 @@ impl Source for OpenCodeSource {
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-        parse_opencode_database(path, timezone, debug)
+        parse_opencode_database(path, timezone, debug, ParseProfile::opencode())
+    }
+}
+
+impl Source for MiMoCodeSource {
+    fn name(&self) -> &'static str {
+        "mimocode"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "MiMo Code"
+    }
+
+    fn aliases(&self) -> &'static [&'static str] {
+        &["micode"]
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        opencode_capabilities()
+    }
+
+    fn find_files(&self) -> Vec<PathBuf> {
+        find_mimocode_databases()
+    }
+
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
+        if mimocode_home_is_invalid() {
+            if debug {
+                eprintln!("MIMOCODE_HOME must be an absolute path");
+            }
+            return ParseOutput {
+                entries: Vec::new(),
+                errors: 1,
+            };
+        }
+        parse_opencode_database(path, timezone, debug, ParseProfile::mimocode())
+    }
+}
+
+impl Source for KiloCliSource {
+    fn name(&self) -> &'static str {
+        "kilo"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Kilo CLI"
+    }
+
+    fn aliases(&self) -> &'static [&'static str] {
+        &["kilo-cli"]
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        opencode_capabilities()
+    }
+
+    fn find_files(&self) -> Vec<PathBuf> {
+        find_kilo_databases()
+    }
+
+    fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
+        parse_opencode_database(path, timezone, debug, ParseProfile::kilo())
     }
 }
 
@@ -91,6 +175,131 @@ fn find_opencode_databases() -> Vec<PathBuf> {
     databases.sort();
     databases.dedup();
     databases
+}
+
+fn xdg_data_dir(application: &str) -> Option<PathBuf> {
+    env::var_os(XDG_DATA_HOME_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| dirs::home_dir().map(|home| home.join(".local/share")))
+        .map(|root| root.join(application))
+}
+
+fn find_family_databases(
+    db_env: &str,
+    data_dir: Option<PathBuf>,
+    patterns: &[&str],
+) -> Vec<PathBuf> {
+    if let Some(configured) = env::var_os(db_env).filter(|value| !value.is_empty()) {
+        let configured = PathBuf::from(configured);
+        let path = if configured.is_absolute() {
+            configured
+        } else if let Some(data_dir) = data_dir {
+            data_dir.join(configured)
+        } else {
+            return Vec::new();
+        };
+        return path.is_file().then_some(path).into_iter().collect();
+    }
+
+    let Some(data_dir) = data_dir else {
+        return Vec::new();
+    };
+    let mut databases = Vec::new();
+    for pattern in patterns {
+        let pattern = data_dir.join(pattern);
+        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+            databases.extend(matches.flatten().filter(|path| path.is_file()));
+        }
+    }
+    databases.sort();
+    databases.dedup();
+    databases
+}
+
+fn find_mimocode_databases() -> Vec<PathBuf> {
+    if env::var_os(MIMOCODE_DB_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .is_some_and(|path| path.is_absolute())
+    {
+        return find_family_databases(MIMOCODE_DB_ENV, None, &["mimocode*.db"]);
+    }
+    let configured_home = env::var_os(MIMOCODE_HOME_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let data_dir = match configured_home {
+        Some(root) if root.is_absolute() => Some(root.join("data")),
+        // Return a path that the parser will reject instead of silently reading
+        // an unrelated XDG database after an invalid explicit override.
+        Some(root) => return vec![root.join("data/mimocode.db")],
+        None => xdg_data_dir("mimocode"),
+    };
+    find_family_databases(MIMOCODE_DB_ENV, data_dir, &["mimocode*.db"])
+}
+
+fn mimocode_home_is_invalid() -> bool {
+    let database_is_absolute = env::var_os(MIMOCODE_DB_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .is_some_and(|path| path.is_absolute());
+    !database_is_absolute
+        && env::var_os(MIMOCODE_HOME_ENV)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .is_some_and(|path| !path.is_absolute())
+}
+
+fn find_kilo_databases() -> Vec<PathBuf> {
+    find_family_databases(
+        KILO_DB_ENV,
+        xdg_data_dir("kilo"),
+        &["kilo*.db", "opencode-*.db"],
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RecordedCostPolicy {
+    PositiveOnly,
+    AnyReported,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ParseProfile {
+    source: &'static str,
+    display_name: &'static str,
+    cost_policy: RecordedCostPolicy,
+    reconcile_fork_copies: bool,
+}
+
+impl ParseProfile {
+    const fn opencode() -> Self {
+        Self {
+            source: "opencode",
+            display_name: "OpenCode",
+            cost_policy: RecordedCostPolicy::PositiveOnly,
+            reconcile_fork_copies: false,
+        }
+    }
+
+    const fn mimocode() -> Self {
+        Self {
+            source: "mimocode",
+            display_name: "MiMo Code",
+            cost_policy: RecordedCostPolicy::AnyReported,
+            reconcile_fork_copies: true,
+        }
+    }
+
+    const fn kilo() -> Self {
+        Self {
+            source: "kilo",
+            display_name: "Kilo CLI",
+            cost_policy: RecordedCostPolicy::AnyReported,
+            reconcile_fork_copies: true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -206,6 +415,7 @@ fn read_table(
     debug: bool,
     path: &Path,
     timezone: Timezone,
+    profile: ParseProfile,
 ) -> bool {
     let (table, query) = match schema {
         MessageSchema::V1 => (
@@ -275,14 +485,15 @@ fn read_table(
 
     for row in rows {
         match row {
-            Ok(row) => match entry_from_database_message(&row, timezone) {
+            Ok(row) => match entry_from_database_message(&row, timezone, profile) {
                 Ok(Some(entry)) => output.entries.push(entry),
                 Ok(None) => {}
                 Err(error) => {
                     output.errors += 1;
                     if debug {
                         eprintln!(
-                            "Invalid OpenCode message {} in {}: {error}",
+                            "Invalid {} message {} in {}: {error}",
+                            profile.display_name,
                             row.id,
                             path.display()
                         );
@@ -310,6 +521,7 @@ fn finite_millis(value: f64) -> Result<i64, &'static str> {
 fn entry_from_database_message(
     row: &DatabaseMessage,
     timezone: Timezone,
+    profile: ParseProfile,
 ) -> Result<Option<RawEntry>, &'static str> {
     let message: OpenCodeMessage =
         serde_json::from_str(&row.data).map_err(|_| "invalid message JSON")?;
@@ -338,7 +550,16 @@ fn entry_from_database_message(
     {
         return Err("negative token count");
     }
-    let recorded_cost_usd = message.cost.filter(|cost| cost.is_finite() && *cost > 0.0);
+    if message
+        .cost
+        .is_some_and(|cost| !cost.is_finite() || cost < 0.0)
+    {
+        return Err("invalid cost");
+    }
+    let recorded_cost_usd = match profile.cost_policy {
+        RecordedCostPolicy::PositiveOnly => message.cost.filter(|cost| *cost > 0.0),
+        RecordedCostPolicy::AnyReported => message.cost,
+    };
     if tokens.input == 0
         && tokens.output == 0
         && tokens.reasoning == 0
@@ -374,8 +595,8 @@ fn entry_from_database_message(
             .date_naive()
             .format(DATE_FORMAT)
             .to_string(),
-        message_id: Some(source_wide_message_id("opencode", &row.id)),
-        session_key: format!("opencode::{}", row.session_id),
+        message_id: Some(source_wide_message_id(profile.source, &row.id)),
+        session_key: format!("{}::{}", profile.source, row.session_id),
         session_id: row.session_id.clone(),
         project_path,
         model,
@@ -395,14 +616,20 @@ fn entry_from_database_message(
     }))
 }
 
-fn parse_opencode_database(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
+fn parse_opencode_database(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+    profile: ParseProfile,
+) -> ParseOutput {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = match Connection::open_with_flags(path, flags) {
         Ok(connection) => connection,
         Err(error) => {
             if debug {
                 eprintln!(
-                    "Failed to open OpenCode database {}: {error}",
+                    "Failed to open {} database {}: {error}",
+                    profile.display_name,
                     path.display()
                 );
             }
@@ -413,6 +640,27 @@ fn parse_opencode_database(path: &Path, timezone: Timezone, debug: bool) -> Pars
         }
     };
 
+    let creation_times = if profile.reconcile_fork_copies {
+        match read_session_creation_times(&connection) {
+            Ok(creation_times) => creation_times,
+            Err(error) => {
+                if debug {
+                    eprintln!(
+                        "Failed to read {} session creation times {}: {error}",
+                        profile.display_name,
+                        path.display()
+                    );
+                }
+                return ParseOutput {
+                    entries: Vec::new(),
+                    errors: 1,
+                };
+            }
+        }
+    } else {
+        std::collections::HashMap::default()
+    };
+
     let mut output = ParseOutput::default();
     let has_v2 = read_table(
         &connection,
@@ -421,6 +669,7 @@ fn parse_opencode_database(path: &Path, timezone: Timezone, debug: bool) -> Pars
         debug,
         path,
         timezone,
+        profile,
     );
     let has_v1 = read_table(
         &connection,
@@ -429,15 +678,20 @@ fn parse_opencode_database(path: &Path, timezone: Timezone, debug: bool) -> Pars
         debug,
         path,
         timezone,
+        profile,
     );
     if !has_v1 && !has_v2 && output.errors == 0 {
         output.errors = 1;
         if debug {
             eprintln!(
-                "OpenCode database {} has neither message table",
+                "{} database {} has neither message table",
+                profile.display_name,
                 path.display()
             );
         }
+    }
+    if profile.reconcile_fork_copies {
+        reconcile_fork_copies(&mut output.entries, &creation_times);
     }
     output
 }
@@ -456,9 +710,13 @@ mod tests {
             data: r#"{"agent":"build","model":{"id":"gpt-5","providerID":"openai"},"finish":"stop","cost":0.25,"tokens":{"input":100,"output":20,"reasoning":5,"cache":{"read":30,"write":10}},"time":{"created":1788131045000,"completed":1788131046000}}"#.to_string(),
         };
 
-        let entry = entry_from_database_message(&row, Timezone::Named(chrono_tz::UTC))
-            .unwrap()
-            .unwrap();
+        let entry = entry_from_database_message(
+            &row,
+            Timezone::Named(chrono_tz::UTC),
+            ParseProfile::opencode(),
+        )
+        .unwrap()
+        .unwrap();
 
         assert_eq!(entry.input_tokens, 100);
         assert_eq!(entry.output_tokens, 20);
@@ -480,7 +738,11 @@ mod tests {
         };
 
         assert!(matches!(
-            entry_from_database_message(&row, Timezone::Named(chrono_tz::UTC)),
+            entry_from_database_message(
+                &row,
+                Timezone::Named(chrono_tz::UTC),
+                ParseProfile::opencode(),
+            ),
             Err("negative token count")
         ));
     }
