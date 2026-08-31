@@ -10,8 +10,37 @@ const SOURCE_ENV_VARS: &[&str] = &[
     "CURSOR_USAGE_FILE",
     "CURSOR_API_KEY",
     "CURSOR_SESSION_TOKEN",
+    "COPILOT_OTEL_FILE_EXPORTER_PATH",
+    "DSH_HOME",
     "GROK_HOME",
+    "GOOSE_PATH_ROOT",
+    "GJC_CODING_AGENT_DIR",
+    "GJC_CONFIG_DIR",
     "KIMI_CODE_HOME",
+    "KILO_DB",
+    "MIMOCODE_DB",
+    "MIMOCODE_HOME",
+    "OPENCODE_DB",
+    "OPENCLAW_CONFIG_PATH",
+    "OPENCLAW_HOME",
+    "OPENCLAW_STATE_DIR",
+    "PI_CODING_AGENT_DIR",
+    "PI_CODING_AGENT_SESSION_DIR",
+    "PI_CONFIG_DIR",
+    "PI_PROFILE",
+    "PRIME_AGENT_CODING_AGENT_DIR",
+    "PRIME_AGENT_CODING_AGENT_SESSION_DIR",
+    "PRIME_AGENT_SESSION_DIR",
+    "REASONIX_HOME",
+    "REASONIX_STATE_HOME",
+    "OMP_PROFILE",
+    "SENPI_CODING_AGENT_DIR",
+    "SENPI_CODING_AGENT_SESSION_DIR",
+    "STUDIO_HOME",
+    "HERMES_HOME",
+    "UNSLOTH_STUDIO_HOME",
+    "XUM_ROOT",
+    "XDG_DATA_HOME",
 ];
 
 pub(crate) fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -78,7 +107,11 @@ pub(crate) fn run_ccstats(args: &[&str], envs: &[(&str, &Path)]) -> (bool, Vec<u
         cmd.env_remove(key);
     }
     for (k, v) in envs {
-        cmd.env(k, v);
+        if *k == "CCSTATS_TEST_CWD" {
+            cmd.current_dir(v);
+        } else {
+            cmd.env(k, v);
+        }
     }
     let output = cmd.output().expect("run ccstats");
     (output.status.success(), output.stdout, output.stderr)

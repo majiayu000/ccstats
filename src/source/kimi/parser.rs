@@ -284,7 +284,10 @@ fn parse_usage_line(
         cost_kind: CostKind::Real,
         endpoint: crate::core::Endpoint::Unknown,
         call_count: 1,
+        reported_total_tokens: None,
         recorded_cost_usd: None,
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
     })
 }
 

@@ -111,6 +111,30 @@ impl<'a> DataLoader<'a> {
 
         let mut filtered = Vec::new();
         for mut entry in entries {
+            if filter.has_timestamp_range() {
+                if entry.timestamp_ms == 0 {
+                    let Ok(utc_dt) = entry.timestamp.parse::<DateTime<Utc>>() else {
+                        continue;
+                    };
+                    entry.timestamp_ms = utc_dt.timestamp_millis();
+                }
+                if !filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms) {
+                    continue;
+                }
+                if Self::parse_date_parts_fast(&entry.date_str).is_none() {
+                    let Some(utc_dt) = DateTime::<Utc>::from_timestamp_millis(entry.timestamp_ms)
+                    else {
+                        continue;
+                    };
+                    entry.date_str = timezone
+                        .to_fixed_offset(utc_dt)
+                        .date_naive()
+                        .format(DATE_FORMAT)
+                        .to_string();
+                }
+                filtered.push(entry);
+                continue;
+            }
             if Self::parse_date_parts_fast(&entry.date_str).is_some() {
                 if Self::date_str_in_filter(&entry.date_str, since_key, until_key) {
                     filtered.push(entry);
@@ -215,7 +239,7 @@ impl<'a> DataLoader<'a> {
         match result {
             Some((accumulator, parse_errors)) => {
                 let (entries, skipped) = accumulator.finalize();
-                (entries, skipped, parse_errors)
+                (self.source.finalize_entries(entries), skipped, parse_errors)
             }
             None => (Vec::new(), 0, 0),
         }
@@ -517,41 +541,6 @@ pub(crate) fn load_blocks(
     loader.load_blocks(filter, timezone)
 }
 
-/// Convenience function to load tool calls for a source with tool-call support.
-pub(crate) fn load_tool_calls(
-    source: &dyn Source,
-    filter: &DateFilter,
-    timezone: Timezone,
-) -> Vec<crate::core::ToolCall> {
-    if !source.capabilities().has_tool_calls {
-        return Vec::new();
-    }
-
-    let files = source.find_tool_call_files();
-    if files.is_empty() {
-        return Vec::new();
-    }
-
-    eprintln!("Scanning {} files for tool usage...", files.len());
-
-    let all_calls: Vec<crate::core::ToolCall> = files
-        .par_iter()
-        .flat_map(|path| {
-            let calls = source.parse_tool_call_file(path, timezone);
-            calls
-                .into_iter()
-                .filter(|c| {
-                    chrono::NaiveDate::parse_from_str(&c.date_str, crate::consts::DATE_FORMAT)
-                        .is_ok_and(|d| filter.contains(d))
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    eprintln!("Found {} tool calls", all_calls.len());
-    all_calls
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,7 +567,10 @@ mod tests {
             cost_kind: crate::core::CostKind::Real,
             endpoint: crate::core::Endpoint::Unknown,
             call_count: 1,
+            reported_total_tokens: None,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         }
     }
 
@@ -788,10 +780,6 @@ mod tests {
         assert_eq!(target.models["other-model"].input_tokens, 200);
     }
 }
-
-#[cfg(test)]
-#[path = "loader_tool_tests.rs"]
-mod loader_tool_tests;
 
 #[cfg(test)]
 #[path = "loader_quality_tests.rs"]

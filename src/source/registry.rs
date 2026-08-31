@@ -4,11 +4,28 @@
 
 use std::sync::LazyLock;
 
+use super::amp::AmpSource;
 use super::claude::ClaudeSource;
+use super::cline::ClineSource;
+use super::cline_extension::{KiloCodeSource, RooCodeSource};
 use super::codex::CodexSource;
+use super::copilot::CopilotSource;
 use super::cursor::CursorSource;
+use super::dsh::DshSource;
+use super::fx::FxSource;
+use super::gemini::GeminiSource;
+use super::goose::GooseSource;
 use super::grok::GrokSource;
+use super::hermes::HermesSource;
 use super::kimi::KimiSource;
+use super::openclaw::OpenClawSource;
+use super::opencode::{KiloCliSource, MiMoCodeSource, OpenCodeSource};
+use super::pi::{KimchiSource, PiSource, SenpiSource};
+use super::pi_forks::{GjcSource, OmpSource, PrimeSource};
+use super::qwen::QwenSource;
+use super::reasonix::ReasonixSource;
+use super::unsloth::UnslothSource;
+use super::xum::XumSource;
 use super::{BoxedSource, Source};
 
 /// Pseudo-source that aggregates every registered source.
@@ -22,8 +39,30 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(CursorSource::new()),
         Box::new(GrokSource::new()),
         Box::new(KimiSource::new()),
-        // Add new sources here:
-        // Box::new(WindsurfSource::new()),
+        Box::new(GeminiSource::new()),
+        Box::new(AmpSource::new()),
+        Box::new(QwenSource::new()),
+        Box::new(ClineSource::new()),
+        Box::new(RooCodeSource::new()),
+        Box::new(KiloCodeSource::new()),
+        Box::new(OpenCodeSource::new()),
+        Box::new(MiMoCodeSource::new()),
+        Box::new(KiloCliSource::new()),
+        Box::new(PiSource::new()),
+        Box::new(SenpiSource::new()),
+        Box::new(KimchiSource::new()),
+        Box::new(GjcSource::new()),
+        Box::new(PrimeSource::new()),
+        Box::new(OmpSource::new()),
+        Box::new(CopilotSource::new()),
+        Box::new(GooseSource::new()),
+        Box::new(OpenClawSource::new()),
+        Box::new(XumSource::new()),
+        Box::new(HermesSource::new()),
+        Box::new(ReasonixSource::new()),
+        Box::new(FxSource::new()),
+        Box::new(UnslothSource::new()),
+        Box::new(DshSource::new()),
     ]
 });
 
@@ -125,11 +164,31 @@ mod tests {
 
     #[test]
     fn test_get_source_by_name() {
+        assert!(get_source("amp").is_some());
         assert!(get_source("claude").is_some());
+        assert!(get_source("cline").is_some());
         assert!(get_source("codex").is_some());
+        assert!(get_source("copilot").is_some());
         assert!(get_source("cursor").is_some());
+        assert!(get_source("gemini").is_some());
         assert!(get_source("grok").is_some());
+        assert!(get_source("goose").is_some());
+        assert!(get_source("gjc").is_some());
+        assert!(get_source("kilocode").is_some());
+        assert!(get_source("kilo").is_some());
+        assert!(get_source("kimchi").is_some());
         assert!(get_source("kimi").is_some());
+        assert!(get_source("mimocode").is_some());
+        assert!(get_source("opencode").is_some());
+        assert!(get_source("omp").is_some());
+        assert!(get_source("pi").is_some());
+        assert!(get_source("prime").is_some());
+        assert!(get_source("qwen").is_some());
+        assert!(get_source("reasonix").is_some());
+        assert!(get_source("roocode").is_some());
+        assert!(get_source("senpi").is_some());
+        assert!(get_source("fx").is_some());
+        assert!(get_source("unsloth").is_some());
         assert!(get_source("unknown").is_none());
     }
 
@@ -260,7 +319,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 5);
+        assert_eq!(SOURCES.len(), 29);
     }
 
     #[test]

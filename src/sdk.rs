@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use chrono::{Datelike, Days, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Days, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -17,7 +17,7 @@ use crate::pricing::{
     CurrencyConverter, PricingDb, calculate_cost, calculate_estimated_proxy_cost, model_cost_kind,
     sum_estimated_proxy_model_costs, sum_model_costs,
 };
-use crate::source::{Source, get_source, load_daily};
+use crate::source::{CostCoverage, Source, get_source, load_daily};
 use crate::utils::Timezone;
 
 pub use crate::source::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
@@ -40,7 +40,7 @@ pub use codex_weekly::{
 pub enum UsageSource {
     /// Claude Code logs under `~/.claude/projects`.
     Claude,
-    /// `OpenAI` Codex logs under `~/.codex/sessions`, or `CODEX_HOME`.
+    /// `OpenAI` Codex active and archived logs under `~/.codex`, or `CODEX_HOME`.
     Codex,
     /// Cursor composer usage data.
     Cursor,
@@ -48,16 +48,90 @@ pub enum UsageSource {
     Grok,
     /// Kimi Code wire logs under `~/.kimi-code/sessions`, or `KIMI_CODE_HOME`.
     Kimi,
+    /// Gemini CLI chats under `~/.gemini/tmp`, or `GEMINI_CLI_HOME`.
+    Gemini,
+    /// Amp thread logs under the XDG data directory.
+    Amp,
+    /// Qwen Code usage ledger under `~/.qwen/usage`, or its root env overrides.
+    Qwen,
+    /// Cline CLI sessions and VS Code extension task logs.
+    Cline,
+    /// Roo Code VS Code extension task logs.
+    #[serde(rename = "roocode")]
+    RooCode,
+    /// Kilo Code VS Code extension task logs.
+    #[serde(rename = "kilocode")]
+    KiloCode,
+    /// `OpenCode` messages in its local `SQLite` database.
+    OpenCode,
+    /// `MiMo` Code messages in its local `SQLite` database.
+    MiMoCode,
+    /// Kilo CLI messages in its local `SQLite` database.
+    Kilo,
+    /// Pi coding-agent JSONL sessions.
+    Pi,
+    /// Senpi coding-agent JSONL sessions.
+    Senpi,
+    /// Kimchi harness JSONL sessions.
+    Kimchi,
+    /// Gajae Code v5 JSONL sessions.
+    Gjc,
+    /// Prime Agent JSONL sessions.
+    Prime,
+    /// Oh My Pi profile-aware JSONL sessions.
+    Omp,
+    /// GitHub Copilot CLI `OpenTelemetry` JSONL spans.
+    Copilot,
+    /// Goose per-call usage ledger in its local `SQLite` database.
+    Goose,
+    /// `OpenClaw` v3 assistant transcript usage.
+    OpenClaw,
+    /// Xum cumulative per-workspace usage snapshots.
+    Xum,
+    /// Hermes Agent current per-model/task usage ledger.
+    Hermes,
+    /// Reasonix append-only provider usage ledger.
+    Reasonix,
+    /// Vercel Fx profile-wide generation ledger.
+    Fx,
+    /// Unsloth Studio chat and authenticated API inference receipts.
+    Unsloth,
+    /// `DeepSeek` Harness durable session calls and compaction summaries.
+    Dsh,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 5] = [
+    pub(crate) const VARIANTS: [Self; 29] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
         UsageSource::Grok,
         UsageSource::Kimi,
+        UsageSource::Gemini,
+        UsageSource::Amp,
+        UsageSource::Qwen,
+        UsageSource::Cline,
+        UsageSource::RooCode,
+        UsageSource::KiloCode,
+        UsageSource::OpenCode,
+        UsageSource::MiMoCode,
+        UsageSource::Kilo,
+        UsageSource::Pi,
+        UsageSource::Senpi,
+        UsageSource::Kimchi,
+        UsageSource::Gjc,
+        UsageSource::Prime,
+        UsageSource::Omp,
+        UsageSource::Copilot,
+        UsageSource::Goose,
+        UsageSource::OpenClaw,
+        UsageSource::Xum,
+        UsageSource::Hermes,
+        UsageSource::Reasonix,
+        UsageSource::Fx,
+        UsageSource::Unsloth,
+        UsageSource::Dsh,
     ];
 
     #[must_use]
@@ -68,6 +142,30 @@ impl UsageSource {
             UsageSource::Cursor => "cursor",
             UsageSource::Grok => "grok",
             UsageSource::Kimi => "kimi",
+            UsageSource::Gemini => "gemini",
+            UsageSource::Amp => "amp",
+            UsageSource::Qwen => "qwen",
+            UsageSource::Cline => "cline",
+            UsageSource::RooCode => "roocode",
+            UsageSource::KiloCode => "kilocode",
+            UsageSource::OpenCode => "opencode",
+            UsageSource::MiMoCode => "mimocode",
+            UsageSource::Kilo => "kilo",
+            UsageSource::Pi => "pi",
+            UsageSource::Senpi => "senpi",
+            UsageSource::Kimchi => "kimchi",
+            UsageSource::Gjc => "gjc",
+            UsageSource::Prime => "prime",
+            UsageSource::Omp => "omp",
+            UsageSource::Copilot => "copilot",
+            UsageSource::Goose => "goose",
+            UsageSource::OpenClaw => "openclaw",
+            UsageSource::Xum => "xum",
+            UsageSource::Hermes => "hermes",
+            UsageSource::Reasonix => "reasonix",
+            UsageSource::Fx => "fx",
+            UsageSource::Unsloth => "unsloth",
+            UsageSource::Dsh => "dsh",
         }
     }
 
@@ -78,6 +176,30 @@ impl UsageSource {
             "cursor" => Some(UsageSource::Cursor),
             "grok" => Some(UsageSource::Grok),
             "kimi" => Some(UsageSource::Kimi),
+            "gemini" => Some(UsageSource::Gemini),
+            "amp" => Some(UsageSource::Amp),
+            "qwen" => Some(UsageSource::Qwen),
+            "cline" => Some(UsageSource::Cline),
+            "roocode" => Some(UsageSource::RooCode),
+            "kilocode" => Some(UsageSource::KiloCode),
+            "opencode" => Some(UsageSource::OpenCode),
+            "mimocode" => Some(UsageSource::MiMoCode),
+            "kilo" => Some(UsageSource::Kilo),
+            "pi" => Some(UsageSource::Pi),
+            "senpi" => Some(UsageSource::Senpi),
+            "kimchi" => Some(UsageSource::Kimchi),
+            "gjc" => Some(UsageSource::Gjc),
+            "prime" => Some(UsageSource::Prime),
+            "omp" => Some(UsageSource::Omp),
+            "copilot" => Some(UsageSource::Copilot),
+            "goose" => Some(UsageSource::Goose),
+            "openclaw" => Some(UsageSource::OpenClaw),
+            "xum" => Some(UsageSource::Xum),
+            "hermes" => Some(UsageSource::Hermes),
+            "reasonix" => Some(UsageSource::Reasonix),
+            "fx" => Some(UsageSource::Fx),
+            "unsloth" => Some(UsageSource::Unsloth),
+            "dsh" => Some(UsageSource::Dsh),
             _ => None,
         }
     }
@@ -98,7 +220,7 @@ impl FromStr for UsageSource {
     }
 }
 
-/// Date range to summarize.
+/// Date or exact UTC timestamp range to summarize.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageRange {
@@ -114,9 +236,21 @@ pub enum UsageRange {
         since: Option<NaiveDate>,
         until: Option<NaiveDate>,
     },
+    /// Explicit inclusive UTC timestamp range.
+    TimestampRange {
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    },
 }
 
 impl UsageRange {
+    fn timestamp_bounds(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+        match self {
+            UsageRange::TimestampRange { since, until } => Some((*since, *until)),
+            _ => None,
+        }
+    }
+
     pub(in crate::sdk) fn resolve(
         &self,
         today: NaiveDate,
@@ -134,6 +268,15 @@ impl UsageRange {
                 (Some(start), Some(today))
             }
             UsageRange::DateRange { since, until } => (*since, *until),
+            UsageRange::TimestampRange { since, until } => {
+                if since > until {
+                    return Err(SdkError::InvalidTimestampRange {
+                        since: *since,
+                        until: *until,
+                    });
+                }
+                (Some(since.date_naive()), Some(until.date_naive()))
+            }
         };
 
         if let (Some(since), Some(until)) = range
@@ -154,7 +297,7 @@ impl UsageRange {
 pub struct SummaryOptions {
     /// Usage source to read.
     pub source: UsageSource,
-    /// Date range to summarize.
+    /// Date or exact UTC timestamp range to summarize.
     pub range: UsageRange,
     /// Optional timezone name, such as `UTC` or `Asia/Shanghai`.
     pub timezone: Option<String>,
@@ -208,6 +351,28 @@ pub struct ModelCostSummary {
     pub tokens: TokenBreakdown,
 }
 
+/// Coverage of API-equivalent pricing for sources with partial request telemetry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApiEquivalentCostCoverage {
+    pub total_tokens: i64,
+    pub priced_tokens: i64,
+    pub percent: f64,
+    pub complete: bool,
+    pub cost_is_lower_bound: bool,
+}
+
+impl From<CostCoverage> for ApiEquivalentCostCoverage {
+    fn from(coverage: CostCoverage) -> Self {
+        Self {
+            total_tokens: coverage.total_tokens,
+            priced_tokens: coverage.priced_tokens,
+            percent: coverage.percent(),
+            complete: !coverage.is_partial(),
+            cost_is_lower_bound: coverage.cost_is_lower_bound(),
+        }
+    }
+}
+
 /// Structured usage and cost summary for SDK consumers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CostSummary {
@@ -223,6 +388,7 @@ pub struct CostSummary {
     pub estimated_cost: Option<f64>,
     pub estimated_cost_usd: Option<f64>,
     pub cost_kind: String,
+    pub api_equivalent_cost_coverage: Option<ApiEquivalentCostCoverage>,
     pub tokens: TokenBreakdown,
     pub models: Vec<ModelCostSummary>,
     pub valid_entries: i64,
@@ -240,6 +406,12 @@ pub enum SdkError {
     #[error("invalid date range: since {since} is after until {until}")]
     InvalidDateRange { since: NaiveDate, until: NaiveDate },
 
+    #[error("invalid timestamp range: since {since} is after until {until}")]
+    InvalidTimestampRange {
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    },
+
     #[error("{0}")]
     Configuration(String),
 }
@@ -249,13 +421,16 @@ pub enum SdkError {
 /// # Errors
 ///
 /// Returns an error when the source or timezone is invalid, or when an explicit
-/// date range has `since` after `until`.
+/// date or timestamp range has `since` after `until`.
 pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> {
     let timezone = Timezone::parse(options.timezone.as_deref())
         .map_err(|err| SdkError::Configuration(err.to_string()))?;
     let today = timezone.to_fixed_offset(Utc::now()).date_naive();
     let (since, until) = options.range.resolve(today)?;
-    let filter = DateFilter::new(since, until);
+    let mut filter = DateFilter::new(since, until);
+    if let Some((since_timestamp, until_timestamp)) = options.range.timestamp_bounds() {
+        filter = filter.with_exact_timestamp_range(since_timestamp, until_timestamp);
+    }
 
     let source = get_source(options.source.as_str()).ok_or_else(|| SdkError::InvalidSource {
         name: options.source.as_str().to_string(),
@@ -269,6 +444,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
     );
 
     let result = load_daily(source, &filter, timezone, true, false);
+    let cost_coverage = CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
     Ok(build_cost_summary(
         options.source,
         source,
@@ -279,6 +455,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
         &pricing_db,
         currency.as_ref(),
         &currency_code,
+        cost_coverage,
     ))
 }
 
@@ -292,7 +469,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
 /// # Errors
 ///
 /// Returns an error when the resolved source or timezone is invalid, or when an
-/// explicit date range has `since` after `until`.
+/// explicit date or timestamp range has `since` after `until`.
 pub fn summarize_cost_with_cli_config(options: SummaryOptions) -> Result<CostSummary, SdkError> {
     let config = load_cli_config()?;
     summarize_cost(apply_cli_config(options, &config))
@@ -344,6 +521,7 @@ pub(in crate::sdk) fn build_cost_summary(
     pricing_db: &PricingDb,
     currency: Option<&CurrencyConverter>,
     currency_code: &str,
+    cost_coverage: Option<CostCoverage>,
 ) -> CostSummary {
     let (stats, models) = merge_days(&result.day_stats);
     let cost_usd = finite_cost(sum_model_costs(&models, pricing_db));
@@ -364,6 +542,7 @@ pub(in crate::sdk) fn build_cost_summary(
         estimated_cost: convert_cost(estimated_cost_usd, currency),
         estimated_cost_usd,
         cost_kind: model_cost_kind(&models).as_str().to_string(),
+        api_equivalent_cost_coverage: cost_coverage.map(Into::into),
         tokens: TokenBreakdown::from_stats(&stats, supports_cache_read),
         models: summarize_models(&models, pricing_db, currency, supports_cache_read),
         valid_entries: result.valid,
@@ -495,6 +674,26 @@ mod tests {
     }
 
     #[test]
+    fn extension_usage_sources_use_canonical_serde_names() {
+        assert_eq!(
+            serde_json::to_string(&UsageSource::RooCode).unwrap(),
+            r#""roocode""#
+        );
+        assert_eq!(
+            serde_json::to_string(&UsageSource::KiloCode).unwrap(),
+            r#""kilocode""#
+        );
+        assert_eq!(
+            serde_json::from_str::<UsageSource>(r#""roocode""#).unwrap(),
+            UsageSource::RooCode
+        );
+        assert_eq!(
+            serde_json::from_str::<UsageSource>(r#""kilocode""#).unwrap(),
+            UsageSource::KiloCode
+        );
+    }
+
+    #[test]
     fn registry_concrete_sources_match_sdk_usage_sources() {
         let registry_sources = crate::source::all_sources()
             .map(Source::name)
@@ -539,6 +738,35 @@ mod tests {
         assert!(
             range
                 .resolve(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn usage_range_accepts_exact_utc_timestamps_and_rejects_reversed_bounds() {
+        let payload = serde_json::json!({
+            "timestamp_range": {
+                "since": "2026-08-21T05:41:00Z",
+                "until": "2026-08-21T05:43:00Z"
+            }
+        });
+        let range: UsageRange = serde_json::from_value(payload.clone()).expect("timestamp range");
+
+        assert_eq!(
+            serde_json::to_value(&range).expect("serialize range"),
+            payload
+        );
+
+        let reversed: UsageRange = serde_json::from_value(serde_json::json!({
+            "timestamp_range": {
+                "since": "2026-08-21T05:43:00Z",
+                "until": "2026-08-21T05:41:00Z"
+            }
+        }))
+        .expect("deserialize reversed range");
+        assert!(
+            reversed
+                .resolve(NaiveDate::from_ymd_opt(2026, 8, 21).expect("valid date"))
                 .is_err()
         );
     }

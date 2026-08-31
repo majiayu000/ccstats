@@ -1,8 +1,8 @@
 //! Durable Grok inference usage from `logs/unified.jsonl`.
 //!
-//! Grok trims the head of its unified log in place. Before ccstats parses the
-//! file, it merges every inference record into an atomic, source-root-scoped
-//! ledger under the platform cache directory.
+//! Grok trims the head of its unified log in place. Before parsing, ccstats
+//! merges every inference record into an atomic, source-root-scoped
+//! ledger under the platform application-data directory.
 
 use std::collections::{BTreeMap, HashMap, hash_map::DefaultHasher};
 use std::env;
@@ -20,13 +20,15 @@ use crate::core::{CostKind, RawEntry};
 use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
-const APP_CACHE_DIR: &str = "ccstats";
+const APP_DATA_DIR: &str = "ccstats";
 const GROK_CACHE_DIR: &str = "grok";
 const GROK_HOME_ENV: &str = "GROK_HOME";
 const DEFAULT_GROK_DIR: &str = ".grok";
 const UNIFIED_LOG: &str = "unified.jsonl";
 const LEDGER_FILE: &str = "inference-v1.jsonl";
+const SYNC_ERROR_FILE: &str = "inference-v1.sync-error";
 const INFERENCE_DONE: &str = "shell.turn.inference_done";
+const MODEL_CHANGED: &str = "model changed";
 const LONG_CONTEXT_THRESHOLD: i64 = 200_000;
 
 #[derive(Debug, Deserialize, Default)]
@@ -46,6 +48,7 @@ struct InferenceContext {
     cached_prompt_tokens: Option<i64>,
     completion_tokens: Option<i64>,
     reasoning_tokens: Option<i64>,
+    model: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -147,9 +150,9 @@ fn source_root_hash(path: &Path) -> String {
 }
 
 fn ledger_path(grok_home: &Path) -> Option<PathBuf> {
-    dirs::cache_dir().map(|cache_dir| {
-        cache_dir
-            .join(APP_CACHE_DIR)
+    dirs::data_local_dir().map(|data_dir| {
+        data_dir
+            .join(APP_DATA_DIR)
             .join(GROK_CACHE_DIR)
             .join(source_root_hash(grok_home))
             .join(LEDGER_FILE)
@@ -163,21 +166,23 @@ pub(super) fn find_grok_files() -> Vec<PathBuf> {
     let source_path = grok_home.join("logs").join(UNIFIED_LOG);
     let sessions_dir = grok_home.join("sessions");
     let ledger_path = ledger_path(&grok_home);
+    let mut files = super::parser::find_grok_files();
 
     if source_path.is_file() {
-        if let Some(path) = ledger_path.as_deref() {
-            return vec![sync_or_select_grok_file(&source_path, path, &sessions_dir)];
-        }
-        return vec![source_path];
-    }
-
-    if let Some(path) = ledger_path
+        files.push(if let Some(path) = ledger_path.as_deref() {
+            sync_or_select_grok_file(&source_path, path, &sessions_dir)
+        } else {
+            source_path
+        });
+    } else if let Some(path) = ledger_path
         && path.is_file()
     {
-        return vec![path];
+        files.push(path);
     }
 
-    super::parser::find_grok_files()
+    files.sort();
+    files.dedup();
+    files
 }
 
 fn sync_or_select_grok_file(
@@ -188,17 +193,11 @@ fn sync_or_select_grok_file(
     match sync_ledger_at(source_path, ledger_path, sessions_dir) {
         Ok(records) if records > 0 => ledger_path.to_path_buf(),
         Ok(_) => source_path.to_path_buf(),
-        Err(error) if ledger_path.is_file() => {
-            eprintln!(
-                "Warning: failed to ingest the latest Grok inference log; using the last persisted ledger: {error}"
-            );
-            ledger_path.to_path_buf()
-        }
         Err(error) => {
             eprintln!(
-                "Warning: failed to persist Grok inference log; reading the live log only: {error}"
+                "Error: failed to persist the latest Grok inference log; incomplete result omitted: {error}"
             );
-            source_path.to_path_buf()
+            ledger_path.with_file_name(SYNC_ERROR_FILE)
         }
     }
 }
@@ -210,8 +209,12 @@ pub(super) fn parse_grok_file_with_debug(
 ) -> ParseOutput {
     match path.file_name().and_then(|name| name.to_str()) {
         Some(LEDGER_FILE) => parse_ledger_file(path, timezone, debug),
+        Some(SYNC_ERROR_FILE) => ParseOutput {
+            entries: Vec::new(),
+            errors: 1,
+        },
         Some(UNIFIED_LOG) => parse_live_unified_file(path, timezone, debug),
-        _ => super::parser::parse_grok_session_file_with_debug(path, timezone, debug),
+        _ => super::parser::parse_grok_usage_file_with_debug(path, timezone, debug),
     }
 }
 
@@ -220,6 +223,7 @@ fn sync_ledger_at(
     ledger_path: &Path,
     sessions_dir: &Path,
 ) -> Result<usize, String> {
+    let _lock = super::ledger_lock::acquire(ledger_path)?;
     let mut records = load_ledger(ledger_path)?;
     for record in read_inference_records(source_path, sessions_dir)? {
         records.insert(record.event_key.clone(), record);
@@ -265,6 +269,7 @@ fn read_inference_records(
     let file =
         File::open(path).map_err(|error| format!("failed to open {}: {error}", path.display()))?;
     let session_metadata = load_session_metadata(sessions_dir);
+    let mut active_models = HashMap::new();
     let mut records = Vec::new();
 
     for (line_index, line) in BufReader::new(file).lines().enumerate() {
@@ -275,7 +280,7 @@ fn read_inference_records(
                 line_index + 1
             )
         })?;
-        if !line.contains(INFERENCE_DONE) {
+        if !line.contains(INFERENCE_DONE) && !line.contains(MODEL_CHANGED) {
             continue;
         }
         let envelope: UnifiedEnvelope = serde_json::from_str(&line).map_err(|error| {
@@ -285,13 +290,37 @@ fn read_inference_records(
                 line_index + 1
             )
         })?;
-        if envelope.msg.as_deref() != Some(INFERENCE_DONE) {
-            continue;
+        match envelope.msg.as_deref() {
+            Some(MODEL_CHANGED) => {
+                let Some(session_id) = envelope.sid.as_deref().map(str::trim) else {
+                    continue;
+                };
+                let Some(model) = envelope
+                    .ctx
+                    .as_ref()
+                    .and_then(|ctx| ctx.model.as_deref())
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                else {
+                    continue;
+                };
+                if !session_id.is_empty() {
+                    active_models.insert(session_id.to_string(), model.to_string());
+                }
+            }
+            Some(INFERENCE_DONE) => {
+                let record = normalize_inference(envelope, &session_metadata, &active_models)
+                    .map_err(|error| {
+                        format!(
+                            "invalid inference record {} line {}: {error}",
+                            path.display(),
+                            line_index + 1
+                        )
+                    })?;
+                records.push(record);
+            }
+            _ => {}
         }
-        let Some(record) = normalize_inference(envelope, &session_metadata) else {
-            continue;
-        };
-        records.push(record);
     }
     Ok(records)
 }
@@ -334,15 +363,16 @@ fn load_session_metadata(sessions_root: &Path) -> HashMap<String, SessionMetadat
 fn normalize_inference(
     envelope: UnifiedEnvelope,
     session_metadata: &HashMap<String, SessionMetadata>,
-) -> Option<InferenceRecord> {
-    let timestamp = envelope.ts?.trim().to_string();
-    DateTime::parse_from_rfc3339(&timestamp).ok()?;
-    let session_id = envelope.sid?.trim().to_string();
+    active_models: &HashMap<String, String>,
+) -> Result<InferenceRecord, &'static str> {
+    let timestamp = envelope.ts.ok_or("missing ts")?.trim().to_string();
+    DateTime::parse_from_rfc3339(&timestamp).map_err(|_| "invalid ts")?;
+    let session_id = envelope.sid.ok_or("missing sid")?.trim().to_string();
     if session_id.is_empty() {
-        return None;
+        return Err("empty sid");
     }
-    let ctx = envelope.ctx?;
-    let prompt_tokens = ctx.prompt_tokens?.max(0);
+    let ctx = envelope.ctx.ok_or("missing ctx")?;
+    let prompt_tokens = ctx.prompt_tokens.ok_or("missing prompt_tokens")?.max(0);
     let cached_prompt_tokens = ctx
         .cached_prompt_tokens
         .unwrap_or(0)
@@ -353,7 +383,7 @@ fn normalize_inference(
         .unwrap_or(0)
         .clamp(0, completion_tokens);
     let loop_index = ctx.loop_index.unwrap_or(0).max(0);
-    let metadata = session_metadata
+    let mut metadata = session_metadata
         .get(&session_id)
         .cloned()
         .unwrap_or_else(|| SessionMetadata {
@@ -361,9 +391,12 @@ fn normalize_inference(
             project_path: String::new(),
             model: "grok".to_string(),
         });
+    if let Some(model) = active_models.get(&session_id) {
+        metadata.model.clone_from(model);
+    }
     let event_key = format!("{session_id}:{timestamp}:{loop_index}");
 
-    Some(InferenceRecord {
+    Ok(InferenceRecord {
         event_key,
         timestamp,
         session_id,
@@ -486,10 +519,7 @@ fn records_to_parse_output(
             };
             let prompt_tokens = record.prompt_tokens.max(0);
             let cache_read = record.cached_prompt_tokens.clamp(0, prompt_tokens);
-            let input_tokens = prompt_tokens.saturating_sub(cache_read);
             let completion_tokens = record.completion_tokens.max(0);
-            let reasoning_tokens = record.reasoning_tokens.clamp(0, completion_tokens);
-            let output_tokens = completion_tokens.saturating_sub(reasoning_tokens);
             let recorded_cost_usd =
                 api_cost_usd(&record.model, prompt_tokens, cache_read, completion_tokens);
             let date_str = timezone
@@ -510,17 +540,27 @@ fn records_to_parse_output(
                 },
                 project_path: record.project_path,
                 model: record.model,
-                input_tokens,
-                output_tokens,
+                // Complete usage comes from turn_completed records. These
+                // inference entries contribute only their exact request-boundary
+                // API-equivalent cost, otherwise captured tokens are counted twice.
+                input_tokens: 0,
+                output_tokens: 0,
                 cache_creation: 0,
                 cache_creation_1h: 0,
-                cache_read,
-                reasoning_tokens,
+                cache_read: 0,
+                reasoning_tokens: 0,
                 stop_reason: Some("inference_done".to_string()),
                 cost_kind: CostKind::Real,
                 endpoint: crate::core::Endpoint::Unknown,
-                call_count: 1,
+                call_count: 0,
+                reported_total_tokens: None,
                 recorded_cost_usd,
+                api_equivalent_priced_tokens: if recorded_cost_usd.is_some() {
+                    prompt_tokens.saturating_add(completion_tokens)
+                } else {
+                    0
+                },
+                api_equivalent_coverage_tokens: 0,
             })
         })
         .collect();
@@ -563,6 +603,40 @@ mod tests {
         )
     }
 
+    fn model_changed_line(timestamp: &str, session_id: &str, model: &str) -> String {
+        format!(
+            r#"{{"ts":"{timestamp}","sid":"{session_id}","msg":"model changed","ctx":{{"model":"{model}"}}}}"#
+        )
+    }
+
+    #[test]
+    fn durable_ledger_uses_platform_data_directory() {
+        let grok_home = Path::new("/tmp/example-grok-home");
+        let path = ledger_path(grok_home).expect("platform data directory");
+        let data_dir = dirs::data_local_dir().expect("platform data directory");
+
+        assert!(path.starts_with(data_dir));
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some(LEDGER_FILE)
+        );
+        assert_eq!(
+            path.parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str()),
+            Some(GROK_CACHE_DIR)
+        );
+        assert_eq!(
+            path.parent()
+                .and_then(Path::parent)
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str()),
+            Some(APP_DATA_DIR)
+        );
+    }
+
     #[test]
     fn prices_grok_46_short_and_long_context_requests() {
         let short = api_cost_usd("grok-4.6", 150_000, 140_000, 1_000).expect("known model");
@@ -583,112 +657,9 @@ mod tests {
         assert!((long - 0.196).abs() < 1e-12);
     }
 
-    #[test]
-    fn parses_completion_without_double_counting_reasoning() {
-        let root = tempdir().expect("temp dir");
-        let sessions_dir = root.path().join("sessions");
-        let source_path = root.path().join("unified.jsonl");
-        let ledger_path = root.path().join("grok-inference.jsonl");
-        write_session_summary(&sessions_dir, "session-1", "grok-4.6");
-        fs::write(
-            &source_path,
-            inference_line(
-                "2026-08-21T05:42:57.046Z",
-                "session-1",
-                1,
-                148_540,
-                148_224,
-                1_356,
-                949,
-            ),
-        )
-        .expect("write source");
+    #[path = "behavior_tests.rs"]
+    mod behavior_tests;
 
-        assert_eq!(
-            sync_ledger_at(&source_path, &ledger_path, &sessions_dir).expect("sync ledger"),
-            1
-        );
-        let parsed = parse_ledger_file(&ledger_path, tz(), true);
-        assert_eq!(parsed.errors, 0);
-        assert_eq!(parsed.entries.len(), 1);
-        let entry = &parsed.entries[0];
-        assert_eq!(entry.input_tokens, 316);
-        assert_eq!(entry.cache_read, 148_224);
-        assert_eq!(entry.output_tokens, 407);
-        assert_eq!(entry.reasoning_tokens, 949);
-        assert_eq!(entry.to_stats().total_tokens(), 149_896);
-        assert!((entry.recorded_cost_usd.expect("calculated cost") - 0.082_88).abs() < 1e-12);
-    }
-
-    #[test]
-    fn ledger_deduplicates_and_survives_source_trimming() {
-        let root = tempdir().expect("temp dir");
-        let sessions_dir = root.path().join("sessions");
-        let source_path = root.path().join("unified.jsonl");
-        let ledger_path = root.path().join("grok-inference.jsonl");
-        write_session_summary(&sessions_dir, "session-1", "grok-4.6");
-        let first = inference_line("2026-08-21T05:42:57.046Z", "session-1", 1, 100, 50, 10, 4);
-        let second = inference_line("2026-08-21T05:43:11.682Z", "session-1", 2, 200, 150, 20, 8);
-        fs::write(&source_path, format!("{first}\n{second}\n")).expect("write source");
-
-        assert_eq!(
-            sync_ledger_at(&source_path, &ledger_path, &sessions_dir).expect("first sync"),
-            2
-        );
-        assert_eq!(
-            sync_ledger_at(&source_path, &ledger_path, &sessions_dir).expect("repeat sync"),
-            2
-        );
-
-        fs::write(&source_path, format!("{second}\n")).expect("trim source head");
-        assert_eq!(
-            sync_ledger_at(&source_path, &ledger_path, &sessions_dir).expect("trimmed sync"),
-            2
-        );
-        let parsed = parse_ledger_file(&ledger_path, tz(), true);
-        assert_eq!(parsed.errors, 0);
-        assert_eq!(parsed.entries.len(), 2);
-        assert_eq!(
-            parsed
-                .entries
-                .iter()
-                .map(|entry| entry.input_tokens + entry.cache_read)
-                .sum::<i64>(),
-            300
-        );
-    }
-
-    #[test]
-    fn malformed_live_tail_keeps_last_persisted_ledger_visible() {
-        let root = tempdir().expect("temp dir");
-        let sessions_dir = root.path().join("sessions");
-        let source_path = root.path().join("unified.jsonl");
-        let ledger_path = root.path().join("grok-inference.jsonl");
-        write_session_summary(&sessions_dir, "session-1", "grok-4.6");
-        fs::write(
-            &source_path,
-            inference_line("2026-08-21T05:42:57.046Z", "session-1", 1, 100, 50, 10, 4),
-        )
-        .expect("write initial source");
-        assert_eq!(
-            sync_ledger_at(&source_path, &ledger_path, &sessions_dir).expect("initial sync"),
-            1
-        );
-
-        fs::write(
-            &source_path,
-            r#"{"msg":"shell.turn.inference_done","ctx":{"prompt_tokens":200"#,
-        )
-        .expect("write partial live record");
-
-        let selected = sync_or_select_grok_file(&source_path, &ledger_path, &sessions_dir);
-        assert_eq!(selected, ledger_path);
-        let parsed = parse_ledger_file(&selected, tz(), true);
-        assert_eq!(parsed.errors, 0);
-        assert_eq!(parsed.entries.len(), 1);
-        assert_eq!(
-            parsed.entries[0].input_tokens + parsed.entries[0].cache_read,
-            100
-        );
-    }
+    #[path = "lock_tests.rs"]
+    mod lock_tests;
 }

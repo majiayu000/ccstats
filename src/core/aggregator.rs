@@ -280,7 +280,10 @@ mod tests {
             cost_kind: crate::core::CostKind::Real,
             endpoint: Endpoint::Unknown,
             call_count: 1,
+            reported_total_tokens: None,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         }
     }
 
@@ -510,7 +513,10 @@ mod tests {
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
                 call_count: 1,
+                reported_total_tokens: None,
                 recorded_cost_usd: None,
+                api_equivalent_priced_tokens: 0,
+                api_equivalent_coverage_tokens: 0,
             },
             RawEntry {
                 timestamp: "2025-01-01T08:00:00Z".to_string(),
@@ -531,7 +537,10 @@ mod tests {
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
                 call_count: 1,
+                reported_total_tokens: None,
                 recorded_cost_usd: None,
+                api_equivalent_priced_tokens: 0,
+                api_equivalent_coverage_tokens: 0,
             },
             RawEntry {
                 timestamp: "2025-01-01T20:00:00Z".to_string(),
@@ -552,7 +561,10 @@ mod tests {
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
                 call_count: 1,
+                reported_total_tokens: None,
                 recorded_cost_usd: None,
+                api_equivalent_priced_tokens: 0,
+                api_equivalent_coverage_tokens: 0,
             },
         ];
         let result = aggregate_sessions(entries);

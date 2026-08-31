@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn discovery_includes_active_and_archived_sessions() {
+    let temp = tempfile::tempdir().unwrap();
+    let active_dir = temp.path().join("sessions/2026/08/31");
+    let archived_dir = temp.path().join("archived_sessions");
+    std::fs::create_dir_all(&active_dir).unwrap();
+    std::fs::create_dir_all(&archived_dir).unwrap();
+    let active = active_dir.join("active.jsonl");
+    let archived = archived_dir.join("archived.jsonl");
+    std::fs::write(&active, "").unwrap();
+    std::fs::write(&archived, "").unwrap();
+
+    let files = find_codex_files_in_root(temp.path());
+
+    assert_eq!(files, vec![archived, active]);
+}
+
+#[test]
 fn test_subtract_normal() {
     let total = TokenUsage {
         input_tokens: Some(1000),

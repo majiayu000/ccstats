@@ -1,5 +1,8 @@
 //! `ccstats` is a local-first library and CLI for token and cost analytics from
-//! Claude Code, `OpenAI` Codex, Cursor, Grok, and Kimi Code session logs.
+//! Claude Code, `OpenAI` Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp,
+//! Qwen Code, Cline, Roo Code, Kilo Code, `OpenCode`, `MiMo` Code, Kilo CLI, Pi,
+//! Senpi, Kimchi, Gajae Code, Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose,
+//! `OpenClaw`, Xum, Hermes Agent, Reasonix, and Vercel Fx local usage data.
 //!
 //! The public SDK entry points are [`summarize_cost`] and
 //! [`summarize_cost_ranges`] for cost analytics, [`load_codex_weekly_quota`]
@@ -36,12 +39,13 @@ mod sources_cmd;
 mod utils;
 
 pub use sdk::{
-    CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, CodexWeeklyValueError,
-    CodexWeeklyValueEstimate, CodexWeeklyValueWindow, CodexWeeklyValueWindowError, CostSummary,
-    ModelCostSummary, MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions,
-    TokenBreakdown, UsageRange, UsageSource, estimate_codex_weekly_value,
-    estimate_codex_weekly_value_for_window, load_codex_weekly_quota, summarize_cost,
-    summarize_cost_ranges, summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
+    ApiEquivalentCostCoverage, CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota,
+    CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
+    CodexWeeklyValueWindowError, CostSummary, ModelCostSummary, MultiCostSummary,
+    MultiSummaryOptions, SdkError, SummaryOptions, TokenBreakdown, UsageRange, UsageSource,
+    estimate_codex_weekly_value, estimate_codex_weekly_value_for_window, load_codex_weekly_quota,
+    summarize_cost, summarize_cost_ranges, summarize_cost_ranges_with_cli_config,
+    summarize_cost_with_cli_config,
 };
 
 use chrono::{NaiveDate, Utc};

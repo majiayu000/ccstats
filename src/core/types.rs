@@ -17,18 +17,28 @@ pub(crate) struct Stats {
     pub(crate) cache_read: i64,
     /// Reasoning tokens (e.g., Codex o1 models)
     pub(crate) reasoning_tokens: i64,
+    /// Difference between source-authoritative total tokens and the component sum.
+    /// This preserves an independent provider total without corrupting token buckets.
+    #[serde(skip)]
+    pub(crate) reported_total_adjustment: i64,
     pub(crate) count: i64,
     /// Number of parsed source records represented by this aggregation.
     #[serde(default)]
     pub(crate) records: i64,
     pub(crate) skipped_chunks: i64,
     pub(crate) estimated_proxy: CostTokens,
-    /// Provider-reported USD cost that bypasses the local price list.
+    /// Source-recorded USD cost that bypasses the current local price list.
     #[serde(default)]
     pub(crate) recorded_cost_usd: f64,
     /// Number of source records that contributed `recorded_cost_usd`.
     #[serde(default)]
     pub(crate) recorded_cost_entries: i64,
+    /// Tokens covered by exact API-equivalent request telemetry.
+    #[serde(default)]
+    pub(crate) api_equivalent_priced_tokens: i64,
+    /// Usage tokens eligible for API-equivalent coverage reporting.
+    #[serde(default)]
+    pub(crate) api_equivalent_coverage_tokens: i64,
     /// Tokens that still need local pricing (records without a provider cost).
     #[serde(default)]
     pub(crate) priced_tokens: CostTokens,
@@ -44,6 +54,9 @@ impl Stats {
             .saturating_add(other.cache_creation_1h);
         self.cache_read = self.cache_read.saturating_add(other.cache_read);
         self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+        self.reported_total_adjustment = self
+            .reported_total_adjustment
+            .saturating_add(other.reported_total_adjustment);
         self.count = self.count.saturating_add(other.count);
         self.records = self.records.saturating_add(other.records);
         self.skipped_chunks = self.skipped_chunks.saturating_add(other.skipped_chunks);
@@ -52,6 +65,12 @@ impl Stats {
         self.recorded_cost_entries = self
             .recorded_cost_entries
             .saturating_add(other.recorded_cost_entries);
+        self.api_equivalent_priced_tokens = self
+            .api_equivalent_priced_tokens
+            .saturating_add(other.api_equivalent_priced_tokens);
+        self.api_equivalent_coverage_tokens = self
+            .api_equivalent_coverage_tokens
+            .saturating_add(other.api_equivalent_coverage_tokens);
         self.priced_tokens.add(&other.priced_tokens);
     }
 
@@ -62,6 +81,7 @@ impl Stats {
             .saturating_add(self.reasoning_tokens)
             .saturating_add(self.cache_creation)
             .saturating_add(self.cache_read)
+            .saturating_add(self.reported_total_adjustment)
     }
 
     /// Percentage of reported input-side tokens served from the prompt cache.
@@ -179,6 +199,14 @@ pub(crate) struct CostTokens {
 }
 
 impl CostTokens {
+    pub(crate) fn total_tokens(self) -> i64 {
+        self.input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.reasoning_tokens)
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
+    }
+
     pub(crate) fn add(&mut self, other: &Self) {
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
@@ -308,6 +336,9 @@ pub(crate) struct RawEntry {
     pub(crate) cache_creation_1h: i64,
     pub(crate) cache_read: i64,
     pub(crate) reasoning_tokens: i64,
+    /// Source-authoritative total when it is independent from component counters.
+    #[serde(default)]
+    pub(crate) reported_total_tokens: Option<i64>,
     /// Stop reason for completion detection
     pub(crate) stop_reason: Option<String>,
     #[serde(default)]
@@ -318,9 +349,15 @@ pub(crate) struct RawEntry {
     /// Number of model calls represented by this record. Defaults to 1.
     #[serde(default = "default_call_count")]
     pub(crate) call_count: i64,
-    /// Provider-reported USD cost for this record, when the source logs one.
+    /// Source-recorded USD cost for this record, when the source logs one.
     #[serde(default)]
     pub(crate) recorded_cost_usd: Option<f64>,
+    /// Tokens represented by exact API-equivalent request telemetry.
+    #[serde(default)]
+    pub(crate) api_equivalent_priced_tokens: i64,
+    /// Usage tokens eligible for API-equivalent coverage reporting.
+    #[serde(default)]
+    pub(crate) api_equivalent_coverage_tokens: i64,
 }
 
 fn default_call_count() -> i64 {
@@ -332,6 +369,12 @@ impl RawEntry {
         // Parsers default real records to one call; a synthetic residual may
         // legitimately carry tokens or cost without representing another call.
         let call_count = self.call_count.max(0);
+        let component_total = self
+            .input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.reasoning_tokens);
         let mut stats = Stats {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
@@ -339,12 +382,17 @@ impl RawEntry {
             cache_creation_1h: self.cache_creation_1h,
             cache_read: self.cache_read,
             reasoning_tokens: self.reasoning_tokens,
+            reported_total_adjustment: self
+                .reported_total_tokens
+                .map_or(0, |total| total.saturating_sub(component_total)),
             count: call_count,
             records: 1,
             skipped_chunks: 0,
             estimated_proxy: CostTokens::default(),
             recorded_cost_usd: 0.0,
             recorded_cost_entries: 0,
+            api_equivalent_priced_tokens: self.api_equivalent_priced_tokens.max(0),
+            api_equivalent_coverage_tokens: self.api_equivalent_coverage_tokens.max(0),
             priced_tokens: CostTokens::default(),
         };
         if self.cost_kind == CostKind::EstimatedProxy {
@@ -365,11 +413,85 @@ impl RawEntry {
 pub(crate) struct DateFilter {
     pub(crate) since: Option<chrono::NaiveDate>,
     pub(crate) until: Option<chrono::NaiveDate>,
+    pub(crate) since_timestamp_ms: Option<i64>,
+    pub(crate) until_timestamp_ms: Option<i64>,
+    since_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    until_timestamp: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl DateFilter {
     pub(crate) fn new(since: Option<chrono::NaiveDate>, until: Option<chrono::NaiveDate>) -> Self {
-        Self { since, until }
+        Self {
+            since,
+            until,
+            since_timestamp_ms: None,
+            until_timestamp_ms: None,
+            since_timestamp: None,
+            until_timestamp: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_timestamp_range(mut self, since: i64, until: i64) -> Self {
+        self.since_timestamp_ms = Some(since);
+        self.until_timestamp_ms = Some(until);
+        self
+    }
+
+    pub(crate) fn with_exact_timestamp_range(
+        mut self,
+        since: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Self {
+        self.since_timestamp_ms = Some(since.timestamp_millis());
+        self.until_timestamp_ms = Some(until.timestamp_millis());
+        self.since_timestamp = Some(since);
+        self.until_timestamp = Some(until);
+        self
+    }
+
+    pub(crate) fn has_timestamp_range(&self) -> bool {
+        self.since_timestamp_ms.is_some() || self.until_timestamp_ms.is_some()
+    }
+
+    pub(crate) fn contains_timestamp(&self, timestamp_ms: i64) -> bool {
+        if let Some(since) = self.since_timestamp_ms
+            && timestamp_ms < since
+        {
+            return false;
+        }
+        if let Some(until) = self.until_timestamp_ms
+            && timestamp_ms > until
+        {
+            return false;
+        }
+        true
+    }
+
+    pub(crate) fn contains_datetime(&self, timestamp: chrono::DateTime<chrono::Utc>) -> bool {
+        if let Some(since) = self.since_timestamp
+            && timestamp < since
+        {
+            return false;
+        }
+        if let Some(until) = self.until_timestamp
+            && timestamp > until
+        {
+            return false;
+        }
+        if self.since_timestamp.is_none() && self.until_timestamp.is_none() {
+            return self.contains_timestamp(timestamp.timestamp_millis());
+        }
+        true
+    }
+
+    pub(crate) fn contains_entry_timestamp(&self, timestamp: &str, timestamp_ms: i64) -> bool {
+        if self.since_timestamp.is_some() || self.until_timestamp.is_some() {
+            return timestamp
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .is_ok_and(|timestamp| self.contains_datetime(timestamp));
+        }
+        self.contains_timestamp(timestamp_ms)
     }
 
     pub(crate) fn contains(&self, date: chrono::NaiveDate) -> bool {
@@ -624,7 +746,10 @@ mod tests {
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
             call_count: 1,
+            reported_total_tokens: None,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         };
         let s = entry.to_stats();
         assert_eq!(s.input_tokens, 100);
@@ -660,7 +785,10 @@ mod tests {
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
             call_count: 5,
+            reported_total_tokens: None,
             recorded_cost_usd: Some(1.25),
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         };
         let stats = entry.to_stats();
         assert_eq!(stats.count, 5);
@@ -668,6 +796,41 @@ mod tests {
         assert!((stats.recorded_cost_usd - 1.25).abs() < 1e-12);
         assert_eq!(stats.recorded_cost_entries, 1);
         assert!(!stats.priced_tokens.has_entries());
+    }
+
+    #[test]
+    fn raw_entry_preserves_independent_reported_total_without_repricing_the_delta() {
+        let entry = RawEntry {
+            timestamp: String::new(),
+            timestamp_ms: 0,
+            date_str: String::new(),
+            message_id: None,
+            session_key: String::new(),
+            session_id: String::new(),
+            project_path: String::new(),
+            model: "provider/model".to_string(),
+            input_tokens: 3,
+            output_tokens: 4,
+            cache_creation: 0,
+            cache_creation_1h: 0,
+            cache_read: 0,
+            reasoning_tokens: 0,
+            reported_total_tokens: Some(9),
+            stop_reason: Some("complete".to_string()),
+            cost_kind: CostKind::Real,
+            endpoint: Endpoint::Unknown,
+            call_count: 1,
+            recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
+        };
+
+        let stats = entry.to_stats();
+        assert_eq!(stats.total_tokens(), 9);
+        assert_eq!(stats.input_tokens, 3);
+        assert_eq!(stats.output_tokens, 4);
+        assert_eq!(stats.priced_tokens.input_tokens, 3);
+        assert_eq!(stats.priced_tokens.output_tokens, 4);
     }
 
     // --- DateFilter ---

@@ -9,9 +9,8 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast, local-first CLI and Rust SDK for understanding token usage,
-cost, cache efficiency, and quota pace across Claude Code, OpenAI Codex,
-Cursor, Grok, and Kimi Code.
+`ccstats` is a fast, local-first CLI and Rust SDK for token and cost analytics
+across 29 AI coding-agent data sources.
 
 One binary turns the usage metadata your coding agents already produce into
 terminal reports and structured JSON/CSV. No ccstats account or telemetry is
@@ -162,7 +161,7 @@ ccstats daily --source cur
 
 ## Quick Start (Grok)
 
-Grok support reads each `shell.turn.inference_done` record from `~/.grok/logs/unified.jsonl`. It reports uncached input, cached prompt, completion, and reasoning tokens, then calculates Grok 4.5/4.6 USD cost per inference using xAI's short- or long-context price for the whole request. Observed records are kept in an atomic ccstats ledger because Grok trims the live log in place.
+Grok support reports complete, globally deduplicated token totals from session `turn_completed.usage` records. It separately prices each observed `shell.turn.inference_done` record using xAI's short- or long-context API rate for the whole request. Because Grok trims `unified.jsonl`, the output includes priced-token coverage and marks the API-equivalent cost as a lower bound when inference history is incomplete and no `estimated_proxy` contribution is included.
 
 ```bash
 # Install
@@ -196,6 +195,45 @@ ccstats kimi
 ccstats daily --source km
 ```
 
+## Quick Start (Additional Sources)
+
+```bash
+ccstats daily --source gemini
+ccstats daily --source amp
+ccstats daily --source qwen
+ccstats daily --source cline
+ccstats daily --source roocode
+ccstats daily --source kilocode
+ccstats daily --source opencode
+ccstats daily --source mimocode
+ccstats daily --source kilo
+ccstats daily --source pi
+ccstats daily --source senpi
+ccstats daily --source kimchi
+ccstats daily --source gjc
+ccstats daily --source prime
+ccstats daily --source omp
+ccstats daily --source copilot
+ccstats daily --source goose
+ccstats daily --source dsh
+```
+
+Gemini reads both chat JSON and headless JSONL usage. Amp reconciles its usage
+ledger with assistant-message usage without double counting. Qwen reads its
+native usage ledger and separates cached input from uncached input. Cline reads
+both CLI sessions and its VS Code extension task logs; Roo Code and Kilo Code
+use the same extension-log algorithm. The OpenCode family reconciles dual
+schemas and fork-copied history. The Pi-derived sources use separate rules for
+GJC task residuals, Prime child attribution, and OMP task rollups so parent and
+child usage is counted exactly once. Source-recorded OpenCode/Pi-family costs
+and provider-reported Goose ledger costs retain their provenance. Copilot's
+documented monetary field has no published currency code, so it remains
+separate from ccstats' USD estimate instead of being mislabeled.
+DeepSeek Harness reads the durable session ledger rather than message text. It
+reconciles streamed usage with final responses and retries, excludes forked
+history through `seedLength`, counts compaction calls separately, and validates
+plain or concatenated zstd persistence before accepting usage.
+
 ## Crate Documentation
 
 - docs.rs: <https://docs.rs/ccstats/latest/ccstats/>
@@ -219,6 +257,8 @@ println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
 ```
 
 The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, cache hit rate, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
+
+Use `UsageRange::TimestampRange` with inclusive UTC `DateTime<Utc>` bounds when an app must align usage to an exact provider quota window instead of whole local dates.
 
 Codex weekly quota pace is also available as structured SDK data without
 spawning the CLI:
@@ -442,13 +482,14 @@ ccstats daily --source gx
 
 By default, ccstats uses:
 
-- `~/.grok/logs/unified.jsonl` for per-inference token records
+- `~/.grok/sessions/**/updates.jsonl` for complete per-turn token totals
+- `~/.grok/logs/unified.jsonl` for per-inference API-equivalent pricing
 - `~/.grok/sessions/**/summary.json` for model, project, and session metadata
-- the platform cache directory under `ccstats/grok/<source-root>/inference-v1.jsonl` for the durable, deduplicated ledger
+- the platform application-data directory under `ccstats/grok/<source-root>/inference-v1.jsonl` for the durable, deduplicated ledger
 
-For Grok 4.5 and 4.6, requests below 200k prompt tokens use the short-context rates. Requests at or above 200k use the long-context input, cached-input, and output rates for the entire inference. `completion_tokens` already includes reasoning, so ccstats separates the displayed fields without charging reasoning twice. Rates follow the [xAI pricing reference](https://docs.x.ai/developers/pricing).
+For Grok 4.5 and 4.6, requests below 200k prompt tokens use the short-context rates. Requests at or above 200k use the long-context input, cached-input, and output rates for the entire inference. `completion_tokens` already includes reasoning, so ccstats does not charge reasoning twice. Rates follow the [xAI pricing reference](https://docs.x.ai/developers/pricing).
 
-If `unified.jsonl` is unavailable, ccstats retains the older session `turn_completed.usage` and context-snapshot fallback for installations that do not emit inference telemetry.
+Structured period output includes `api_equivalent_cost_coverage` with `total_tokens`, `priced_tokens`, `percent`, `complete`, and `cost_is_lower_bound`. If a session has no `turn_completed.usage`, ccstats retains its explicitly labeled `estimated_proxy` context-snapshot fallback.
 
 You can override the Grok home directory with `GROK_HOME`:
 
@@ -458,9 +499,9 @@ GROK_HOME="/path/to/.grok" ccstats grok
 
 Current limitations:
 
-- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run.
-- Session fallback totals use the fields available in those files and can differ from the Grok Build weekly allowance.
-- Grok models without a published ccstats per-inference tier fall back to the normal pricing resolver.
+- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run or between ccstats runs, so incomplete API-equivalent cost is reported as a lower bound only when no `estimated_proxy` contribution is included.
+- `turn_completed.usage.costUsdTicks` is not used as an API-equivalent price.
+- Grok models without a published ccstats per-inference tier remain unpriced and reduce priced-token coverage.
 - Grok 5-hour billing blocks are not supported.
 
 ### Kimi Code
@@ -537,6 +578,20 @@ ccstats daily --source gx
 ccstats daily --source kimi
 ccstats daily --source km
 
+# Additional local agent sources
+ccstats daily --source gemini
+ccstats daily --source amp
+ccstats daily --source qwen
+ccstats daily --source cline
+ccstats daily --source roocode
+ccstats daily --source kilocode
+ccstats daily --source opencode
+ccstats daily --source mimocode
+ccstats daily --source kilo
+ccstats daily --source pi
+ccstats daily --source senpi
+ccstats daily --source kimchi
+
 # Offline mode (use cached pricing)
 ccstats today -O
 
@@ -597,17 +652,44 @@ Supported keys:
 | `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
 | `locale` | string | Locale used for number formatting, such as `en` or `de` |
 | `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
-| `source` | string | Source name or alias such as `claude`, `codex`, `cursor`, `grok`, `kimi`, or `all` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `opencode`, `mimocode`, `kilo`, `pi`, `senpi`, `kimchi`, `gjc`, `prime`, `omp`, `copilot`, `goose`, `openclaw`, `xum`, `hermes`, `dsh`, or `all` |
 
 Source root env overrides are independent of config keys:
 
 | Source | Env var | Value | Default when unset |
 |--------|---------|-------|--------------------|
 | Claude Code | `CLAUDE_CONFIG_DIR` | Claude config root containing `projects/` | `~/.claude` |
-| OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` | `~/.codex` |
+| OpenAI Codex | `CODEX_HOME` | Codex root containing `sessions/` and `archived_sessions/` | `~/.codex` |
 | Cursor | `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN` | Admin API key or dashboard session cookie | No default; optional `CURSOR_USAGE_FILE` replay |
 | Grok | `GROK_HOME` | Grok root containing `sessions/` | `~/.grok` |
 | Kimi Code | `KIMI_CODE_HOME` | Kimi Code root containing `sessions/` | `~/.kimi-code` |
+| Gemini CLI | `GEMINI_CLI_HOME` | Gemini CLI root containing `tmp/` | `~/.gemini` |
+| Amp | `XDG_DATA_HOME` | User data root containing `amp/threads/` | `~/.local/share` |
+| Qwen Code | `QWEN_RUNTIME_DIR`, then `QWEN_HOME` | Qwen root containing `usage/` | `~/.qwen` |
+| Cline CLI | `CLINE_SESSION_DATA_DIR` | Cline session directory | `~/.cline/data/sessions` |
+| OpenCode | `OPENCODE_DB`; data root follows `XDG_DATA_HOME` | Exact database path, or relative name inside the OpenCode data directory | Platform data directory under `opencode/opencode*.db` |
+| MiMo Code | `MIMOCODE_DB`; `MIMOCODE_HOME`; data root follows `XDG_DATA_HOME` | Exact database path, or MiMo home containing `data/` | `~/.local/share/mimocode/mimocode*.db` |
+| Kilo CLI | `KILO_DB`; data root follows `XDG_DATA_HOME` | Exact database path, or relative name inside the Kilo data directory | `~/.local/share/kilo/kilo*.db` plus legacy channel databases |
+| Pi | `PI_CODING_AGENT_SESSION_DIR`, then `PI_CODING_AGENT_DIR` | Exact sessions directory, or agent directory containing `sessions/` | `~/.pi/agent/sessions` |
+| Senpi | `SENPI_CODING_AGENT_SESSION_DIR`, then `SENPI_CODING_AGENT_DIR` | Exact sessions directory, or agent directory containing `sessions/`; `~` is expanded | Nearest project `.senpi/agent/sessions`, then `~/.senpi/agent/sessions` |
+| Kimchi | — | Fixed by the Kimchi launcher | `~/.config/kimchi/harness/sessions` |
+| Gajae Code | `GJC_CODING_AGENT_DIR`; `GJC_CONFIG_DIR`; data root follows `XDG_DATA_HOME` | Agent directory containing `sessions/`, or config directory name | `~/.gjc/agent/sessions` or migrated `$XDG_DATA_HOME/gjc/sessions` |
+| Prime Agent | `PRIME_AGENT_SESSION_DIR`, then `PRIME_AGENT_CODING_AGENT_DIR`; current project/global `settings.json` is also read | Exact sessions directory, or agent directory containing `sessions/` | `~/.prime/agent/sessions` |
+| Oh My Pi | `PI_CODING_AGENT_SESSION_DIR`; `OMP_PROFILE`, then `PI_PROFILE`; `PI_CODING_AGENT_DIR`; `PI_CONFIG_DIR`; data root follows `XDG_DATA_HOME` | Exact sessions directory, active profile, or non-profile agent directory | `~/.omp/agent/sessions` or the active profile/XDG equivalent |
+| GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | Exact OTel JSONL exporter file | Also scans `~/.copilot/otel/**/*.jsonl` |
+| Goose | `GOOSE_PATH_ROOT`; data root follows `XDG_DATA_HOME` | Absolute Goose path root containing `data/sessions/sessions.db` | `~/.local/share/goose/sessions/sessions.db` |
+| OpenClaw | `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`; effective home follows `OPENCLAW_HOME` | State/config roots containing standard or configured agent transcripts/stores; `~` uses effective home | `~/.openclaw` |
+| Xum | `XUM_ROOT` | Current Xum root containing `sessions/` | `~/.xum` |
+| Hermes Agent | `HERMES_HOME` | Hermes home containing `state.db` | `~/.hermes/state.db` |
+| Reasonix | `REASONIX_STATE_HOME`, then `REASONIX_HOME` | Reasonix state root containing `stats/` | `~/.reasonix` |
+| Vercel Fx | `HOME` | Home containing the `.fx` profile ledger and recovery registry | `~/.fx` |
+| DeepSeek Harness | `DSH_HOME` | DSH root containing `sessions/`; relative paths resolve from the current directory and `~` is expanded | `~/.dsh` |
+
+Cline also recognizes `CLINE_DATA_DIR` and `CLINE_DIR`. Roo Code and Kilo Code
+currently use their standard local directories.
+Senpi `settings.json`/`settings.jsonc` `sessionDir` is discovered automatically. If it was launched
+with the one-off `--session-dir` flag, set `SENPI_CODING_AGENT_SESSION_DIR` to
+that same directory for ccstats.
 
 ### Session CSV Columns
 
@@ -629,8 +711,11 @@ cache_read / (input + cache_creation + cache_read) * 100
 
 Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
-Claude, Codex, Cursor, Grok, and Kimi Code expose the required cache-read metric.
-Mixed `--source all` output reports the aggregate rate across all selected usage.
+Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
+Code, Kilo Code, OpenCode, MiMo Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code,
+Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose, OpenClaw, Xum, Hermes Agent,
+Reasonix, Vercel Fx, and DeepSeek Harness expose the required cache-read metric. Mixed `--source all` output
+reports the aggregate rate across all selected usage.
 
 ### Parsing Warnings
 
@@ -645,11 +730,34 @@ Warning: ignored <N> malformed records
 | Source | Directory | Override | Features |
 |--------|-----------|----------|----------|
 | Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Billing Blocks, Deduplication |
-| OpenAI Codex | `~/.codex/sessions/` | `CODEX_HOME` | Reasoning Tokens |
+| OpenAI Codex | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` | Reasoning Tokens, cumulative-event deduplication |
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor | Cursor usage API | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Per-event tokens, cache tokens, recorded `chargedCents` |
-| Grok | `~/.grok/logs/unified.jsonl` | `GROK_HOME` | Per-inference usage, Projects, Cache / reasoning tokens, 200k pricing tier, durable ledger |
+| Grok | `~/.grok/sessions/`, `~/.grok/logs/unified.jsonl` | `GROK_HOME` | Complete turn tokens, per-inference API pricing, coverage metadata, Projects, Cache / reasoning tokens, 200k pricing tier |
 | Kimi Code | `~/.kimi-code/sessions/` | `KIMI_CODE_HOME` | Per-turn usage records, Projects, Cache tokens |
+| Gemini CLI | `~/.gemini/tmp/` | `GEMINI_CLI_HOME` | Chat/headless formats, Reasoning and cache tokens |
+| Amp | `~/.local/share/amp/threads/` | `XDG_DATA_HOME` | Ledger/message reconciliation, Cache tokens |
+| Qwen Code | `~/.qwen/usage/token-usage-*.jsonl` | `QWEN_RUNTIME_DIR`, `QWEN_HOME` | Native usage ledger, Reasoning and cache tokens |
+| Cline | `~/.cline/data/sessions/` and VS Code global storage | `CLINE_SESSION_DATA_DIR`, `CLINE_DATA_DIR`, `CLINE_DIR` | CLI and extension sessions, Projects, Cache tokens |
+| Roo Code | VS Code global storage | — | Extension task usage, Cache tokens |
+| Kilo Code | VS Code global storage | — | Extension task usage, Cache tokens |
+| OpenCode | Platform data directory under `opencode/opencode*.db` | `OPENCODE_DB`, `XDG_DATA_HOME` | Projects, reasoning/cache tokens, recorded cost, cross-schema deduplication |
+| MiMo Code | `~/.local/share/mimocode/mimocode*.db` | `MIMOCODE_DB`, `MIMOCODE_HOME`, `XDG_DATA_HOME` | Projects, reasoning/cache tokens, recorded cost, fork-copy timestamp reconciliation |
+| Kilo CLI | `~/.local/share/kilo/kilo*.db` | `KILO_DB`, `XDG_DATA_HOME` | Current + legacy message schemas, recorded cost, fork-copy timestamp reconciliation |
+| Pi | `~/.pi/agent/sessions/**/*.jsonl` | `PI_CODING_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` | Projects, assistant + summary usage, cache tokens, branch-copy deduplication |
+| Senpi | `~/.senpi/agent/sessions/**/*.jsonl` | `SENPI_CODING_AGENT_SESSION_DIR`, `SENPI_CODING_AGENT_DIR` | Assistant, compaction, branch summary, and tool-result usage with branch-copy deduplication |
+| Kimchi | `~/.config/kimchi/harness/sessions/**/*.jsonl` | — | Child transcripts plus remote/missing-child `details.tokenUsage` fallback without rollup double counting |
+| Gajae Code | `~/.gjc/agent/sessions/**/*.jsonl` or XDG data root | `GJC_CODING_AGENT_DIR`, `GJC_CONFIG_DIR`, `XDG_DATA_HOME` | v5 patch replay, reasoning/cache tokens, fork deduplication, partial task-rollup residuals |
+| Prime Agent | `~/.prime/agent/sessions/**/*.jsonl` | `PRIME_AGENT_SESSION_DIR`, `PRIME_AGENT_CODING_AGENT_DIR` | Project/global session settings, child-attribution reconstruction, recursive transcript and fork deduplication |
+| Oh My Pi | Active default/named profile sessions | `PI_CODING_AGENT_SESSION_DIR`, `OMP_PROFILE`, `PI_PROFILE`, `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `XDG_DATA_HOME` | Profile-aware discovery, orchestration/reasoning/cache tokens, recursive task transcript and fork deduplication |
+| GitHub Copilot CLI | `~/.copilot/otel/**/*.jsonl` | `COPILOT_OTEL_FILE_EXPORTER_PATH` | Per-request `chat` spans, reasoning/cache normalization, cross-file deduplication |
+| Goose | `~/.local/share/goose/sessions/sessions.db` | `GOOSE_PATH_ROOT`, `XDG_DATA_HOME` | Per-call ledger, Projects, cache tokens, provider-reported cost provenance |
+| OpenClaw | Agent JSONL/zstd archives and configured/default SQLite stores | `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`, `OPENCLAW_HOME` | v3 assistant usage, Projects, cache TTL tokens, copied-entry deduplication, isolated archive errors, provider-billed cost provenance |
+| Xum | `~/.xum/sessions/*/session-usage.json` | `XUM_ROOT` | Five independent token/cost buckets, reasoning/cache tokens, cycle-safe child roll-up reconciliation |
+| Hermes Agent | `~/.hermes/state.db` | `HERMES_HOME` | Current per-model/task ledger plus session residual, Projects, exact API call counts, reasoning/cache tokens, actual/included cost provenance |
+| Reasonix | `~/.reasonix/stats/YYYY-MM-DD.jsonl` | `REASONIX_STATE_HOME`, `REASONIX_HOME` | Per-call/request aggregates, reasoning/cache normalization, occurrence-time complete USD valuations, isolated parse errors |
+| Vercel Fx | `~/.fx/usage.jsonl` plus canonical-session-validated recovery backlog | `HOME` | Profile-wide generation IDs, exact timestamps and costs, cache/reasoning normalization, duplicate/conflict detection, fail-closed sidecar recovery |
+| DeepSeek Harness | `~/.dsh/sessions/<project>/<session>/session.jsonl[.zstd]` | `DSH_HOME` | Projects, retry-aware call accounting, cache/reasoning tokens, compaction calls, fork ownership, concatenated-zstd recovery |
 
 ## Architecture
 
@@ -663,6 +771,10 @@ See [docs/algorithm/authoritative-token-accounting.md](docs/algorithm/authoritat
 - Token accounting rules
 - Source-specific normalization
 - Deduplication semantics
+
+See [docs/research/provider-algorithm-audit-2026-08-31.md](docs/research/provider-algorithm-audit-2026-08-31.md)
+for the pinned competitor comparison, official-schema evidence, and
+adopt/adapt/reject decisions behind the additional providers.
 
 ## License
 
