@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::consts::DATE_FORMAT;
 use crate::core::{DateFilter, DedupAccumulator, LoadResult, RawEntry, aggregate_daily};
 use crate::pricing::PricingDb;
-use crate::source::{Source, get_source};
+use crate::source::{CostCoverage, Source, get_source};
 use crate::utils::Timezone;
 
 /// Options for [`summarize_cost_ranges`].
@@ -111,7 +111,8 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         .into_iter()
         .zip(results.iter())
         .map(|(range, result)| {
-            let cost_coverage = source.cost_coverage(&range.filter, timezone);
+            let cost_coverage =
+                CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
             build_cost_summary(
                 usage_source,
                 source,
@@ -257,11 +258,7 @@ fn load_daily_ranges(
     ranges
         .iter()
         .map(|range| {
-            let mut result = aggregate_entries_for_filter(
-                &entries,
-                &range.filter,
-                source.capabilities().needs_dedup,
-            );
+            let mut result = aggregate_entries_for_filter(&entries, &range.filter, source);
             result.parse_errors = parse_errors;
             result.elapsed_ms = elapsed_ms;
             result
@@ -284,7 +281,7 @@ fn normalize_entry_date(entry: &mut RawEntry, timezone: Timezone) -> Option<Naiv
 fn aggregate_entries_for_filter(
     entries: &[RawEntry],
     filter: &DateFilter,
-    needs_dedup: bool,
+    source: &dyn Source,
 ) -> LoadResult {
     let filtered: Vec<_> = entries
         .iter()
@@ -303,11 +300,11 @@ fn aggregate_entries_for_filter(
         return LoadResult::default();
     }
 
-    if needs_dedup {
+    if source.capabilities().needs_dedup {
         let mut accumulator = DedupAccumulator::new();
         accumulator.extend(filtered);
         let (deduped, skipped) = accumulator.finalize();
-        return load_result_from_entries(deduped, skipped);
+        return load_result_from_entries(source.finalize_entries(deduped), skipped);
     }
 
     load_result_from_entries(filtered, 0)
@@ -418,6 +415,8 @@ mod tests {
                     endpoint: crate::core::Endpoint::Unknown,
                     call_count: 1,
                     recorded_cost_usd: None,
+                    api_equivalent_priced_tokens: 15,
+                    api_equivalent_coverage_tokens: 15,
                 }],
                 errors: 0,
             }
@@ -537,6 +536,14 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].valid, 2);
         assert_eq!(results[1].valid, 2);
+        assert_eq!(
+            CostCoverage::from_stats(results[0].day_stats.values().map(|day| &day.stats)),
+            Some(CostCoverage {
+                total_tokens: 30,
+                priced_tokens: 30,
+                estimated_proxy: 0,
+            })
+        );
     }
 
     #[test]

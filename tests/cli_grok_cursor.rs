@@ -244,11 +244,7 @@ fn grok_does_not_add_snapshot_estimate_to_inference_cost() {
     let row = &json.as_array().expect("array output")[0];
     assert_eq!(row["total_tokens"].as_i64(), Some(1500));
     assert_close(row["cost"].as_f64().expect("inference cost"), 0.000_175);
-    assert!(
-        row["estimated_cost"]
-            .as_f64()
-            .is_some_and(|cost| cost > 0.0)
-    );
+    assert!(row.get("estimated_cost").is_none());
 
     let _ = fs::remove_dir_all(root);
 }
@@ -289,7 +285,7 @@ fn explicit_grok_home_never_reads_default_sessions() {
 }
 
 #[test]
-fn all_sources_preserves_partial_grok_cost_coverage() {
+fn all_sources_reports_grok_cost_coverage_per_period() {
     let root = unique_temp_dir("all-sources-grok-coverage");
     let grok_home = root.join("grok-home");
     write_grok_turn_session(&grok_home);
@@ -315,10 +311,23 @@ fn all_sources_preserves_partial_grok_cost_coverage() {
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
 
     let json: Value = serde_json::from_slice(&stdout).expect("json");
-    let coverage = &json.as_array().expect("array output")[0]["api_equivalent_cost_coverage"];
-    assert_eq!(coverage["total_tokens"].as_i64(), Some(180));
-    assert_eq!(coverage["priced_tokens"].as_i64(), Some(120));
-    assert_eq!(coverage["cost_is_lower_bound"].as_bool(), Some(true));
+    let rows = json.as_array().expect("array output");
+    let first = rows
+        .iter()
+        .find(|row| row["date"] == "2026-08-16")
+        .expect("first day");
+    let second = rows
+        .iter()
+        .find(|row| row["date"] == "2026-08-17")
+        .expect("second day");
+    let first_coverage = &first["api_equivalent_cost_coverage"];
+    assert_eq!(first_coverage["total_tokens"].as_i64(), Some(120));
+    assert_eq!(first_coverage["priced_tokens"].as_i64(), Some(120));
+    assert_eq!(first_coverage["cost_is_lower_bound"].as_bool(), Some(false));
+    let second_coverage = &second["api_equivalent_cost_coverage"];
+    assert_eq!(second_coverage["total_tokens"].as_i64(), Some(60));
+    assert_eq!(second_coverage["priced_tokens"].as_i64(), Some(0));
+    assert_eq!(second_coverage["cost_is_lower_bound"].as_bool(), Some(true));
 
     let _ = fs::remove_dir_all(root);
 }

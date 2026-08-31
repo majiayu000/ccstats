@@ -205,6 +205,8 @@ fn entry_from_event(event: &Value, ordinal: usize, timezone: Timezone) -> Option
         endpoint: crate::core::Endpoint::Unknown,
         call_count: 1,
         recorded_cost_usd,
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
     })
 }
 

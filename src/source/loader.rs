@@ -239,7 +239,7 @@ impl<'a> DataLoader<'a> {
         match result {
             Some((accumulator, parse_errors)) => {
                 let (entries, skipped) = accumulator.finalize();
-                (entries, skipped, parse_errors)
+                (self.source.finalize_entries(entries), skipped, parse_errors)
             }
             None => (Vec::new(), 0, 0),
         }
@@ -568,6 +568,8 @@ mod tests {
             endpoint: crate::core::Endpoint::Unknown,
             call_count: 1,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         }
     }
 

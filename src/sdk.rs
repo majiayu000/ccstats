@@ -248,7 +248,7 @@ impl From<CostCoverage> for ApiEquivalentCostCoverage {
             priced_tokens: coverage.priced_tokens,
             percent: coverage.percent(),
             complete: !coverage.is_partial(),
-            cost_is_lower_bound: coverage.is_partial(),
+            cost_is_lower_bound: coverage.cost_is_lower_bound(),
         }
     }
 }
@@ -324,7 +324,7 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
     );
 
     let result = load_daily(source, &filter, timezone, true, false);
-    let cost_coverage = source.cost_coverage(&filter, timezone);
+    let cost_coverage = CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
     Ok(build_cost_summary(
         options.source,
         source,
