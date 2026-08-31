@@ -433,11 +433,13 @@ mod tests {
     fn platform_data_root_falls_back_to_home_when_xdg_is_unset() {
         let home = PathBuf::from("/home/tester");
         let expected = if cfg!(target_os = "macos") {
-            home.join("Library/Application Support")
+            Some(home.join("Library/Application Support"))
+        } else if cfg!(target_os = "linux") {
+            Some(home.join(".local/share"))
         } else {
-            home.join(".local/share")
+            None
         };
 
-        assert_eq!(platform_data_root(None, Some(home)), Some(expected));
+        assert_eq!(platform_data_root(None, Some(home)), expected);
     }
 }
