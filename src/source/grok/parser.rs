@@ -319,6 +319,14 @@ pub(super) fn parse_grok_usage_file_with_debug(
     parse_grok_session_file(path, timezone, debug, false)
 }
 
+pub(super) fn parse_grok_session_file_for_provider(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+) -> ParseOutput {
+    parse_grok_session_file(path, timezone, debug, true)
+}
+
 fn parse_grok_session_file(
     path: &Path,
     timezone: Timezone,
@@ -580,7 +588,7 @@ mod tests {
         assert_eq!(entry.reasoning_tokens, 5);
         assert_eq!(entry.call_count, 3);
         assert_eq!(entry.date_str, "2026-08-16");
-        assert_eq!(entry.model, "grok-4.5-build");
+        assert_eq!(entry.model, "grok-4.5");
         assert_eq!(entry.cost_kind, CostKind::Real);
         assert_eq!(entry.recorded_cost_usd, Some(2.0));
     }

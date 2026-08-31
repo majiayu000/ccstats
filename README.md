@@ -163,7 +163,7 @@ ccstats daily --source cur
 
 ## Quick Start (Grok)
 
-Grok support reports complete, globally deduplicated token totals from session `turn_completed.usage` records. It separately prices each observed `shell.turn.inference_done` record using xAI's short- or long-context API rate for the whole request. Because Grok trims `unified.jsonl`, the output includes priced-token coverage and marks the API-equivalent cost as a lower bound when inference history is incomplete and no `estimated_proxy` contribution is included.
+Grok support reports complete, globally deduplicated token totals from session `turn_completed.usage` records. It separately prices each observed `shell.turn.inference_done` request using xAI's public short- or long-context API rate. Because Grok trims `unified.jsonl`, ccstats shows the exact observed API equivalent, a coverage-adjusted estimate, and a short/long-context range. It also displays `costUsdTicks` as a separate provider metric. Neither value is labeled as the user's actual subscription charge, which is unavailable in the local logs.
 
 ```bash
 # Install
@@ -491,7 +491,7 @@ By default, ccstats uses:
 
 For Grok 4.5 and 4.6, requests below 200k prompt tokens use the short-context rates. Requests at or above 200k use the long-context input, cached-input, and output rates for the entire inference. `completion_tokens` already includes reasoning, so ccstats does not charge reasoning twice. Rates follow the [xAI pricing reference](https://docs.x.ai/developers/pricing).
 
-Structured period output includes `api_equivalent_cost_coverage` with `total_tokens`, `priced_tokens`, `percent`, `complete`, and `cost_is_lower_bound`. If a session has no `turn_completed.usage`, ccstats retains its explicitly labeled `estimated_proxy` context-snapshot fallback.
+Structured period output includes the backward-compatible `api_equivalent_cost_coverage` object plus `grok_cost_summary`. The latter separates `api_equivalent` observed/estimated/range values, the provider-reported `costUsdTicks` metric and its token coverage, and `actual_billed_usd: null`. If request telemetry and complete turn totals cannot be reconciled, coverage is marked `mismatch` and ccstats does not publish an estimate. If a session has no `turn_completed.usage`, ccstats retains its explicitly labeled `estimated_proxy` context-snapshot fallback.
 
 You can override the Grok home directory with `GROK_HOME`:
 
@@ -501,8 +501,8 @@ GROK_HOME="/path/to/.grok" ccstats grok
 
 Current limitations:
 
-- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run or between ccstats runs, so incomplete API-equivalent cost is reported as a lower bound only when no `estimated_proxy` contribution is included.
-- `turn_completed.usage.costUsdTicks` is not used as an API-equivalent price.
+- The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run or between ccstats runs, so incomplete request coverage produces an estimated API equivalent and a short/long-context range.
+- `turn_completed.usage.costUsdTicks` is reported separately as a provider metric. xAI does not document this field as public API list price or as the user's actual subscription charge.
 - Grok models without a published ccstats per-inference tier remain unpriced and reduce priced-token coverage.
 - Grok 5-hour billing blocks are not supported.
 

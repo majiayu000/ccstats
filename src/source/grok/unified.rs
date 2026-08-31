@@ -24,9 +24,9 @@ const APP_DATA_DIR: &str = "ccstats";
 const GROK_CACHE_DIR: &str = "grok";
 const GROK_HOME_ENV: &str = "GROK_HOME";
 const DEFAULT_GROK_DIR: &str = ".grok";
-const UNIFIED_LOG: &str = "unified.jsonl";
-const LEDGER_FILE: &str = "inference-v1.jsonl";
-const SYNC_ERROR_FILE: &str = "inference-v1.sync-error";
+pub(super) const UNIFIED_LOG: &str = "unified.jsonl";
+pub(super) const LEDGER_FILE: &str = "inference-v1.jsonl";
+pub(super) const SYNC_ERROR_FILE: &str = "inference-v1.sync-error";
 const INFERENCE_DONE: &str = "shell.turn.inference_done";
 const MODEL_CHANGED: &str = "model changed";
 const LONG_CONTEXT_THRESHOLD: i64 = 200_000;
@@ -66,36 +66,30 @@ struct SessionMetadata {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct InferenceRecord {
-    event_key: String,
-    timestamp: String,
-    session_id: String,
-    session_key: String,
-    project_path: String,
-    model: String,
-    prompt_tokens: i64,
-    cached_prompt_tokens: i64,
-    completion_tokens: i64,
-    reasoning_tokens: i64,
+pub(super) struct InferenceRecord {
+    pub(super) event_key: String,
+    pub(super) timestamp: String,
+    pub(super) session_id: String,
+    pub(super) session_key: String,
+    pub(super) project_path: String,
+    pub(super) model: String,
+    pub(super) prompt_tokens: i64,
+    pub(super) cached_prompt_tokens: i64,
+    pub(super) completion_tokens: i64,
+    pub(super) reasoning_tokens: i64,
 }
 
 #[derive(Clone, Copy)]
-struct TokenRates {
-    input: f64,
-    cache_read: f64,
-    output: f64,
+pub(super) struct TokenRates {
+    pub(super) input: f64,
+    pub(super) cache_read: f64,
+    pub(super) output: f64,
 }
 
-fn api_cost_usd(
-    model: &str,
-    prompt_tokens: i64,
-    cached_prompt_tokens: i64,
-    completion_tokens: i64,
-) -> Option<f64> {
+pub(super) fn api_rates(model: &str, is_long: bool) -> Option<TokenRates> {
     let model = model.to_ascii_lowercase();
-    let is_long = prompt_tokens.max(0) >= LONG_CONTEXT_THRESHOLD;
-    let rates = if model.contains("grok-4.6") {
-        if is_long {
+    if model.contains("grok-4.6") {
+        Some(if is_long {
             TokenRates {
                 input: 4e-6,
                 cache_read: 1e-6,
@@ -107,9 +101,9 @@ fn api_cost_usd(
                 cache_read: 0.5e-6,
                 output: 6e-6,
             }
-        }
+        })
     } else if model.contains("grok-4.5") {
-        if is_long {
+        Some(if is_long {
             TokenRates {
                 input: 4e-6,
                 cache_read: 0.6e-6,
@@ -121,10 +115,20 @@ fn api_cost_usd(
                 cache_read: 0.3e-6,
                 output: 6e-6,
             }
-        }
+        })
     } else {
-        return None;
-    };
+        None
+    }
+}
+
+pub(super) fn api_cost_usd(
+    model: &str,
+    prompt_tokens: i64,
+    cached_prompt_tokens: i64,
+    completion_tokens: i64,
+) -> Option<f64> {
+    let is_long = prompt_tokens.max(0) >= LONG_CONTEXT_THRESHOLD;
+    let rates = api_rates(model, is_long)?;
 
     let prompt_tokens = prompt_tokens.max(0);
     let cached_prompt_tokens = cached_prompt_tokens.clamp(0, prompt_tokens);
@@ -232,7 +236,7 @@ fn sync_ledger_at(
     Ok(records.len())
 }
 
-fn load_ledger(path: &Path) -> Result<BTreeMap<String, InferenceRecord>, String> {
+pub(super) fn load_ledger(path: &Path) -> Result<BTreeMap<String, InferenceRecord>, String> {
     let file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
@@ -262,7 +266,7 @@ fn load_ledger(path: &Path) -> Result<BTreeMap<String, InferenceRecord>, String>
     Ok(records)
 }
 
-fn read_inference_records(
+pub(super) fn read_inference_records(
     path: &Path,
     sessions_dir: &Path,
 ) -> Result<Vec<InferenceRecord>, String> {
@@ -353,7 +357,7 @@ fn load_session_metadata(sessions_root: &Path) -> HashMap<String, SessionMetadat
                 SessionMetadata {
                     session_key: session_path.display().to_string(),
                     project_path,
-                    model,
+                    model: super::canonical_model_name(&model),
                 },
             ))
         })
@@ -539,7 +543,7 @@ fn records_to_parse_output(
                     record.session_id
                 },
                 project_path: record.project_path,
-                model: record.model,
+                model: super::canonical_model_name(&record.model),
                 // Complete usage comes from turn_completed records. These
                 // inference entries contribute only their exact request-boundary
                 // API-equivalent cost, otherwise captured tokens are counted twice.

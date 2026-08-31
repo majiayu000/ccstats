@@ -1,6 +1,7 @@
 mod codex_scope;
 mod cost_coverage;
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::cli::{Cli, SourceCommand, TopDimension};
@@ -22,8 +23,8 @@ use crate::output::{
 };
 use crate::pricing::{CostDisplayMode, PricingDb};
 use crate::source::{
-    Capabilities, CodexScope, CostCoverage, Source, all_capabilities, all_sources, load_blocks,
-    load_daily, load_projects, load_sessions, load_tool_calls,
+    Capabilities, CodexScope, CostCoverage, GrokCostReport, Source, all_capabilities, all_sources,
+    grok_cost_reports, load_blocks, load_daily, load_projects, load_sessions, load_tool_calls,
 };
 use crate::utils::{Timezone, filter_json};
 
@@ -425,10 +426,13 @@ fn render_period_result(
     period: Period,
     caps: &Capabilities,
     codex_scope: Option<CodexScope>,
+    grok_reports: Option<&HashMap<String, GrokCostReport>>,
     ctx: &CommandContext<'_>,
     cost_mode: CostDisplayMode,
 ) {
     let cost_coverage = CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
+    let visible_grok_reports = ctx.cli.show_cost().then_some(grok_reports).flatten();
+    let selected_grok_report = cost_coverage::selected_grok_report(visible_grok_reports);
     let monthly_budget = (period == Period::Month)
         .then_some(ctx.cli.monthly_budget)
         .flatten();
@@ -466,7 +470,7 @@ fn render_period_result(
                     cost_mode,
                 )
             };
-            let csv = cost_coverage::annotate_csv(csv, cost_coverage);
+            let csv = cost_coverage::annotate_csv(csv, cost_coverage, selected_grok_report);
             print!("{}", codex_scope::annotate_csv(csv, codex_scope));
         }
         OutputFormat::Json => {
@@ -494,7 +498,12 @@ fn render_period_result(
                 );
                 json = add_monthly_budget_to_json(&json, &reports);
             }
-            json = cost_coverage::annotate_json(&json, &result.day_stats, period);
+            json = cost_coverage::annotate_json(
+                &json,
+                &result.day_stats,
+                period,
+                visible_grok_reports,
+            );
             json = codex_scope::annotate_json(&json, codex_scope);
             print_json(&json, ctx.jq_filter);
         }
@@ -521,10 +530,18 @@ fn render_period_result(
                     supports_cache_read: caps.has_cache_read,
                     currency: ctx.currency,
                     cost_mode,
+                    cost_label: if selected_grok_report.is_some() {
+                        "Observed API Eq."
+                    } else {
+                        "Cost"
+                    },
+                    pricing_note_override: selected_grok_report.map(|_| {
+                        "Pricing source: xAI public API rates applied to observed request telemetry."
+                    }),
                 },
             );
             if ctx.cli.show_cost() {
-                cost_coverage::print_note(cost_coverage);
+                cost_coverage::print_note(selected_grok_report, ctx.currency);
             }
             if let Some(budget) = monthly_budget {
                 let reports = monthly_budget_reports(
@@ -560,11 +577,14 @@ fn handle_period(
         print_no_data_hint(&source_label(source, ctx), "usage");
         return;
     }
+    let grok_reports =
+        (source.name() == "grok").then(|| grok_cost_reports(ctx.filter, ctx.timezone));
     render_period_result(
         &result,
         period,
         caps,
         codex_scope_for_source(source, ctx),
+        grok_reports.as_ref(),
         ctx,
         CostDisplayMode::Total,
     );
@@ -664,7 +684,15 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
         print_no_data_hint("All Sources", "usage");
         return;
     }
-    render_period_result(&result, period, &caps, None, ctx, CostDisplayMode::RealOnly);
+    render_period_result(
+        &result,
+        period,
+        &caps,
+        None,
+        None,
+        ctx,
+        CostDisplayMode::RealOnly,
+    );
 }
 
 /// Handle aggregate commands across every registered data source.

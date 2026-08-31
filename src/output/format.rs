@@ -106,7 +106,7 @@ pub(super) fn compare_cost(a: f64, b: f64) -> std::cmp::Ordering {
     }
 }
 
-pub(super) fn format_cost(cost: f64, currency: Option<&CurrencyConverter>) -> String {
+pub(crate) fn format_cost(cost: f64, currency: Option<&CurrencyConverter>) -> String {
     match currency {
         Some(conv) => conv.format(cost),
         None => {

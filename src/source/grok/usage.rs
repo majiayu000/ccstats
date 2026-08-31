@@ -2,8 +2,8 @@
 //!
 //! `turn_completed.usage` is the provider-reported request total for that turn
 //! (including every model call in the tool loop). `inputTokens` includes cache
-//! reads and `outputTokens` includes reasoning, so those nested counts are
-//! subtracted before they are stored on `RawEntry`.
+//! reads and cache creation, while `outputTokens` includes reasoning, so those
+//! nested counts are subtracted before they are stored on `RawEntry`.
 
 use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::fs::File;
@@ -276,6 +276,7 @@ fn parse_turn_line(
             continue;
         }
         let message_id = Some(format!("{base_message_id}:{model}"));
+        let model = super::canonical_model_name(&model);
         entries.push(RawEntry {
             timestamp: utc_dt.to_rfc3339(),
             timestamp_ms: utc_dt.timestamp_millis(),
@@ -331,7 +332,7 @@ fn normalize_usage(tokens: &UsageTokens) -> NormalizedUsage {
     let raw_output = tokens.output_tokens.unwrap_or(0).max(0);
     let model_calls = tokens.model_calls.unwrap_or(0).max(0);
     NormalizedUsage {
-        input_tokens: (raw_input - cache_read).max(0),
+        input_tokens: (raw_input - cache_read - cache_creation).max(0),
         output_tokens: (raw_output - reasoning_tokens).max(0),
         cache_creation,
         cache_read,
@@ -434,7 +435,7 @@ mod tests {
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
         let entry = &parsed.entries[0];
-        assert_eq!(entry.model, "grok-4.5-build");
+        assert_eq!(entry.model, "grok-4.5");
         assert_eq!(entry.input_tokens, 37666);
         assert_eq!(entry.cache_read, 127_360);
         assert_eq!(entry.output_tokens, 2125);
@@ -509,6 +510,24 @@ mod tests {
         assert_eq!(usage.reasoning_tokens, 0);
         assert_eq!(usage.call_count, 1);
         assert_eq!(usage.recorded_cost_usd, None);
+    }
+
+    #[test]
+    fn cache_creation_is_not_counted_twice_as_uncached_input() {
+        let usage = normalize_usage(&UsageTokens {
+            input_tokens: Some(100),
+            output_tokens: Some(10),
+            cached_read_tokens: Some(20),
+            cache_creation_tokens: Some(30),
+            reasoning_tokens: Some(4),
+            model_calls: Some(1),
+            cost_usd_ticks: None,
+        });
+        assert_eq!(usage.input_tokens, 50);
+        assert_eq!(usage.cache_read, 20);
+        assert_eq!(usage.cache_creation, 30);
+        assert_eq!(usage.output_tokens, 6);
+        assert_eq!(usage.reasoning_tokens, 4);
     }
 
     #[test]
