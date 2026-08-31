@@ -91,6 +91,10 @@ impl Source for CodexSource {
         }
     }
 
+    fn setup_hint(&self) -> &'static str {
+        "Run OpenAI Codex once or set CODEX_HOME to its data root"
+    }
+
     fn find_files(&self) -> Vec<PathBuf> {
         find_codex_files()
     }

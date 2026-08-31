@@ -277,7 +277,7 @@ pub(super) fn find_gjc_files() -> Vec<PathBuf> {
     find_jsonl(&root)
 }
 
-pub(super) fn find_prime_files() -> Vec<PathBuf> {
+fn discover_prime_files() -> (Vec<PathBuf>, bool) {
     let mut invalid_settings = Vec::new();
     let agent = env_path("PRIME_AGENT_CODING_AGENT_DIR")
         .or_else(|| dirs::home_dir().map(|home| home.join(".prime/agent")));
@@ -316,16 +316,26 @@ pub(super) fn find_prime_files() -> Vec<PathBuf> {
         }
     });
     let Some(root) = root else {
-        return Vec::new();
+        return (Vec::new(), false);
     };
     let mut files = find_jsonl(&root);
     if let Some(parent) = root.parent() {
         files.extend(find_jsonl(&parent.join("session-artifacts")));
     }
+    let has_invalid_settings = !invalid_settings.is_empty();
     files.extend(invalid_settings);
     files.sort();
     files.dedup();
-    files
+    (files, has_invalid_settings)
+}
+
+pub(super) fn find_prime_files() -> Vec<PathBuf> {
+    discover_prime_files().0
+}
+
+pub(super) fn diagnose_prime_files() -> Result<usize, ()> {
+    let (files, has_invalid_settings) = discover_prime_files();
+    (!has_invalid_settings).then_some(files.len()).ok_or(())
 }
 
 fn valid_omp_profile(profile: &str) -> bool {
@@ -382,10 +392,8 @@ fn profile_derived_agent(config: &Path, agent: &Path) -> bool {
     resolved_path(agent.to_path_buf()) == resolved_path(derived)
 }
 
-pub(super) fn find_omp_files() -> Vec<PathBuf> {
-    let Ok(profile) = omp_profile() else {
-        return vec![PathBuf::from("invalid-omp-profile.jsonl")];
-    };
+fn discover_omp_files() -> Result<Vec<PathBuf>, ()> {
+    let profile = omp_profile()?;
     let config = env::var("PI_CONFIG_DIR")
         .ok()
         .filter(|value| !value.is_empty())
@@ -422,7 +430,15 @@ pub(super) fn find_omp_files() -> Vec<PathBuf> {
             agent.map(|agent| agent.join("sessions"))
         }
     };
-    root.as_deref().map(find_jsonl).unwrap_or_default()
+    Ok(root.as_deref().map(find_jsonl).unwrap_or_default())
+}
+
+pub(super) fn find_omp_files() -> Vec<PathBuf> {
+    discover_omp_files().unwrap_or_else(|()| vec![PathBuf::from("invalid-omp-profile.jsonl")])
+}
+
+pub(super) fn diagnose_omp_files() -> Result<usize, ()> {
+    discover_omp_files().map(|files| files.len())
 }
 
 #[cfg(test)]

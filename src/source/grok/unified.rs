@@ -137,7 +137,7 @@ fn api_cost_usd(
     )
 }
 
-fn grok_home() -> Option<PathBuf> {
+pub(super) fn grok_home() -> Option<PathBuf> {
     env::var_os(GROK_HOME_ENV)
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_GROK_DIR)))

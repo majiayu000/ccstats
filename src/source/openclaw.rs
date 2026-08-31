@@ -7,8 +7,10 @@ use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
-use crate::source::openclaw_store::{find_transcript_stores, load_transcripts};
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::openclaw_store::{
+    diagnose_transcript_stores, find_transcript_stores, load_transcripts,
+};
+use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
 use crate::utils::Timezone;
 
 pub(crate) struct OpenClawSource;
@@ -38,6 +40,19 @@ impl Source for OpenClawSource {
             needs_dedup: true,
             has_tool_calls: false,
             has_endpoints: false,
+        }
+    }
+
+    fn diagnose(&self) -> SourceDiagnostic {
+        match diagnose_transcript_stores() {
+            Err(()) => {
+                SourceDiagnostic::missing("OpenClaw configuration could not be read or parsed")
+            }
+            Ok(0) => SourceDiagnostic::missing("No OpenClaw transcript stores found"),
+            Ok(files) => SourceDiagnostic::detected(
+                files,
+                format!("Found {files} OpenClaw transcript store(s)"),
+            ),
         }
     }
 

@@ -51,6 +51,10 @@ impl Source for ClaudeSource {
         }
     }
 
+    fn setup_hint(&self) -> &'static str {
+        "Run Claude Code once or set CLAUDE_CONFIG_DIR to its config root"
+    }
+
     fn find_files(&self) -> Vec<PathBuf> {
         find_claude_files()
     }

@@ -1,63 +1,128 @@
 # ccstats
 
+[![CI](https://github.com/majiayu000/ccstats/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/ccstats/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/ccstats.svg)](https://crates.io/crates/ccstats)
+[![Crates.io Downloads](https://img.shields.io/crates/d/ccstats.svg)](https://crates.io/crates/ccstats)
 [![GitHub Release](https://img.shields.io/github/v/release/majiayu000/ccstats)](https://github.com/majiayu000/ccstats/releases)
+[![docs.rs](https://img.shields.io/docsrs/ccstats)](https://docs.rs/ccstats/latest/ccstats/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/majiayu000/ccstats/blob/main/LICENSE)
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics across 29 AI coding-agent data sources.
+`ccstats` is a fast, local-first CLI and Rust SDK for token and cost analytics
+across 29 AI coding-agent data sources.
 
-Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
+One binary turns the usage metadata your coding agents already produce into
+terminal reports and structured JSON/CSV. No ccstats account or telemetry is
+required.
 
-## Highlights
+## 30-second start
 
-- Fast local analysis of usage JSONL logs
-- Claude Code support (`~/.claude/projects/`)
-- OpenAI Codex support (`~/.codex/sessions/`)
-- Codex weekly quota pace and reset estimates from provider snapshots
-- Cursor usage API support (`CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN`)
-- Grok support (`~/.grok/sessions/`)
-- Kimi Code support (`~/.kimi-code/sessions/`)
-- Gemini CLI, Amp, and Qwen Code support
-- Cline CLI plus Cline, Roo Code, and Kilo Code VS Code extension support
-- OpenCode, MiMo Code, and Kilo CLI SQLite support
-- Pi, Senpi, Kimchi, Gajae Code, Prime Agent, and Oh My Pi JSONL support
-- GitHub Copilot CLI OpenTelemetry and Goose per-call ledger support
-- OpenClaw transcripts, Xum cumulative usage, and Hermes Agent SQLite support
-- Reasonix per-call stats, Vercel Fx generation-ledger, Unsloth Studio SQLite, and DeepSeek Harness session support
-- Daily/weekly/monthly/project/session views
-- Top-N leaderboard ranking models or projects by cost share
-- Optional model-level token and cost breakdown
-- Reusable Rust SDK for embedding local usage and cost summaries in other apps
+```bash
+brew install majiayu000/tap/ccstats
+ccstats doctor
+ccstats daily --source all
+```
+
+`doctor` is read-only and never contacts remote providers. It shows which
+registered sources are detected or configured, plus a practical hint for
+missing sources.
+
+## Why ccstats
+
+- **Fast and portable** — a small Rust binary with no Node.js or Python runtime.
+- **Automation-ready** — table, JSON, CSV, jq filtering, statusline output, and
+  a reusable Rust SDK share the same accounting logic.
+- **Accuracy over guesswork** — source-aware deduplication, cache/reasoning token
+  handling, parse-quality metadata, strict pricing mode, and visible pricing
+  provenance.
+- **Useful beyond spend** — daily/weekly/monthly trends, projects, sessions,
+  top consumers, Claude tool usage, and Codex quota pace.
+- **Local-first** — local session data stays on the machine; network access is
+  bounded by feature and pricing refreshes can be disabled with `--offline`.
+
+ccstats is intentionally CLI-first. If your primary need is an always-visible
+menu-bar app, a graphical dashboard, gamification, or cloud leaderboards, a GUI
+tracker is a better fit. Choose ccstats when speed, scripting, reproducibility,
+and inspectable accounting rules matter most.
+
+## Start with common sources
+
+| Source | Usage input | Start here |
+|--------|-------------|------------|
+| Claude Code | `~/.claude/projects/` | `ccstats today` |
+| OpenAI Codex | `~/.codex/sessions/` and local quota snapshots | `ccstats codex today` / `ccstats quota` |
+| Cursor | Official usage API or an explicit replay file | `ccstats today --source cursor` |
+| Grok | `~/.grok/logs/unified.jsonl` with session fallback | `ccstats grok today` |
+| Kimi Code | `~/.kimi-code/sessions/` wire logs | `ccstats kimi today` |
+
+The complete registry contains 29 sources, including DeepSeek Harness. See the
+full [source table](#supported-data-sources) below. Run `ccstats sources` for
+aliases and per-source capabilities, or `ccstats doctor --json` for
+machine-readable setup diagnostics.
+
+## Privacy and network access
+
+ccstats extracts usage metadata from known source locations. It does not store
+or upload prompt text, responses, or source-code content. Local parsing requires
+no ccstats account.
+
+Network access occurs only when a selected feature needs it:
+
+- pricing refresh downloads the public LiteLLM pricing catalog;
+- non-USD output downloads exchange rates;
+- Cursor usage calls Cursor's API with credentials supplied by the user.
+
+Use `--offline` to prevent pricing and exchange-rate refreshes. See the full
+[privacy and data-access reference](docs/PRIVACY.md) for files read, caches
+written, and endpoints contacted.
 
 ## Installation
 
 ### Homebrew (macOS/Linux)
+
 ```bash
 brew install majiayu000/tap/ccstats
 ```
 
 ### Cargo binstall (prebuilt binary)
+
 ```bash
 cargo binstall ccstats
 ```
 
 ### Cargo install (from source)
+
 ```bash
 cargo install ccstats
 ```
 
 ### Shell script
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | sh
 
 # Install a specific version
-curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.2.63 sh
+curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.5.0 sh
 ```
 
 ### Manual download
+
 Download prebuilt archives and SHA-256 checksums from [GitHub Releases](https://github.com/majiayu000/ccstats/releases).
+
+### Upgrade and uninstall
+
+```bash
+# Homebrew
+brew upgrade majiayu000/tap/ccstats
+
+# Cargo
+cargo install ccstats --locked --force
+
+# Uninstall Homebrew or Cargo installs
+brew uninstall ccstats
+cargo uninstall ccstats
+```
 
 ## Quick Start (Codex)
 
@@ -651,8 +716,9 @@ Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
 Code, Kilo Code, OpenCode, MiMo Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code,
 Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose, OpenClaw, Xum, Hermes Agent,
-Reasonix, Vercel Fx, and DeepSeek Harness expose the required cache-read metric. Mixed `--source all` output
-reports the aggregate rate across all selected usage.
+Reasonix, Vercel Fx, Unsloth Studio, and DeepSeek Harness expose the required
+cache-read metric. Mixed `--source all` output reports the aggregate rate across
+all selected usage.
 
 ### Parsing Warnings
 
@@ -694,6 +760,7 @@ Warning: ignored <N> malformed records
 | Hermes Agent | `~/.hermes/state.db` | `HERMES_HOME` | Current per-model/task ledger plus session residual, Projects, exact API call counts, reasoning/cache tokens, actual/included cost provenance |
 | Reasonix | `~/.reasonix/stats/YYYY-MM-DD.jsonl` | `REASONIX_STATE_HOME`, `REASONIX_HOME` | Per-call/request aggregates, reasoning/cache normalization, occurrence-time complete USD valuations, isolated parse errors |
 | Vercel Fx | `~/.fx/usage.jsonl` plus canonical-session-validated recovery backlog | `HOME` | Profile-wide generation IDs, exact timestamps and costs, cache/reasoning normalization, duplicate/conflict detection, fail-closed sidecar recovery |
+| Unsloth Studio | `~/.unsloth/studio/studio.db` | `UNSLOTH_STUDIO_HOME`, `STUDIO_HOME` | Chat and API receipts, fork-copy reconciliation, project attribution, response-model precedence, independent reported totals |
 | DeepSeek Harness | `~/.dsh/sessions/<project>/<session>/session.jsonl[.zstd]` | `DSH_HOME` | Projects, retry-aware call accounting, cache/reasoning tokens, compaction calls, fork ownership, concatenated-zstd recovery |
 
 ## Architecture

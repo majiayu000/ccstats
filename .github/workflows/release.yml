@@ -5,9 +5,6 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-
 jobs:
   preflight:
     name: Release preflight
@@ -26,6 +23,28 @@ jobs:
 
       - name: Package dry run
         run: cargo publish --dry-run --locked
+
+  publish:
+    name: Publish crate
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Authenticate to crates.io
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
+
+      - name: Publish crate
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
 
   build:
     name: Build ${{ matrix.target }}
@@ -93,8 +112,10 @@ jobs:
 
   release:
     name: Create Release
-    needs: build
+    needs: [build, publish]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
 
@@ -117,6 +138,13 @@ jobs:
       - name: Extract release version
         id: release-version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for crates.io artifact
+        run: >-
+          curl --fail --show-error --silent
+          --retry 12 --retry-all-errors --retry-delay 5
+          "https://static.crates.io/crates/ccstats/ccstats-${{ steps.release-version.outputs.version }}.crate"
+          --output /dev/null
 
       - name: Update Homebrew formula
         uses: mislav/bump-homebrew-formula-action@v4

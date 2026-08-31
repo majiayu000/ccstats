@@ -149,6 +149,12 @@ pub(super) fn find_senpi_files() -> Vec<PathBuf> {
     }
 }
 
+pub(super) fn diagnose_senpi_files() -> Result<usize, ()> {
+    senpi_sessions_dir()
+        .map(|root| find_family_files(&root).len())
+        .map_err(|_| ())
+}
+
 pub(super) fn find_kimchi_files() -> Vec<PathBuf> {
     dirs::home_dir()
         .map(|home| find_family_files(&home.join(".config/kimchi/harness/sessions")))

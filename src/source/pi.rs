@@ -10,10 +10,10 @@ use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
 use crate::utils::Timezone;
 
-use super::pi_paths::{find_kimchi_files, find_pi_files, find_senpi_files};
+use super::pi_paths::{diagnose_senpi_files, find_kimchi_files, find_pi_files, find_senpi_files};
 
 pub(crate) struct PiSource;
 pub(crate) struct SenpiSource;
@@ -93,6 +93,17 @@ impl Source for SenpiSource {
 
     fn capabilities(&self) -> Capabilities {
         pi_capabilities()
+    }
+
+    fn diagnose(&self) -> SourceDiagnostic {
+        match diagnose_senpi_files() {
+            Err(()) => SourceDiagnostic::missing("Senpi configuration could not be read or parsed"),
+            Ok(0) => SourceDiagnostic::missing("No Senpi local usage files found"),
+            Ok(files) => SourceDiagnostic::detected(
+                files,
+                format!("Found {files} Senpi local usage file(s)"),
+            ),
+        }
     }
 
     fn find_files(&self) -> Vec<PathBuf> {

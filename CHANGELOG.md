@@ -4,14 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-31
+
 ### Added
 - Expose provider-authoritative Codex weekly quota reports through the Rust SDK with typed data and errors.
+- Expand local usage support from 5 to 29 sources across nine provider batches: Gemini CLI, Amp, Qwen Code, Cline, Roo Code, and Kilo Code; OpenCode, MiMo Code, and Kilo CLI; Pi, Senpi, and Kimchi; Gajae Code, Prime Agent, and Oh My Pi; GitHub Copilot CLI and Goose; OpenClaw, Xum, and Hermes Agent; Reasonix and Vercel Fx; Unsloth Studio; and DeepSeek Harness.
+- Add `ccstats doctor` for read-only, machine-readable diagnostics across all 29 registered sources.
+- Document privacy boundaries, network access, and the release process.
 
 ### Changed
 - Calculate Grok 4.5 and 4.6 USD cost from per-inference `unified.jsonl` token records, including prompt-cache rates and the 200k-token whole-request pricing tier, instead of using `turn_completed.costUsdTicks` as the Grok Build weekly-allowance value.
+- Improve the README first-run path, positioning, installation maintenance, and package metadata.
 
 ### Fixed
 - Preserve Grok inference records in an atomic ccstats ledger so upstream head trimming does not remove usage that ccstats has already observed.
+- Publish crates.io through short-lived OIDC credentials before creating GitHub Releases or updating Homebrew.
 
 ## [0.5.0] - 2026-08-20
 

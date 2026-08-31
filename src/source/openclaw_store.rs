@@ -14,11 +14,30 @@ const OPENCLAW_HOME_ENV: &str = "OPENCLAW_HOME";
 const OPENCLAW_STATE_DIR_ENV: &str = "OPENCLAW_STATE_DIR";
 
 pub(super) fn find_transcript_stores() -> Vec<PathBuf> {
+    let (mut paths, config_error) = transcript_store_discovery();
+    if let Some(config_path) = config_error {
+        paths.push(config_path);
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+pub(super) fn diagnose_transcript_stores() -> Result<usize, ()> {
+    let (paths, config_error) = transcript_store_discovery();
+    if config_error.is_some() {
+        Err(())
+    } else {
+        Ok(paths.len())
+    }
+}
+
+fn transcript_store_discovery() -> (Vec<PathBuf>, Option<PathBuf>) {
     let Some(root) = state_dir() else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
     let Some(home) = effective_home() else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
     let mut paths = Vec::new();
     for pattern in [
@@ -34,13 +53,16 @@ pub(super) fn find_transcript_stores() -> Vec<PathBuf> {
                 .filter(|path| is_counted_transcript(path) || is_sqlite_store(path)),
         );
     }
-    match configured_stores(&root, &home) {
-        Ok(configured) => paths.extend(configured),
-        Err(config_path) => paths.push(config_path),
-    }
+    let config_error = match configured_stores(&root, &home) {
+        Ok(configured) => {
+            paths.extend(configured);
+            None
+        }
+        Err(config_path) => Some(config_path),
+    };
     paths.sort();
     paths.dedup();
-    paths
+    (paths, config_error)
 }
 
 pub(super) struct TranscriptLoad {

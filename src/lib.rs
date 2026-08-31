@@ -2,7 +2,8 @@
 //! Claude Code, `OpenAI` Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp,
 //! Qwen Code, Cline, Roo Code, Kilo Code, `OpenCode`, `MiMo` Code, Kilo CLI, Pi,
 //! Senpi, Kimchi, Gajae Code, Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose,
-//! `OpenClaw`, Xum, Hermes Agent, Reasonix, and Vercel Fx local usage data.
+//! `OpenClaw`, Xum, Hermes Agent, Reasonix, Vercel Fx, Unsloth Studio, and
+//! `DeepSeek Harness` local usage data.
 //!
 //! The public SDK entry points are [`summarize_cost`] and
 //! [`summarize_cost_ranges`] for cost analytics, [`load_codex_weekly_quota`]
@@ -27,6 +28,7 @@ mod cli;
 mod config;
 mod consts;
 mod core;
+mod doctor_cmd;
 mod endpoints_cmd;
 mod error;
 mod output;
@@ -188,7 +190,7 @@ fn resolve_source_name<'a>(
     source_override: Option<&'a str>,
     source_cmd: SourceCommand,
 ) -> &'a str {
-    if source_cmd == SourceCommand::Sources {
+    if matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources) {
         return "claude";
     }
 
@@ -329,7 +331,8 @@ pub fn run_cli() {
     let budget_as_of = until.map_or(today, |end| end.min(today));
     let filter = build_date_filter(source_cmd, today, since, until);
     let show_cost = cli.show_cost();
-    let needs_pricing = is_statusline || show_cost;
+    let metadata_only = matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources);
+    let needs_pricing = !metadata_only && (is_statusline || show_cost);
     let pricing_db = load_pricing_db(&cli, needs_pricing, is_statusline);
     let source_name = resolve_source_name(
         parsed_command.source_hint,

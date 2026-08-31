@@ -56,6 +56,7 @@ fn sdk_loads_codex_weekly_quota_from_explicit_home() {
 
 #[test]
 fn sdk_estimates_codex_weekly_api_equivalent_value() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     let root = tempfile::tempdir().expect("temp dir");
     let codex_home = root.path().join("codex-home");
     let session_file = codex_home.join("sessions").join("quota-and-usage.jsonl");
@@ -115,6 +116,7 @@ fn sdk_estimates_codex_weekly_api_equivalent_value() {
 
 #[test]
 fn sdk_estimates_codex_value_for_an_explicit_exact_window() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     let root = tempfile::tempdir().expect("temp dir");
     let codex_home = root.path().join("codex-home");
     let session_file = codex_home.join("sessions").join("usage.jsonl");
@@ -175,6 +177,7 @@ fn sdk_estimates_codex_value_for_an_explicit_exact_window() {
 
 #[test]
 fn sdk_explicit_window_rejects_usage_without_a_timestamp() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     let root = tempfile::tempdir().expect("temp dir");
     let codex_home = root.path().join("codex-home");
     let session_file = codex_home.join("sessions").join("usage.jsonl");
