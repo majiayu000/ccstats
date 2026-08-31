@@ -137,7 +137,7 @@ pub(super) fn note(source: PricingSource, pricing_db: &PricingDb) -> Option<Stri
             cache_age_suffix(pricing_db)
         )),
         PricingSource::Fallback => Some("Pricing source: fallback estimates.".to_string()),
-        PricingSource::Recorded => Some("Pricing source: recorded provider cost.".to_string()),
+        PricingSource::Recorded => Some("Pricing source: recorded source cost.".to_string()),
         PricingSource::Unknown => Some("Pricing source: unknown unpriced models.".to_string()),
         PricingSource::Mixed => Some(format!(
             "Pricing source: mixed{}.",

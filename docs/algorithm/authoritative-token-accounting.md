@@ -505,6 +505,76 @@ session。
 
 ---
 
+## Reasonix
+
+Reasonix 的权威数据源是 state root 下的
+`stats/YYYY-MM-DD.jsonl`，不是 session transcript。state root 优先级为
+`REASONIX_STATE_HOME` > `REASONIX_HOME` > `~/.reasonix`；环境变量支持
+`${VAR}`、`${VAR:-default}`、`~` 和相对当前目录的路径。只有文件名是
+合法日期的 JSONL 才会被发现；`turn=true` 是轮次标记，不是一次
+provider call。该账本没有可验证的 session 或 project 归属，ccstats 不从
+路径伪造这些维度。
+
+```text
+input_tokens       ← cache_miss > 0 ? cache_miss : prompt - cache_hit
+output_tokens      ← completion - reasoning
+reasoning_tokens   ← reasoning
+cache_creation     ← 0（账本没有持久化 cache write）
+cache_read         ← cache_hit
+call_count         ← requests > 0 ? requests : 1
+```
+
+显式正数 `cache_miss` 是普通输入的权威值；旧记录没有该值时才用
+`prompt - cache_hit`。request-only row 是合法记录。负数、reasoning 超过
+completion、fallback 路径上 cache hit 超过 prompt、坏时间或坏 JSON
+都计入 parse error，不钳制为零。Reasonix 明确允许 provider-specific `total`
+不包含某些 cache token，因此它只用于判断记录是否含用量，不与互斥 bucket
+强制相等。但若 `total > 0` 而所有可分解 bucket 均为零，该行无法安全归一化，
+会明确报错。
+
+Reasonix 的 cost quote 是记录发生时根据当时价格表生成的客户端估值，
+不是 provider invoice。只有 `cost_complete=true` 时才使用，优先顺序是
+`valuation_usd`、原始 USD amount、完整的 selected USD amount；显式零值保留。
+它作为 source-recorded USD cost 锁定历史口径，避免后续价格表改变后重估。
+
+## Vercel Fx
+
+Fx 的权威全局账本是 `~/.fx/usage.jsonl` 中的 generation fact。
+`sessions/*/usage-v2.json` 是会话恢复用的累计 snapshot/sidecar；扫描它会把同一
+份 usage 重复统计，并把跨日用量漂移到 session 更新日期，所以不能泛扫。
+唯一例外是官方 `~/.fx/usage-recovery/` registry 明确标记的 session。ccstats
+先验证 `authority.json`，再按对应 generation 的 commit watermark 重放
+`events.jsonl` 提交边界；`state_replacement_*` 事务必须通过连续序号、canonical
+base64、chunk/整体 SHA-256、commit 和 immutable identity 校验。managed recovery
+文件还必须是单链接的私有普通文件。只有 canonical durable usage 可加载、marker 时间边界合法，
+并且 `usage-v2.json` 的完整快照通过聚合校验后，才读取 `publication_backlog`、
+pending 和 incident，并以 generation ID 与 profile ledger 去重。billing projection
+与 durable usage 不一致时，按 Fx 官方逻辑保留已验证的 recovery hints，但把连续性
+标为不完整；缺少 canonical session 的 sidecar 会明确报错且不产生用量。
+Fx 没有 `FX_HOME` 或 XDG 路径覆盖。
+
+```text
+input_tokens       ← fact.input_tokens - cache_read_tokens - cache_write_tokens
+output_tokens      ← fact.output_tokens - reasoning_tokens
+reasoning_tokens   ← reasoning_tokens
+cache_creation     ← cache_write_tokens
+cache_read         ← cache_read_tokens
+recorded_cost_usd  ← total_cost（包括明示的订阅零成本）
+```
+
+generation ID 是全局去重键。完全相同的重复 fact 忽略；同 ID 冲突时
+保留第一个合法 fact 并记一个 parse error。pending 在同 ID generation
+到达后解除；未解除 pending 和 incident 都进入数据质量。coverage 记录
+是账本完整性边界；没有 coverage 时不把 generation 伪装成完整历史。
+
+Fx profile ledger 当前只保留约 35 天，因此 `all-time` 只能表示本地账本
+仍保留的时间窗。官方源码还显示 child/subagent usage 的持久化链条可能不完整；
+这是根据当前实现得出的推断，parser 无法从已丢失的 fact 反推。Tokscale 直接
+相加 inclusive input/output 与 cache/reasoning，示例会把真实 155 计成 190；
+ccstats 在 parser 边界先拆分父子 bucket。
+
+---
+
 ## Cursor
 
 ### 数据来源

@@ -11,6 +11,7 @@ use super::cline_extension::{KiloCodeSource, RooCodeSource};
 use super::codex::CodexSource;
 use super::copilot::CopilotSource;
 use super::cursor::CursorSource;
+use super::fx::FxSource;
 use super::gemini::GeminiSource;
 use super::goose::GooseSource;
 use super::grok::GrokSource;
@@ -21,6 +22,7 @@ use super::opencode::{KiloCliSource, MiMoCodeSource, OpenCodeSource};
 use super::pi::{KimchiSource, PiSource, SenpiSource};
 use super::pi_forks::{GjcSource, OmpSource, PrimeSource};
 use super::qwen::QwenSource;
+use super::reasonix::ReasonixSource;
 use super::xum::XumSource;
 use super::{BoxedSource, Source};
 
@@ -55,6 +57,8 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(OpenClawSource::new()),
         Box::new(XumSource::new()),
         Box::new(HermesSource::new()),
+        Box::new(ReasonixSource::new()),
+        Box::new(FxSource::new()),
     ]
 });
 
@@ -176,8 +180,10 @@ mod tests {
         assert!(get_source("pi").is_some());
         assert!(get_source("prime").is_some());
         assert!(get_source("qwen").is_some());
+        assert!(get_source("reasonix").is_some());
         assert!(get_source("roocode").is_some());
         assert!(get_source("senpi").is_some());
+        assert!(get_source("fx").is_some());
         assert!(get_source("unknown").is_none());
     }
 
@@ -308,7 +314,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 25);
+        assert_eq!(SOURCES.len(), 27);
     }
 
     #[test]

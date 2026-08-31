@@ -90,11 +90,15 @@ pub enum UsageSource {
     Xum,
     /// Hermes Agent current per-model/task usage ledger.
     Hermes,
+    /// Reasonix append-only provider usage ledger.
+    Reasonix,
+    /// Vercel Fx profile-wide generation ledger.
+    Fx,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 25] = [
+    pub(crate) const VARIANTS: [Self; 27] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -120,6 +124,8 @@ impl UsageSource {
         UsageSource::OpenClaw,
         UsageSource::Xum,
         UsageSource::Hermes,
+        UsageSource::Reasonix,
+        UsageSource::Fx,
     ];
 
     #[must_use]
@@ -150,6 +156,8 @@ impl UsageSource {
             UsageSource::OpenClaw => "openclaw",
             UsageSource::Xum => "xum",
             UsageSource::Hermes => "hermes",
+            UsageSource::Reasonix => "reasonix",
+            UsageSource::Fx => "fx",
         }
     }
 
@@ -180,6 +188,8 @@ impl UsageSource {
             "openclaw" => Some(UsageSource::OpenClaw),
             "xum" => Some(UsageSource::Xum),
             "hermes" => Some(UsageSource::Hermes),
+            "reasonix" => Some(UsageSource::Reasonix),
+            "fx" => Some(UsageSource::Fx),
             _ => None,
         }
     }

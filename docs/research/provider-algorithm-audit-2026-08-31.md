@@ -15,6 +15,7 @@
 9. Goose 最新权威数据是 schema v15+ `usage_ledger`。Tokscale 仍读取 session 累计快照、把整段用量记到 session 创建日，并用 total 差额猜 reasoning；ccstats 改读逐调用 ledger，保留 cache、项目、模型、时间和 cost provenance。
 10. MiMo Code、Kilo CLI、Senpi、Kimchi、GJC、Prime Agent、Oh My Pi 已逐一核对当前写入端并实现；它们共享基础格式，但 fork 复制、patch、child attribution、task rollup 和目录语义不同，不能作为普通 Pi 记录直接相加。
 11. Batch 5 新增 OpenClaw、Xum 与 Hermes Agent，总 source 数达到 25。三项均以当前官方写入端为准：OpenClaw 同时读取 JSONL/zstd 与当前 SQLite store，只采用 provider-billed cost；Xum 处理 `rolledUpFrom` child 双计并锁定完整五桶成本；Hermes 保留 task/billing 维度、补 session residual 并从 output 拆除 reasoning。Tokscale 对这些边界均不完整。
+12. Batch 6 新增 Reasonix 与 Vercel Fx，总 source 数达到 27。Reasonix 读取按日 provider-call stats，保留完整 USD occurrence-time valuation；Fx 以 profile generation ledger 为主，只合并官方 recovery registry 有界指向、canonical event-log/commit-watermark 可重放且 sidecar 自身完整有效的 publication backlog；projection 不一致会保留恢复提示并标记不完整，不泛扫普通 session snapshot。Tokscale 的 Fx 把 inclusive input/output 与 cache/reasoning 再次相加，会把示例总数从 155 错算为 190。
 
 ## 证据等级
 
@@ -55,6 +56,8 @@
 | [OpenClaw](https://github.com/openclaw/openclaw/tree/2181ae7ba2e836451e90068ec1a41e31bef87f93) | `2181ae7` | v3 transcript、usage/cost provenance、state root 与 fork entry identity |
 | [Xum](https://github.com/coder/mux/tree/ad7f569ef21cc293ecbb71f8b718e30d11da4b27) | `ad7f569` | 当前产品名/root、五桶累计 usage 与 child roll-up ledger |
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent/tree/4f22543509d1b91dc45bcb369447126c5eb14fb7) | `4f22543` | 当前 SQLite 复合主键、task/API call、reasoning 与 cost status |
+| [Reasonix](https://github.com/futureflowtech/reasonix/tree/e9e4ca68ba6d1f82679e2f2877bdbbee89e1c19d) | `e9e4ca6` | 当前 stats ledger、cache/reasoning 包含关系与 occurrence-time cost quote |
+| [Vercel Fx](https://github.com/vercel-labs/fx/tree/2ed0f44c5913dd61d35cba8495838a9f1542ade1) | `2ed0f44` | profile generation ledger、五桶包含关系、generation ID 去重、canonical session 与 sidecar recovery 边界 |
 
 官方 schema 证据：
 
@@ -78,6 +81,8 @@
 - [OpenClaw Usage](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/packages/llm-core/src/types.ts) 定义互斥 input/output/cache 桶、1h cache 子桶与 `totalOrigin = provider-billed`；[SQLite schema](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/src/state/openclaw-agent-schema.sql)、[SDK store path](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/src/agents/sessions/sdk.ts) 和 [artifact classifier](https://github.com/openclaw/openclaw/blob/2181ae7ba2e836451e90068ec1a41e31bef87f93/src/config/sessions/artifacts.ts) 分别证明 current DB、默认路径以及 reset/deleted 与 checkpoint 的边界。
 - [Xum session usage schema](https://github.com/coder/mux/blob/ad7f569ef21cc293ecbb71f8b718e30d11da4b27/src/common/orpc/schemas/chatStats.ts) 定义五个互斥桶、`costsIncluded` 和 `rolledUpFrom`；[roll-up 实现](https://github.com/coder/mux/blob/ad7f569ef21cc293ecbb71f8b718e30d11da4b27/src/node/services/sessionUsageService.ts) 证明 parent 已累加 child，剩余 child snapshot 不能再次统计。
 - [Hermes current schema](https://github.com/NousResearch/hermes-agent/blob/4f22543509d1b91dc45bcb369447126c5eb14fb7/hermes_state_common.py) 定义 `session_model_usage` 的 endpoint/mode/task 复合主键；[CanonicalUsage](https://github.com/NousResearch/hermes-agent/blob/4f22543509d1b91dc45bcb369447126c5eb14fb7/agent/usage_pricing.py) 定义 reasoning 是 output 子集、cache 是独立 prompt 桶和 actual/estimated/included cost status；[Insights](https://github.com/NousResearch/hermes-agent/blob/4f22543509d1b91dc45bcb369447126c5eb14fb7/agent/insights.py) 证明当前 session aggregate 必须减去细分 rows 后作为 residual。
+- [Reasonix stats writer](https://github.com/futureflowtech/reasonix/blob/e9e4ca68ba6d1f82679e2f2877bdbbee89e1c19d/internal/stats/record.go) 定义按日 append-only provider-call 行及 cost quote 字段；[provider usage](https://github.com/futureflowtech/reasonix/blob/e9e4ca68ba6d1f82679e2f2877bdbbee89e1c19d/internal/provider/provider.go#L711-L734) 证明 cache hit/miss 划分 prompt，reasoning 是 completion 子集。
+- [Fx profile store](https://github.com/vercel-labs/fx/blob/2ed0f44c5913dd61d35cba8495838a9f1542ade1/src/core/session/profile_usage_store.zig#L882-L919) 定义 `usage.jsonl` 的 generation/pending/incident 记录；[generation fact codec](https://github.com/vercel-labs/fx/blob/2ed0f44c5913dd61d35cba8495838a9f1542ade1/src/core/session/generation_fact_codec.zig#L6-L31) 固定 ID、时间、模型、token 与 USD cost；[snapshot validation](https://github.com/vercel-labs/fx/blob/2ed0f44c5913dd61d35cba8495838a9f1542ade1/src/core/session/session_usage.zig#L2164-L2323) 证明 cache/reasoning 是 inclusive parent 的子集且 model aggregates 必须与顶层相等；[bounded recovery collector](https://github.com/vercel-labs/fx/blob/2ed0f44c5913dd61d35cba8495838a9f1542ade1/src/core/session/usage_recovery.zig#L67-L132) 与 [canonical read boundary](https://github.com/vercel-labs/fx/blob/2ed0f44c5913dd61d35cba8495838a9f1542ade1/src/core/session/session_log.zig#L1251-L1328) 证明 marker、canonical replay、protected timestamp 和 sidecar merge 的顺序。
 
 ## Tokscale 52-client 差距分解
 
@@ -89,7 +94,7 @@ Tokscale 的 registry 数量适合衡量发现覆盖面，不适合直接衡量�
 | OpenCode SQLite 族 | OpenCode、MiMo Code、Kilo CLI | 同一消息 payload，路径、表版本、成本 provenance 和 fork ID 有差异 | 三者已按各自当前 schema 实现；MiMo/Kilo 用 message/session creation time 识别复制历史 |
 | Pi JSONL 族 | Pi、GJC、Senpi、Kimchi、Prime Agent、Oh My Pi | 基础 assistant usage 相近；子调用与聚合层并不相同 | 六者已按各自 reconciliation 实现；不使用通用 rollup extractor |
 | 已实现的独立格式 | GitHub Copilot CLI、Goose、OpenClaw、Xum、Hermes | OTel per-call、SQLite ledger、JSONL per-call、JSON aggregate 混合 | 已按各自 provenance 与 reconciliation 实现，不把累计层再次相加 |
-| 独立本地格式候选 | Droid、Codebuff、Zed、Junie、Augment、Reasonix、DSH、Fx、LM Studio、Unsloth 等 | JSONL、SQLite、IDE cache 混合 | 逐个取得官方 schema 或真实 fixture 后进入 |
+| 独立本地格式候选 | Droid、Codebuff、Zed、Junie、Augment、DSH、LM Studio、Unsloth 等 | JSONL、SQLite、IDE cache 混合 | 逐个取得官方 schema 或真实 fixture 后进入 |
 | 在线 quota / subscription | Antigravity、Trae、Warp | 运行中 RPC、authenticated cache 或 GraphQL aggregate | 独立 product track，不伪装为本地 token ledger |
 | 无权威 token ledger | Crush、Kiro、Command Code、MiniMax headless capture | cost-only、按文本估算或由 Tokscale 自行捕获 | 拒绝进入 authoritative source registry |
 | 产品层而非 token parser | usage/quota、headless wrapper、profile、leaderboard、device/group、autosubmit、MCP | 系统边界不同 | 单列产品路线；不为追求 source 数量混入核心账本 |
@@ -125,6 +130,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - Goose：官方 input 包含 cache read/write；官方没有 reasoning 字段，不从 total 差额推断。
 - OpenClaw/Xum：持久化五桶已经互斥，不再做减法；OpenClaw 当前没有独立 reasoning 桶。
 - Hermes：cache 是独立 prompt 桶，reasoning 是 output 子集，只从 output 扣 reasoning。
+- Reasonix：cache hit/miss 划分 prompt，reasoning 是 completion 子集；账本未保存 cache write，不能猜。
+- Fx：cache read/write 都是 input 子集，reasoning 是 output 子集，必须从 parent bucket 扣除。
 
 ### 2. 累积快照必须先转增量
 
@@ -141,7 +148,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 
 ### 4. 本地费用必须标记来源
 
-客户端 reported cost、API list-price estimate、订阅额度消耗不是同一个值。当前 `RawEntry` 已能单独保存 provider-reported USD cost；但 Amp credits 与本轮读取的 Cline message/task 记录没有得到可验证的一一归属和 USD 单位，因此仍写为 `None`，由价格层估算。缺少可靠价格时应显示未知或 fallback，而不是声称为实际账单。
+客户端 recorded cost、provider invoice、API list-price estimate和订阅额度消耗不是同一个值。当前 `RawEntry` 可单独保存 source-recorded USD cost，但每个数据源必须说明它是 provider bill，还是当时价格表生成的客户端估值。Amp credits 与本轮读取的 Cline message/task 记录没有得到可验证的一一归属和 USD 单位，因此仍写为 `None`，由价格层估算。缺少可靠价格时应显示未知或 fallback，而不是声称为实际账单。
 
 ### 5. 错误不能静默变成零使用量
 
@@ -181,6 +188,8 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 | OpenClaw | 当前 v3 JSONL/reset/deleted zstd + 默认/配置 SQLite events/archives；entry id 跨 store/fork 去重；cost origin 与 cache TTL 分离 | 官方源码已验证 + JSONL/SQLite/zstd/custom-store/dedup/error-isolation E2E | 实现为第 23 个 source；排除 checkpoint/trajectory/bak，坏 archive 不吞 active rows，只锁定 provider-billed USD |
 | Xum | 当前 `~/.xum` cumulative `session-usage.json`；同 root `rolledUpFrom` reconciliation；混合 included/paid 的完整五桶 cost | 官方源码已验证 + parent/child/invalid-parent/cycle/mixed-cost E2E | 实现为第 24 个 source；不读取旧 Mux root，坏 parent 不吞 child，环内保留单一 canonical ledger 并报错，累计调用次数保持未知 0 |
 | Hermes Agent | 当前 `session_model_usage` 每个合法 task/billing row + session residual；visible-output/reasoning 拆分；API call count | 官方源码已验证 + multi-task/null-model/bad-row/residual/cost-status E2E | 实现为第 25 个 source；不使用 Tokscale 的 message_count，aggregate 只扣成功细分行并补剩余差额 |
+| Reasonix | `<state>/stats/YYYY-MM-DD.jsonl` provider-call ledger；cache/reasoning 子集拆分；完整 USD quote 优先 | 官方源码已验证 + env-priority/malformed/cost/request-count E2E | 实现为第 26 个 source；不扫描 transcript，不伪造 project/session，不把负数 clamp 为零 |
+| Vercel Fx | `~/.fx/usage.jsonl` generation facts + recovery registry 标记、canonical commit boundary/state replacement 可重放且 sidecar 完整有效的 publication backlog；ID 去重；inclusive cache/reasoning 拆分；显式零成本 | 官方源码已验证 + duplicate/conflict/canonical-marker/state-replacement recovery/sidecar-only rejection/private-file boundary/sidecar-distractor/zero-cost E2E | 实现为第 27 个 source；projection 不一致时保留 recovery hints 并报 completeness，拒绝泛扫或脱离 canonical session 的 sidecar 导致双计、伪造和日期漂移 |
 
 ## 本轮采用、适配、拒绝决策
 
@@ -203,6 +212,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - Senpi 复用 Pi v3 的四类 usage carrier；Kimchi 在 sibling child 存在时关闭 parent rollup，缺失/remote 时解析 `details.tokenUsage`。
 - GJC 适配 v5 patch 与部分 task residual；Prime 按 attribution 重建 parent own usage；OMP 按 active profile 发现并只统计递归 transcript，不累计 task rollup。
 - OpenClaw 适配 current JSONL/SQLite/cold archive、entry identity、cache TTL 与 cost origin；Xum 只让合法无环 parent 压掉 child，并在五桶成本完整时锁定 ledger cost；Hermes 保持复合计费维度、补 session residual，并按 cost status 分流 actual/included 与 estimated。
+- Reasonix 采用官方 per-call stats，但只在 quote complete 且存在可信 USD valuation 时锁定历史成本；Fx 采用 profile generation ledger，并把 pending/conflict/incident 暴露为数据质量问题。
 
 ### 拒绝
 
@@ -214,6 +224,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - 把 Goose `total-input-output` 猜成 reasoning，或把累计 session snapshot 伪装成创建日的一次调用。
 - 把 GJC v5 当普通 Pi v3、把 Prime parent aggregate 与 child/fork transcript 全相加、或把 Oh My Pi task rollup 与 child transcript 全相加；三者已用独立状态重建与 fixture 代替这种通用 parser。
 - 把 OpenClaw 本地估值当 provider invoice、把 Xum parent 与 rolled-up child 再次相加、或用 Hermes session message count 代替 `api_call_count`。
+- 把所有 Fx `usage-v2.json` 当全局账本泛扫：recovery 会复制累计 snapshot，跨日 usage 还会全部漂移到 session 更新时间。只接受官方 recovery registry 指定、canonical commit boundary 可重放且 sidecar 快照自身完整有效的 `publication_backlog`；projection 不一致报告不完整，sidecar-only 明确失败。也拒绝把 Fx inclusive input/output 与 cache/reasoning 五桶直接相加。
 - 把 Kiro/Command Code 文本估算、Crush cost-only 或 Warp quota aggregate 注册成 authoritative token ledger。
 
 ## 后续数据源批次
@@ -225,7 +236,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 3. Batch 3（已完成）：MiMo Code、Kilo CLI、Senpi、Kimchi；逐个验证写入端、目录、fork/child reconciliation 和端到端输出。
 4. Batch 4（已完成）：GJC、Prime Agent、Oh My Pi；验证 patch、child attribution、task rollup、profile/XDG 与 recursive fork。
 5. Batch 5（已完成）：OpenClaw、Xum、Hermes Agent；验证 JSONL/SQLite/zstd、fork/store dedup、child roll-up/环、完整成本、session residual、task/billing 维度与调用次数。
-6. Batch 6：Reasonix + Fx；修复 Tokscale 遗漏的完整 USD provenance，以及 inclusive cache/reasoning 双计。
+6. Batch 6（已完成）：Reasonix + Fx；补全 occurrence-time USD provenance，改用 Fx profile generation ledger，并修复 inclusive cache/reasoning 双计。
 7. Batch 7：Unsloth；按官方 fork clone keeper 规则做跨 thread reconciliation，并同时覆盖 chat/API 两条 lane。
 8. 后续 authoritative candidates：Droid、Codebuff、Zed、Junie、DSH、LM Studio 等；没有官方 schema 时必须取得匿名化真实 fixture 和第二实现交叉验证。
 9. Product track：桌面应用、quota、实时观测与多机器历史；与 authoritative token ledger 保持 provenance 隔离。

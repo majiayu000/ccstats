@@ -23,7 +23,7 @@ pub(crate) struct Stats {
     pub(crate) records: i64,
     pub(crate) skipped_chunks: i64,
     pub(crate) estimated_proxy: CostTokens,
-    /// Provider-reported USD cost that bypasses the local price list.
+    /// Source-recorded USD cost that bypasses the current local price list.
     #[serde(default)]
     pub(crate) recorded_cost_usd: f64,
     /// Number of source records that contributed `recorded_cost_usd`.
@@ -338,7 +338,7 @@ pub(crate) struct RawEntry {
     /// Number of model calls represented by this record. Defaults to 1.
     #[serde(default = "default_call_count")]
     pub(crate) call_count: i64,
-    /// Provider-reported USD cost for this record, when the source logs one.
+    /// Source-recorded USD cost for this record, when the source logs one.
     #[serde(default)]
     pub(crate) recorded_cost_usd: Option<f64>,
     /// Tokens represented by exact API-equivalent request telemetry.

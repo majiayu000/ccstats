@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics across 25 AI coding-agent data sources.
+`ccstats` is a fast CLI for token and cost usage analytics across 27 AI coding-agent data sources.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -25,6 +25,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Pi, Senpi, Kimchi, Gajae Code, Prime Agent, and Oh My Pi JSONL support
 - GitHub Copilot CLI OpenTelemetry and Goose per-call ledger support
 - OpenClaw transcripts, Xum cumulative usage, and Hermes Agent SQLite support
+- Reasonix per-call stats and Vercel Fx generation-ledger support
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
@@ -612,6 +613,8 @@ Source root env overrides are independent of config keys:
 | OpenClaw | `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`; effective home follows `OPENCLAW_HOME` | State/config roots containing standard or configured agent transcripts/stores; `~` uses effective home | `~/.openclaw` |
 | Xum | `XUM_ROOT` | Current Xum root containing `sessions/` | `~/.xum` |
 | Hermes Agent | `HERMES_HOME` | Hermes home containing `state.db` | `~/.hermes/state.db` |
+| Reasonix | `REASONIX_STATE_HOME`, then `REASONIX_HOME` | Reasonix state root containing `stats/` | `~/.reasonix` |
+| Vercel Fx | `HOME` | Home containing the `.fx` profile ledger and recovery registry | `~/.fx` |
 
 Cline also recognizes `CLINE_DATA_DIR` and `CLINE_DIR`. Roo Code and Kilo Code
 currently use their standard local directories.
@@ -641,8 +644,8 @@ Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 `cache_hit_rate` field, while CSV uses a two-decimal `cache_hit_rate` column.
 Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
 Code, Kilo Code, OpenCode, MiMo Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code,
-Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose, OpenClaw, Xum, and Hermes
-Agent expose the required cache-read metric. Mixed `--source all` output
+Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose, OpenClaw, Xum, Hermes Agent,
+Reasonix, and Vercel Fx expose the required cache-read metric. Mixed `--source all` output
 reports the aggregate rate across all selected usage.
 
 ### Parsing Warnings
@@ -683,6 +686,8 @@ Warning: ignored <N> malformed records
 | OpenClaw | Agent JSONL/zstd archives and configured/default SQLite stores | `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`, `OPENCLAW_HOME` | v3 assistant usage, Projects, cache TTL tokens, copied-entry deduplication, isolated archive errors, provider-billed cost provenance |
 | Xum | `~/.xum/sessions/*/session-usage.json` | `XUM_ROOT` | Five independent token/cost buckets, reasoning/cache tokens, cycle-safe child roll-up reconciliation |
 | Hermes Agent | `~/.hermes/state.db` | `HERMES_HOME` | Current per-model/task ledger plus session residual, Projects, exact API call counts, reasoning/cache tokens, actual/included cost provenance |
+| Reasonix | `~/.reasonix/stats/YYYY-MM-DD.jsonl` | `REASONIX_STATE_HOME`, `REASONIX_HOME` | Per-call/request aggregates, reasoning/cache normalization, occurrence-time complete USD valuations, isolated parse errors |
+| Vercel Fx | `~/.fx/usage.jsonl` plus canonical-session-validated recovery backlog | `HOME` | Profile-wide generation IDs, exact timestamps and costs, cache/reasoning normalization, duplicate/conflict detection, fail-closed sidecar recovery |
 
 ## Architecture
 
