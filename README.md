@@ -25,8 +25,8 @@ ccstats daily --source all
 ```
 
 `doctor` is read-only and never contacts remote providers. It shows which
-sources are detected, which API-backed sources are configured, and the exact
-setup step for anything missing.
+registered sources are detected or configured, plus a practical hint for
+missing sources.
 
 ## Why ccstats
 
@@ -46,7 +46,7 @@ menu-bar app, a graphical dashboard, gamification, or cloud leaderboards, a GUI
 tracker is a better fit. Choose ccstats when speed, scripting, reproducibility,
 and inspectable accounting rules matter most.
 
-## Supported sources
+## Start with common sources
 
 | Source | Usage input | Start here |
 |--------|-------------|------------|
@@ -56,8 +56,10 @@ and inspectable accounting rules matter most.
 | Grok | `~/.grok/logs/unified.jsonl` with session fallback | `ccstats grok today` |
 | Kimi Code | `~/.kimi-code/sessions/` wire logs | `ccstats kimi today` |
 
-Run `ccstats sources` for aliases and per-source capabilities, or `ccstats
-doctor --json` for machine-readable setup diagnostics.
+The complete registry contains 29 sources, including DeepSeek Harness. See the
+full [source table](#supported-data-sources) below. Run `ccstats sources` for
+aliases and per-source capabilities, or `ccstats doctor --json` for
+machine-readable setup diagnostics.
 
 ## Privacy and network access
 
@@ -714,8 +716,9 @@ Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
 Code, Kilo Code, OpenCode, MiMo Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code,
 Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose, OpenClaw, Xum, Hermes Agent,
-Reasonix, Vercel Fx, and DeepSeek Harness expose the required cache-read metric. Mixed `--source all` output
-reports the aggregate rate across all selected usage.
+Reasonix, Vercel Fx, Unsloth Studio, and DeepSeek Harness expose the required
+cache-read metric. Mixed `--source all` output reports the aggregate rate across
+all selected usage.
 
 ### Parsing Warnings
 
@@ -757,6 +760,7 @@ Warning: ignored <N> malformed records
 | Hermes Agent | `~/.hermes/state.db` | `HERMES_HOME` | Current per-model/task ledger plus session residual, Projects, exact API call counts, reasoning/cache tokens, actual/included cost provenance |
 | Reasonix | `~/.reasonix/stats/YYYY-MM-DD.jsonl` | `REASONIX_STATE_HOME`, `REASONIX_HOME` | Per-call/request aggregates, reasoning/cache normalization, occurrence-time complete USD valuations, isolated parse errors |
 | Vercel Fx | `~/.fx/usage.jsonl` plus canonical-session-validated recovery backlog | `HOME` | Profile-wide generation IDs, exact timestamps and costs, cache/reasoning normalization, duplicate/conflict detection, fail-closed sidecar recovery |
+| Unsloth Studio | `~/.unsloth/studio/studio.db` | `UNSLOTH_STUDIO_HOME`, `STUDIO_HOME` | Chat and API receipts, fork-copy reconciliation, project attribution, response-model precedence, independent reported totals |
 | DeepSeek Harness | `~/.dsh/sessions/<project>/<session>/session.jsonl[.zstd]` | `DSH_HOME` | Projects, retry-aware call accounting, cache/reasoning tokens, compaction calls, fork ownership, concatenated-zstd recovery |
 
 ## Architecture

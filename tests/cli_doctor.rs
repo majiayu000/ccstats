@@ -32,7 +32,6 @@ fn doctor_reports_detected_and_configured_sources_without_exposing_credentials()
 
     let rows: Value = serde_json::from_str(&output).expect("doctor json");
     let rows = rows.as_array().expect("array output");
-    assert_eq!(rows.len(), 5);
 
     let claude = rows
         .iter()
@@ -51,6 +50,83 @@ fn doctor_reports_detected_and_configured_sources_without_exposing_credentials()
         cursor["detail"]
             .as_str()
             .is_some_and(|detail| detail.contains("not contacted"))
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn doctor_table_gives_configured_sources_a_runnable_next_step() {
+    let root = unique_temp_dir("doctor-configured");
+    let cursor_key = Path::new("configured-cursor-key");
+    let (ok, stdout, stderr) = run_ccstats(
+        &["doctor"],
+        &[("HOME", &root), ("CURSOR_API_KEY", cursor_key)],
+    );
+
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let output = String::from_utf8(stdout).expect("utf8 output");
+    assert!(output.contains("Next: run `ccstats daily --source all`"));
+    assert!(!output.contains("No source data detected"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn doctor_json_does_not_expose_invalid_cursor_replay_path() {
+    let root = unique_temp_dir("doctor-cursor-path");
+    let replay = root.join("private/account/replay.json");
+    let (ok, stdout, stderr) = run_ccstats(
+        &["doctor", "--json"],
+        &[("HOME", &root), ("CURSOR_USAGE_FILE", &replay)],
+    );
+
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let output = String::from_utf8(stdout).expect("utf8 output");
+    assert!(!output.contains(&root.display().to_string()));
+    let rows: Value = serde_json::from_str(&output).expect("doctor json");
+    let cursor = rows
+        .as_array()
+        .expect("array output")
+        .iter()
+        .find(|row| row["name"] == "cursor")
+        .expect("Cursor diagnostic");
+    assert_eq!(cursor["status"], "missing");
+    assert_eq!(
+        cursor["detail"],
+        "CURSOR_USAGE_FILE is set but does not point to a file"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn doctor_reports_openclaw_config_errors_instead_of_detecting_the_sentinel() {
+    let root = unique_temp_dir("doctor-openclaw-config");
+    let config = root.join("broken-openclaw.json");
+    write_file(&config, "{broken");
+    write_file(&root.join("agents/main/sessions/valid.jsonl"), "{}\n");
+    let (ok, stdout, stderr) = run_ccstats(
+        &["doctor", "--json"],
+        &[
+            ("HOME", &root),
+            ("OPENCLAW_STATE_DIR", &root),
+            ("OPENCLAW_CONFIG_PATH", &config),
+        ],
+    );
+
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let rows: Value = serde_json::from_slice(&stdout).expect("doctor json");
+    let openclaw = rows
+        .as_array()
+        .expect("array output")
+        .iter()
+        .find(|row| row["name"] == "openclaw")
+        .expect("OpenClaw diagnostic");
+    assert_eq!(openclaw["status"], "missing");
+    assert_eq!(
+        openclaw["detail"],
+        "OpenClaw configuration could not be read or parsed"
     );
 
     let _ = fs::remove_dir_all(root);

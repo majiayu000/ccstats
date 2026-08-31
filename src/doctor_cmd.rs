@@ -1,4 +1,4 @@
-//! Read-only source diagnostics for first-run setup and troubleshooting.
+//! Read-only registered source diagnostics for first-run troubleshooting.
 
 use crate::app::{CommandContext, print_json};
 use crate::output::{OutputFormat, csv_escape};
@@ -41,7 +41,7 @@ fn render_table(rows: &[DiagnosticRow]) {
 
     if rows
         .iter()
-        .all(|row| row.diagnostic.status != DiagnosticStatus::Detected)
+        .all(|row| row.diagnostic.status == DiagnosticStatus::Missing)
     {
         println!(
             "\nNo source data detected. Complete one setup step above, then rerun `ccstats doctor --json`."

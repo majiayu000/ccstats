@@ -63,10 +63,7 @@ impl Source for CursorSource {
             return if path.is_file() {
                 SourceDiagnostic::detected(1, "Cursor replay file is available")
             } else {
-                SourceDiagnostic::missing(format!(
-                    "CURSOR_USAGE_FILE does not point to a file: {}",
-                    path.display()
-                ))
+                SourceDiagnostic::missing("CURSOR_USAGE_FILE is set but does not point to a file")
             };
         }
 

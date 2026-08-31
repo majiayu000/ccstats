@@ -7,16 +7,16 @@ source-code content.
 
 ## Local data read
 
-| Source | Default location | Override |
-|--------|------------------|----------|
-| Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` |
-| OpenAI Codex | `~/.codex/sessions/` | `CODEX_HOME` |
-| Cursor | No local discovery; API or replay file only | `CURSOR_USAGE_FILE` |
-| Grok | `~/.grok/logs/unified.jsonl` and `~/.grok/sessions/` | `GROK_HOME` |
-| Kimi Code | `~/.kimi-code/sessions/` | `KIMI_CODE_HOME` |
+The 29 registered sources are Claude Code, OpenAI Codex, Cursor, Grok, Kimi
+Code, Gemini CLI, Amp, Qwen Code, Cline, Roo Code, Kilo Code, OpenCode, MiMo
+Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code, Prime Agent, Oh My Pi, GitHub
+Copilot CLI, Goose, OpenClaw, Xum, Hermes Agent, Reasonix, Vercel Fx, Unsloth
+Studio, and DeepSeek Harness. Their default locations and overrides are listed
+in the README's complete supported-source table.
 
-`ccstats doctor` only checks these known locations and environment-variable
-presence. It does not parse session contents or contact remote services.
+`ccstats doctor` checks the registered sources' known locations and relevant
+environment-variable presence. It does not parse session contents or contact
+remote services.
 
 ## Network access
 

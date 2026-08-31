@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Expose provider-authoritative Codex weekly quota reports through the Rust SDK with typed data and errors.
-- Add `ccstats doctor` for read-only, machine-readable source setup diagnostics.
+- Add `ccstats doctor` for read-only, machine-readable diagnostics across all 29 registered sources.
 - Document privacy boundaries, network access, and the release process.
 
 ### Changed
