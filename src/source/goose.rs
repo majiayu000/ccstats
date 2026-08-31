@@ -177,6 +177,7 @@ fn goose_entry(row: GooseUsageRow, timezone: Timezone) -> Result<Option<RawEntry
         cost_kind: CostKind::Real,
         endpoint: Endpoint::Unknown,
         call_count: 1,
+        reported_total_tokens: None,
         recorded_cost_usd,
         api_equivalent_priced_tokens: 0,
         api_equivalent_coverage_tokens: 0,

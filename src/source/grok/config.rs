@@ -102,6 +102,7 @@ mod tests {
             cache_creation_1h: 0,
             cache_read: 0,
             reasoning_tokens: 0,
+            reported_total_tokens: None,
             stop_reason: Some("complete".to_string()),
             cost_kind,
             endpoint: Endpoint::Unknown,

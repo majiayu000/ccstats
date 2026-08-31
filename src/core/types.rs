@@ -17,6 +17,10 @@ pub(crate) struct Stats {
     pub(crate) cache_read: i64,
     /// Reasoning tokens (e.g., Codex o1 models)
     pub(crate) reasoning_tokens: i64,
+    /// Difference between source-authoritative total tokens and the component sum.
+    /// This preserves an independent provider total without corrupting token buckets.
+    #[serde(skip)]
+    pub(crate) reported_total_adjustment: i64,
     pub(crate) count: i64,
     /// Number of parsed source records represented by this aggregation.
     #[serde(default)]
@@ -50,6 +54,9 @@ impl Stats {
             .saturating_add(other.cache_creation_1h);
         self.cache_read = self.cache_read.saturating_add(other.cache_read);
         self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
+        self.reported_total_adjustment = self
+            .reported_total_adjustment
+            .saturating_add(other.reported_total_adjustment);
         self.count = self.count.saturating_add(other.count);
         self.records = self.records.saturating_add(other.records);
         self.skipped_chunks = self.skipped_chunks.saturating_add(other.skipped_chunks);
@@ -74,6 +81,7 @@ impl Stats {
             .saturating_add(self.reasoning_tokens)
             .saturating_add(self.cache_creation)
             .saturating_add(self.cache_read)
+            .saturating_add(self.reported_total_adjustment)
     }
 
     /// Percentage of reported input-side tokens served from the prompt cache.
@@ -328,6 +336,9 @@ pub(crate) struct RawEntry {
     pub(crate) cache_creation_1h: i64,
     pub(crate) cache_read: i64,
     pub(crate) reasoning_tokens: i64,
+    /// Source-authoritative total when it is independent from component counters.
+    #[serde(default)]
+    pub(crate) reported_total_tokens: Option<i64>,
     /// Stop reason for completion detection
     pub(crate) stop_reason: Option<String>,
     #[serde(default)]
@@ -358,6 +369,12 @@ impl RawEntry {
         // Parsers default real records to one call; a synthetic residual may
         // legitimately carry tokens or cost without representing another call.
         let call_count = self.call_count.max(0);
+        let component_total = self
+            .input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.reasoning_tokens);
         let mut stats = Stats {
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
@@ -365,6 +382,9 @@ impl RawEntry {
             cache_creation_1h: self.cache_creation_1h,
             cache_read: self.cache_read,
             reasoning_tokens: self.reasoning_tokens,
+            reported_total_adjustment: self
+                .reported_total_tokens
+                .map_or(0, |total| total.saturating_sub(component_total)),
             count: call_count,
             records: 1,
             skipped_chunks: 0,
@@ -726,6 +746,7 @@ mod tests {
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
             call_count: 1,
+            reported_total_tokens: None,
             recorded_cost_usd: None,
             api_equivalent_priced_tokens: 0,
             api_equivalent_coverage_tokens: 0,
@@ -764,6 +785,7 @@ mod tests {
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
             call_count: 5,
+            reported_total_tokens: None,
             recorded_cost_usd: Some(1.25),
             api_equivalent_priced_tokens: 0,
             api_equivalent_coverage_tokens: 0,
@@ -774,6 +796,41 @@ mod tests {
         assert!((stats.recorded_cost_usd - 1.25).abs() < 1e-12);
         assert_eq!(stats.recorded_cost_entries, 1);
         assert!(!stats.priced_tokens.has_entries());
+    }
+
+    #[test]
+    fn raw_entry_preserves_independent_reported_total_without_repricing_the_delta() {
+        let entry = RawEntry {
+            timestamp: String::new(),
+            timestamp_ms: 0,
+            date_str: String::new(),
+            message_id: None,
+            session_key: String::new(),
+            session_id: String::new(),
+            project_path: String::new(),
+            model: "provider/model".to_string(),
+            input_tokens: 3,
+            output_tokens: 4,
+            cache_creation: 0,
+            cache_creation_1h: 0,
+            cache_read: 0,
+            reasoning_tokens: 0,
+            reported_total_tokens: Some(9),
+            stop_reason: Some("complete".to_string()),
+            cost_kind: CostKind::Real,
+            endpoint: Endpoint::Unknown,
+            call_count: 1,
+            recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
+        };
+
+        let stats = entry.to_stats();
+        assert_eq!(stats.total_tokens(), 9);
+        assert_eq!(stats.input_tokens, 3);
+        assert_eq!(stats.output_tokens, 4);
+        assert_eq!(stats.priced_tokens.input_tokens, 3);
+        assert_eq!(stats.priced_tokens.output_tokens, 4);
     }
 
     // --- DateFilter ---

@@ -72,6 +72,7 @@ cost = "show"
 | Oh My Pi | `PI_CODING_AGENT_SESSION_DIR`；`OMP_PROFILE`，其次 `PI_PROFILE`；`PI_CODING_AGENT_DIR`；`PI_CONFIG_DIR`；数据根目录遵循 `XDG_DATA_HOME` | 显式 sessions 目录、当前 active profile 或非 profile 派生 agent 目录 | `~/.omp/agent/sessions` 或 profile/XDG 对应目录 |
 | GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | OTel file exporter 的 JSONL 文件 | 另扫描 `~/.copilot/otel/**/*.jsonl` |
 | Goose | `GOOSE_PATH_ROOT`，数据根目录遵循 `XDG_DATA_HOME` | 包含 `data/sessions/sessions.db` 的绝对 path root | `~/.local/share/goose/sessions/sessions.db` |
+| Unsloth Studio | `UNSLOTH_STUDIO_HOME`，其次 `STUDIO_HOME` | 包含 `studio.db` 的 Studio 根目录；展开 `~` | `~/.unsloth/studio` |
 
 ---
 
@@ -92,6 +93,19 @@ cost = "show"
 ```
 total_tokens = input_tokens + output_tokens + reasoning_tokens + cache_creation + cache_read
 ```
+
+少数权威载体会把 `total_tokens` 作为独立计数器保存，且明确允许它与分量之和不同。此时 ccstats 保留原始分量用于定价，同时用内部 `reported_total_adjustment` 保持展示总量等于来源报告值；不会把差值伪装成 input token。
+
+## Unsloth Studio
+
+Unsloth Studio 的当前 `studio.db` 同时包含两条互斥的推理 usage lane：内部 chat 的 assistant `metadata_json`，以及经过 API key 调用后写入的 content-free `api_usage_events`。训练表的 `num_tokens` 是训练进度，不属于推理统计。
+
+- chat 的 `promptTokens` 包含 `cachedTokens` 与 `cacheWriteTokens`，parser 在边界拆成互斥 input/cache 桶；persisted metadata 不提供独立 reasoning counter，因此 completion 全部进入 output。
+- 模型优先采用 `responseDetails.responseModelId`，其次才是请求时的 `contextUsage.modelId`；线程当前模型不能代表历史响应模型。
+- 本地 llama usage chunk 缺失时，按官方规则从 `serverTimings.prompt_n/predicted_n/cache_n` 与 `timing.tokenCount` 恢复。
+- fork 会以新 message ID 复制旧 ancestry。ccstats 使用官方 `(source thread, created_at, role)` keeper 规则：原件存在时忽略 copy；原件删除后只保留字典序最小的 sibling fork copy。
+- API `id` 是幂等键，`total_tokens` 为独立权威值；不同 `subject` 使用不可逆摘要分隔 session，避免把身份字符串暴露到输出。
+- 两张表都没有 source-recorded USD。ccstats 不强制写入 `$0`，而是按模型价格能力进行本地估价并保留未知状态。
 
 ### 费用公式
 

@@ -16,6 +16,7 @@
 10. MiMo Code、Kilo CLI、Senpi、Kimchi、GJC、Prime Agent、Oh My Pi 已逐一核对当前写入端并实现；它们共享基础格式，但 fork 复制、patch、child attribution、task rollup 和目录语义不同，不能作为普通 Pi 记录直接相加。
 11. Batch 5 新增 OpenClaw、Xum 与 Hermes Agent，总 source 数达到 25。三项均以当前官方写入端为准：OpenClaw 同时读取 JSONL/zstd 与当前 SQLite store，只采用 provider-billed cost；Xum 处理 `rolledUpFrom` child 双计并锁定完整五桶成本；Hermes 保留 task/billing 维度、补 session residual 并从 output 拆除 reasoning。Tokscale 对这些边界均不完整。
 12. Batch 6 新增 Reasonix 与 Vercel Fx，总 source 数达到 27。Reasonix 读取按日 provider-call stats，保留完整 USD occurrence-time valuation；Fx 以 profile generation ledger 为主，只合并官方 recovery registry 有界指向、canonical event-log/commit-watermark 可重放且 sidecar 自身完整有效的 publication backlog；projection 不一致会保留恢复提示并标记不完整，不泛扫普通 session snapshot。Tokscale 的 Fx 把 inclusive input/output 与 cache/reasoning 再次相加，会把示例总数从 155 错算为 190。
+13. Batch 7 新增 Unsloth Studio，总 source 数达到 28。实现同时覆盖 internal chat 与 authenticated API receipt，按官方 fork keeper 消除 fresh-ID ancestry copy，使用真实 response model 和 llama fallback，并保留与 prompt/completion 分量独立的 API authoritative total。Tokscale 会重复统计 fork、漏掉 fallback、把 thread 当前模型当历史模型，并把没有 USD 字段的记录强制标成 provider-reported `$0`。
 
 ## 证据等级
 
@@ -58,6 +59,7 @@
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent/tree/4f22543509d1b91dc45bcb369447126c5eb14fb7) | `4f22543` | 当前 SQLite 复合主键、task/API call、reasoning 与 cost status |
 | [Reasonix](https://github.com/futureflowtech/reasonix/tree/e9e4ca68ba6d1f82679e2f2877bdbbee89e1c19d) | `e9e4ca6` | 当前 stats ledger、cache/reasoning 包含关系与 occurrence-time cost quote |
 | [Vercel Fx](https://github.com/vercel-labs/fx/tree/2ed0f44c5913dd61d35cba8495838a9f1542ade1) | `2ed0f44` | profile generation ledger、五桶包含关系、generation ID 去重、canonical session 与 sidecar recovery 边界 |
+| [Unsloth Studio](https://github.com/unslothai/unsloth/tree/1505087927473d75679bbd0e0a0ffae13a26d29f/studio) | `1505087` | SQLite chat/API schema、fork keeper、llama token fallback、response model 与独立 API total |
 
 官方 schema 证据：
 
@@ -190,6 +192,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 | Hermes Agent | 当前 `session_model_usage` 每个合法 task/billing row + session residual；visible-output/reasoning 拆分；API call count | 官方源码已验证 + multi-task/null-model/bad-row/residual/cost-status E2E | 实现为第 25 个 source；不使用 Tokscale 的 message_count，aggregate 只扣成功细分行并补剩余差额 |
 | Reasonix | `<state>/stats/YYYY-MM-DD.jsonl` provider-call ledger；cache/reasoning 子集拆分；完整 USD quote 优先 | 官方源码已验证 + env-priority/malformed/cost/request-count E2E | 实现为第 26 个 source；不扫描 transcript，不伪造 project/session，不把负数 clamp 为零 |
 | Vercel Fx | `~/.fx/usage.jsonl` generation facts + recovery registry 标记、canonical commit boundary/state replacement 可重放且 sidecar 完整有效的 publication backlog；ID 去重；inclusive cache/reasoning 拆分；显式零成本 | 官方源码已验证 + duplicate/conflict/canonical-marker/state-replacement recovery/sidecar-only rejection/private-file boundary/sidecar-distractor/zero-cost E2E | 实现为第 27 个 source；projection 不一致时保留 recovery hints 并报 completeness，拒绝泛扫或脱离 canonical session 的 sidecar 导致双计、伪造和日期漂移 |
+| Unsloth Studio | `<studio-root>/studio.db` internal assistant metadata + content-free API receipts；fork keeper；response model；server/timing fallback；独立 authoritative total | 官方源码已验证 + chat/API/fork sibling/error isolation/total mismatch E2E | 实现为第 28 个 source；不读取训练指标、不选择消息内容、不读取臆造 reasoning 字段、不把无 USD 字段强制记为零成本 |
 
 ## 本轮采用、适配、拒绝决策
 
@@ -213,6 +216,7 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 - GJC 适配 v5 patch 与部分 task residual；Prime 按 attribution 重建 parent own usage；OMP 按 active profile 发现并只统计递归 transcript，不累计 task rollup。
 - OpenClaw 适配 current JSONL/SQLite/cold archive、entry identity、cache TTL 与 cost origin；Xum 只让合法无环 parent 压掉 child，并在五桶成本完整时锁定 ledger cost；Hermes 保持复合计费维度、补 session residual，并按 cost status 分流 actual/included 与 estimated。
 - Reasonix 采用官方 per-call stats，但只在 quote complete 且存在可信 USD valuation 时锁定历史成本；Fx 采用 profile generation ledger，并把 pending/conflict/incident 暴露为数据质量问题。
+- Unsloth 采用官方 chat/API 两条 lane、fork keeper 和 llama fallback；API subject 仅用于隔离匿名 session，独立 total 不再污染 input bucket。
 
 ### 拒绝
 
@@ -237,8 +241,9 @@ total = fresh_input + cache_read + cache_write + visible_output + reasoning
 4. Batch 4（已完成）：GJC、Prime Agent、Oh My Pi；验证 patch、child attribution、task rollup、profile/XDG 与 recursive fork。
 5. Batch 5（已完成）：OpenClaw、Xum、Hermes Agent；验证 JSONL/SQLite/zstd、fork/store dedup、child roll-up/环、完整成本、session residual、task/billing 维度与调用次数。
 6. Batch 6（已完成）：Reasonix + Fx；补全 occurrence-time USD provenance，改用 Fx profile generation ledger，并修复 inclusive cache/reasoning 双计。
-7. Batch 7：Unsloth；按官方 fork clone keeper 规则做跨 thread reconciliation，并同时覆盖 chat/API 两条 lane。
-8. 后续 authoritative candidates：Droid、Codebuff、Zed、Junie、DSH、LM Studio 等；没有官方 schema 时必须取得匿名化真实 fixture 和第二实现交叉验证。
-9. Product track：桌面应用、quota、实时观测与多机器历史；与 authoritative token ledger 保持 provenance 隔离。
+7. Batch 7（已完成）：Unsloth；按官方 fork clone keeper 规则做跨 thread reconciliation，并同时覆盖 chat/API 两条 lane。
+8. Batch 8：DSH；读取官方 JSONL/zstd session persistence，按 `seedLength` 排除 fork copy，并统计 assistant 与 compaction 的独立调用。
+9. 条件式候选：Junie 先用 `/usage` 金标固定私有事件 schema；Zed 只能提供时间/模型归属受限的 thread aggregate；LM Studio 需取得跨版本真实 server-log fixture。Droid、Codebuff、Augment 当前缺少可验证的历史权威账本，不实现 Tokscale 的估算或私有-schema parser。
+10. Product track：桌面应用、quota、实时观测与多机器历史；与 authoritative token ledger 保持 provenance 隔离。
 
 每一批独立提交与 PR，包含官方证据链接、最小真实格式 fixture、RED/GREEN 测试记录、数据路径和已知限制。这样覆盖面可以持续增长，但不会用错误数字换取“支持数量”。

@@ -553,6 +553,7 @@ fn records_to_parse_output(
                 cost_kind: CostKind::Real,
                 endpoint: crate::core::Endpoint::Unknown,
                 call_count: 0,
+                reported_total_tokens: None,
                 recorded_cost_usd,
                 api_equivalent_priced_tokens: if recorded_cost_usd.is_some() {
                     prompt_tokens.saturating_add(completion_tokens)

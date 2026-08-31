@@ -94,11 +94,13 @@ pub enum UsageSource {
     Reasonix,
     /// Vercel Fx profile-wide generation ledger.
     Fx,
+    /// Unsloth Studio chat and authenticated API inference receipts.
+    Unsloth,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 27] = [
+    pub(crate) const VARIANTS: [Self; 28] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -126,6 +128,7 @@ impl UsageSource {
         UsageSource::Hermes,
         UsageSource::Reasonix,
         UsageSource::Fx,
+        UsageSource::Unsloth,
     ];
 
     #[must_use]
@@ -158,6 +161,7 @@ impl UsageSource {
             UsageSource::Hermes => "hermes",
             UsageSource::Reasonix => "reasonix",
             UsageSource::Fx => "fx",
+            UsageSource::Unsloth => "unsloth",
         }
     }
 
@@ -190,6 +194,7 @@ impl UsageSource {
             "hermes" => Some(UsageSource::Hermes),
             "reasonix" => Some(UsageSource::Reasonix),
             "fx" => Some(UsageSource::Fx),
+            "unsloth" => Some(UsageSource::Unsloth),
             _ => None,
         }
     }
