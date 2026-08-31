@@ -240,6 +240,15 @@ pub(super) fn subtract_prime_children(
         aggregate.output -= child.output;
         aggregate.cache_read -= child.cache_read;
         aggregate.cache_write -= child.cache_write;
+        let child_cache_creation_1h = child.cttl.as_ref().map_or(0, |cttl| cttl.ephemeral_1h);
+        let aggregate_cache_creation_1h =
+            aggregate.cttl.as_ref().map_or(0, |cttl| cttl.ephemeral_1h);
+        if child_cache_creation_1h < 0 || child_cache_creation_1h > aggregate_cache_creation_1h {
+            return Err("child attribution exceeds aggregate cache TTL");
+        }
+        if let Some(cttl) = aggregate.cttl.as_mut() {
+            cttl.ephemeral_1h -= child_cache_creation_1h;
+        }
         if let (Some(aggregate_cost), Some(child_cost)) =
             (aggregate.cost.as_mut(), child.cost.as_ref())
         {
@@ -255,6 +264,35 @@ pub(super) fn subtract_prime_children(
         }
     }
     aggregate.reasoning_tokens = 0;
-    aggregate.cttl = None;
     Ok(aggregate)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prime_child_subtraction_preserves_residual_cache_ttl() {
+        let aggregate: ForkUsage = serde_json::from_value(serde_json::json!({
+            "input": 10,
+            "output": 2,
+            "cacheRead": 0,
+            "cacheWrite": 6,
+            "cttl": {"ephemeral1h": 5}
+        }))
+        .unwrap();
+        let child: ForkUsage = serde_json::from_value(serde_json::json!({
+            "input": 4,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 2,
+            "cttl": {"ephemeral1h": 2}
+        }))
+        .unwrap();
+
+        let residual = subtract_prime_children(aggregate, &[child]).unwrap();
+
+        assert_eq!(residual.cache_write, 4);
+        assert_eq!(residual.cttl.unwrap().ephemeral_1h, 3);
+    }
 }
