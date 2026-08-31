@@ -285,6 +285,8 @@ fn parse_usage_line(
         endpoint: crate::core::Endpoint::Unknown,
         call_count: 1,
         recorded_cost_usd: None,
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
     })
 }
 

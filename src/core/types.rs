@@ -29,6 +29,12 @@ pub(crate) struct Stats {
     /// Number of source records that contributed `recorded_cost_usd`.
     #[serde(default)]
     pub(crate) recorded_cost_entries: i64,
+    /// Tokens covered by exact API-equivalent request telemetry.
+    #[serde(default)]
+    pub(crate) api_equivalent_priced_tokens: i64,
+    /// Usage tokens eligible for API-equivalent coverage reporting.
+    #[serde(default)]
+    pub(crate) api_equivalent_coverage_tokens: i64,
     /// Tokens that still need local pricing (records without a provider cost).
     #[serde(default)]
     pub(crate) priced_tokens: CostTokens,
@@ -52,6 +58,12 @@ impl Stats {
         self.recorded_cost_entries = self
             .recorded_cost_entries
             .saturating_add(other.recorded_cost_entries);
+        self.api_equivalent_priced_tokens = self
+            .api_equivalent_priced_tokens
+            .saturating_add(other.api_equivalent_priced_tokens);
+        self.api_equivalent_coverage_tokens = self
+            .api_equivalent_coverage_tokens
+            .saturating_add(other.api_equivalent_coverage_tokens);
         self.priced_tokens.add(&other.priced_tokens);
     }
 
@@ -179,6 +191,14 @@ pub(crate) struct CostTokens {
 }
 
 impl CostTokens {
+    pub(crate) fn total_tokens(self) -> i64 {
+        self.input_tokens
+            .saturating_add(self.output_tokens)
+            .saturating_add(self.reasoning_tokens)
+            .saturating_add(self.cache_creation)
+            .saturating_add(self.cache_read)
+    }
+
     pub(crate) fn add(&mut self, other: &Self) {
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
@@ -321,6 +341,12 @@ pub(crate) struct RawEntry {
     /// Source-recorded USD cost for this record, when the source logs one.
     #[serde(default)]
     pub(crate) recorded_cost_usd: Option<f64>,
+    /// Tokens represented by exact API-equivalent request telemetry.
+    #[serde(default)]
+    pub(crate) api_equivalent_priced_tokens: i64,
+    /// Usage tokens eligible for API-equivalent coverage reporting.
+    #[serde(default)]
+    pub(crate) api_equivalent_coverage_tokens: i64,
 }
 
 fn default_call_count() -> i64 {
@@ -345,6 +371,8 @@ impl RawEntry {
             estimated_proxy: CostTokens::default(),
             recorded_cost_usd: 0.0,
             recorded_cost_entries: 0,
+            api_equivalent_priced_tokens: self.api_equivalent_priced_tokens.max(0),
+            api_equivalent_coverage_tokens: self.api_equivalent_coverage_tokens.max(0),
             priced_tokens: CostTokens::default(),
         };
         if self.cost_kind == CostKind::EstimatedProxy {
@@ -365,11 +393,85 @@ impl RawEntry {
 pub(crate) struct DateFilter {
     pub(crate) since: Option<chrono::NaiveDate>,
     pub(crate) until: Option<chrono::NaiveDate>,
+    pub(crate) since_timestamp_ms: Option<i64>,
+    pub(crate) until_timestamp_ms: Option<i64>,
+    since_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    until_timestamp: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl DateFilter {
     pub(crate) fn new(since: Option<chrono::NaiveDate>, until: Option<chrono::NaiveDate>) -> Self {
-        Self { since, until }
+        Self {
+            since,
+            until,
+            since_timestamp_ms: None,
+            until_timestamp_ms: None,
+            since_timestamp: None,
+            until_timestamp: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_timestamp_range(mut self, since: i64, until: i64) -> Self {
+        self.since_timestamp_ms = Some(since);
+        self.until_timestamp_ms = Some(until);
+        self
+    }
+
+    pub(crate) fn with_exact_timestamp_range(
+        mut self,
+        since: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Self {
+        self.since_timestamp_ms = Some(since.timestamp_millis());
+        self.until_timestamp_ms = Some(until.timestamp_millis());
+        self.since_timestamp = Some(since);
+        self.until_timestamp = Some(until);
+        self
+    }
+
+    pub(crate) fn has_timestamp_range(&self) -> bool {
+        self.since_timestamp_ms.is_some() || self.until_timestamp_ms.is_some()
+    }
+
+    pub(crate) fn contains_timestamp(&self, timestamp_ms: i64) -> bool {
+        if let Some(since) = self.since_timestamp_ms
+            && timestamp_ms < since
+        {
+            return false;
+        }
+        if let Some(until) = self.until_timestamp_ms
+            && timestamp_ms > until
+        {
+            return false;
+        }
+        true
+    }
+
+    pub(crate) fn contains_datetime(&self, timestamp: chrono::DateTime<chrono::Utc>) -> bool {
+        if let Some(since) = self.since_timestamp
+            && timestamp < since
+        {
+            return false;
+        }
+        if let Some(until) = self.until_timestamp
+            && timestamp > until
+        {
+            return false;
+        }
+        if self.since_timestamp.is_none() && self.until_timestamp.is_none() {
+            return self.contains_timestamp(timestamp.timestamp_millis());
+        }
+        true
+    }
+
+    pub(crate) fn contains_entry_timestamp(&self, timestamp: &str, timestamp_ms: i64) -> bool {
+        if self.since_timestamp.is_some() || self.until_timestamp.is_some() {
+            return timestamp
+                .parse::<chrono::DateTime<chrono::Utc>>()
+                .is_ok_and(|timestamp| self.contains_datetime(timestamp));
+        }
+        self.contains_timestamp(timestamp_ms)
     }
 
     pub(crate) fn contains(&self, date: chrono::NaiveDate) -> bool {
@@ -625,6 +727,8 @@ mod tests {
             endpoint: Endpoint::Unknown,
             call_count: 1,
             recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         };
         let s = entry.to_stats();
         assert_eq!(s.input_tokens, 100);
@@ -661,6 +765,8 @@ mod tests {
             endpoint: Endpoint::Unknown,
             call_count: 5,
             recorded_cost_usd: Some(1.25),
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
         };
         let stats = entry.to_stats();
         assert_eq!(stats.count, 5);

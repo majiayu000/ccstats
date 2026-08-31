@@ -4,6 +4,7 @@
 //! without unified inference telemetry still use session usage records.
 
 mod config;
+mod ledger_lock;
 mod parser;
 mod unified;
 mod usage;
