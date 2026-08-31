@@ -67,6 +67,9 @@ cost = "show"
 | Pi | `PI_CODING_AGENT_SESSION_DIR`，其次 `PI_CODING_AGENT_DIR` | sessions 目录，或包含 `sessions/` 的 agent 目录 | `~/.pi/agent/sessions` |
 | Senpi | `SENPI_CODING_AGENT_SESSION_DIR`，其次 `SENPI_CODING_AGENT_DIR` | sessions 目录，或包含 `sessions/` 的 agent 目录；展开 `~` | 最近的项目 `.senpi/agent/sessions`，其次 `~/.senpi/agent/sessions` |
 | Kimchi | 无 | launcher 固定目录 | `~/.config/kimchi/harness/sessions` |
+| Gajae Code | `GJC_CODING_AGENT_DIR`；`GJC_CONFIG_DIR`；数据根目录遵循 `XDG_DATA_HOME` | 包含 `sessions/` 的 agent 目录，或 config 目录名 | `~/.gjc/agent/sessions` 或迁移后的 `$XDG_DATA_HOME/gjc/sessions` |
+| Prime Agent | `PRIME_AGENT_SESSION_DIR`，其次 `PRIME_AGENT_CODING_AGENT_DIR`；另读取当前 cwd/global `settings.json` | sessions 目录、agent 目录或 settings `sessionDir` | `~/.prime/agent/sessions` |
+| Oh My Pi | `PI_CODING_AGENT_SESSION_DIR`；`OMP_PROFILE`，其次 `PI_PROFILE`；`PI_CODING_AGENT_DIR`；`PI_CONFIG_DIR`；数据根目录遵循 `XDG_DATA_HOME` | 显式 sessions 目录、当前 active profile 或非 profile 派生 agent 目录 | `~/.omp/agent/sessions` 或 profile/XDG 对应目录 |
 | GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | OTel file exporter 的 JSONL 文件 | 另扫描 `~/.copilot/otel/**/*.jsonl` |
 | Goose | `GOOSE_PATH_ROOT`，数据根目录遵循 `XDG_DATA_HOME` | 包含 `data/sessions/sessions.db` 的绝对 path root | `~/.local/share/goose/sessions/sessions.db` |
 
@@ -357,6 +360,16 @@ Pi 的“创建分支 session”会把已有路径复制到新 JSONL，但保留
 Senpi 使用 Pi v3 的四类 usage carrier 和相同的 branch-copy entry ID，因此沿用相同的 token 归一化与 source-wide 去重。发现顺序支持显式 session/agent env、从当前目录向上查找的非 symlink 项目 `.senpi/agent`、project/global `settings.jsonc` 或 `settings.json` 的 `sessionDir`，以及 home 默认目录；JSONC 支持 BOM、注释和尾逗号，project 的 null/空串会重置 global 值，路径会展开 `~`。一次性的 `--session-dir` 不会持久化，需把同值传给 `SENPI_CODING_AGENT_SESSION_DIR`。
 
 Kimchi 的 child transcript 是真实独立调用，而 parent tool result 的 `details.tokenUsage` 是同一 child 的累计回传。`details.sessionFile` 指向且 child 能通过正式 session/header/timestamp/cost 校验产出 `RawEntry` 时，ccstats 统计 child 并忽略 parent rollup；只有 header、无有效 usage、child 未落盘或 remote agent 没有 session file 时，统计 parent details 作为权威 fallback。Kimchi launcher 固定 session 路径，因此不暴露一个实际上不会生效的目录覆盖项。
+
+### Gajae Code、Prime Agent 与 Oh My Pi
+
+三者虽然继承 Pi JSONL 外形，但计量所有权不同，因此只共享基础字段映射，不共享 rollup 决策。
+
+- Gajae Code 只接受 v5 session，先顺序重放 `header_patch` 与 `entry_patch`。assistant 的 `reasoningTokens` 是 output 子集；task child transcript 位于父 JSONL 同名目录。只从 task 总量扣除已有直接 child 的 `results[].usage`，孙级 transcript 独立计数；缺失 child 留在无调用次数的 `unknown` residual。fork 没有复制 artifact 时沿 `parentSession` 查找原 child，避免重复计入 residual。
+- Prime Agent 只接受 v3 session。对同一个 `targetId`，父调用 own usage 等于最后一条 `aggregateUsage` 减去全部 `childUsage`；child transcript 仍递归独立统计。若 fork 在 attribution 记录之前创建，先沿 `parentSession` 从原文件恢复 own usage。完成状态重建后，以 entry id、message timestamp、provider、model、token 向量和 recorded cost 组成 source-wide fork 指纹。
+- Oh My Pi 只接受 v3 session，按 `OMP_PROFILE`（其次 `PI_PROFILE`）选择 default 或 named profile；显式 default 不继承较低优先级 named profile 派生的 `PI_CODING_AGENT_DIR`。`message.details.usage` 和 `results[].usage` 都是 child rollup，递归扫描时一律忽略；只统计 child/advisor transcript 的 assistant。`orchestration.input/output/cacheRead` 是额外可计费桶，分别加到主 usage，reasoning 仍从 output 中拆除。
+
+三者的 `cttl.ephemeral1h` 是 cache write 子桶，不额外增加 token 总量。GJC 的 `cost.total` 是必填计算结果，显式零值也保留；Prime/OMP 只保留正值，零值交给价格层。它们都是客户端按模型目录计算的 API 等价成本，不声明为供应商最终账单。负 token、reasoning/TTL 越界、无效 cost、错误 session 版本或非法 profile 都进入 data-quality parse error。
 
 ---
 

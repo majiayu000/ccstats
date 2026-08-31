@@ -74,6 +74,12 @@ pub enum UsageSource {
     Senpi,
     /// Kimchi harness JSONL sessions.
     Kimchi,
+    /// Gajae Code v5 JSONL sessions.
+    Gjc,
+    /// Prime Agent JSONL sessions.
+    Prime,
+    /// Oh My Pi profile-aware JSONL sessions.
+    Omp,
     /// GitHub Copilot CLI `OpenTelemetry` JSONL spans.
     Copilot,
     /// Goose per-call usage ledger in its local `SQLite` database.
@@ -82,7 +88,7 @@ pub enum UsageSource {
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 19] = [
+    pub(crate) const VARIANTS: [Self; 22] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -100,6 +106,9 @@ impl UsageSource {
         UsageSource::Pi,
         UsageSource::Senpi,
         UsageSource::Kimchi,
+        UsageSource::Gjc,
+        UsageSource::Prime,
+        UsageSource::Omp,
         UsageSource::Copilot,
         UsageSource::Goose,
     ];
@@ -124,6 +133,9 @@ impl UsageSource {
             UsageSource::Pi => "pi",
             UsageSource::Senpi => "senpi",
             UsageSource::Kimchi => "kimchi",
+            UsageSource::Gjc => "gjc",
+            UsageSource::Prime => "prime",
+            UsageSource::Omp => "omp",
             UsageSource::Copilot => "copilot",
             UsageSource::Goose => "goose",
         }
@@ -148,6 +160,9 @@ impl UsageSource {
             "pi" => Some(UsageSource::Pi),
             "senpi" => Some(UsageSource::Senpi),
             "kimchi" => Some(UsageSource::Kimchi),
+            "gjc" => Some(UsageSource::Gjc),
+            "prime" => Some(UsageSource::Prime),
+            "omp" => Some(UsageSource::Omp),
             "copilot" => Some(UsageSource::Copilot),
             "goose" => Some(UsageSource::Goose),
             _ => None,
