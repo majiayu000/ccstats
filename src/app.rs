@@ -1,5 +1,6 @@
 mod codex_scope;
 mod cost_coverage;
+mod period_table;
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -11,15 +12,15 @@ use crate::core::{
 };
 use crate::output::NumberFormat;
 use crate::output::{
-    BlockTableOptions, MonthlyBudgetOptions, OutputFormat, Period, PeriodSummaryFooter,
-    ProjectTableOptions, SessionTableOptions, TokenTableOptions, TopRow, TopTableOptions,
-    add_monthly_budget_to_json, append_data_quality_csv_comment, monthly_budget_reports,
-    output_block_csv, output_block_json, output_monthly_budget_csv, output_period_csv_with_quality,
-    output_period_json_with_quality, output_project_csv, output_project_json, output_session_csv,
-    output_session_json, output_tools_csv, output_tools_json, output_top_csv, output_top_json,
-    print_block_table, print_monthly_budget_table, print_period_table, print_project_table,
-    print_session_table, print_statusline, print_statusline_json_with_quality, print_tools_table,
-    print_top_table, rank_by_model, rank_by_model_with_cost_mode, rank_by_project,
+    BlockTableOptions, MonthlyBudgetOptions, OutputFormat, Period, ProjectTableOptions,
+    SessionTableOptions, TopRow, TopTableOptions, add_monthly_budget_to_json,
+    append_data_quality_csv_comment, monthly_budget_reports, output_block_csv, output_block_json,
+    output_monthly_budget_csv, output_period_csv_with_quality, output_period_json_with_quality,
+    output_project_csv, output_project_json, output_session_csv, output_session_json,
+    output_tools_csv, output_tools_json, output_top_csv, output_top_json, print_block_table,
+    print_project_table, print_session_table, print_statusline, print_statusline_json_with_quality,
+    print_tools_table, print_top_table, rank_by_model, rank_by_model_with_cost_mode,
+    rank_by_project,
 };
 use crate::pricing::{CostDisplayMode, PricingDb};
 use crate::source::{
@@ -69,12 +70,6 @@ fn source_label(source: &dyn Source, ctx: &CommandContext<'_>) -> String {
     match codex_scope_for_source(source, ctx) {
         Some(scope) => format!("{} ({})", source.display_name(), scope.label()),
         None => source.display_name().to_string(),
-    }
-}
-
-fn print_codex_scope_note(scope: Option<CodexScope>) {
-    if let Some(scope) = scope {
-        println!("\n  Codex scope: {}", scope.as_str());
     }
 }
 
@@ -508,55 +503,15 @@ fn render_period_result(
             json = codex_scope::annotate_json(&json, codex_scope);
             print_json(&json, ctx.jq_filter);
         }
-        OutputFormat::Table => {
-            print_codex_scope_note(codex_scope);
-            print_period_table(
-                &result.day_stats,
-                period,
-                ctx.cli.breakdown,
-                PeriodSummaryFooter {
-                    skipped: result.skipped,
-                    valid: result.valid,
-                    elapsed_ms: Some(result.elapsed_ms),
-                },
-                ctx.pricing_db,
-                TokenTableOptions {
-                    order: ctx.cli.sort_order(),
-                    use_color: ctx.cli.use_color(),
-                    compact: ctx.cli.compact,
-                    show_cost: ctx.cli.show_cost(),
-                    number_format: ctx.number_format,
-                    show_reasoning: caps.has_reasoning_tokens,
-                    show_cache_creation: caps.has_cache_creation,
-                    supports_cache_read: caps.has_cache_read,
-                    currency: ctx.currency,
-                    cost_mode,
-                    cost_label: if selected_grok_report.is_some() {
-                        "Observed API Eq."
-                    } else {
-                        "Cost"
-                    },
-                    pricing_note_override: selected_grok_report.map(|_| {
-                        "Pricing source: xAI public API rates applied to observed request telemetry."
-                    }),
-                },
-            );
-            if ctx.cli.show_cost() {
-                cost_coverage::print_note(selected_grok_report, ctx.currency);
-            }
-            if let Some(budget) = monthly_budget {
-                let reports = monthly_budget_reports(
-                    &result.day_stats,
-                    ctx.pricing_db,
-                    ctx.cli.sort_order(),
-                    budget,
-                    ctx.budget_as_of,
-                    ctx.currency,
-                    cost_mode,
-                );
-                print_monthly_budget_table(&reports, ctx.cli.use_color(), ctx.currency);
-            }
-        }
+        OutputFormat::Table => period_table::render(
+            result,
+            period,
+            caps,
+            codex_scope,
+            visible_grok_reports,
+            ctx,
+            cost_mode,
+        ),
     }
 }
 

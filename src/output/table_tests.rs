@@ -17,20 +17,22 @@ fn default_opts() -> TokenTableOptions<'static> {
         currency: None,
         cost_mode: CostDisplayMode::Total,
         cost_label: "Cost",
+        cost_display_overrides: None,
+        total_cost_display_override: None,
         pricing_note_override: None,
     }
 }
 
 #[test]
-fn header_can_label_observed_api_equivalent_cost() {
+fn header_can_label_api_equivalent_price() {
     let cfg = period_config(Period::Day);
     let opts = TokenTableOptions {
         show_cost: true,
-        cost_label: "Observed API Eq.",
+        cost_label: "API Eq. Price",
         ..default_opts()
     };
     let h = build_header(&cfg, false, &opts);
-    assert_eq!(h.last().unwrap().content(), "Observed API Eq.");
+    assert_eq!(h.last().unwrap().content(), "API Eq. Price");
 }
 
 #[test]

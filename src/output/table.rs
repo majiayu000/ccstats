@@ -28,6 +28,8 @@ pub(crate) struct TokenTableOptions<'a> {
     pub(crate) currency: Option<&'a CurrencyConverter>,
     pub(crate) cost_mode: CostDisplayMode,
     pub(crate) cost_label: &'a str,
+    pub(crate) cost_display_overrides: Option<&'a HashMap<String, String>>,
+    pub(crate) total_cost_display_override: Option<&'a str>,
     pub(crate) pricing_note_override: Option<&'a str>,
 }
 
@@ -185,7 +187,7 @@ fn add_compact_rows(
     ));
     if opts.show_cost {
         row.push(right_cell(
-            &format_cost(cost, opts.currency),
+            &row_cost_display(key, cost, opts),
             cost_color,
             false,
         ));
@@ -246,11 +248,17 @@ fn add_breakdown_rows(
             false,
         ));
         if opts.show_cost {
-            row.push(right_cell(
-                &format_cost(cost, opts.currency),
-                cost_color,
-                false,
-            ));
+            let display = opts
+                .cost_display_overrides
+                .and_then(|overrides| overrides.get(key));
+            let cost_display = if display.is_some() && i > 0 {
+                String::new()
+            } else {
+                display
+                    .cloned()
+                    .unwrap_or_else(|| format_cost(cost, opts.currency))
+            };
+            row.push(right_cell(&cost_display, cost_color, false));
         }
         table.add_row(row);
     }
@@ -319,7 +327,7 @@ fn add_standard_rows(
     ));
     if opts.show_cost {
         row.push(right_cell(
-            &format_cost(cost, opts.currency),
+            &row_cost_display(key, cost, opts),
             cost_color,
             false,
         ));
@@ -373,7 +381,7 @@ fn add_total_row(
         ));
         if opts.show_cost {
             row.push(right_cell(
-                &format_cost(total_cost, opts.currency),
+                &total_cost_display(total_cost, opts),
                 green,
                 true,
             ));
@@ -425,13 +433,25 @@ fn add_total_row(
         }
         if opts.show_cost {
             row.push(right_cell(
-                &format_cost(total_cost, opts.currency),
+                &total_cost_display(total_cost, opts),
                 green,
                 true,
             ));
         }
         table.add_row(row);
     }
+}
+
+fn row_cost_display(key: &str, cost: f64, opts: &TokenTableOptions<'_>) -> String {
+    opts.cost_display_overrides
+        .and_then(|overrides| overrides.get(key))
+        .cloned()
+        .unwrap_or_else(|| format_cost(cost, opts.currency))
+}
+
+fn total_cost_display(total_cost: f64, opts: &TokenTableOptions<'_>) -> String {
+    opts.total_cost_display_override
+        .map_or_else(|| format_cost(total_cost, opts.currency), str::to_string)
 }
 
 pub(crate) fn print_period_table(
