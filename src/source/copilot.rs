@@ -255,6 +255,8 @@ fn chat_entry(record: &Value, timezone: Timezone) -> Result<Option<RawEntry>, &'
         call_count: 1,
         // GitHub documents this as monetary cost but does not publish a currency code.
         recorded_cost_usd: None,
+        api_equivalent_priced_tokens: 0,
+        api_equivalent_coverage_tokens: 0,
     }))
 }
 
