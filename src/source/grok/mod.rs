@@ -12,7 +12,7 @@ mod unified;
 mod usage;
 
 pub(crate) use config::GrokSource;
-pub(crate) use cost_report::{GrokCostReport, cost_reports};
+pub(crate) use cost_report::{GrokCostReport, load_daily_with_cost_reports};
 
 fn canonical_model_name(model: &str) -> String {
     let normalized = model.trim().to_ascii_lowercase();

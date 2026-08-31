@@ -232,7 +232,7 @@ fn grok_keeps_complete_turn_tokens_and_marks_partial_api_cost() {
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     let table = String::from_utf8(stdout).expect("utf8 table");
     assert!(
-        table.contains("120 / 180 tokens (66.67%, partial)"),
+        table.contains("120 / 180 completed-turn tokens (66.67%, partial)"),
         "table: {table}"
     );
     assert!(

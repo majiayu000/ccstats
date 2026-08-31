@@ -24,7 +24,8 @@ use crate::output::{
 use crate::pricing::{CostDisplayMode, PricingDb};
 use crate::source::{
     Capabilities, CodexScope, CostCoverage, GrokCostReport, Source, all_capabilities, all_sources,
-    grok_cost_reports, load_blocks, load_daily, load_projects, load_sessions, load_tool_calls,
+    load_blocks, load_daily, load_grok_daily_with_cost, load_projects, load_sessions,
+    load_tool_calls,
 };
 use crate::utils::{Timezone, filter_json};
 
@@ -572,13 +573,20 @@ fn handle_period(
         _ => return,
     };
 
-    let result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
+    let (result, grok_reports) = if source.name() == "grok" {
+        let (result, reports) =
+            load_grok_daily_with_cost(ctx.filter, ctx.timezone, false, ctx.cli.debug);
+        (result, Some(reports))
+    } else {
+        (
+            load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug),
+            None,
+        )
+    };
     if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {
         print_no_data_hint(&source_label(source, ctx), "usage");
         return;
     }
-    let grok_reports =
-        (source.name() == "grok").then(|| grok_cost_reports(ctx.filter, ctx.timezone));
     render_period_result(
         &result,
         period,
@@ -586,7 +594,10 @@ fn handle_period(
         codex_scope_for_source(source, ctx),
         grok_reports.as_ref(),
         ctx,
-        CostDisplayMode::Total,
+        grok_reports
+            .as_ref()
+            .filter(|reports| !reports.is_empty())
+            .map_or(CostDisplayMode::Total, |_| CostDisplayMode::RealOnly),
     );
 }
 
