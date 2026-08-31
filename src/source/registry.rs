@@ -11,6 +11,7 @@ use super::cline_extension::{KiloCodeSource, RooCodeSource};
 use super::codex::CodexSource;
 use super::copilot::CopilotSource;
 use super::cursor::CursorSource;
+use super::dsh::DshSource;
 use super::fx::FxSource;
 use super::gemini::GeminiSource;
 use super::goose::GooseSource;
@@ -61,6 +62,7 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(ReasonixSource::new()),
         Box::new(FxSource::new()),
         Box::new(UnslothSource::new()),
+        Box::new(DshSource::new()),
     ]
 });
 
@@ -317,7 +319,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 28);
+        assert_eq!(SOURCES.len(), 29);
     }
 
     #[test]

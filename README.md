@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics across 28 AI coding-agent data sources.
+`ccstats` is a fast CLI for token and cost usage analytics across 29 AI coding-agent data sources.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -25,7 +25,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Pi, Senpi, Kimchi, Gajae Code, Prime Agent, and Oh My Pi JSONL support
 - GitHub Copilot CLI OpenTelemetry and Goose per-call ledger support
 - OpenClaw transcripts, Xum cumulative usage, and Hermes Agent SQLite support
-- Reasonix per-call stats, Vercel Fx generation-ledger, and Unsloth Studio SQLite support
+- Reasonix per-call stats, Vercel Fx generation-ledger, Unsloth Studio SQLite, and DeepSeek Harness session support
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown
@@ -152,6 +152,7 @@ ccstats daily --source prime
 ccstats daily --source omp
 ccstats daily --source copilot
 ccstats daily --source goose
+ccstats daily --source dsh
 ```
 
 Gemini reads both chat JSON and headless JSONL usage. Amp reconciles its usage
@@ -165,6 +166,10 @@ child usage is counted exactly once. Source-recorded OpenCode/Pi-family costs
 and provider-reported Goose ledger costs retain their provenance. Copilot's
 documented monetary field has no published currency code, so it remains
 separate from ccstats' USD estimate instead of being mislabeled.
+DeepSeek Harness reads the durable session ledger rather than message text. It
+reconciles streamed usage with final responses and retries, excludes forked
+history through `seedLength`, counts compaction calls separately, and validates
+plain or concatenated zstd persistence before accepting usage.
 
 ## Crate Documentation
 
@@ -581,7 +586,7 @@ Supported keys:
 | `timezone` | string | IANA timezone such as `UTC` or `Asia/Shanghai` |
 | `locale` | string | Locale used for number formatting, such as `en` or `de` |
 | `currency` | string | Currency code such as `USD`, `CNY`, or `EUR` |
-| `source` | string | Source name or alias such as `claude`, `codex`, `opencode`, `mimocode`, `kilo`, `pi`, `senpi`, `kimchi`, `gjc`, `prime`, `omp`, `copilot`, `goose`, `openclaw`, `xum`, `hermes`, or `all` |
+| `source` | string | Source name or alias such as `claude`, `codex`, `opencode`, `mimocode`, `kilo`, `pi`, `senpi`, `kimchi`, `gjc`, `prime`, `omp`, `copilot`, `goose`, `openclaw`, `xum`, `hermes`, `dsh`, or `all` |
 
 Source root env overrides are independent of config keys:
 
@@ -612,6 +617,7 @@ Source root env overrides are independent of config keys:
 | Hermes Agent | `HERMES_HOME` | Hermes home containing `state.db` | `~/.hermes/state.db` |
 | Reasonix | `REASONIX_STATE_HOME`, then `REASONIX_HOME` | Reasonix state root containing `stats/` | `~/.reasonix` |
 | Vercel Fx | `HOME` | Home containing the `.fx` profile ledger and recovery registry | `~/.fx` |
+| DeepSeek Harness | `DSH_HOME` | DSH root containing `sessions/`; relative paths resolve from the current directory and `~` is expanded | `~/.dsh` |
 
 Cline also recognizes `CLINE_DATA_DIR` and `CLINE_DIR`. Roo Code and Kilo Code
 currently use their standard local directories.
@@ -642,7 +648,7 @@ Table output uses one decimal place and a `%` suffix. JSON uses the numeric
 Claude, Codex, Cursor, Grok, Kimi Code, Gemini CLI, Amp, Qwen Code, Cline, Roo
 Code, Kilo Code, OpenCode, MiMo Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code,
 Prime Agent, Oh My Pi, GitHub Copilot CLI, Goose, OpenClaw, Xum, Hermes Agent,
-Reasonix, and Vercel Fx expose the required cache-read metric. Mixed `--source all` output
+Reasonix, Vercel Fx, and DeepSeek Harness expose the required cache-read metric. Mixed `--source all` output
 reports the aggregate rate across all selected usage.
 
 ### Parsing Warnings
@@ -685,6 +691,7 @@ Warning: ignored <N> malformed records
 | Hermes Agent | `~/.hermes/state.db` | `HERMES_HOME` | Current per-model/task ledger plus session residual, Projects, exact API call counts, reasoning/cache tokens, actual/included cost provenance |
 | Reasonix | `~/.reasonix/stats/YYYY-MM-DD.jsonl` | `REASONIX_STATE_HOME`, `REASONIX_HOME` | Per-call/request aggregates, reasoning/cache normalization, occurrence-time complete USD valuations, isolated parse errors |
 | Vercel Fx | `~/.fx/usage.jsonl` plus canonical-session-validated recovery backlog | `HOME` | Profile-wide generation IDs, exact timestamps and costs, cache/reasoning normalization, duplicate/conflict detection, fail-closed sidecar recovery |
+| DeepSeek Harness | `~/.dsh/sessions/<project>/<session>/session.jsonl[.zstd]` | `DSH_HOME` | Projects, retry-aware call accounting, cache/reasoning tokens, compaction calls, fork ownership, concatenated-zstd recovery |
 
 ## Architecture
 

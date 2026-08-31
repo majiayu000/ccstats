@@ -94,11 +94,13 @@ pub enum UsageSource {
     Fx,
     /// Unsloth Studio chat and authenticated API inference receipts.
     Unsloth,
+    /// `DeepSeek` Harness durable session calls and compaction summaries.
+    Dsh,
 }
 
 impl UsageSource {
     #[cfg(test)]
-    pub(crate) const VARIANTS: [Self; 28] = [
+    pub(crate) const VARIANTS: [Self; 29] = [
         UsageSource::Claude,
         UsageSource::Codex,
         UsageSource::Cursor,
@@ -127,6 +129,7 @@ impl UsageSource {
         UsageSource::Reasonix,
         UsageSource::Fx,
         UsageSource::Unsloth,
+        UsageSource::Dsh,
     ];
 
     #[must_use]
@@ -160,6 +163,7 @@ impl UsageSource {
             UsageSource::Reasonix => "reasonix",
             UsageSource::Fx => "fx",
             UsageSource::Unsloth => "unsloth",
+            UsageSource::Dsh => "dsh",
         }
     }
 
@@ -193,6 +197,7 @@ impl UsageSource {
             "reasonix" => Some(UsageSource::Reasonix),
             "fx" => Some(UsageSource::Fx),
             "unsloth" => Some(UsageSource::Unsloth),
+            "dsh" => Some(UsageSource::Dsh),
             _ => None,
         }
     }

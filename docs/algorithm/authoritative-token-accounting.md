@@ -33,7 +33,7 @@ ccstats 启动时先读取可选的 TOML 配置文件，再根据命令行参数
 | `timezone` | string | IANA 时区，例如 `UTC` / `Asia/Shanghai` |
 | `locale` | string | 数字格式 locale，例如 `en` / `de` |
 | `currency` | string | 货币代码，例如 `USD` / `CNY` / `EUR` |
-| `source` | string | `claude` / `codex` / `cursor` / `grok` / `kimi` / `gemini` / `amp` / `qwen` / `cline` / `roocode` / `kilocode` / `opencode` / `pi` / `copilot` / `goose` / `all` 或别名 |
+| `source` | string | 已注册 source 名或别名，例如 `claude` / `codex` / `opencode` / `pi` / `copilot` / `goose` / `dsh` / `all` |
 
 示例：
 
@@ -73,6 +73,7 @@ cost = "show"
 | GitHub Copilot CLI | `COPILOT_OTEL_FILE_EXPORTER_PATH` | OTel file exporter 的 JSONL 文件 | 另扫描 `~/.copilot/otel/**/*.jsonl` |
 | Goose | `GOOSE_PATH_ROOT`，数据根目录遵循 `XDG_DATA_HOME` | 包含 `data/sessions/sessions.db` 的绝对 path root | `~/.local/share/goose/sessions/sessions.db` |
 | Unsloth Studio | `UNSLOTH_STUDIO_HOME`，其次 `STUDIO_HOME` | 包含 `studio.db` 的 Studio 根目录；展开 `~` | `~/.unsloth/studio` |
+| DeepSeek Harness | `DSH_HOME` | 包含 `sessions/` 的 DSH 根目录；相对路径以当前工作目录为基准，展开 `~` | `~/.dsh` |
 
 ---
 
@@ -106,6 +107,22 @@ Unsloth Studio 的当前 `studio.db` 同时包含两条互斥的推理 usage lan
 - fork 会以新 message ID 复制旧 ancestry。ccstats 使用官方 `(source thread, created_at, role)` keeper 规则：原件存在时忽略 copy；原件删除后只保留字典序最小的 sibling fork copy。
 - API `id` 是幂等键，`total_tokens` 为独立权威值；不同 `subject` 使用不可逆摘要分隔 session，避免把身份字符串暴露到输出。
 - 两张表都没有 source-recorded USD。ccstats 不强制写入 `$0`，而是按模型价格能力进行本地估价并保留未知状态。
+
+## DeepSeek Harness
+
+DeepSeek Harness 的权威持久化载体是
+`<DSH_HOME>/sessions/<project-key>/<encoded-session-id>/session.jsonl.zstd`，
+未启用压缩时同一位置为 `session.jsonl`。一个 sessions root 只允许一种编码；
+parser 只扫描这两层目录，不把备份、临时文件或更深的噪声当会话。
+
+- header 必须是 format version 0。子会话继承的 `seq < seedLength` 归父会话所有，只有 suffix 属于子会话；packed `text-chunks`、reasoning/tool rows 没有 usage，不参与统计。
+- assistant chunk 的 usage 是当前 attempt 的暂存样本；同 turn/step 的最终 assistant message usage 替换它，而不是再次相加。最终 message 没有 usage 时保留 chunk token，但把时间与模型重归属到已验证的最终 message route。`llm/retry-started` 关闭当前样本，下一次 usage 新增一个 attempt，因此失败但已返回 usage 的调用仍可计费。
+- chunk 的 provider/model 来自最近的 request header；成功 message 采用 `message.source`。只有通过 pi-ai replay envelope 版本与 provider/model 一致性校验时，`responseModel` 才可覆盖 route model。
+- compaction/summary 是独立模型调用，使用事件自己的 provider、model、usage 与 compaction ID。`shadowedTokenCount` 是上下文状态，不是新的 token 调用。
+- DSH 原生 input、cache read、cache write、output 相互独立；reasoning 是 output 的子集，所以 ccstats 的 visible output 为 `output - reasoning`。`totalTokens` 是独立权威总量，允许与分量和不同，只通过 `reported_total_adjustment` 校准展示总数。
+- 普通 JSONL 只忽略未换行的最终半行。zstd 是多个独立、带 checksum 的 frame 串接：完整 frame 必须全部通过结构、解压和 checksum 校验；仅未完成且压缩前缀本身有效的最后一帧可保留其中已经完整换行的 JSONL 行。单个压缩载体及其解压结果各有 128 MiB 显式保护上限，超限作为该会话的 parse error。读取前后还会核对文件 revision，避免把并发 append 的中间态当稳定账本。
+- 每个逻辑事件的 seq 必须从 0 连续递增，packed row 按成员数推进序号；header 的 cwd/id 必须重新编码后指向当前物理文件。当前官方事件词汇之外的记录只有显式带 `ignorable: true` 才可跳过。
+- 会话没有 source-recorded USD，费用由统一价格层估算。负 token、cache/reasoning 越界、无效时间、未知 format、混用编码或已提交 frame 损坏都会成为 parse error，不静默降级为零。
 
 ### 费用公式
 
