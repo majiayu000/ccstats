@@ -425,10 +425,10 @@ fn render_period_result(
     period: Period,
     caps: &Capabilities,
     codex_scope: Option<CodexScope>,
-    cost_coverage: Option<CostCoverage>,
     ctx: &CommandContext<'_>,
     cost_mode: CostDisplayMode,
 ) {
+    let cost_coverage = CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
     let monthly_budget = (period == Period::Month)
         .then_some(ctx.cli.monthly_budget)
         .flatten();
@@ -494,7 +494,7 @@ fn render_period_result(
                 );
                 json = add_monthly_budget_to_json(&json, &reports);
             }
-            json = cost_coverage::annotate_json(&json, cost_coverage);
+            json = cost_coverage::annotate_json(&json, &result.day_stats, period);
             json = codex_scope::annotate_json(&json, codex_scope);
             print_json(&json, ctx.jq_filter);
         }
@@ -565,7 +565,6 @@ fn handle_period(
         period,
         caps,
         codex_scope_for_source(source, ctx),
-        source.cost_coverage(ctx.filter, ctx.timezone),
         ctx,
         CostDisplayMode::Total,
     );
@@ -664,21 +663,7 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
         print_no_data_hint("All Sources", "usage");
         return;
     }
-    let cost_coverage = all_sources()
-        .filter_map(|source| source.cost_coverage(ctx.filter, ctx.timezone))
-        .reduce(|left, right| CostCoverage {
-            total_tokens: left.total_tokens.saturating_add(right.total_tokens),
-            priced_tokens: left.priced_tokens.saturating_add(right.priced_tokens),
-        });
-    render_period_result(
-        &result,
-        period,
-        &caps,
-        None,
-        cost_coverage,
-        ctx,
-        CostDisplayMode::RealOnly,
-    );
+    render_period_result(&result, period, &caps, None, ctx, CostDisplayMode::RealOnly);
 }
 
 /// Handle aggregate commands across every registered data source.

@@ -13,7 +13,7 @@ mod registry;
 
 use std::path::{Path, PathBuf};
 
-use crate::core::{DateFilter, RawEntry, ToolCall};
+use crate::core::{DateFilter, RawEntry, Stats, ToolCall};
 use crate::utils::Timezone;
 
 /// Coverage of a locally calculated API-equivalent cost.
@@ -21,9 +21,26 @@ use crate::utils::Timezone;
 pub(crate) struct CostCoverage {
     pub(crate) total_tokens: i64,
     pub(crate) priced_tokens: i64,
+    pub(crate) estimated_proxy: i64,
 }
 
 impl CostCoverage {
+    pub(crate) fn from_stats<'a>(stats: impl IntoIterator<Item = &'a Stats>) -> Option<Self> {
+        let mut coverage = Self::default();
+        for stats in stats {
+            coverage.total_tokens = coverage
+                .total_tokens
+                .saturating_add(stats.api_equivalent_coverage_tokens);
+            coverage.priced_tokens = coverage
+                .priced_tokens
+                .saturating_add(stats.api_equivalent_priced_tokens);
+            coverage.estimated_proxy = coverage
+                .estimated_proxy
+                .saturating_add(stats.estimated_proxy.total_tokens());
+        }
+        (coverage.total_tokens > 0 || coverage.priced_tokens > 0).then_some(coverage)
+    }
+
     pub(crate) fn percent(self) -> f64 {
         if self.total_tokens <= 0 {
             0.0
@@ -35,6 +52,10 @@ impl CostCoverage {
 
     pub(crate) fn is_partial(self) -> bool {
         self.total_tokens <= 0 || self.priced_tokens != self.total_tokens
+    }
+
+    pub(crate) fn cost_is_lower_bound(self) -> bool {
+        self.is_partial() && self.estimated_proxy == 0
     }
 }
 
@@ -121,9 +142,8 @@ pub(crate) trait Source: Send + Sync {
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
 
-    /// Coverage metadata when a source prices only observed request records.
-    fn cost_coverage(&self, _filter: &DateFilter, _timezone: Timezone) -> Option<CostCoverage> {
-        None
+    fn finalize_entries(&self, entries: Vec<RawEntry>) -> Vec<RawEntry> {
+        entries
     }
 
     /// Find files that may contain tool-call records for this source.
@@ -174,6 +194,7 @@ mod cost_coverage_tests {
         let coverage = CostCoverage {
             total_tokens: 0,
             priced_tokens: 120,
+            estimated_proxy: 0,
         };
 
         assert!(coverage.is_partial());

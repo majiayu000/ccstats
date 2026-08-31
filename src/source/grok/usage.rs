@@ -187,6 +187,15 @@ fn looks_like_turn_completed_record(line: &str) -> bool {
         })
 }
 
+fn coverage_tokens(usage: &NormalizedUsage) -> i64 {
+    usage
+        .input_tokens
+        .saturating_add(usage.output_tokens)
+        .saturating_add(usage.reasoning_tokens)
+        .saturating_add(usage.cache_creation)
+        .saturating_add(usage.cache_read)
+}
+
 fn parse_turn_line(
     line: &str,
     timezone: Timezone,
@@ -287,6 +296,8 @@ fn parse_turn_line(
             endpoint: crate::core::Endpoint::Unknown,
             call_count: normalized.call_count,
             recorded_cost_usd: normalized.recorded_cost_usd,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: coverage_tokens(&normalized),
         });
     }
     Ok(Some(entries).filter(|entries| !entries.is_empty()))

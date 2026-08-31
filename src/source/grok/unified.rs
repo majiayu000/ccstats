@@ -16,8 +16,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{CostKind, DateFilter, DedupAccumulator, RawEntry};
-use crate::source::{CostCoverage, ParseOutput};
+use crate::core::{CostKind, RawEntry};
+use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
 const APP_CACHE_DIR: &str = "ccstats";
@@ -523,93 +523,16 @@ fn records_to_parse_output(
                 endpoint: crate::core::Endpoint::Unknown,
                 call_count: 0,
                 recorded_cost_usd,
+                api_equivalent_priced_tokens: if recorded_cost_usd.is_some() {
+                    prompt_tokens.saturating_add(completion_tokens)
+                } else {
+                    0
+                },
+                api_equivalent_coverage_tokens: 0,
             })
         })
         .collect();
     ParseOutput { entries, errors }
-}
-
-pub(super) fn cost_coverage(filter: &DateFilter, timezone: Timezone) -> Option<CostCoverage> {
-    cost_coverage_from_files(&find_grok_files(), filter, timezone)
-}
-
-fn cost_coverage_from_files(
-    files: &[PathBuf],
-    filter: &DateFilter,
-    timezone: Timezone,
-) -> Option<CostCoverage> {
-    let mut usage = DedupAccumulator::new();
-    let mut priced_tokens = 0_i64;
-
-    for path in files {
-        match path.file_name().and_then(|name| name.to_str()) {
-            Some(LEDGER_FILE) => {
-                let Ok(records) = load_ledger(path) else {
-                    continue;
-                };
-                priced_tokens = priced_tokens.saturating_add(priced_tokens_in_records(
-                    records.into_values(),
-                    filter,
-                    timezone,
-                ));
-            }
-            Some(UNIFIED_LOG) => {
-                let sessions_dir = grok_home()
-                    .map(|home| home.join("sessions"))
-                    .unwrap_or_default();
-                let Ok(records) = read_inference_records(path, &sessions_dir) else {
-                    continue;
-                };
-                priced_tokens = priced_tokens
-                    .saturating_add(priced_tokens_in_records(records, filter, timezone));
-            }
-            _ => {
-                let parsed = super::parser::parse_grok_usage_file_with_debug(path, timezone, false);
-                usage.extend(parsed.entries.into_iter().filter(|entry| {
-                    chrono::NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
-                        .is_ok_and(|date| filter.contains(date))
-                }));
-            }
-        }
-    }
-
-    let (entries, _) = usage.finalize();
-    let total_tokens = entries.into_iter().fold(0_i64, |total, entry| {
-        total.saturating_add(entry.to_stats().total_tokens())
-    });
-    if total_tokens == 0 && priced_tokens == 0 {
-        None
-    } else {
-        Some(CostCoverage {
-            total_tokens,
-            priced_tokens,
-        })
-    }
-}
-
-fn priced_tokens_in_records(
-    records: impl IntoIterator<Item = InferenceRecord>,
-    filter: &DateFilter,
-    timezone: Timezone,
-) -> i64 {
-    records.into_iter().fold(0_i64, |total, record| {
-        let Ok(utc_dt) = record.timestamp.parse::<DateTime<Utc>>() else {
-            return total;
-        };
-        let date = timezone.to_fixed_offset(utc_dt).date_naive();
-        if !filter.contains(date) {
-            return total;
-        }
-        let prompt_tokens = record.prompt_tokens.max(0);
-        let cache_read = record.cached_prompt_tokens.clamp(0, prompt_tokens);
-        let completion_tokens = record.completion_tokens.max(0);
-        if api_cost_usd(&record.model, prompt_tokens, cache_read, completion_tokens).is_none() {
-            return total;
-        }
-        total
-            .saturating_add(prompt_tokens)
-            .saturating_add(completion_tokens)
-    })
 }
 
 #[cfg(test)]
