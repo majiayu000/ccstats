@@ -236,9 +236,33 @@ fn grok_keeps_complete_turn_tokens_and_marks_partial_api_cost() {
         "table: {table}"
     );
     assert!(
+        table.contains("API Eq. Price") && table.contains("~$0.00"),
+        "table: {table}"
+    );
+    assert!(
         table.contains("Provider metric: $2.50") && table.contains("Actual billed: unavailable"),
         "table: {table}"
     );
+
+    let daily_args = [
+        "grok",
+        "daily",
+        "-O",
+        "--timezone",
+        "UTC",
+        "--since",
+        "2026-08-17",
+        "--until",
+        "2026-08-17",
+    ];
+    let (ok, stdout, stderr) = run_ccstats(&daily_args, &env);
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let table = String::from_utf8(stdout).expect("utf8 daily table");
+    let row = table
+        .lines()
+        .find(|line| line.contains("2026-08-17"))
+        .expect("zero-coverage daily row");
+    assert!(row.contains("N/A"), "row: {row}");
 
     let _ = fs::remove_dir_all(root);
 }

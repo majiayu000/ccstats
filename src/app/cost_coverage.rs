@@ -180,6 +180,37 @@ pub(crate) fn selected_grok_report(
     reports.and_then(|reports| reports.values().copied().reduce(GrokCostReport::merge))
 }
 
+pub(crate) fn table_cost_displays(
+    reports: &HashMap<String, GrokCostReport>,
+    period: Period,
+    currency: Option<&CurrencyConverter>,
+) -> (HashMap<String, String>, String) {
+    let aggregated = aggregate_grok_reports(reports, period);
+    let rows = aggregated
+        .iter()
+        .map(|(key, report)| (key.clone(), table_cost_display(*report, currency)))
+        .collect();
+    let total = reports
+        .values()
+        .copied()
+        .reduce(GrokCostReport::merge)
+        .map_or_else(
+            || "N/A".to_string(),
+            |report| table_cost_display(report, currency),
+        );
+    (rows, total)
+}
+
+fn table_cost_display(report: GrokCostReport, currency: Option<&CurrencyConverter>) -> String {
+    if report.status() == "complete" {
+        return format_cost(report.observed_api_cost_usd, currency);
+    }
+    report.estimated_api_cost_usd().map_or_else(
+        || "N/A".to_string(),
+        |cost| format!("~{}", format_cost(cost, currency)),
+    )
+}
+
 fn aggregate_grok_reports(
     reports: &HashMap<String, GrokCostReport>,
     period: Period,
