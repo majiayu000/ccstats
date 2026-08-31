@@ -243,6 +243,7 @@ fn usage_entry(
         cost_kind: CostKind::Real,
         endpoint: Endpoint::Unknown,
         call_count: context.call_count,
+        reported_total_tokens: None,
         recorded_cost_usd: normalized.recorded_cost_usd,
     }))
 }

@@ -371,6 +371,7 @@ fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput
             cost_kind: CostKind::Real,
             endpoint: Endpoint::Unknown,
             call_count: 0,
+            reported_total_tokens: None,
             recorded_cost_usd,
         });
     }

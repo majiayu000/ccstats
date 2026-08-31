@@ -6,7 +6,7 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast CLI for token and cost usage analytics across 27 AI coding-agent data sources.
+`ccstats` is a fast CLI for token and cost usage analytics across 28 AI coding-agent data sources.
 
 Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage stats`, `token usage cli`, `ai token cost tracker`.
 
@@ -25,7 +25,7 @@ Search keywords: `claude code usage stats`, `codex usage stats`, `cursor usage s
 - Pi, Senpi, Kimchi, Gajae Code, Prime Agent, and Oh My Pi JSONL support
 - GitHub Copilot CLI OpenTelemetry and Goose per-call ledger support
 - OpenClaw transcripts, Xum cumulative usage, and Hermes Agent SQLite support
-- Reasonix per-call stats and Vercel Fx generation-ledger support
+- Reasonix per-call stats, Vercel Fx generation-ledger, and Unsloth Studio SQLite support
 - Daily/weekly/monthly/project/session views
 - Top-N leaderboard ranking models or projects by cost share
 - Optional model-level token and cost breakdown

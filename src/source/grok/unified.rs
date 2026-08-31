@@ -520,6 +520,7 @@ fn records_to_parse_output(
                 cost_kind: CostKind::Real,
                 endpoint: crate::core::Endpoint::Unknown,
                 call_count: 1,
+                reported_total_tokens: None,
                 recorded_cost_usd,
             })
         })

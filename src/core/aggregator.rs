@@ -280,6 +280,7 @@ mod tests {
             cost_kind: crate::core::CostKind::Real,
             endpoint: Endpoint::Unknown,
             call_count: 1,
+            reported_total_tokens: None,
             recorded_cost_usd: None,
         }
     }
@@ -510,6 +511,7 @@ mod tests {
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
                 call_count: 1,
+                reported_total_tokens: None,
                 recorded_cost_usd: None,
             },
             RawEntry {
@@ -531,6 +533,7 @@ mod tests {
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
                 call_count: 1,
+                reported_total_tokens: None,
                 recorded_cost_usd: None,
             },
             RawEntry {
@@ -552,6 +555,7 @@ mod tests {
                 cost_kind: crate::core::CostKind::Real,
                 endpoint: Endpoint::Unknown,
                 call_count: 1,
+                reported_total_tokens: None,
                 recorded_cost_usd: None,
             },
         ];

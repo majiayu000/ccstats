@@ -610,6 +610,7 @@ fn entry_from_database_message(
         cost_kind: CostKind::Real,
         endpoint: Endpoint::Unknown,
         call_count: 1,
+        reported_total_tokens: None,
         recorded_cost_usd,
     }))
 }

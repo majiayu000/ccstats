@@ -403,6 +403,7 @@ pub(super) fn parse_grok_session_file_with_debug(
             cost_kind: CostKind::EstimatedProxy,
             endpoint: crate::core::Endpoint::Unknown,
             call_count: 1,
+            reported_total_tokens: None,
             recorded_cost_usd: None,
         }],
         errors,

@@ -23,6 +23,7 @@ use super::pi::{KimchiSource, PiSource, SenpiSource};
 use super::pi_forks::{GjcSource, OmpSource, PrimeSource};
 use super::qwen::QwenSource;
 use super::reasonix::ReasonixSource;
+use super::unsloth::UnslothSource;
 use super::xum::XumSource;
 use super::{BoxedSource, Source};
 
@@ -59,6 +60,7 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(HermesSource::new()),
         Box::new(ReasonixSource::new()),
         Box::new(FxSource::new()),
+        Box::new(UnslothSource::new()),
     ]
 });
 
@@ -184,6 +186,7 @@ mod tests {
         assert!(get_source("roocode").is_some());
         assert!(get_source("senpi").is_some());
         assert!(get_source("fx").is_some());
+        assert!(get_source("unsloth").is_some());
         assert!(get_source("unknown").is_none());
     }
 
@@ -314,7 +317,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 27);
+        assert_eq!(SOURCES.len(), 28);
     }
 
     #[test]

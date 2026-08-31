@@ -27,6 +27,7 @@ mod pi_forks;
 mod pi_paths;
 mod qwen;
 mod registry;
+mod unsloth;
 mod xum;
 
 mod reasonix {
@@ -332,6 +333,7 @@ mod reasonix {
                 } else {
                     1
                 },
+                reported_total_tokens: None,
                 recorded_cost_usd,
             },
             cost_error,

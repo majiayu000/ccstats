@@ -336,6 +336,7 @@ fn parse_entry_with_debug(
         cost_kind: crate::core::CostKind::Real,
         endpoint,
         call_count: 1,
+        reported_total_tokens: None,
         recorded_cost_usd: None,
     })
 }

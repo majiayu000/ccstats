@@ -204,6 +204,7 @@ fn entry_from_row(row: &HermesRow, timezone: Timezone) -> Result<Option<RawEntry
         cost_kind: CostKind::Real,
         endpoint: Endpoint::Unknown,
         call_count: row.call_count,
+        reported_total_tokens: None,
         recorded_cost_usd,
     }))
 }
