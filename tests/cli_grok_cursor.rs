@@ -190,6 +190,32 @@ fn grok_keeps_complete_turn_tokens_and_marks_partial_api_cost() {
     assert_close(coverage["percent"].as_f64().unwrap(), 66.666_666_666_666_66);
     assert_eq!(coverage["complete"].as_bool(), Some(false));
     assert_eq!(coverage["cost_is_lower_bound"].as_bool(), Some(true));
+    let summary = &row["grok_cost_summary"];
+    assert_close(
+        summary["api_equivalent"]["observed_usd"].as_f64().unwrap(),
+        0.000_252,
+    );
+    assert_close(
+        summary["api_equivalent"]["estimated_usd"].as_f64().unwrap(),
+        0.000_395,
+    );
+    assert_close(
+        summary["api_equivalent"]["range_usd"]["minimum"]
+            .as_f64()
+            .unwrap(),
+        0.000_395,
+    );
+    assert_close(
+        summary["api_equivalent"]["range_usd"]["maximum"]
+            .as_f64()
+            .unwrap(),
+        0.000_538,
+    );
+    assert_close(
+        summary["provider_metric"]["reported_usd"].as_f64().unwrap(),
+        2.5,
+    );
+    assert!(summary["actual_billed_usd"].is_null());
 
     let table_args = [
         "grok",
@@ -206,11 +232,11 @@ fn grok_keeps_complete_turn_tokens_and_marks_partial_api_cost() {
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     let table = String::from_utf8(stdout).expect("utf8 table");
     assert!(
-        table.contains("120 / 180 tokens (66.67%)"),
+        table.contains("120 / 180 tokens (66.67%, partial)"),
         "table: {table}"
     );
     assert!(
-        table.contains("displayed cost is a lower bound"),
+        table.contains("Provider metric: $2.50") && table.contains("Actual billed: unavailable"),
         "table: {table}"
     );
 
@@ -809,16 +835,26 @@ fn grok_daily_json_uses_turn_tokens_without_treating_cost_ticks_as_api_price() {
     assert_eq!(arr[0]["total_tokens"].as_i64(), Some(120));
     assert_close(arr[0]["cache_hit_rate"].as_f64().unwrap(), 40.0);
     assert_close(arr[0]["cost"].as_f64().unwrap(), 0.0);
-    assert_eq!(arr[0]["pricing_source"].as_str(), Some("recorded"));
+    assert_eq!(
+        arr[0]["pricing_source"].as_str(),
+        Some("calculated_api_equivalent")
+    );
     assert!(arr[0].get("cost_kind").is_none() || arr[0]["cost_kind"].is_null());
     assert_eq!(
         arr[0]["models"].as_array().unwrap()[0].as_str(),
-        Some("grok-4.5-build")
+        Some("grok-4.5")
     );
     let coverage = &arr[0]["api_equivalent_cost_coverage"];
     assert_eq!(coverage["total_tokens"].as_i64(), Some(120));
     assert_eq!(coverage["priced_tokens"].as_i64(), Some(0));
     assert_eq!(coverage["cost_is_lower_bound"].as_bool(), Some(true));
+    let summary = &arr[0]["grok_cost_summary"];
+    assert!(summary["api_equivalent"]["estimated_usd"].is_null());
+    assert_close(
+        summary["provider_metric"]["reported_usd"].as_f64().unwrap(),
+        2.0,
+    );
+    assert!(summary["actual_billed_usd"].is_null());
 
     let _ = fs::remove_dir_all(root);
 }

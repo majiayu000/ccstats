@@ -16,7 +16,21 @@ fn default_opts() -> TokenTableOptions<'static> {
         supports_cache_read: false,
         currency: None,
         cost_mode: CostDisplayMode::Total,
+        cost_label: "Cost",
+        pricing_note_override: None,
     }
+}
+
+#[test]
+fn header_can_label_observed_api_equivalent_cost() {
+    let cfg = period_config(Period::Day);
+    let opts = TokenTableOptions {
+        show_cost: true,
+        cost_label: "Observed API Eq.",
+        ..default_opts()
+    };
+    let h = build_header(&cfg, false, &opts);
+    assert_eq!(h.last().unwrap().content(), "Observed API Eq.");
 }
 
 #[test]

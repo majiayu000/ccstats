@@ -31,7 +31,7 @@ fn week_start(date_str: &str) -> String {
     }
 }
 
-fn period_key(date: &str, period: Period) -> String {
+pub(crate) fn period_key(date: &str, period: Period) -> String {
     match period {
         Period::Day => date.to_string(),
         Period::Week => week_start(date),

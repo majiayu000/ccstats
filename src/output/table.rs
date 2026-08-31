@@ -27,6 +27,8 @@ pub(crate) struct TokenTableOptions<'a> {
     pub(crate) supports_cache_read: bool,
     pub(crate) currency: Option<&'a CurrencyConverter>,
     pub(crate) cost_mode: CostDisplayMode,
+    pub(crate) cost_label: &'a str,
+    pub(crate) pricing_note_override: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -105,7 +107,7 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         h.push(header_cell("Cache Hit", c));
         h.push(header_cell("Total", c));
         if opts.show_cost {
-            h.push(header_cell("Cost", c));
+            h.push(header_cell(opts.cost_label, c));
         }
         h
     } else if breakdown {
@@ -123,7 +125,7 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         h.push(header_cell("Cache Read", c));
         h.push(header_cell("Cache Hit", c));
         if opts.show_cost {
-            h.push(header_cell("Cost", c));
+            h.push(header_cell(opts.cost_label, c));
         }
         h
     } else {
@@ -142,7 +144,7 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         h.push(header_cell("Cache Hit", c));
         h.push(header_cell("Total", c));
         if opts.show_cost {
-            h.push(header_cell("Cost", c));
+            h.push(header_cell(opts.cost_label, c));
         }
         h
     }
@@ -515,11 +517,14 @@ pub(crate) fn print_period_table(
             ),
         }
     }
-    if options.show_cost
-        && let Some(note) =
+    if options.show_cost {
+        if let Some(note) = options.pricing_note_override {
+            println!("\n  {note}");
+        } else if let Some(note) =
             pricing_meta::note_for_maps(stats_ref.values().map(|data| &data.models), pricing_db)
-    {
-        println!("\n  {note}");
+        {
+            println!("\n  {note}");
+        }
     }
     print_summary_line(
         summary.valid,
