@@ -436,7 +436,7 @@ fn top_pricing_note(rows: &[TopRow]) -> Option<String> {
             Some("Pricing source: fallback estimates.".to_string())
         }
         crate::pricing::PricingSource::Recorded => {
-            Some("Pricing source: recorded provider cost.".to_string())
+            Some("Pricing source: recorded source cost.".to_string())
         }
         crate::pricing::PricingSource::Unknown => {
             Some("Pricing source: unknown unpriced models.".to_string())
