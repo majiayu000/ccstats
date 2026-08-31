@@ -29,7 +29,17 @@ pub(crate) fn load_weekly_window_usage_from_home(
 ) -> Result<CodexWindowUsage, CodexQuotaError> {
     let sessions_dir = resolve_sessions_dir(codex_home)?;
     validate_sessions_dir(&sessions_dir)?;
-    let files = codex_files_since(discover_quota_files(&sessions_dir)?, window_started_at)?;
+    let mut files = discover_quota_files(&sessions_dir)?;
+    let archived_dir = sessions_dir
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join("archived_sessions");
+    match validate_sessions_dir(&archived_dir) {
+        Ok(()) => files.extend(discover_quota_files(&archived_dir)?),
+        Err(CodexQuotaError::SessionsDirectoryNotFound { .. }) if !archived_dir.exists() => {}
+        Err(error) => return Err(error),
+    }
+    let files = codex_files_since(files, window_started_at)?;
     load_weekly_window_usage_from_files(observed_at, window_started_at, &files)
 }
 
@@ -99,11 +109,12 @@ fn load_weekly_window_usage_from_files(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::io::Write as _;
 
     use chrono::{DateTime, Duration};
     use serde_json::json;
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, tempdir};
 
     use super::*;
     use crate::source::{CodexQuotaStatus, CodexWeeklyQuota};
@@ -176,6 +187,25 @@ mod tests {
         assert_eq!(usage.valid_entries, 2);
         assert_eq!(usage.stats.total_tokens(), 500);
         assert_eq!(usage.models["gpt-5"].total_tokens(), 500);
+    }
+
+    #[test]
+    fn home_window_usage_includes_archived_sessions() {
+        let home = tempdir().unwrap();
+        fs::create_dir_all(home.path().join("sessions")).unwrap();
+        let archived = home.path().join("archived_sessions/archived.jsonl");
+        fs::create_dir_all(archived.parent().unwrap()).unwrap();
+        fs::write(&archived, usage_event("2026-08-21T00:00:00Z", 100, 100)).unwrap();
+
+        let usage = load_weekly_window_usage_from_home(
+            "2026-08-22T00:00:00Z".parse().unwrap(),
+            "2026-08-20T00:00:00Z".parse().unwrap(),
+            Some(home.path()),
+        )
+        .unwrap();
+
+        assert_eq!(usage.valid_entries, 1);
+        assert_eq!(usage.stats.total_tokens(), 100);
     }
 
     #[test]
