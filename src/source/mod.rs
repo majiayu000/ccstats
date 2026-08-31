@@ -13,8 +13,11 @@ mod cursor;
 mod gemini;
 mod goose;
 mod grok;
+mod hermes;
 mod kimi;
 mod loader;
+mod openclaw;
+mod openclaw_store;
 mod opencode;
 mod opencode_fork;
 mod pi;
@@ -25,6 +28,7 @@ mod pi_paths;
 mod qwen;
 mod registry;
 mod tool_loader;
+mod xum;
 
 use std::path::{Path, PathBuf};
 

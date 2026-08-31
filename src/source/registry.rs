@@ -14,11 +14,14 @@ use super::cursor::CursorSource;
 use super::gemini::GeminiSource;
 use super::goose::GooseSource;
 use super::grok::GrokSource;
+use super::hermes::HermesSource;
 use super::kimi::KimiSource;
+use super::openclaw::OpenClawSource;
 use super::opencode::{KiloCliSource, MiMoCodeSource, OpenCodeSource};
 use super::pi::{KimchiSource, PiSource, SenpiSource};
 use super::pi_forks::{GjcSource, OmpSource, PrimeSource};
 use super::qwen::QwenSource;
+use super::xum::XumSource;
 use super::{BoxedSource, Source};
 
 /// Pseudo-source that aggregates every registered source.
@@ -49,6 +52,9 @@ static SOURCES: LazyLock<Vec<BoxedSource>> = LazyLock::new(|| {
         Box::new(OmpSource::new()),
         Box::new(CopilotSource::new()),
         Box::new(GooseSource::new()),
+        Box::new(OpenClawSource::new()),
+        Box::new(XumSource::new()),
+        Box::new(HermesSource::new()),
     ]
 });
 
@@ -302,7 +308,7 @@ mod tests {
     #[test]
     fn test_sources_count() {
         // Verify all built-in sources are registered
-        assert_eq!(SOURCES.len(), 22);
+        assert_eq!(SOURCES.len(), 25);
     }
 
     #[test]
