@@ -379,14 +379,18 @@ fn task_residual_entry(
         else {
             continue;
         };
+        let child_entries = parse_file(&child_path, timezone, false, ForkProfile::gjc())
+            .entries
+            .into_iter()
+            .filter(|entry| entry.call_count > 0)
+            .collect::<Vec<_>>();
+        if child_entries.is_empty() {
+            continue;
+        }
         if let Some(usage) = result.usage.clone() {
             totals.add_usage(usage)?;
         } else {
-            for child_entry in parse_file(&child_path, timezone, false, ForkProfile::gjc())
-                .entries
-                .into_iter()
-                .filter(|entry| entry.call_count > 0)
-            {
+            for child_entry in child_entries {
                 totals.add_entry(&child_entry)?;
             }
         }
@@ -629,8 +633,20 @@ fn emit_entries(
                 {
                     subtract_prime_children(aggregate, &attribution.children).map(Some)
                 } else if let Some(parent) = header.parent_session.as_deref() {
-                    prime_ancestor_usage(path, parent, &entry.id)
-                        .map(|usage| usage.or_else(|| entry.message.usage.clone()))
+                    match prime_ancestor_usage(path, parent, &entry.id) {
+                        Ok(usage) => Ok(usage.or_else(|| entry.message.usage.clone())),
+                        Err(error) => {
+                            output.errors += 1;
+                            if debug {
+                                eprintln!(
+                                    "Invalid {} ancestor usage in {}: {error}",
+                                    profile.display_name,
+                                    path.display()
+                                );
+                            }
+                            Ok(entry.message.usage.clone())
+                        }
+                    }
                 } else {
                     Ok(entry.message.usage.clone())
                 }
@@ -733,12 +749,15 @@ fn parse_file(path: &Path, timezone: Timezone, debug: bool, profile: ForkProfile
         }
     };
 
+    let replayed = replay_records(lines, path, debug, profile, &mut header);
     if profile.source == "gjc"
         && let Some(project) = inherited_project_path(path, header.parent_session.as_deref())
     {
         header.cwd = project;
     }
-
-    let replayed = replay_records(lines, path, debug, profile, &mut header);
     emit_entries(path, replayed, &header, timezone, debug, profile)
 }
+
+#[cfg(test)]
+#[path = "pi_forks_tests.rs"]
+mod tests;

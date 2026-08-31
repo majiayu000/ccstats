@@ -412,6 +412,9 @@ fn residual_from_session(
     {
         return Err("invalid session aggregate");
     }
+    if subtotal.is_some_and(|value| value.output > row.output || value.reasoning > row.reasoning) {
+        return Err("session aggregate is below detail subtotal");
+    }
     row.call_count = (row.call_count - subtotal.map_or(0, |v| v.call_count)).max(0);
     row.input = (row.input - subtotal.map_or(0, |v| v.input)).max(0);
     if row.reasoning > row.output || subtotal.is_some_and(|value| value.reasoning > value.output) {
@@ -430,3 +433,7 @@ fn residual_from_session(
     row.actual_cost = (row.actual_cost - subtotal.map_or(0.0, |v| v.actual_cost)).max(0.0);
     Ok(row)
 }
+
+#[cfg(test)]
+#[path = "hermes_tests.rs"]
+mod tests;

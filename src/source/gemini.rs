@@ -165,7 +165,6 @@ struct GeminiTokens {
     cached: i64,
     reasoning: i64,
     tool: i64,
-    total: Option<i64>,
 }
 
 fn session_tokens(value: &Value) -> GeminiTokens {
@@ -199,25 +198,13 @@ fn session_tokens(value: &Value) -> GeminiTokens {
         .unwrap_or(0),
         reasoning: first_i64(value, &["thoughts", "reasoning", "thoughts_tokens"]).unwrap_or(0),
         tool: first_i64(value, &["tool", "tool_tokens"]).unwrap_or(0),
-        total: first_i64(value, &["total", "totalTokenCount", "total_tokens"]),
     }
 }
 
 fn normalized_session_input(tokens: &GeminiTokens) -> (i64, i64) {
     let input = tokens.input.max(0);
     let cached = tokens.cached.max(0);
-    let Some(total) = tokens.total.map(|value| value.max(0)) else {
-        return (input, cached);
-    };
-    let inclusive_total = input
-        .saturating_add(tokens.output.max(0))
-        .saturating_add(tokens.reasoning.max(0))
-        .saturating_add(tokens.tool.max(0));
-    if cached > 0 && total == inclusive_total {
-        (input.saturating_sub(cached.min(input)), cached)
-    } else {
-        (input, cached)
-    }
+    (input.saturating_sub(cached.min(input)), cached)
 }
 
 fn build_entry(
@@ -391,9 +378,11 @@ fn entries_from_stats(
             let (input, cached) = if usage.input_includes_cache {
                 let input = usage.input.max(0);
                 let cached = usage.cached.max(0);
-                (input.saturating_sub(cached.min(input)), cached)
+                (input, cached)
             } else {
-                (usage.input.max(0), usage.cached.max(0))
+                let input = usage.input.max(0);
+                let cached = usage.cached.max(0);
+                (input.saturating_add(cached), cached)
             };
             build_entry(
                 path,
@@ -661,6 +650,43 @@ mod tests {
         assert_eq!(entry.cache_read, 200);
         assert_eq!(entry.reasoning_tokens, 20);
         assert_eq!(entry.date_str, "2026-08-31");
+    }
+
+    #[test]
+    fn session_json_normalizes_cached_input_without_total() {
+        let tokens = GeminiTokens {
+            input: 1_000,
+            output: 50,
+            cached: 200,
+            reasoning: 20,
+            tool: 5,
+        };
+
+        assert_eq!(normalized_session_input(&tokens), (800, 200));
+    }
+
+    #[test]
+    fn headless_cache_inclusive_input_is_normalized_once() {
+        let mut errors = 0;
+        let entries = parse_headless_value(
+            Path::new("event.jsonl"),
+            &serde_json::json!({
+                "timestamp": "2026-08-31T03:04:05Z",
+                "stats": {
+                    "tokens": {"input": 100, "output": 5, "cached": 20}
+                }
+            }),
+            Timezone::Named(chrono_tz::UTC),
+            "session-1",
+            Some("gemini-2.5-pro".to_string()),
+            None,
+            &mut errors,
+        );
+
+        assert_eq!(errors, 0);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].input_tokens, 80);
+        assert_eq!(entries[0].cache_read, 20);
     }
 
     #[test]

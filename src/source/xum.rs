@@ -140,6 +140,13 @@ fn valid_rollup_parent(path: &Path, usage: &UsageFile) -> bool {
             .any(|bucket| bucket.tokens > 0 || bucket.cost_usd.is_some_and(|cost| cost > 0.0))
 }
 
+fn invalid_rollup_output(path: &Path, usage: &UsageFile, errors: usize) -> Option<ParseOutput> {
+    (!usage.rolled_up_from.is_empty() && !valid_rollup_parent(path, usage)).then_some(ParseOutput {
+        entries: Vec::new(),
+        errors: errors + 1,
+    })
+}
+
 fn workspace_id(path: &Path) -> Option<String> {
     path.parent()
         .and_then(Path::file_name)
@@ -307,6 +314,9 @@ fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput
             };
         }
     };
+    if let Some(output) = invalid_rollup_output(path, &usage, rollup_errors) {
+        return output;
+    }
     let timestamp_ms = usage
         .last_request
         .map(|request| request.timestamp)
