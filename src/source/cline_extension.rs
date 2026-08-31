@@ -198,43 +198,6 @@ fn numeric_timestamp(value: i64) -> Option<i64> {
     }
 }
 
-fn extract_tag(block: &str, tag: &str) -> Option<String> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let start = block.find(&open)? + open.len();
-    let rest = &block[start..];
-    let end = rest.find(&close)?;
-    let value = rest[..end].trim();
-    (!value.is_empty()).then(|| value.to_string())
-}
-
-fn task_model(path: &Path) -> String {
-    const START: &str = "<environment_details>";
-    const END: &str = "</environment_details>";
-
-    let history = path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("api_conversation_history.json");
-    let Ok(content) = fs::read_to_string(history) else {
-        return UNKNOWN.to_string();
-    };
-    let mut offset = 0;
-    let mut model = None;
-    while let Some(relative_start) = content[offset..].find(START) {
-        let start = offset + relative_start + START.len();
-        let Some(relative_end) = content[start..].find(END) else {
-            break;
-        };
-        let end = start + relative_end;
-        if let Some(found) = extract_tag(&content[start..end], "model") {
-            model = Some(found);
-        }
-        offset = end + END.len();
-    }
-    model.unwrap_or_else(|| UNKNOWN.to_string())
-}
-
 fn task_project(path: &Path, task_id: &str) -> String {
     let Some(extension_root) = path.parent().and_then(Path::parent).and_then(Path::parent) else {
         return String::new();
@@ -291,7 +254,6 @@ pub(super) fn parse_extension_file(
         }
     };
     let session_id = session_id(path);
-    let fallback_model = task_model(path);
     let project_path = task_project(path, &session_id);
     let mut output = ParseOutput::default();
     for message in messages {
@@ -300,12 +262,15 @@ pub(super) fn parse_extension_file(
         {
             continue;
         }
-        let model = message
+        let Some(model) = message
             .model_info
             .and_then(|info| info.model_id)
             .map(|model| model.trim().to_string())
             .filter(|model| !model.is_empty())
-            .unwrap_or_else(|| fallback_model.clone());
+        else {
+            output.errors += 1;
+            continue;
+        };
         let Some(text) = message.text else {
             output.errors += 1;
             continue;
@@ -328,10 +293,17 @@ pub(super) fn parse_extension_file(
             output.errors += 1;
             continue;
         };
-        let input_tokens = value_i64(payload.get("tokensIn")).unwrap_or(0).max(0);
-        let output_tokens = value_i64(payload.get("tokensOut")).unwrap_or(0).max(0);
-        let cache_read = value_i64(payload.get("cacheReads")).unwrap_or(0).max(0);
-        let cache_creation = value_i64(payload.get("cacheWrites")).unwrap_or(0).max(0);
+        let input_tokens = value_i64(payload.get("tokensIn")).unwrap_or(0);
+        let output_tokens = value_i64(payload.get("tokensOut")).unwrap_or(0);
+        let cache_read = value_i64(payload.get("cacheReads")).unwrap_or(0);
+        let cache_creation = value_i64(payload.get("cacheWrites")).unwrap_or(0);
+        if [input_tokens, output_tokens, cache_read, cache_creation]
+            .into_iter()
+            .any(|tokens| tokens < 0)
+        {
+            output.errors += 1;
+            continue;
+        }
         if input_tokens == 0 && output_tokens == 0 && cache_read == 0 && cache_creation == 0 {
             continue;
         }
@@ -378,7 +350,7 @@ mod tests {
         let path = task.join("ui_messages.json");
         fs::write(
             &path,
-            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","text":"{\"tokensIn\":100,\"tokensOut\":20,\"cacheReads\":30,\"cacheWrites\":5,\"apiProtocol\":\"anthropic\"}"}]"#,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"claude-sonnet-4"},"text":"{\"tokensIn\":100,\"tokensOut\":20,\"cacheReads\":30,\"cacheWrites\":5,\"apiProtocol\":\"anthropic\"}"}]"#,
         )
         .unwrap();
         fs::write(
@@ -428,6 +400,47 @@ mod tests {
     }
 
     #[test]
+    fn api_request_without_request_local_model_is_rejected() {
+        let temp = tempdir().unwrap();
+        let task = temp.path().join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","text":"{\"tokensIn\":10}"}]"#,
+        )
+        .unwrap();
+        fs::write(
+            task.join("api_conversation_history.json"),
+            "<environment_details><model>final-task-model</model></environment_details>",
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 1);
+    }
+
+    #[test]
+    fn api_request_with_negative_token_bucket_is_rejected() {
+        let temp = tempdir().unwrap();
+        let task = temp.path().join("tasks/task-1");
+        fs::create_dir_all(&task).unwrap();
+        let path = task.join("ui_messages.json");
+        fs::write(
+            &path,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"gpt-5"},"text":"{\"tokensIn\":-1,\"tokensOut\":20}"}]"#,
+        )
+        .unwrap();
+
+        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+
+        assert!(parsed.entries.is_empty());
+        assert_eq!(parsed.errors, 1);
+    }
+
+    #[test]
     fn extension_entries_use_task_history_project() {
         let temp = tempdir().unwrap();
         let extension = temp.path().join("extension");
@@ -437,7 +450,7 @@ mod tests {
         let path = task.join("ui_messages.json");
         fs::write(
             &path,
-            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","text":"{\"tokensIn\":10}"}]"#,
+            r#"[{"type":"say","say":"api_req_started","ts":"2026-08-31T03:04:05Z","modelInfo":{"modelId":"gpt-5"},"text":"{\"tokensIn\":10}"}]"#,
         )
         .unwrap();
         fs::write(
