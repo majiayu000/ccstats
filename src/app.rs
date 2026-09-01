@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::cli::{Cli, SourceCommand, TopDimension};
 use crate::core::{
     BlockStats, DateFilter, LoadResult, ProjectStats, SessionStats, ToolSummary, aggregate_tools,
-    merge_day_stats,
+    apply_real_token_totals_for_all_source, merge_day_stats,
 };
 use crate::output::NumberFormat;
 use crate::output::{
@@ -633,6 +633,13 @@ fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabil
         merge_day_stats(&mut combined.day_stats, result.day_stats);
     }
 
+    // Default all-source token columns are CostKind::Real only. Keep
+    // estimated_proxy populated so estimated_cost still reports proxy rows
+    // (e.g. Grok context snapshots). Display buckets are already real, so
+    // callers must use CostDisplayMode::Total — RealOnly would subtract
+    // estimated_proxy a second time.
+    apply_real_token_totals_for_all_source(&mut combined.day_stats);
+
     combined.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
     (combined, caps)
 }
@@ -657,7 +664,7 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
         None,
         None,
         ctx,
-        CostDisplayMode::RealOnly,
+        CostDisplayMode::Total,
     );
 }
 
@@ -681,7 +688,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     ctx.currency,
                     caps.has_cache_read,
                     Some(result.data_quality()),
-                    CostDisplayMode::RealOnly,
+                    CostDisplayMode::Total,
                 );
                 print_json(&json, ctx.jq_filter);
             } else {
@@ -692,7 +699,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     ctx.number_format,
                     ctx.currency,
                     caps.has_cache_read,
-                    CostDisplayMode::RealOnly,
+                    CostDisplayMode::Total,
                 );
             }
             return;
@@ -718,7 +725,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
             let rows = rank_by_model_with_cost_mode(
                 &result.day_stats,
                 ctx.pricing_db,
-                CostDisplayMode::RealOnly,
+                CostDisplayMode::Total,
             );
             handle_top(
                 &rows,
@@ -728,7 +735,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     source_label: "All Sources",
                     supports_cache_read: caps.has_cache_read,
                     codex_scope: None,
-                    cost_mode: CostDisplayMode::RealOnly,
+                    cost_mode: CostDisplayMode::Total,
                 },
                 ctx,
             );

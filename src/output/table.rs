@@ -558,15 +558,22 @@ pub(crate) fn print_period_table(
     println!("\n  {}\n", cfg.title);
     println!("{table}");
     if options.show_cost && has_estimated_proxy {
-        match options.cost_mode {
-            CostDisplayMode::RealOnly => println!(
-                "\n  Estimated proxy cost excluded from Cost total: {}",
-                format_cost(estimated_proxy_cost, options.currency)
-            ),
-            CostDisplayMode::Total => println!(
+        let included_in_cost = matches!(options.cost_mode, CostDisplayMode::Total)
+            && stats_ref.values().any(|data| {
+                data.models
+                    .values()
+                    .any(Stats::display_includes_estimated_proxy)
+            });
+        if included_in_cost {
+            println!(
                 "\n  Cost includes estimated proxy values: {}",
                 format_cost(estimated_proxy_cost, options.currency)
-            ),
+            );
+        } else {
+            println!(
+                "\n  Estimated proxy cost excluded from Cost total: {}",
+                format_cost(estimated_proxy_cost, options.currency)
+            );
         }
     }
     if options.show_cost {

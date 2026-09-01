@@ -3,6 +3,8 @@
 mod aggregator;
 #[cfg(test)]
 mod aggregator_endpoint_tests;
+#[cfg(test)]
+mod all_source_provenance_tests;
 mod dedup;
 mod tool_aggregator;
 mod tool_types;
@@ -20,4 +22,5 @@ pub(crate) use tool_types::{ToolCall, ToolCallIdentity, ToolSummary};
 pub(crate) use types::{
     BlockStats, CostKind, CostTokens, DataQuality, DateFilter, DayStats, Endpoint, EndpointStats,
     LoadResult, ProjectStats, RawEntry, SessionStats, Stats,
+    apply_real_token_totals_for_all_source,
 };

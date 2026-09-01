@@ -7,7 +7,7 @@ use crate::output::format::{
 };
 use crate::output::pricing_meta;
 use crate::pricing::{
-    CostDisplayMode, CurrencyConverter, PricingDb, sum_display_model_costs,
+    CostDisplayMode, CurrencyConverter, PricingDb, model_cost_kind, sum_display_model_costs,
     sum_estimated_proxy_model_costs,
 };
 
@@ -137,7 +137,13 @@ pub(crate) fn print_statusline_json_with_quality(
         pricing_db,
     );
     if t.estimated_proxy_cost > 0.0 {
-        output["cost_kind"] = serde_json::json!(t.stats.cost_kind().as_str());
+        let mut models: HashMap<String, Stats> = HashMap::new();
+        for day in day_stats.values() {
+            for (model, stats) in &day.models {
+                models.entry(model.clone()).or_default().add(stats);
+            }
+        }
+        output["cost_kind"] = serde_json::json!(model_cost_kind(&models).as_str());
         output["estimated_cost"] = cost_json_value(t.estimated_proxy_cost, currency);
     }
 
