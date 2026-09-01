@@ -1,5 +1,10 @@
 # ccstats 架构文档
 
+> 2026-09-02：本文仍描述加载/解析/聚合的运行时轮廓，但源数量、`Capabilities` 字段和 SDK 合同已超过文中示例。以代码中的 `src/source/registry.rs` 与 `UsageSource` 为准。审计与解耦设计见：
+>
+> - [Codebase audit (2026-09-02)](audits/2026-09-02-codebase-audit.md)
+> - [Provenance, pricing families, and source inventory](architecture/2026-09-02-provenance-and-source-decoupling.md)
+
 ## 概述
 
 ccstats 是一个快速的 CLI 工具，用于分析多种 AI CLI 工具的 token 使用统计。采用插件架构，便于添加新的数据源。
