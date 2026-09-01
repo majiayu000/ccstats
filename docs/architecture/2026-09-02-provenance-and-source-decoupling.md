@@ -29,7 +29,7 @@ This is the design that later issues/PRs must follow. Bugfix PRs implement one s
 | Gemini list-price lookup | `google/gemini` dropped | Known Gemini ids resolve from LiteLLM or fallback | Unit test on `parse_litellm_data` + `fallback_pricing` |
 | 1h cache observability | Billed, not serialized | JSON/CSV/SDK expose `cache_creation_1h_tokens` | Snapshot tests on JSON + `TokenBreakdown` |
 | Source add touchpoints | ≥4 files (`registry`, `sdk` enum/as_str/from_name, docs) | 1 inventory module + parser crate path | Checklist in this doc |
-| Docs vs runtime source count | ARCHITECTURE lists a subset | Architecture doc names the inventory as source of truth | `ccstats sources --json` length matches inventory |
+| Docs vs runtime source count | ARCHITECTURE lists a subset | Architecture doc names the inventory as source of truth | Registered source count matches inventory (`ccstats sources --json` includes an extra `all` sentinel; compare length minus that sentinel) |
 
 ## Current data flow
 
@@ -155,7 +155,7 @@ Order is dependency, not “all at once”. Parallel is allowed for slices that 
 | Slice | Issue title | Files (expected) | Depends | Merge rule |
 |---|---|---|---|---|
 | 0 | Document audit + this design | `docs/audits/*`, `docs/architecture/*` | — | Docs only; no runtime change |
-| 1 | Load Gemini/Google prices from LiteLLM | `pricing/resolver/parse.rs`, `fallback.rs`, tests | 0 optional | Tests prove Gemini ids price; no $0 metadata |
+| 1 | Load Gemini/Google prices from LiteLLM | `src/pricing/resolver/parse.rs`, `src/pricing/resolver/fallback.rs`, tests | 0 optional | Tests prove Gemini ids price; no $0 metadata |
 | 2 | Expose 1h cache creation tokens | `sdk.rs` `TokenBreakdown`, `output/json.rs`, `output/csv.rs`, tests | independent of 1 | Additive JSON field; `cache_creation` still inclusive |
 | 3 | All-source token totals use real provenance only | `app.rs` all-source path, aggregator/output helpers, tests | 0 | Fixture: real + estimated-proxy; default tokens exclude proxy |
 | 4 | `define_sources!` inventory | `source/inventory.rs`, `sdk.rs`, `registry.rs` | 1–3 merged | Park until 1–3 are green; high blast radius |
