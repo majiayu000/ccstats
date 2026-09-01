@@ -95,6 +95,22 @@ pub(super) struct TurnUsageParseOutput {
     pub(super) saw_usage_record: bool,
 }
 
+enum TurnLineOutcome {
+    MissingUsage,
+    InvalidUsage,
+    Entries(Vec<RawEntry>),
+}
+
+impl TurnLineOutcome {
+    fn from_entries(entries: Vec<RawEntry>) -> Self {
+        if entries.is_empty() {
+            Self::InvalidUsage
+        } else {
+            Self::Entries(entries)
+        }
+    }
+}
+
 pub(super) fn parse_turn_completed_usage(
     path: &Path,
     timezone: Timezone,
@@ -144,15 +160,15 @@ pub(super) fn parse_turn_completed_usage(
         if !looks_like_turn_completed_record(&line) {
             continue;
         }
-        // A turn-completed record is authoritative even when it is truncated
-        // before the usage object. Never replace it with a cumulative snapshot.
+        // A turn-completed record is authoritative even when it has no usage
+        // object. Never replace it with a cumulative snapshot.
         saw_usage_record = true;
         match parse_turn_line(&line, timezone, ctx) {
-            Ok(Some(turn_entries)) => {
-                saw_usage_record = true;
+            Ok(TurnLineOutcome::Entries(turn_entries)) => {
                 entries.extend(turn_entries);
             }
-            Ok(None) => {
+            Ok(TurnLineOutcome::MissingUsage) => {}
+            Ok(TurnLineOutcome::InvalidUsage) => {
                 errors += 1;
             }
             Err(err) => {
@@ -200,19 +216,19 @@ fn parse_turn_line(
     line: &str,
     timezone: Timezone,
     ctx: &GrokSessionContext,
-) -> Result<Option<Vec<RawEntry>>, serde_json::Error> {
+) -> Result<TurnLineOutcome, serde_json::Error> {
     let envelope: UpdateEnvelope = serde_json::from_str(line)?;
     let params = envelope.params.as_ref();
     let update = params.and_then(|params| params.update.as_ref());
     if update.and_then(|update| update.kind.as_deref()) != Some(TURN_COMPLETED) {
-        return Ok(None);
+        return Ok(TurnLineOutcome::InvalidUsage);
     }
     let Some(usage) = update.and_then(|update| update.usage.as_ref()) else {
-        return Ok(None);
+        return Ok(TurnLineOutcome::MissingUsage);
     };
 
     let Some(utc_dt) = event_time(&envelope) else {
-        return Ok(None);
+        return Ok(TurnLineOutcome::InvalidUsage);
     };
     let local_dt = timezone.to_fixed_offset(utc_dt);
     let date_str = local_dt.date_naive().format(DATE_FORMAT).to_string();
@@ -302,7 +318,7 @@ fn parse_turn_line(
             api_equivalent_coverage_tokens: coverage_tokens(&normalized),
         });
     }
-    Ok(Some(entries).filter(|entries| !entries.is_empty()))
+    Ok(TurnLineOutcome::from_entries(entries))
 }
 
 fn event_time(envelope: &UpdateEnvelope) -> Option<DateTime<Utc>> {
@@ -419,6 +435,15 @@ mod tests {
         }
     }
 
+    fn parse_entries(line: &str) -> Vec<RawEntry> {
+        match parse_turn_line(line, tz(), &ctx()).expect("valid turn") {
+            TurnLineOutcome::Entries(entries) => entries,
+            TurnLineOutcome::MissingUsage | TurnLineOutcome::InvalidUsage => {
+                panic!("expected usage entries")
+            }
+        }
+    }
+
     #[test]
     fn parses_turn_completed_usage_and_server_cost() {
         let root = tempdir().expect("temp dir");
@@ -453,6 +478,23 @@ mod tests {
         assert_eq!(stats.count, 5);
         assert_eq!(stats.recorded_cost_entries, 1);
         assert!((stats.recorded_cost_usd - 0.13816).abs() < 1e-12);
+    }
+
+    #[test]
+    fn skips_turn_completed_without_usage_without_parse_error() {
+        let root = tempdir().expect("temp dir");
+        let path = root.path().join("updates.jsonl");
+        fs::write(
+            &path,
+            r#"{"timestamp":1776374400,"params":{"update":{"sessionUpdate":"turn_completed","prompt_id":"p1","stop_reason":"end_turn"}}}
+"#,
+        )
+        .expect("write updates");
+
+        let parsed = parse_turn_completed_usage(&path, tz(), true, &ctx());
+        assert_eq!(parsed.errors, 0);
+        assert!(parsed.entries.is_empty());
+        assert!(parsed.saw_usage_record);
     }
 
     #[test]
@@ -604,9 +646,7 @@ mod tests {
     #[test]
     fn residual_tokens_do_not_invent_a_model_call() {
         let line = r#"{"timestamp":1786896000,"params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":30,"modelCalls":2,"modelUsage":{"grok-a":{"inputTokens":10,"modelCalls":1},"grok-b":{"inputTokens":10,"modelCalls":1}}}}}}"#;
-        let entries = parse_turn_line(line, tz(), &ctx())
-            .expect("valid turn")
-            .expect("usage entries");
+        let entries = parse_entries(line);
 
         assert_eq!(
             entries
@@ -624,9 +664,7 @@ mod tests {
     #[test]
     fn accepts_snake_case_turn_discriminator() {
         let line = r#"{"timestamp":1786896000,"params":{"update":{"session_update":"turn_completed","usage":{"inputTokens":10}}}}"#;
-        let entries = parse_turn_line(line, tz(), &ctx())
-            .expect("valid turn")
-            .expect("usage entries");
+        let entries = parse_entries(line);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].input_tokens, 10);
     }
