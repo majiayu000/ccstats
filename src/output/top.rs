@@ -16,9 +16,9 @@ use crate::output::format::{
     format_number, header_cell, right_cell, styled_cell,
 };
 use crate::pricing::{
-    CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost, model_cost_kind,
-    pricing_source_for_model_stats, pricing_source_for_models, sum_display_model_costs,
-    sum_estimated_proxy_model_costs,
+    CostDisplayMode, CurrencyConverter, PricingDb, calculate_display_cost,
+    calculate_estimated_proxy_cost, model_cost_kind, pricing_source_for_model_stats,
+    pricing_source_for_models, sum_display_model_costs, sum_estimated_proxy_model_costs,
 };
 
 /// One row in the leaderboard.
@@ -74,9 +74,7 @@ pub(crate) fn rank_by_model_with_cost_mode(
         .into_iter()
         .map(|(model, stats)| {
             let cost = calculate_display_cost(&stats, &model, pricing_db, cost_mode);
-            let estimated_cost =
-                calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::Total)
-                    - calculate_display_cost(&stats, &model, pricing_db, CostDisplayMode::RealOnly);
+            let estimated_cost = calculate_estimated_proxy_cost(&stats, &model, pricing_db);
             let cost_kind = stats.cost_kind();
             let pricing_source = pricing_source_for_model_stats(&model, &stats, pricing_db);
             let (pricing_cache_age_seconds, pricing_cache_mtime_epoch_seconds) =
@@ -400,15 +398,20 @@ pub(crate) fn print_top_table(rows: &[TopRow], options: TopTableOptions<'_>) {
     }
     println!("{table}");
     if options.show_cost && estimated_proxy_cost > 0.0 {
-        match options.cost_mode {
-            CostDisplayMode::RealOnly => println!(
-                "\nEstimated proxy cost excluded from Cost ranking: {}",
-                format_cost(estimated_proxy_cost, options.currency)
-            ),
-            CostDisplayMode::Total => println!(
+        let included_in_cost = matches!(options.cost_mode, CostDisplayMode::Total)
+            && limited
+                .iter()
+                .any(|row| row.stats.display_includes_estimated_proxy());
+        if included_in_cost {
+            println!(
                 "\nCost includes estimated proxy values: {}",
                 format_cost(estimated_proxy_cost, options.currency)
-            ),
+            );
+        } else {
+            println!(
+                "\nEstimated proxy cost excluded from Cost ranking: {}",
+                format_cost(estimated_proxy_cost, options.currency)
+            );
         }
     }
     if options.show_cost

@@ -121,6 +121,38 @@ impl Stats {
         self.cost_tokens().saturating_sub(&self.estimated_proxy)
     }
 
+    /// Copy `CostKind::Real` buckets into the default display totals.
+    ///
+    /// Leaves `estimated_proxy` populated so estimated proxy cost can still be
+    /// reported. After this transform, `CostDisplayMode::Total` prices the
+    /// remaining buckets (already real); `RealOnly` would subtract
+    /// `estimated_proxy` a second time.
+    pub(crate) fn retain_real_token_totals(&mut self) {
+        let real = self.real_cost_tokens();
+        self.input_tokens = real.input_tokens;
+        self.output_tokens = real.output_tokens;
+        self.cache_creation = real.cache_creation;
+        self.cache_creation_1h = real.cache_creation_1h;
+        self.cache_read = real.cache_read;
+        self.reasoning_tokens = real.reasoning_tokens;
+        self.count = real.count;
+        // Keep Total-mode recorded+priced cost real-only: priced_tokens still
+        // includes estimated-proxy rows until they are dropped here.
+        self.priced_tokens = self.priced_tokens.saturating_sub(&self.estimated_proxy);
+    }
+
+    /// True when default token buckets still contain estimated-proxy tokens.
+    pub(crate) fn display_includes_estimated_proxy(&self) -> bool {
+        let proxy = self.estimated_proxy;
+        proxy.has_entries()
+            && self.input_tokens >= proxy.input_tokens
+            && self.output_tokens >= proxy.output_tokens
+            && self.cache_creation >= proxy.cache_creation
+            && self.cache_creation_1h >= proxy.cache_creation_1h
+            && self.cache_read >= proxy.cache_read
+            && self.reasoning_tokens >= proxy.reasoning_tokens
+    }
+
     pub(crate) fn cost_kind(&self) -> CostKind {
         let estimated_count = self.estimated_proxy.count.max(0);
         if estimated_count == 0 {
@@ -264,6 +296,19 @@ impl DayStats {
     pub(crate) fn add_stats(&mut self, model: String, stats: &Stats) {
         self.stats.add(stats);
         self.models.entry(model).or_default().add(stats);
+    }
+}
+
+/// Restrict `--source all` display totals to `CostKind::Real` tokens.
+///
+/// Does not clear `estimated_proxy`, so estimated proxy cost can still be
+/// reported separately. Do not apply this to the Grok-only load path.
+pub(crate) fn apply_real_token_totals_for_all_source(day_stats: &mut HashMap<String, DayStats>) {
+    for day in day_stats.values_mut() {
+        day.stats.retain_real_token_totals();
+        for model_stats in day.models.values_mut() {
+            model_stats.retain_real_token_totals();
+        }
     }
 }
 
