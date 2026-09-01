@@ -1,4 +1,4 @@
-/// Allowlisted LiteLLM pricing families. Unknown families are skipped on ingest.
+/// Allowlisted `LiteLLM` pricing families. Unknown families are skipped on ingest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PricingFamily {
     Anthropic,
