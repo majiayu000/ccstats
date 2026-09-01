@@ -129,27 +129,14 @@ pub(crate) fn print_note(report: Option<GrokCostReport>, currency: Option<&Curre
     };
     println!("\n  Grok cost summary (selected range)");
     println!(
-        "  Observed API equivalent: {}",
-        format_cost(report.observed_api_cost_usd, currency)
+        "  Grok reported cost: {} ({:.2}% token coverage)",
+        provider_cost_display(report, currency),
+        report.provider_percent()
     );
-    match report.estimated_api_cost_usd() {
-        Some(cost) => println!(
-            "  Estimated API equivalent: ~{}",
-            format_cost(cost, currency)
-        ),
-        None => println!("  Estimated API equivalent: unavailable"),
-    }
-    match (
-        report.api_cost_lower_bound_usd,
-        report.api_cost_upper_bound_usd,
-    ) {
-        (Some(minimum), Some(maximum)) => println!(
-            "  API equivalent range: {} - {}",
-            format_cost(minimum, currency),
-            format_cost(maximum, currency)
-        ),
-        _ => println!("  API equivalent range: unavailable"),
-    }
+    println!(
+        "  Public API equivalent: {}",
+        api_cost_summary_display(report, currency)
+    );
     println!(
         "  Request coverage: {} / {} completed-turn tokens ({:.2}%, {})",
         report.priced_tokens,
@@ -163,15 +150,6 @@ pub(crate) fn print_note(report: Option<GrokCostReport>, currency: Option<&Curre
             report.excluded_request_tokens
         );
     }
-    match report.provider_reported_cost_usd {
-        Some(cost) => println!(
-            "  Provider metric: {} ({:.2}% token coverage)",
-            format_cost(cost, currency),
-            report.provider_percent()
-        ),
-        None => println!("  Provider metric: unavailable"),
-    }
-    println!("  Actual billed: unavailable");
 }
 
 pub(crate) fn selected_grok_report(
@@ -180,35 +158,86 @@ pub(crate) fn selected_grok_report(
     reports.and_then(|reports| reports.values().copied().reduce(GrokCostReport::merge))
 }
 
+pub(crate) struct TableCostDisplays {
+    pub(crate) api_rows: HashMap<String, String>,
+    pub(crate) api_total: String,
+    pub(crate) provider_rows: HashMap<String, String>,
+    pub(crate) provider_total: String,
+}
+
 pub(crate) fn table_cost_displays(
     reports: &HashMap<String, GrokCostReport>,
     period: Period,
     currency: Option<&CurrencyConverter>,
-) -> (HashMap<String, String>, String) {
+) -> TableCostDisplays {
     let aggregated = aggregate_grok_reports(reports, period);
-    let rows = aggregated
+    let api_rows = aggregated
         .iter()
-        .map(|(key, report)| (key.clone(), table_cost_display(*report, currency)))
+        .map(|(key, report)| (key.clone(), api_cost_display(*report, currency)))
         .collect();
-    let total = reports
-        .values()
-        .copied()
-        .reduce(GrokCostReport::merge)
-        .map_or_else(
+    let provider_rows = aggregated
+        .iter()
+        .map(|(key, report)| (key.clone(), provider_cost_display(*report, currency)))
+        .collect();
+    let total_report = reports.values().copied().reduce(GrokCostReport::merge);
+    TableCostDisplays {
+        api_rows,
+        api_total: total_report.map_or_else(
             || "N/A".to_string(),
-            |report| table_cost_display(report, currency),
-        );
-    (rows, total)
+            |report| api_cost_display(report, currency),
+        ),
+        provider_rows,
+        provider_total: total_report.map_or_else(
+            || "N/A".to_string(),
+            |report| provider_cost_display(report, currency),
+        ),
+    }
 }
 
-fn table_cost_display(report: GrokCostReport, currency: Option<&CurrencyConverter>) -> String {
+fn api_cost_display(report: GrokCostReport, currency: Option<&CurrencyConverter>) -> String {
     if report.status() == "complete" {
         return format_cost(report.observed_api_cost_usd, currency);
     }
-    report.estimated_api_cost_usd().map_or_else(
-        || "N/A".to_string(),
-        |cost| format!("~{}", format_cost(cost, currency)),
-    )
+    if let Some(cost) = report.estimated_api_cost_usd() {
+        return format!("~{}", format_cost(cost, currency));
+    }
+    api_cost_range_display(report, currency).unwrap_or_else(|| "N/A".to_string())
+}
+
+fn api_cost_summary_display(
+    report: GrokCostReport,
+    currency: Option<&CurrencyConverter>,
+) -> String {
+    let display = api_cost_display(report, currency);
+    if report.estimated_api_cost_usd().is_some()
+        && let Some(range) = api_cost_range_display(report, currency)
+    {
+        return format!("{display} (range {range})");
+    }
+    display
+}
+
+fn api_cost_range_display(
+    report: GrokCostReport,
+    currency: Option<&CurrencyConverter>,
+) -> Option<String> {
+    Some(format!(
+        "{}–{}",
+        format_cost(report.api_cost_lower_bound_usd?, currency),
+        format_cost(report.api_cost_upper_bound_usd?, currency)
+    ))
+}
+
+fn provider_cost_display(report: GrokCostReport, currency: Option<&CurrencyConverter>) -> String {
+    let Some(cost) = report.provider_reported_cost_usd else {
+        return "N/A".to_string();
+    };
+    let display = format_cost(cost, currency);
+    if report.provider_priced_tokens < report.total_tokens {
+        format!("≥{display}")
+    } else {
+        display
+    }
 }
 
 fn aggregate_grok_reports(
@@ -320,5 +349,35 @@ mod tests {
 
         assert!(value[0].get("api_equivalent_cost_coverage").is_some());
         assert!(value[1].get("api_equivalent_cost_coverage").is_none());
+    }
+
+    fn report(priced_tokens: i64, observed_api_cost_usd: f64) -> GrokCostReport {
+        GrokCostReport {
+            total_tokens: 1_000,
+            priced_tokens,
+            observed_api_cost_usd,
+            api_cost_lower_bound_usd: Some(2.0),
+            api_cost_upper_bound_usd: Some(4.0),
+            provider_reported_cost_usd: Some(1.5),
+            provider_priced_tokens: 800,
+            excluded_request_tokens: 0,
+            coverage_mismatch: false,
+        }
+    }
+
+    #[test]
+    fn api_table_cost_uses_range_without_request_coverage() {
+        assert_eq!(api_cost_display(report(0, 0.0), None), "$2.00–$4.00");
+    }
+
+    #[test]
+    fn api_table_cost_marks_partial_estimate_and_complete_value() {
+        assert_eq!(api_cost_display(report(500, 1.5), None), "~$3.00");
+        assert_eq!(api_cost_display(report(1_000, 3.0), None), "$3.00");
+    }
+
+    #[test]
+    fn provider_table_cost_marks_partial_coverage() {
+        assert_eq!(provider_cost_display(report(0, 0.0), None), "≥$1.50");
     }
 }

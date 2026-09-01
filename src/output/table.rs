@@ -30,6 +30,9 @@ pub(crate) struct TokenTableOptions<'a> {
     pub(crate) cost_label: &'a str,
     pub(crate) cost_display_overrides: Option<&'a HashMap<String, String>>,
     pub(crate) total_cost_display_override: Option<&'a str>,
+    pub(crate) secondary_cost_label: Option<&'a str>,
+    pub(crate) secondary_cost_display_overrides: Option<&'a HashMap<String, String>>,
+    pub(crate) secondary_total_cost_display_override: Option<&'a str>,
     pub(crate) pricing_note_override: Option<&'a str>,
 }
 
@@ -110,6 +113,9 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         h.push(header_cell("Total", c));
         if opts.show_cost {
             h.push(header_cell(opts.cost_label, c));
+            if let Some(label) = opts.secondary_cost_label {
+                h.push(header_cell(label, c));
+            }
         }
         h
     } else if breakdown {
@@ -128,6 +134,9 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         h.push(header_cell("Cache Hit", c));
         if opts.show_cost {
             h.push(header_cell(opts.cost_label, c));
+            if let Some(label) = opts.secondary_cost_label {
+                h.push(header_cell(label, c));
+            }
         }
         h
     } else {
@@ -147,6 +156,9 @@ fn build_header(cfg: &PeriodConfig, breakdown: bool, opts: &TokenTableOptions<'_
         h.push(header_cell("Total", c));
         if opts.show_cost {
             h.push(header_cell(opts.cost_label, c));
+            if let Some(label) = opts.secondary_cost_label {
+                h.push(header_cell(label, c));
+            }
         }
         h
     }
@@ -186,11 +198,7 @@ fn add_compact_rows(
         false,
     ));
     if opts.show_cost {
-        row.push(right_cell(
-            &row_cost_display(key, cost, opts),
-            cost_color,
-            false,
-        ));
+        add_cost_cells(&mut row, key, cost, opts, cost_color, false);
     }
     table.add_row(row);
     cost
@@ -248,17 +256,7 @@ fn add_breakdown_rows(
             false,
         ));
         if opts.show_cost {
-            let display = opts
-                .cost_display_overrides
-                .and_then(|overrides| overrides.get(key));
-            let cost_display = if display.is_some() && i > 0 {
-                String::new()
-            } else {
-                display
-                    .cloned()
-                    .unwrap_or_else(|| format_cost(cost, opts.currency))
-            };
-            row.push(right_cell(&cost_display, cost_color, false));
+            add_cost_cells(&mut row, key, cost, opts, cost_color, i > 0);
         }
         table.add_row(row);
     }
@@ -326,11 +324,7 @@ fn add_standard_rows(
         false,
     ));
     if opts.show_cost {
-        row.push(right_cell(
-            &row_cost_display(key, cost, opts),
-            cost_color,
-            false,
-        ));
+        add_cost_cells(&mut row, key, cost, opts, cost_color, false);
     }
     table.add_row(row);
     cost
@@ -380,11 +374,7 @@ fn add_total_row(
             true,
         ));
         if opts.show_cost {
-            row.push(right_cell(
-                &total_cost_display(total_cost, opts),
-                green,
-                true,
-            ));
+            add_total_cost_cells(&mut row, total_cost, opts, green);
         }
         table.add_row(row);
     } else {
@@ -432,26 +422,68 @@ fn add_total_row(
             ));
         }
         if opts.show_cost {
-            row.push(right_cell(
-                &total_cost_display(total_cost, opts),
-                green,
-                true,
-            ));
+            add_total_cost_cells(&mut row, total_cost, opts, green);
         }
         table.add_row(row);
     }
 }
 
-fn row_cost_display(key: &str, cost: f64, opts: &TokenTableOptions<'_>) -> String {
-    opts.cost_display_overrides
-        .and_then(|overrides| overrides.get(key))
-        .cloned()
-        .unwrap_or_else(|| format_cost(cost, opts.currency))
-}
-
 fn total_cost_display(total_cost: f64, opts: &TokenTableOptions<'_>) -> String {
     opts.total_cost_display_override
         .map_or_else(|| format_cost(total_cost, opts.currency), str::to_string)
+}
+
+fn add_cost_cells(
+    row: &mut Vec<Cell>,
+    key: &str,
+    cost: f64,
+    opts: &TokenTableOptions<'_>,
+    color: Option<Color>,
+    continuation: bool,
+) {
+    let primary_override = opts
+        .cost_display_overrides
+        .and_then(|overrides| overrides.get(key));
+    let primary = if continuation && primary_override.is_some() {
+        String::new()
+    } else {
+        primary_override
+            .cloned()
+            .unwrap_or_else(|| format_cost(cost, opts.currency))
+    };
+    row.push(right_cell(&primary, color, false));
+
+    if opts.secondary_cost_label.is_some() {
+        let secondary = if continuation {
+            String::new()
+        } else {
+            opts.secondary_cost_display_overrides
+                .and_then(|overrides| overrides.get(key))
+                .cloned()
+                .unwrap_or_else(|| "N/A".to_string())
+        };
+        row.push(right_cell(&secondary, color, false));
+    }
+}
+
+fn add_total_cost_cells(
+    row: &mut Vec<Cell>,
+    total_cost: f64,
+    opts: &TokenTableOptions<'_>,
+    color: Option<Color>,
+) {
+    row.push(right_cell(
+        &total_cost_display(total_cost, opts),
+        color,
+        true,
+    ));
+    if opts.secondary_cost_label.is_some() {
+        row.push(right_cell(
+            opts.secondary_total_cost_display_override.unwrap_or("N/A"),
+            color,
+            true,
+        ));
+    }
 }
 
 pub(crate) fn print_period_table(

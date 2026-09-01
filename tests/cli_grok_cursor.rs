@@ -236,11 +236,15 @@ fn grok_keeps_complete_turn_tokens_and_marks_partial_api_cost() {
         "table: {table}"
     );
     assert!(
-        table.contains("API Eq. Price") && table.contains("~$0.00"),
+        table.contains("Grok Reported")
+            && table.contains("API Eq. Price")
+            && table.contains("$2.50")
+            && table.contains("~$0.00"),
         "table: {table}"
     );
     assert!(
-        table.contains("Provider metric: $2.50") && table.contains("Actual billed: unavailable"),
+        table.contains("Grok reported cost: $2.50")
+            && table.contains("Public API equivalent: ~$0.00"),
         "table: {table}"
     );
 
@@ -262,7 +266,7 @@ fn grok_keeps_complete_turn_tokens_and_marks_partial_api_cost() {
         .lines()
         .find(|line| line.contains("2026-08-17"))
         .expect("zero-coverage daily row");
-    assert!(row.contains("N/A"), "row: {row}");
+    assert!(row.contains("$0.50") && row.contains("–"), "row: {row}");
 
     let _ = fs::remove_dir_all(root);
 }
