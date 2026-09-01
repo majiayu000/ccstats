@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::super::types::{ModelPricing, dot_version_variant};
+use super::family::PricingFamily;
 
 pub(crate) fn parse_litellm_data(
     data: HashMap<String, serde_json::Value>,
@@ -8,21 +9,9 @@ pub(crate) fn parse_litellm_data(
     let mut models = HashMap::new();
 
     for (name, value) in data {
-        // Load Claude, OpenAI GPT/Codex, xAI Grok, and CN vendor model names.
-        let is_claude = name.contains("claude");
-        let is_openai =
-            name.starts_with("openai/") || name.starts_with("gpt-") || name.starts_with("codex");
-        let is_xai = name.starts_with("xai/") || name.starts_with("grok-");
-        // Chinese vendors: DeepSeek, Qwen (Alibaba), GLM (Zhipu/zai), Moonshot/Kimi.
-        let is_cn = name.contains("deepseek")
-            || name.contains("qwen")
-            || name.contains("glm")
-            || name.starts_with("moonshot/")
-            || name.contains("kimi");
-
-        if !is_claude && !is_openai && !is_xai && !is_cn {
+        let Some(family) = PricingFamily::from_litellm_name(&name) else {
             continue;
-        }
+        };
 
         let input = value
             .get("input_cost_per_token")
@@ -65,38 +54,47 @@ pub(crate) fn parse_litellm_data(
         // Store with multiple key variations for matching
         models.insert(name.clone(), pricing.clone());
 
-        // Also store normalized versions
-        if is_claude {
-            let normalized = name.replace("claude-", "").replace("anthropic.", "");
-            models.insert(normalized, pricing);
-        } else if is_openai {
-            // Store without openai/ prefix
-            if let Some(stripped) = name.strip_prefix("openai/") {
-                models.insert(stripped.to_string(), pricing);
+        match family {
+            PricingFamily::Anthropic => {
+                let normalized = name.replace("claude-", "").replace("anthropic.", "");
+                models.insert(normalized, pricing);
             }
-        } else if is_xai && let Some(stripped) = name.strip_prefix("xai/") {
-            models.insert(stripped.to_string(), pricing.clone());
-            if stripped == "grok-build-0.1" {
-                models.insert("grok-build".to_string(), pricing);
+            PricingFamily::OpenAI => {
+                if let Some(stripped) = name.strip_prefix("openai/") {
+                    models.insert(stripped.to_string(), pricing);
+                }
             }
-        } else if is_cn {
-            // Store the bare name (last path segment) plus a dot-version variant
-            // so hoster spellings like `glm-5p2` (p == point) match a dot-spelled
-            // `glm-5.2` alias. Official vendor prefixes win over hosters on
-            // name collisions.
-            let bare = name.rsplit('/').next().unwrap_or(&name).to_lowercase();
-            let name_lower = name.to_lowercase();
-            let official = name.starts_with("zai/")
-                || name.starts_with("deepseek/")
-                || name.starts_with("dashscope/")
-                || name.starts_with("moonshot/")
-                || !name.contains('/');
-            for variant in [bare.clone(), dot_version_variant(&bare)] {
-                if variant != name_lower && !variant.is_empty() {
-                    if official {
-                        models.insert(variant, pricing.clone());
-                    } else {
-                        models.entry(variant).or_insert(pricing.clone());
+            PricingFamily::Xai => {
+                if let Some(stripped) = name.strip_prefix("xai/") {
+                    models.insert(stripped.to_string(), pricing.clone());
+                    if stripped == "grok-build-0.1" {
+                        models.insert("grok-build".to_string(), pricing);
+                    }
+                }
+            }
+            PricingFamily::Google => insert_google_aliases(&mut models, &name, &pricing),
+            PricingFamily::DeepSeek
+            | PricingFamily::Qwen
+            | PricingFamily::Glm
+            | PricingFamily::Moonshot => {
+                // Store the bare name (last path segment) plus a dot-version variant
+                // so hoster spellings like `glm-5p2` (p == point) match a dot-spelled
+                // `glm-5.2` alias. Official vendor prefixes win over hosters on
+                // name collisions.
+                let bare = name.rsplit('/').next().unwrap_or(&name).to_lowercase();
+                let name_lower = name.to_lowercase();
+                let official = name.starts_with("zai/")
+                    || name.starts_with("deepseek/")
+                    || name.starts_with("dashscope/")
+                    || name.starts_with("moonshot/")
+                    || !name.contains('/');
+                for variant in [bare.clone(), dot_version_variant(&bare)] {
+                    if variant != name_lower && !variant.is_empty() {
+                        if official {
+                            models.insert(variant, pricing.clone());
+                        } else {
+                            models.entry(variant).or_insert(pricing.clone());
+                        }
                     }
                 }
             }
@@ -104,6 +102,27 @@ pub(crate) fn parse_litellm_data(
     }
 
     models
+}
+
+fn insert_google_aliases(
+    models: &mut HashMap<String, ModelPricing>,
+    name: &str,
+    pricing: &ModelPricing,
+) {
+    if let Some(stripped) = name.strip_prefix("google/") {
+        models.insert(stripped.to_string(), pricing.clone());
+    }
+    let bare = name.rsplit('/').next().unwrap_or(name);
+    if bare == name || bare.is_empty() {
+        return;
+    }
+    // Official `google/` keys win over hoster collisions (same spirit as CN).
+    let official = name.starts_with("google/") || !name.contains('/');
+    if official {
+        models.insert(bare.to_string(), pricing.clone());
+    } else {
+        models.entry(bare.to_string()).or_insert(pricing.clone());
+    }
 }
 
 #[cfg(test)]
@@ -120,10 +139,65 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_filters_non_claude_non_openai() {
+    fn test_parse_keeps_google_and_filters_unknown_families() {
         let mut data = HashMap::new();
         data.insert("mistral/large".to_string(), make_litellm_entry(1e-6, 2e-6));
         data.insert("google/gemini".to_string(), make_litellm_entry(1e-6, 2e-6));
+
+        let result = parse_litellm_data(data);
+        assert!(!result.contains_key("mistral/large"));
+        assert!(result.contains_key("google/gemini"));
+        assert_eq!(result["google/gemini"].input, 1e-6);
+        assert_eq!(result["gemini"].input, 1e-6);
+    }
+
+    #[test]
+    fn test_parse_gemini_flash_and_pro_aliases() {
+        let mut data = HashMap::new();
+        data.insert(
+            "gemini-2.5-flash".to_string(),
+            make_litellm_entry(3e-7, 2.5e-6),
+        );
+        data.insert(
+            "google/gemini-2.5-pro".to_string(),
+            json!({
+                "input_cost_per_token": 1.25e-6,
+                "output_cost_per_token": 1e-5,
+                "cache_read_input_token_cost": 1.25e-7,
+            }),
+        );
+
+        let result = parse_litellm_data(data);
+        assert!(result.contains_key("gemini-2.5-flash"));
+        assert!(result.contains_key("google/gemini-2.5-pro"));
+        assert!(result.contains_key("gemini-2.5-pro"));
+        let pro = &result["gemini-2.5-pro"];
+        assert_eq!(pro.input, 1.25e-6);
+        assert_eq!(pro.output, 1e-5);
+        assert_eq!(pro.cache_read, 1.25e-7);
+        assert_eq!(result["gemini-2.5-flash"].input, 3e-7);
+    }
+
+    #[test]
+    fn test_parse_google_official_wins_over_hoster() {
+        let mut data = HashMap::new();
+        data.insert(
+            "google/gemini-2.5-flash".to_string(),
+            make_litellm_entry(3e-7, 2.5e-6),
+        );
+        data.insert(
+            "openrouter/google/gemini-2.5-flash".to_string(),
+            make_litellm_entry(99e-6, 99e-6),
+        );
+
+        let result = parse_litellm_data(data);
+        assert_eq!(result["gemini-2.5-flash"].input, 3e-7);
+    }
+
+    #[test]
+    fn test_parse_google_metadata_only_skipped() {
+        let mut data = HashMap::new();
+        data.insert("google/gemini-meta".to_string(), json!({"mode": "chat"}));
 
         let result = parse_litellm_data(data);
         assert!(result.is_empty());

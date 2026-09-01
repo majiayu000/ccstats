@@ -33,6 +33,17 @@ fn moonshot_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     }
 }
 
+fn google_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
+    ModelPricing {
+        input,
+        output,
+        reasoning_output: output,
+        cache_create: 0.0,
+        cache_create_1h: 0.0,
+        cache_read,
+    }
+}
+
 pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
     let model_lower = model.to_lowercase();
     Some(
@@ -99,6 +110,12 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
             openai_pricing(1.25e-6, 10e-6, 0.125e-6)
         } else if model_lower.contains("gpt-4") {
             openai_pricing(2.5e-6, 10e-6, 0.0)
+        } else if model_lower.contains("gemini-2.5-flash-lite") {
+            google_pricing(1e-7, 4e-7, 1e-8)
+        } else if model_lower.contains("gemini-2.5-pro") {
+            google_pricing(1.25e-6, 1e-5, 1.25e-7)
+        } else if model_lower.contains("gemini-2.5-flash") {
+            google_pricing(3e-7, 2.5e-6, 3e-8)
         } else {
             // Unknown model: no fallback estimate. The caller surfaces N/A instead
             // of silently applying a sonnet-shaped guess.
@@ -238,5 +255,47 @@ mod tests {
         let p = fallback_pricing("gpt-4o-mini").unwrap();
         assert_eq!(p.input, 2.5e-6);
         assert_eq!(p.output, 10e-6);
+    }
+
+    #[test]
+    fn test_fallback_gemini_2_5_flash_lite() {
+        let p = fallback_pricing("gemini-2.5-flash-lite").unwrap();
+        assert_eq!(p.input, 1e-7);
+        assert_eq!(p.output, 4e-7);
+        assert_eq!(p.cache_read, 1e-8);
+        assert_eq!(p.reasoning_output, 4e-7);
+        assert_eq!(p.cache_create, 0.0);
+        assert_eq!(p.cache_create_1h, 0.0);
+    }
+
+    #[test]
+    fn test_fallback_gemini_2_5_flash() {
+        let p = fallback_pricing("google/gemini-2.5-flash").unwrap();
+        assert_eq!(p.input, 3e-7);
+        assert_eq!(p.output, 2.5e-6);
+        assert_eq!(p.cache_read, 3e-8);
+        assert_eq!(p.reasoning_output, 2.5e-6);
+    }
+
+    #[test]
+    fn test_fallback_gemini_2_5_pro() {
+        let p = fallback_pricing("gemini-2.5-pro").unwrap();
+        assert_eq!(p.input, 1.25e-6);
+        assert_eq!(p.output, 1e-5);
+        assert_eq!(p.cache_read, 1.25e-7);
+        assert_eq!(p.reasoning_output, 1e-5);
+    }
+
+    #[test]
+    fn test_fallback_gemini_flash_lite_not_flash() {
+        let lite = fallback_pricing("gemini-2.5-flash-lite").unwrap();
+        let flash = fallback_pricing("gemini-2.5-flash").unwrap();
+        assert_ne!(lite.input, flash.input);
+        assert_eq!(lite.input, 1e-7);
+    }
+
+    #[test]
+    fn test_fallback_unknown_gemini_returns_none() {
+        assert!(fallback_pricing("gemini-1.5-pro").is_none());
     }
 }
