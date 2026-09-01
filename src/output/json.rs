@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::cli::SortOrder;
-use crate::core::{DataQuality, DayStats};
+use crate::core::{DataQuality, DayStats, Stats};
 use crate::output::format::{cache_hit_rate_json_value, cost_json_value};
 use crate::output::period::{Period, aggregate_day_stats_by_period};
 use crate::output::pricing_meta;
@@ -49,6 +49,34 @@ fn sort_models_breakdown(breakdown: &mut [serde_json::Value], show_cost: bool) {
     }
 }
 
+fn token_usage_json(stats: &Stats, supports_cache_read: bool) -> serde_json::Value {
+    serde_json::json!({
+        "input_tokens": stats.input_tokens,
+        "output_tokens": stats.output_tokens,
+        "reasoning_tokens": stats.reasoning_tokens,
+        "cache_creation_tokens": stats.cache_creation,
+        "cache_creation_1h_tokens": stats.cache_creation_1h,
+        "cache_read_tokens": stats.cache_read,
+        "cache_hit_rate": cache_hit_rate_json_value(stats.cache_hit_rate(supports_cache_read)),
+        "total_tokens": stats.total_tokens(),
+    })
+}
+
+fn attach_period_cost(
+    obj: &mut serde_json::Value,
+    models: &HashMap<String, Stats>,
+    options: &PeriodJsonOptions<'_>,
+    period_cost: f64,
+) {
+    obj["cost"] = cost_json_value(period_cost, options.currency);
+    pricing_meta::add_json(obj, models, options.pricing_db);
+    let estimated_cost = sum_estimated_proxy_model_costs(models, options.pricing_db);
+    if estimated_cost > 0.0 {
+        obj["cost_kind"] = serde_json::json!(model_cost_kind(models).as_str());
+        obj["estimated_cost"] = cost_json_value(estimated_cost, options.currency);
+    }
+}
+
 fn build_period_entry(
     label: &str,
     key: &str,
@@ -60,18 +88,8 @@ fn build_period_entry(
         let mut period_cost = 0.0;
 
         for (model, model_stats) in &stats.models {
-            let mut model_obj = serde_json::json!({
-                "model": model,
-                "input_tokens": model_stats.input_tokens,
-                "output_tokens": model_stats.output_tokens,
-                "reasoning_tokens": model_stats.reasoning_tokens,
-                "cache_creation_tokens": model_stats.cache_creation,
-                "cache_read_tokens": model_stats.cache_read,
-                "cache_hit_rate": cache_hit_rate_json_value(
-                    model_stats.cache_hit_rate(options.supports_cache_read)
-                ),
-                "total_tokens": model_stats.total_tokens(),
-            });
+            let mut model_obj = token_usage_json(model_stats, options.supports_cache_read);
+            model_obj["model"] = serde_json::json!(model);
             if options.show_cost {
                 let cost = calculate_display_cost(
                     model_stats,
@@ -99,27 +117,11 @@ fn build_period_entry(
 
         sort_models_breakdown(&mut models_breakdown, options.show_cost);
 
-        let mut obj = serde_json::json!({
-            (label): key,
-            "input_tokens": stats.stats.input_tokens,
-            "output_tokens": stats.stats.output_tokens,
-            "reasoning_tokens": stats.stats.reasoning_tokens,
-            "cache_creation_tokens": stats.stats.cache_creation,
-            "cache_read_tokens": stats.stats.cache_read,
-            "cache_hit_rate": cache_hit_rate_json_value(
-                stats.stats.cache_hit_rate(options.supports_cache_read)
-            ),
-            "total_tokens": stats.stats.total_tokens(),
-            "breakdown": models_breakdown,
-        });
+        let mut obj = token_usage_json(&stats.stats, options.supports_cache_read);
+        obj[label] = serde_json::json!(key);
+        obj["breakdown"] = serde_json::json!(models_breakdown);
         if options.show_cost {
-            obj["cost"] = cost_json_value(period_cost, options.currency);
-            pricing_meta::add_json(&mut obj, &stats.models, options.pricing_db);
-            let estimated_cost = sum_estimated_proxy_model_costs(&stats.models, options.pricing_db);
-            if estimated_cost > 0.0 {
-                obj["cost_kind"] = serde_json::json!(model_cost_kind(&stats.models).as_str());
-                obj["estimated_cost"] = cost_json_value(estimated_cost, options.currency);
-            }
+            attach_period_cost(&mut obj, &stats.models, options, period_cost);
         }
         obj
     } else {
@@ -134,27 +136,11 @@ fn build_period_entry(
         };
         let mut models: Vec<_> = stats.models.keys().cloned().collect();
         models.sort();
-        let mut obj = serde_json::json!({
-            (label): key,
-            "input_tokens": stats.stats.input_tokens,
-            "output_tokens": stats.stats.output_tokens,
-            "reasoning_tokens": stats.stats.reasoning_tokens,
-            "cache_creation_tokens": stats.stats.cache_creation,
-            "cache_read_tokens": stats.stats.cache_read,
-            "cache_hit_rate": cache_hit_rate_json_value(
-                stats.stats.cache_hit_rate(options.supports_cache_read)
-            ),
-            "total_tokens": stats.stats.total_tokens(),
-            "models": models,
-        });
+        let mut obj = token_usage_json(&stats.stats, options.supports_cache_read);
+        obj[label] = serde_json::json!(key);
+        obj["models"] = serde_json::json!(models);
         if options.show_cost {
-            obj["cost"] = cost_json_value(period_cost.unwrap_or(0.0), options.currency);
-            pricing_meta::add_json(&mut obj, &stats.models, options.pricing_db);
-            let estimated_cost = sum_estimated_proxy_model_costs(&stats.models, options.pricing_db);
-            if estimated_cost > 0.0 {
-                obj["cost_kind"] = serde_json::json!(model_cost_kind(&stats.models).as_str());
-                obj["estimated_cost"] = cost_json_value(estimated_cost, options.currency);
-            }
+            attach_period_cost(&mut obj, &stats.models, options, period_cost.unwrap_or(0.0));
         }
         obj
     }
@@ -259,7 +245,6 @@ pub(crate) fn output_period_json_with_quality(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::Stats;
 
     fn make_day_stats(models: &[(&str, i64)]) -> DayStats {
         let mut ds = DayStats::default();
@@ -450,5 +435,44 @@ mod tests {
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["month"], "2025-03");
+    }
+
+    #[test]
+    fn period_json_exposes_cache_creation_1h_as_subset() {
+        let mut day_stats = HashMap::new();
+        let mut ds = DayStats::default();
+        ds.add_stats(
+            "sonnet".to_string(),
+            &Stats {
+                input_tokens: 10,
+                output_tokens: 5,
+                cache_creation: 30,
+                cache_creation_1h: 25,
+                cache_read: 2,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        day_stats.insert("2025-01-01".to_string(), ds);
+
+        let db = PricingDb::default();
+        let json_str = output_period_json(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            true,
+            false,
+            None,
+        );
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+        let breakdown = parsed[0]["breakdown"].as_array().unwrap();
+
+        assert_eq!(parsed[0]["cache_creation_tokens"], 30);
+        assert_eq!(parsed[0]["cache_creation_1h_tokens"], 25);
+        assert_eq!(parsed[0]["total_tokens"], 47);
+        assert_eq!(breakdown[0]["cache_creation_tokens"], 30);
+        assert_eq!(breakdown[0]["cache_creation_1h_tokens"], 25);
+        assert_eq!(breakdown[0]["total_tokens"], 47);
     }
 }

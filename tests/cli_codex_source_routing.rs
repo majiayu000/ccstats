@@ -845,11 +845,11 @@ fn codex_session_csv_includes_reasoning_and_cache_tokens() {
     let row = lines.next().expect("row");
     assert_eq!(
         header,
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert_eq!(
         row,
-        "reasoning-session,,2026-02-06T10:00:00Z,2026-02-06T10:00:00Z,900,300,200,0,100,10.00,1500"
+        "reasoning-session,,2026-02-06T10:00:00Z,2026-02-06T10:00:00Z,900,300,200,0,0,100,10.00,1500"
     );
 
     let _ = fs::remove_dir_all(root);

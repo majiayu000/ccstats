@@ -183,6 +183,7 @@ pub(crate) fn output_endpoint_json(
                 "input_tokens": ep.stats.input_tokens,
                 "output_tokens": ep.stats.output_tokens,
                 "cache_creation_tokens": ep.stats.cache_creation,
+                "cache_creation_1h_tokens": ep.stats.cache_creation_1h,
                 "cache_read_tokens": ep.stats.cache_read,
                 "total_tokens": ep.stats.total_tokens(),
                 "avg_input_per_call": avg_input_per_call(&ep.stats),

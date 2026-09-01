@@ -271,6 +271,7 @@ pub(crate) fn output_block_json(
                 "input_tokens": block.stats.input_tokens,
                 "output_tokens": block.stats.output_tokens,
                 "cache_creation_tokens": block.stats.cache_creation,
+                "cache_creation_1h_tokens": block.stats.cache_creation_1h,
                 "cache_read_tokens": block.stats.cache_read,
                 "cache_hit_rate": cache_hit_rate_json_value(
                     block.stats.cache_hit_rate(supports_cache_read)
@@ -423,6 +424,7 @@ mod tests {
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["cache_creation_tokens"], 200);
+        assert_eq!(parsed[0]["cache_creation_1h_tokens"], 0);
         assert_eq!(parsed[0]["cache_read_tokens"], 300);
         assert_eq!(parsed[0]["cache_hit_rate"], 20.0);
         assert_eq!(parsed[0]["total_tokens"], 2000); // 1000+500+200+300

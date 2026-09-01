@@ -284,6 +284,7 @@ pub(crate) fn output_project_json(
                 "input_tokens": project.stats.input_tokens,
                 "output_tokens": project.stats.output_tokens,
                 "cache_creation_tokens": project.stats.cache_creation,
+                "cache_creation_1h_tokens": project.stats.cache_creation_1h,
                 "cache_read_tokens": project.stats.cache_read,
                 "cache_hit_rate": cache_hit_rate_json_value(
                     project.stats.cache_hit_rate(supports_cache_read)

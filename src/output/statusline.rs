@@ -111,6 +111,7 @@ pub(crate) fn print_statusline_json_with_quality(
         "output_tokens": t.stats.output_tokens,
         "reasoning_tokens": t.stats.reasoning_tokens,
         "cache_creation_tokens": t.stats.cache_creation,
+        "cache_creation_1h_tokens": t.stats.cache_creation_1h,
         "cache_read_tokens": t.stats.cache_read,
         "cache_hit_rate": cache_hit_rate_json_value(
             t.stats.cache_hit_rate(supports_cache_read)
@@ -253,6 +254,7 @@ mod tests {
         assert_eq!(v["output_tokens"].as_i64(), Some(6000));
         assert_eq!(v["reasoning_tokens"].as_i64(), Some(100));
         assert_eq!(v["cache_creation_tokens"].as_i64(), Some(50));
+        assert_eq!(v["cache_creation_1h_tokens"].as_i64(), Some(0));
         assert_eq!(v["cache_read_tokens"].as_i64(), Some(700));
         assert_eq!(v["cache_hit_rate"].as_f64(), Some(14.74));
         assert_eq!(v["total_tokens"].as_i64(), Some(10850));
