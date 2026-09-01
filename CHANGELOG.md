@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - `--source all` default token totals no longer include estimated-proxy rows (for example Grok context snapshots). Cost remains real-only. Estimated-proxy token counts are omitted from those default totals; they are still priced separately as `estimated_cost` when present.
 
+### Fixed
+- Gemini/Google models now load from LiteLLM / fallback instead of N/A.
+
 ## [0.5.1] - 2026-08-31
 
 ### Added
