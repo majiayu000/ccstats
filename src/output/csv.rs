@@ -136,7 +136,7 @@ fn write_period_csv_breakdown(
 ) {
     let _ = write!(
         out,
-        "{},model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens",
+        "{},model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens",
         ctx.label
     );
     write_period_cost_header(out, ctx);
@@ -147,13 +147,14 @@ fn write_period_csv_breakdown(
         for (model, model_stats) in &models {
             let _ = write!(
                 out,
-                "{},{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{},{}",
                 csv_escape(key),
                 csv_escape(model),
                 model_stats.input_tokens,
                 model_stats.output_tokens,
                 model_stats.reasoning_tokens,
                 model_stats.cache_creation,
+                model_stats.cache_creation_1h,
                 model_stats.cache_read,
                 cache_hit_rate_csv_value(model_stats.cache_hit_rate(ctx.supports_cache_read)),
                 model_stats.total_tokens(),
@@ -192,7 +193,7 @@ fn write_period_csv_standard(
 ) {
     let _ = write!(
         out,
-        "{},input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens",
+        "{},input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens",
         ctx.label
     );
     write_period_cost_header(out, ctx);
@@ -200,12 +201,13 @@ fn write_period_csv_standard(
     for &(key, stats) in rows {
         let _ = write!(
             out,
-            "{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{}",
             csv_escape(key),
             stats.stats.input_tokens,
             stats.stats.output_tokens,
             stats.stats.reasoning_tokens,
             stats.stats.cache_creation,
+            stats.stats.cache_creation_1h,
             stats.stats.cache_read,
             cache_hit_rate_csv_value(stats.stats.cache_hit_rate(ctx.supports_cache_read)),
             stats.stats.total_tokens(),
@@ -323,7 +325,7 @@ pub(crate) fn output_monthly_budget_csv(
     if options.breakdown {
         let _ = write!(
             out,
-            "month,model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+            "month,model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
         );
         if options.show_cost {
             let _ = write!(out, ",cost");
@@ -341,13 +343,14 @@ pub(crate) fn output_monthly_budget_csv(
             for (model, model_stats) in &models {
                 let _ = write!(
                     out,
-                    "{},{},{},{},{},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{},{}",
                     csv_escape(&report.month),
                     csv_escape(model),
                     model_stats.input_tokens,
                     model_stats.output_tokens,
                     model_stats.reasoning_tokens,
                     model_stats.cache_creation,
+                    model_stats.cache_creation_1h,
                     model_stats.cache_read,
                     cache_hit_rate_csv_value(
                         model_stats.cache_hit_rate(options.supports_cache_read)
@@ -373,7 +376,7 @@ pub(crate) fn output_monthly_budget_csv(
     } else {
         let _ = write!(
             out,
-            "month,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+            "month,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
         );
         if options.show_cost {
             let _ = write!(out, ",cost");
@@ -388,12 +391,13 @@ pub(crate) fn output_monthly_budget_csv(
             };
             let _ = write!(
                 out,
-                "{},{},{},{},{},{},{},{}",
+                "{},{},{},{},{},{},{},{},{}",
                 csv_escape(&report.month),
                 stats.stats.input_tokens,
                 stats.stats.output_tokens,
                 stats.stats.reasoning_tokens,
                 stats.stats.cache_creation,
+                stats.stats.cache_creation_1h,
                 stats.stats.cache_read,
                 cache_hit_rate_csv_value(stats.stats.cache_hit_rate(options.supports_cache_read)),
                 stats.stats.total_tokens(),
@@ -441,7 +445,7 @@ pub(crate) fn output_session_csv(
         pricing_meta::csv_has_cache_fields(pricing_source, pricing_db);
     let _ = write!(
         out,
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     if show_cost {
         let _ = write!(out, ",cost");
@@ -455,7 +459,7 @@ pub(crate) fn output_session_csv(
     for s in &sorted {
         let _ = write!(
             out,
-            "{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{}",
             csv_escape(&s.session_id),
             csv_escape(&s.project_path),
             csv_escape(&s.first_timestamp),
@@ -464,6 +468,7 @@ pub(crate) fn output_session_csv(
             s.stats.output_tokens,
             s.stats.reasoning_tokens,
             s.stats.cache_creation,
+            s.stats.cache_creation_1h,
             s.stats.cache_read,
             cache_hit_rate_csv_value(s.stats.cache_hit_rate(supports_cache_read)),
             s.stats.total_tokens(),
@@ -600,7 +605,7 @@ pub(crate) fn output_block_csv(
         pricing_meta::csv_has_cache_fields(pricing_source, pricing_db);
     let _ = write!(
         out,
-        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     if show_cost {
         let _ = write!(out, ",cost");
@@ -614,12 +619,13 @@ pub(crate) fn output_block_csv(
     for b in &sorted {
         let _ = write!(
             out,
-            "{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{}",
             csv_escape(&b.block_start),
             csv_escape(&b.block_end),
             b.stats.input_tokens,
             b.stats.output_tokens,
             b.stats.cache_creation,
+            b.stats.cache_creation_1h,
             b.stats.cache_read,
             cache_hit_rate_csv_value(b.stats.cache_hit_rate(supports_cache_read)),
             b.stats.total_tokens(),

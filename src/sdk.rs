@@ -329,6 +329,11 @@ pub struct TokenBreakdown {
     pub output_tokens: i64,
     pub reasoning_tokens: i64,
     pub cache_creation_tokens: i64,
+    /// Portion of `cache_creation_tokens` written with a 1-hour TTL.
+    /// This is a subset of `cache_creation_tokens`, not an extra additive bucket.
+    // Default keeps summaries serialized before this field existed loadable.
+    #[serde(default)]
+    pub cache_creation_1h_tokens: i64,
     pub cache_read_tokens: i64,
     /// Reported prompt-cache hit rate as a percentage from 0 to 100.
     /// `None` means the source does not expose trustworthy cache-read data or
@@ -503,6 +508,7 @@ impl TokenBreakdown {
             output_tokens: stats.output_tokens,
             reasoning_tokens: stats.reasoning_tokens,
             cache_creation_tokens: stats.cache_creation,
+            cache_creation_1h_tokens: stats.cache_creation_1h,
             cache_read_tokens: stats.cache_read,
             cache_hit_rate: stats.cache_hit_rate(supports_cache_read),
             total_tokens: stats.total_tokens(),
@@ -784,7 +790,30 @@ mod tests {
         let tokens: TokenBreakdown =
             serde_json::from_str(legacy).expect("legacy breakdown without cache_hit_rate");
         assert_eq!(tokens.cache_hit_rate, None);
+        assert_eq!(tokens.cache_creation_1h_tokens, 0);
         assert_eq!(tokens.total_tokens, 20);
+    }
+
+    #[test]
+    fn token_breakdown_treats_cache_creation_1h_as_subset() {
+        let stats = Stats {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_creation: 30,
+            cache_creation_1h: 25,
+            cache_read: 2,
+            ..Stats::default()
+        };
+        let tokens = TokenBreakdown::from_stats(&stats, true);
+        let serialized = serde_json::to_value(&tokens).expect("serialize breakdown");
+
+        assert_eq!(tokens.cache_creation_tokens, 30);
+        assert_eq!(tokens.cache_creation_1h_tokens, 25);
+        assert_eq!(serialized["cache_creation_tokens"], 30);
+        assert_eq!(serialized["cache_creation_1h_tokens"], 25);
+        // 1h tokens are already inside cache_creation; total must not add them again.
+        assert_eq!(tokens.total_tokens, 47);
+        assert_eq!(serialized["total_tokens"], 47);
     }
 
     #[test]

@@ -332,6 +332,7 @@ pub(crate) fn output_session_json(
                 "output_tokens": session.stats.output_tokens,
                 "reasoning_tokens": session.stats.reasoning_tokens,
                 "cache_creation_tokens": session.stats.cache_creation,
+                "cache_creation_1h_tokens": session.stats.cache_creation_1h,
                 "cache_read_tokens": session.stats.cache_read,
                 "cache_hit_rate": cache_hit_rate_json_value(
                     session.stats.cache_hit_rate(supports_cache_read)

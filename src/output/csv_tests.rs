@@ -54,7 +54,7 @@ fn period_csv_daily_no_cost() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert!(lines[1].starts_with("2025-01-01,1000,500,"));
     assert!(!lines[0].contains("cost"));
@@ -108,7 +108,7 @@ fn period_csv_converts_cost_when_currency_is_set() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[1],
-        "2025-01-01,1000000,500000,0,0,0,0.00,1500000,73.500000,fallback"
+        "2025-01-01,1000000,500000,0,0,0,0,0.00,1500000,73.500000,fallback"
     );
 }
 
@@ -157,7 +157,7 @@ fn session_csv_structure() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+        "session_id,project_path,first_timestamp,last_timestamp,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert!(lines[1].starts_with("abc-123,/home/user/project,"));
 }
@@ -188,7 +188,7 @@ fn session_csv_includes_reasoning_and_cache_tokens() {
 
     assert_eq!(
         lines[1],
-        "reasoning,,2025-01-01T00:00:00Z,2025-01-01T01:00:00Z,1000,300,200,50,100,8.70,1650"
+        "reasoning,,2025-01-01T00:00:00Z,2025-01-01T01:00:00Z,1000,300,200,50,0,100,8.70,1650"
     );
 }
 
@@ -237,7 +237,7 @@ fn block_csv_structure() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+        "block_start,block_end,input_tokens,output_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
     assert_eq!(lines.len(), 2);
 }
@@ -280,7 +280,7 @@ fn breakdown_csv_header_includes_model() {
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(
         lines[0],
-        "date,model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+        "date,model,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
     );
 }
 
@@ -331,8 +331,8 @@ fn breakdown_csv_with_cost() {
     let lines: Vec<&str> = csv.lines().collect();
     assert!(lines[0].ends_with(",cost,pricing_source"));
     let fields: Vec<&str> = lines[1].split(',').collect();
-    assert_eq!(fields.len(), 11);
-    assert_eq!(fields[10], "fallback");
+    assert_eq!(fields.len(), 12);
+    assert_eq!(fields[11], "fallback");
 }
 
 #[test]
@@ -381,4 +381,41 @@ fn csv_float_and_cost_handle_nan() {
     assert_eq!(csv_float(f64::NAN), "N/A");
     assert_eq!(csv_float(1.5), "1.500000");
     assert_eq!(csv_cost(f64::NAN, None), "N/A");
+}
+
+#[test]
+fn period_csv_exposes_cache_creation_1h_as_subset() {
+    let mut day_stats = HashMap::new();
+    let mut ds = DayStats::default();
+    ds.add_stats(
+        "sonnet".to_string(),
+        &Stats {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_creation: 30,
+            cache_creation_1h: 25,
+            cache_read: 2,
+            count: 1,
+            ..Default::default()
+        },
+    );
+    day_stats.insert("2025-01-01".to_string(), ds);
+
+    let db = PricingDb::default();
+    let csv = output_period_csv(
+        &day_stats,
+        Period::Day,
+        &db,
+        SortOrder::Asc,
+        false,
+        false,
+        None,
+    );
+    let lines: Vec<&str> = csv.lines().collect();
+    assert_eq!(
+        lines[0],
+        "date,input_tokens,output_tokens,reasoning_tokens,cache_creation_tokens,cache_creation_1h_tokens,cache_read_tokens,cache_hit_rate,total_tokens"
+    );
+    // 1h tokens are a subset of cache_creation, so total is 10+5+30+2 = 47, not 72.
+    assert_eq!(lines[1], "2025-01-01,10,5,0,30,25,2,4.76,47");
 }

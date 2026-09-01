@@ -66,6 +66,7 @@ fn build_period_entry(
                 "output_tokens": model_stats.output_tokens,
                 "reasoning_tokens": model_stats.reasoning_tokens,
                 "cache_creation_tokens": model_stats.cache_creation,
+                "cache_creation_1h_tokens": model_stats.cache_creation_1h,
                 "cache_read_tokens": model_stats.cache_read,
                 "cache_hit_rate": cache_hit_rate_json_value(
                     model_stats.cache_hit_rate(options.supports_cache_read)
@@ -105,6 +106,7 @@ fn build_period_entry(
             "output_tokens": stats.stats.output_tokens,
             "reasoning_tokens": stats.stats.reasoning_tokens,
             "cache_creation_tokens": stats.stats.cache_creation,
+            "cache_creation_1h_tokens": stats.stats.cache_creation_1h,
             "cache_read_tokens": stats.stats.cache_read,
             "cache_hit_rate": cache_hit_rate_json_value(
                 stats.stats.cache_hit_rate(options.supports_cache_read)
@@ -140,6 +142,7 @@ fn build_period_entry(
             "output_tokens": stats.stats.output_tokens,
             "reasoning_tokens": stats.stats.reasoning_tokens,
             "cache_creation_tokens": stats.stats.cache_creation,
+            "cache_creation_1h_tokens": stats.stats.cache_creation_1h,
             "cache_read_tokens": stats.stats.cache_read,
             "cache_hit_rate": cache_hit_rate_json_value(
                 stats.stats.cache_hit_rate(options.supports_cache_read)
@@ -450,5 +453,44 @@ mod tests {
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
 
         assert_eq!(parsed[0]["month"], "2025-03");
+    }
+
+    #[test]
+    fn period_json_exposes_cache_creation_1h_as_subset() {
+        let mut day_stats = HashMap::new();
+        let mut ds = DayStats::default();
+        ds.add_stats(
+            "sonnet".to_string(),
+            &Stats {
+                input_tokens: 10,
+                output_tokens: 5,
+                cache_creation: 30,
+                cache_creation_1h: 25,
+                cache_read: 2,
+                count: 1,
+                ..Default::default()
+            },
+        );
+        day_stats.insert("2025-01-01".to_string(), ds);
+
+        let db = PricingDb::default();
+        let json_str = output_period_json(
+            &day_stats,
+            Period::Day,
+            &db,
+            SortOrder::Asc,
+            true,
+            false,
+            None,
+        );
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
+        let breakdown = parsed[0]["breakdown"].as_array().unwrap();
+
+        assert_eq!(parsed[0]["cache_creation_tokens"], 30);
+        assert_eq!(parsed[0]["cache_creation_1h_tokens"], 25);
+        assert_eq!(parsed[0]["total_tokens"], 47);
+        assert_eq!(breakdown[0]["cache_creation_tokens"], 30);
+        assert_eq!(breakdown[0]["cache_creation_1h_tokens"], 25);
+        assert_eq!(breakdown[0]["total_tokens"], 47);
     }
 }
