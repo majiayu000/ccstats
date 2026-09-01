@@ -19,6 +19,9 @@ fn default_opts() -> TokenTableOptions<'static> {
         cost_label: "Cost",
         cost_display_overrides: None,
         total_cost_display_override: None,
+        secondary_cost_label: None,
+        secondary_cost_display_overrides: None,
+        secondary_total_cost_display_override: None,
         pricing_note_override: None,
     }
 }
@@ -32,6 +35,20 @@ fn header_can_label_api_equivalent_price() {
         ..default_opts()
     };
     let h = build_header(&cfg, false, &opts);
+    assert_eq!(h.last().unwrap().content(), "API Eq. Price");
+}
+
+#[test]
+fn header_can_show_reported_and_api_equivalent_prices() {
+    let cfg = period_config(Period::Day);
+    let opts = TokenTableOptions {
+        show_cost: true,
+        cost_label: "Grok Reported",
+        secondary_cost_label: Some("API Eq. Price"),
+        ..default_opts()
+    };
+    let h = build_header(&cfg, false, &opts);
+    assert_eq!(h[h.len() - 2].content(), "Grok Reported");
     assert_eq!(h.last().unwrap().content(), "API Eq. Price");
 }
 

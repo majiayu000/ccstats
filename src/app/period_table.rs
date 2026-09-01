@@ -48,18 +48,25 @@ pub(super) fn render(
             currency: ctx.currency,
             cost_mode,
             cost_label: if selected_grok_report.is_some() {
-                "API Eq. Price"
+                "Grok Reported"
             } else {
                 "Cost"
             },
             cost_display_overrides: grok_cost_displays
                 .as_ref()
-                .map(|displays| &displays.0),
+                .map(|displays| &displays.provider_rows),
             total_cost_display_override: grok_cost_displays
                 .as_ref()
-                .map(|displays| displays.1.as_str()),
+                .map(|displays| displays.provider_total.as_str()),
+            secondary_cost_label: selected_grok_report.map(|_| "API Eq. Price"),
+            secondary_cost_display_overrides: grok_cost_displays
+                .as_ref()
+                .map(|displays| &displays.api_rows),
+            secondary_total_cost_display_override: grok_cost_displays
+                .as_ref()
+                .map(|displays| displays.api_total.as_str()),
             pricing_note_override: selected_grok_report.map(|_| {
-                "Pricing source: xAI public API rates; ~ is estimated, N/A has no request coverage."
+                "Grok Reported comes from costUsdTicks; API Eq. Price uses xAI public rates. ~ is estimated, ranges mark unknown request boundaries, and ≥ marks partial Grok coverage."
             }),
         },
     );
