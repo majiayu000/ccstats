@@ -49,15 +49,28 @@ impl FromStr for UsageSource {
 }
 
 /// Date or exact UTC timestamp range to summarize.
+///
+/// [`Self::ThisWeek`] and [`Self::ThisMonth`] are **current-period date
+/// filters** in the selected timezone. They are not the CLI `weekly` /
+/// `monthly` commands, which only change aggregation grain over already-filtered
+/// history (bound those with `--since` / `--until`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageRange {
     /// Current local day in the selected timezone.
     #[default]
     Today,
-    /// Monday through today in the selected timezone.
+    /// Current week in the selected timezone: Monday through today.
+    ///
+    /// This is a date filter, not the CLI `weekly` command. `ccstats weekly`
+    /// groups already-filtered history by week; bound dates there with
+    /// `--since` / `--until`.
     ThisWeek,
-    /// First day of the current month through today in the selected timezone.
+    /// Current month in the selected timezone: the 1st through today.
+    ///
+    /// This is a date filter, not the CLI `monthly` command. `ccstats monthly`
+    /// groups already-filtered history by month; bound dates there with
+    /// `--since` / `--until`.
     ThisMonth,
     /// Explicit inclusive date range. `None` means unbounded on that side.
     DateRange {

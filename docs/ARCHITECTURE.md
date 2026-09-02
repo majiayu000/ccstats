@@ -393,7 +393,13 @@ Preferred file: platform cache dir / `ccstats/pricing.json` (for example `~/Libr
 - Lazy pricing load and 24h cache
 - Streaming JSONL reads
 
+## CLI period grain vs SDK current period
+
+These share English words but are different concepts. Decided in issue [#136](https://github.com/majiayu000/ccstats/issues/136): keep current behavior; no `--current` flag.
+
+- **CLI `weekly` / `monthly`** are aggregation grains. They group already-filtered history by ISO week (Monday start) or calendar month. Only `today` / `statusline` apply a today date filter. Bound dates with `--since` / `--until`.
+- **SDK `UsageRange::ThisWeek` / `ThisMonth`** are current-period date ranges in the selected timezone: Monday–today and month-start–today.
+
 ## Parked (do not invent a fix)
 
 - **`blocks`** are clock-aligned 5-hour windows (`hour() / 5 * 5` → local 00:00 / 05:00 / 10:00 / 15:00 / 20:00), not Anthropic’s rolling billing window. See issue [#135](https://github.com/majiayu000/ccstats/issues/135).
-- **CLI `weekly` vs SDK `ThisWeek`:** `ccstats weekly` loads history (only `today` / `statusline` apply a today filter). SDK `UsageRange::ThisWeek` is Monday–today in the selected timezone. Same English word, different dates. See issue [#136](https://github.com/majiayu000/ccstats/issues/136).
