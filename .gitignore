@@ -1,3 +1,9 @@
-/target
+/target/
+/desktop/node_modules/
+/desktop/dist/
+/desktop/test-results/
+/desktop/playwright-report/
+/desktop/src-tauri/gen/
+/desktop/src-tauri/target/
 src/**/CLAUDE.md
 tests/CLAUDE.md

@@ -46,3 +46,41 @@ jobs:
         with:
           files: lcov.info
           fail_ci_if_error: false
+
+  desktop:
+    name: Desktop
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Install Chromium
+        working-directory: desktop
+        run: npx playwright install chromium
+      - name: Desktop Rust format
+        run: cargo fmt --all --manifest-path desktop/src-tauri/Cargo.toml --check
+      - name: Desktop Rust clippy
+        run: cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Desktop Rust test
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+      - name: Frontend build
+        working-directory: desktop
+        run: npm run build
+      - name: Frontend end-to-end tests
+        working-directory: desktop
+        run: npm run test:e2e
+      - name: Native Tauri end-to-end test
+        working-directory: desktop
+        run: npm run test:e2e:native

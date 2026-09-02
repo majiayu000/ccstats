@@ -41,10 +41,44 @@ missing sources.
 - **Local-first** — local session data stays on the machine; network access is
   bounded by feature and pricing refreshes can be disabled with `--offline`.
 
-ccstats is intentionally CLI-first. If your primary need is an always-visible
-menu-bar app, a graphical dashboard, gamification, or cloud leaderboards, a GUI
-tracker is a better fit. Choose ccstats when speed, scripting, reproducibility,
-and inspectable accounting rules matter most.
+ccstats keeps its CLI and Rust SDK as the accounting engine. The desktop MVP
+adds a local audit surface over the same source registry and summary APIs; it
+does not upload transcripts or substitute mock data when a source fails.
+
+## Desktop MVP development
+
+The desktop app requires Node.js 20.19+ (or 22.12+), Rust 1.88+, and the
+platform prerequisites for [Tauri 2](https://v2.tauri.app/start/prerequisites/).
+From the repository root:
+
+```bash
+cd desktop
+npm install
+npm run tauri -- dev
+```
+
+The Overview reads one of the 29 registered usage sources and loads Today, This
+Week, and This Month in a single scan. It displays token buckets, model
+attribution, record and parse quality, and leaves unknown costs visibly unknown.
+
+Focused desktop checks:
+
+```bash
+cd desktop
+npm run build
+npm run test:e2e
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run test:e2e:native
+```
+
+Playwright exercises the renderer contract by injecting an explicit window bridge
+before the page loads. Rust tests cover the command boundary, and the native test
+launches a debug app through an embedded WebDriver before crossing Tauri IPC into
+the real ccstats SDK. Production builds call those commands directly and have no
+sample-data fallback.
+
+Usage files and transcripts remain local; pricing refreshes and sources configured
+with remote APIs may still make their documented network requests.
 
 ## Start with common sources
 

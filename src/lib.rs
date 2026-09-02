@@ -24,6 +24,7 @@
 )]
 
 mod app;
+mod catalog;
 mod cli;
 mod config;
 mod consts;
@@ -39,6 +40,7 @@ mod source;
 mod sources_cmd;
 mod utils;
 
+pub use catalog::{SourceDescriptor, list_usage_sources};
 pub use sdk::{
     ApiEquivalentCostCoverage, CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota,
     CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
