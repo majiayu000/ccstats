@@ -85,6 +85,16 @@ pub enum UsageRange {
     },
 }
 
+/// Absolute UTC boundaries for a rolling usage range in the configured timezone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurrentUsageWindow {
+    pub range: UsageRange,
+    pub since: NaiveDate,
+    pub until: NaiveDate,
+    pub since_utc_ms: i64,
+    pub until_exclusive_utc_ms: i64,
+}
+
 impl UsageRange {
     pub(crate) fn timestamp_bounds(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
         match self {
@@ -336,6 +346,60 @@ pub fn current_usage_date_with_cli_config() -> Result<NaiveDate, SdkError> {
     let timezone = Timezone::parse(config.timezone.as_deref())
         .map_err(|error| SdkError::Configuration(error.to_string()))?;
     Ok(timezone.to_fixed_offset(Utc::now()).date_naive())
+}
+
+fn current_usage_windows(
+    timezone: Timezone,
+    now: DateTime<Utc>,
+) -> Result<Vec<CurrentUsageWindow>, SdkError> {
+    let today = timezone.to_fixed_offset(now).date_naive();
+    [
+        UsageRange::Today,
+        UsageRange::ThisWeek,
+        UsageRange::ThisMonth,
+    ]
+    .into_iter()
+    .map(|range| {
+        let (Some(since), Some(until)) = range.resolve(today)? else {
+            return Err(SdkError::Configuration(
+                "rolling usage range did not resolve to bounded dates".to_string(),
+            ));
+        };
+        let until_exclusive = until.checked_add_days(Days::new(1)).ok_or_else(|| {
+            SdkError::Configuration("usage window end is not representable".to_string())
+        })?;
+        let since_utc_ms = timezone.date_start_utc_millis(since).ok_or_else(|| {
+            SdkError::Configuration("usage window start is not representable".to_string())
+        })?;
+        let until_exclusive_utc_ms =
+            timezone
+                .date_start_utc_millis(until_exclusive)
+                .ok_or_else(|| {
+                    SdkError::Configuration("usage window end is not representable".to_string())
+                })?;
+        Ok(CurrentUsageWindow {
+            range,
+            since,
+            until,
+            since_utc_ms,
+            until_exclusive_utc_ms,
+        })
+    })
+    .collect()
+}
+
+/// Resolves the current day, week, and month with absolute UTC boundaries using
+/// the persisted CLI timezone.
+///
+/// # Errors
+///
+/// Returns an error when CLI configuration or its timezone is invalid, or a
+/// date boundary cannot be represented.
+pub fn current_usage_windows_with_cli_config() -> Result<Vec<CurrentUsageWindow>, SdkError> {
+    let config = load_cli_config()?;
+    let timezone = Timezone::parse(config.timezone.as_deref())
+        .map_err(|error| SdkError::Configuration(error.to_string()))?;
+    current_usage_windows(timezone, Utc::now())
 }
 
 pub(super) fn load_cli_config() -> Result<Config, SdkError> {

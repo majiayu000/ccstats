@@ -2,6 +2,24 @@ use super::*;
 use std::collections::BTreeSet;
 
 #[test]
+fn usage_windows_record_timezone_specific_utc_boundaries() {
+    let now = "2026-09-02T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+    let utc = current_usage_windows(Timezone::Named(chrono_tz::UTC), now).unwrap();
+    let shanghai = current_usage_windows(Timezone::Named(chrono_tz::Asia::Shanghai), now).unwrap();
+
+    assert_eq!(utc[0].since, shanghai[0].since);
+    assert_eq!(utc[0].until, shanghai[0].until);
+    assert_eq!(
+        utc[0].since_utc_ms - shanghai[0].since_utc_ms,
+        8 * 60 * 60 * 1_000
+    );
+    assert_eq!(
+        utc[0].until_exclusive_utc_ms - shanghai[0].until_exclusive_utc_ms,
+        8 * 60 * 60 * 1_000
+    );
+}
+
+#[test]
 fn usage_source_accepts_registry_names_and_aliases() {
     for source in crate::source::all_sources() {
         let expected = UsageSource::from_name(source.name()).expect("SDK source variant");

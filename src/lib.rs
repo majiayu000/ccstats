@@ -55,11 +55,12 @@ pub use catalog::{
 pub use sdk::{
     ApiEquivalentCostCoverage, CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota,
     CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
-    CodexWeeklyValueWindowError, CostSummary, ModelCostSummary, MultiCostSummary,
-    MultiSummaryOptions, SdkError, SummaryOptions, TokenBreakdown, UsageRange, UsageSource,
-    current_usage_date_with_cli_config, estimate_codex_weekly_value,
-    estimate_codex_weekly_value_for_window, load_codex_weekly_quota, summarize_cost,
-    summarize_cost_ranges, summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
+    CodexWeeklyValueWindowError, CostSummary, CurrentUsageWindow, ModelCostSummary,
+    MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions, TokenBreakdown, UsageRange,
+    UsageSource, current_usage_date_with_cli_config, current_usage_windows_with_cli_config,
+    estimate_codex_weekly_value, estimate_codex_weekly_value_for_window, load_codex_weekly_quota,
+    summarize_cost, summarize_cost_ranges, summarize_cost_ranges_with_cli_config,
+    summarize_cost_with_cli_config,
 };
 
 use chrono::{NaiveDate, Utc};

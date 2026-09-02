@@ -3,12 +3,13 @@ use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ccstats::{MultiCostSummary, UsageRange, current_usage_date_with_cli_config};
-use chrono::{Datelike, Days, NaiveDate};
+use ccstats::{
+    CurrentUsageWindow, MultiCostSummary, UsageRange, current_usage_windows_with_cli_config,
+};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_BUNDLE_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,7 @@ struct StoredMachineSnapshot {
     machine_id: String,
     machine_name: String,
     captured_at_ms: i64,
+    windows: Vec<CurrentUsageWindow>,
     sources: Vec<MultiCostSummary>,
 }
 
@@ -61,20 +63,6 @@ pub(crate) struct MachineRollup {
     totals: MachineUsageTotals,
 }
 
-fn current_window(range: UsageRange, today: NaiveDate) -> Result<(NaiveDate, NaiveDate), String> {
-    let since = match range {
-        UsageRange::Today => today,
-        UsageRange::ThisWeek => today
-            .checked_sub_days(Days::new(u64::from(today.weekday().num_days_from_monday())))
-            .ok_or_else(|| "the current week start is not representable".to_string())?,
-        UsageRange::ThisMonth => today
-            .with_day(1)
-            .ok_or_else(|| "the current month start is not representable".to_string())?,
-        _ => return Err("machine snapshots only store rolling ranges".to_string()),
-    };
-    Ok((since, today))
-}
-
 fn open_database(path: &Path) -> Result<Connection, String> {
     let parent = path
         .parent()
@@ -103,9 +91,10 @@ fn open_database(path: &Path) -> Result<Connection, String> {
                    machine_id TEXT PRIMARY KEY,
                    machine_name TEXT NOT NULL,
                    captured_at_ms INTEGER NOT NULL,
+                   windows_json TEXT NOT NULL,
                    payload_json TEXT NOT NULL
                  );
-                 PRAGMA user_version = 1;
+                 PRAGMA user_version = 2;
                  COMMIT;",
             )
             .map_err(|error| format!("failed to initialize machine database: {error}"))?,
@@ -205,34 +194,38 @@ fn summary_for(source: &MultiCostSummary, range: UsageRange) -> Result<(i64, Opt
     Ok((row.tokens.total_tokens, trusted_cost))
 }
 
-fn snapshot_freshness(snapshot: &StoredMachineSnapshot) -> Result<[bool; 3], String> {
-    let mut freshness = [true; 3];
-    let today = current_usage_date_with_cli_config().map_err(|error| error.to_string())?;
-    for source in &snapshot.sources {
-        for (index, range) in [
-            UsageRange::Today,
-            UsageRange::ThisWeek,
-            UsageRange::ThisMonth,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let (since, until) = current_window(range.clone(), today)?;
-            let rows: Vec<_> = source
-                .summaries
-                .iter()
-                .filter(|summary| summary.range == range)
-                .collect();
-            if rows.len() != 1 {
-                return Err(format!(
-                    "{} must contain exactly one {range:?} summary",
-                    source.display_name
-                ));
-            }
-            if rows[0].since != Some(since) || rows[0].until != Some(until) {
-                freshness[index] = false;
-            }
-        }
+fn rolling_ranges() -> [UsageRange; 3] {
+    [
+        UsageRange::Today,
+        UsageRange::ThisWeek,
+        UsageRange::ThisMonth,
+    ]
+}
+
+fn window_for<'a>(
+    windows: &'a [CurrentUsageWindow],
+    range: &UsageRange,
+) -> Result<&'a CurrentUsageWindow, String> {
+    let rows: Vec<_> = windows
+        .iter()
+        .filter(|window| window.range == *range)
+        .collect();
+    if rows.len() != 1 {
+        return Err(format!(
+            "machine snapshot must contain exactly one {range:?} window"
+        ));
+    }
+    Ok(rows[0])
+}
+
+fn snapshot_freshness_against(
+    snapshot: &StoredMachineSnapshot,
+    current_windows: &[CurrentUsageWindow],
+) -> Result<[bool; 3], String> {
+    let mut freshness = [false; 3];
+    for (index, range) in rolling_ranges().iter().enumerate() {
+        freshness[index] =
+            window_for(&snapshot.windows, range)? == window_for(current_windows, range)?;
     }
     Ok(freshness)
 }
@@ -252,6 +245,15 @@ fn validate_snapshot(snapshot: &StoredMachineSnapshot) -> Result<(), String> {
     }
     if snapshot.sources.is_empty() {
         return Err(format!("{} has no source summaries", snapshot.machine_name));
+    }
+    for range in rolling_ranges() {
+        let window = window_for(&snapshot.windows, &range)?;
+        if window.since > window.until || window.since_utc_ms >= window.until_exclusive_utc_ms {
+            return Err(format!(
+                "{} contains an invalid {range:?} window",
+                snapshot.machine_name
+            ));
+        }
     }
     let mut source_names = HashSet::new();
     for source in &snapshot.sources {
@@ -278,9 +280,21 @@ fn validate_snapshot(snapshot: &StoredMachineSnapshot) -> Result<(), String> {
                 snapshot.machine_name, source.source_name
             ));
         }
-        summary_for(source, UsageRange::Today)?;
-        summary_for(source, UsageRange::ThisWeek)?;
-        summary_for(source, UsageRange::ThisMonth)?;
+        for range in rolling_ranges() {
+            summary_for(source, range.clone())?;
+            let summary = source
+                .summaries
+                .iter()
+                .find(|summary| summary.range == range)
+                .ok_or_else(|| format!("{} is missing {range:?}", source.display_name))?;
+            let window = window_for(&snapshot.windows, &range)?;
+            if summary.since != Some(window.since) || summary.until != Some(window.until) {
+                return Err(format!(
+                    "{} summary does not match its {range:?} window",
+                    source.display_name
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -292,20 +306,24 @@ fn write_snapshot(
 ) -> Result<(), String> {
     let payload = serde_json::to_string(&snapshot.sources)
         .map_err(|error| format!("failed to serialize machine snapshot: {error}"))?;
+    let windows = serde_json::to_string(&snapshot.windows)
+        .map_err(|error| format!("failed to serialize machine windows: {error}"))?;
     let query = if only_if_newer {
-        "INSERT INTO machine_snapshots(machine_id, machine_name, captured_at_ms, payload_json)
-         VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO machine_snapshots(machine_id, machine_name, captured_at_ms, windows_json, payload_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(machine_id) DO UPDATE SET
            machine_name = excluded.machine_name,
            captured_at_ms = excluded.captured_at_ms,
+           windows_json = excluded.windows_json,
            payload_json = excluded.payload_json
          WHERE excluded.captured_at_ms > machine_snapshots.captured_at_ms"
     } else {
-        "INSERT INTO machine_snapshots(machine_id, machine_name, captured_at_ms, payload_json)
-         VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO machine_snapshots(machine_id, machine_name, captured_at_ms, windows_json, payload_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(machine_id) DO UPDATE SET
            machine_name = excluded.machine_name,
            captured_at_ms = excluded.captured_at_ms,
+           windows_json = excluded.windows_json,
            payload_json = excluded.payload_json"
     };
     connection
@@ -315,6 +333,7 @@ fn write_snapshot(
                 snapshot.machine_id,
                 snapshot.machine_name.trim(),
                 snapshot.captured_at_ms,
+                windows,
                 payload
             ],
         )
@@ -325,7 +344,7 @@ fn write_snapshot(
 fn read_snapshots(connection: &Connection) -> Result<Vec<StoredMachineSnapshot>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT machine_id, machine_name, captured_at_ms, payload_json
+            "SELECT machine_id, machine_name, captured_at_ms, windows_json, payload_json
              FROM machine_snapshots ORDER BY captured_at_ms DESC, machine_name ASC",
         )
         .map_err(|error| format!("failed to prepare machine snapshot query: {error}"))?;
@@ -336,18 +355,22 @@ fn read_snapshots(connection: &Connection) -> Result<Vec<StoredMachineSnapshot>,
                 row.get::<_, String>(1)?,
                 row.get::<_, i64>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
             ))
         })
         .map_err(|error| format!("failed to query machine snapshots: {error}"))?;
     rows.map(|row| {
-        let (machine_id, machine_name, captured_at_ms, payload) =
+        let (machine_id, machine_name, captured_at_ms, windows_json, payload) =
             row.map_err(|error| format!("failed to read machine snapshot: {error}"))?;
+        let windows = serde_json::from_str(&windows_json)
+            .map_err(|error| format!("stored windows for {machine_name} are malformed: {error}"))?;
         let sources = serde_json::from_str(&payload)
             .map_err(|error| format!("stored snapshot for {machine_name} is malformed: {error}"))?;
         let snapshot = StoredMachineSnapshot {
             machine_id,
             machine_name,
             captured_at_ms,
+            windows,
             sources,
         };
         validate_snapshot(&snapshot)?;
@@ -389,8 +412,10 @@ fn add_range(
 fn project_snapshot(
     snapshot: &StoredMachineSnapshot,
     local_id: &str,
+    current_windows: &[CurrentUsageWindow],
 ) -> Result<MachineUsage, String> {
-    let [today_current, week_current, month_current] = snapshot_freshness(snapshot)?;
+    let [today_current, week_current, month_current] =
+        snapshot_freshness_against(snapshot, current_windows)?;
     let mut totals = MachineUsageTotals {
         today_cost: Some(0.0),
         week_cost: Some(0.0),
@@ -424,9 +449,11 @@ fn project_snapshot(
 fn machine_rollup(connection: &Connection) -> Result<MachineRollup, String> {
     let local_id = local_machine_id(connection)?;
     let snapshots = read_snapshots(connection)?;
+    let current_windows =
+        current_usage_windows_with_cli_config().map_err(|error| error.to_string())?;
     let mut machines: Vec<_> = snapshots
         .iter()
-        .map(|snapshot| project_snapshot(snapshot, &local_id))
+        .map(|snapshot| project_snapshot(snapshot, &local_id, &current_windows))
         .collect::<Result<_, _>>()?;
     machines.sort_by(|left, right| {
         right
@@ -508,6 +535,7 @@ pub(crate) fn save_local_snapshot_at(
         machine_id,
         machine_name: machine_name.trim().to_string(),
         captured_at_ms: current_time_ms()?,
+        windows: current_usage_windows_with_cli_config().map_err(|error| error.to_string())?,
         sources,
     };
     validate_snapshot(&snapshot)?;
@@ -579,201 +607,5 @@ pub(crate) fn import_bundle_at(path: &Path, content: &str) -> Result<MachineRoll
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use ccstats::{ApiEquivalentCostCoverage, CostSummary, TokenBreakdown, UsageSource};
-
-    use super::*;
-
-    fn database(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "ccstats-machines-{name}-{}-{}.sqlite3",
-            std::process::id(),
-            current_time_ms().expect("timestamp")
-        ))
-    }
-
-    fn sample_source(today: i64, week: i64, month: i64) -> MultiCostSummary {
-        let current = current_usage_date_with_cli_config().expect("configured current date");
-        let summary = |range: UsageRange, tokens, cost| CostSummary {
-            source: UsageSource::Claude,
-            source_name: "claude".to_string(),
-            display_name: "Claude Code".to_string(),
-            range: range.clone(),
-            since: Some(
-                current_window(range.clone(), current)
-                    .expect("range bounds")
-                    .0,
-            ),
-            until: Some(
-                current_window(range.clone(), current)
-                    .expect("range bounds")
-                    .1,
-            ),
-            currency: "USD".to_string(),
-            cost: Some(cost),
-            cost_usd: Some(cost),
-            estimated_cost: None,
-            estimated_cost_usd: None,
-            cost_kind: "real".to_string(),
-            pricing_source: "recorded".to_string(),
-            api_equivalent_cost_coverage: None,
-            tokens: TokenBreakdown {
-                input_tokens: tokens,
-                total_tokens: tokens,
-                reported_total_adjustment: 0,
-                ..TokenBreakdown::default()
-            },
-            models: Vec::new(),
-            valid_entries: 1,
-            skipped_entries: 0,
-            parse_error_entries: 0,
-            elapsed_ms: 1.0,
-        };
-        MultiCostSummary {
-            source: UsageSource::Claude,
-            source_name: "claude".to_string(),
-            display_name: "Claude Code".to_string(),
-            currency: "USD".to_string(),
-            generated_at: "2026-09-02T00:00:00Z".to_string(),
-            summaries: vec![
-                summary(UsageRange::Today, today, 1.0),
-                summary(UsageRange::ThisWeek, week, 2.0),
-                summary(UsageRange::ThisMonth, month, 3.0),
-            ],
-            elapsed_ms: 3.0,
-        }
-    }
-
-    #[test]
-    fn local_snapshot_persists_across_reopens() {
-        let path = database("persist");
-        let saved = save_local_snapshot_at(&path, "Studio", vec![sample_source(100, 400, 900)])
-            .expect("save snapshot");
-        let reopened = machine_rollup_at(&path).expect("reopen rollup");
-
-        assert_eq!(saved.local_machine_id, reopened.local_machine_id);
-        assert_eq!(reopened.local_machine_name.as_deref(), Some("Studio"));
-        assert_eq!(reopened.totals.month_tokens, 900);
-        fs::remove_file(path).expect("remove test database");
-    }
-
-    #[test]
-    fn imported_older_snapshot_does_not_replace_newer_data() {
-        let origin = database("origin");
-        let target = database("target");
-        save_local_snapshot_at(&origin, "Laptop", vec![sample_source(100, 400, 900)])
-            .expect("save origin");
-        let current = export_bundle_at(&origin).expect("export origin");
-        import_bundle_at(&target, &current).expect("import origin");
-
-        let mut older: SnapshotBundle = serde_json::from_str(&current).expect("parse bundle");
-        older.machines[0].machine_name = "Stale laptop".to_string();
-        older.machines[0].captured_at_ms -= 1;
-        older.machines[0].sources = vec![sample_source(999, 999, 999)];
-        import_bundle_at(
-            &target,
-            &serde_json::to_string(&older).expect("serialize older"),
-        )
-        .expect("import older");
-
-        let rollup = machine_rollup_at(&target).expect("target rollup");
-        assert_eq!(rollup.machines[0].machine_name, "Laptop");
-        assert_eq!(rollup.totals.month_tokens, 900);
-        fs::remove_file(origin).expect("remove origin");
-        fs::remove_file(target).expect("remove target");
-    }
-
-    #[test]
-    fn import_rejects_invalid_currency() {
-        let path = database("currency");
-        let mut source = sample_source(1, 2, 3);
-        source.currency = "INVALID".to_string();
-        let bundle = SnapshotBundle {
-            schema_version: SCHEMA_VERSION,
-            machines: vec![StoredMachineSnapshot {
-                machine_id: "remote".to_string(),
-                machine_name: "Remote".to_string(),
-                captured_at_ms: 1,
-                sources: vec![source],
-            }],
-        };
-        let error = import_bundle_at(&path, &serde_json::to_string(&bundle).expect("bundle"))
-            .expect_err("invalid currency must fail");
-
-        assert!(error.contains("invalid currency"));
-        fs::remove_file(path).expect("remove test database");
-    }
-
-    #[test]
-    fn freshness_and_rollup_are_independent_for_each_range() {
-        let path = database("partial-freshness");
-        save_local_snapshot_at(&path, "Local", vec![sample_source(100, 400, 900)])
-            .expect("save current USD snapshot");
-        let mut source = sample_source(100, 400, 900);
-        source.currency = "EUR".to_string();
-        source
-            .summaries
-            .iter_mut()
-            .for_each(|row| row.currency = "EUR".to_string());
-        source.summaries[0].until = source.summaries[0].until.and_then(|date| date.pred_opt());
-        let bundle = SnapshotBundle {
-            schema_version: SCHEMA_VERSION,
-            machines: vec![StoredMachineSnapshot {
-                machine_id: "remote".to_string(),
-                machine_name: "Remote".to_string(),
-                captured_at_ms: 1,
-                sources: vec![source],
-            }],
-        };
-
-        let rollup = import_bundle_at(&path, &serde_json::to_string(&bundle).expect("bundle"))
-            .expect("import partially fresh snapshot");
-
-        assert_eq!(rollup.today_current_machines, 1);
-        assert_eq!(rollup.week_current_machines, 2);
-        assert_eq!(rollup.totals.today_cost, Some(1.0));
-        assert_eq!(rollup.totals.week_cost, Some(4.0));
-        fs::remove_file(path).expect("remove test database");
-    }
-
-    #[test]
-    fn bundles_round_trip_without_replacing_the_local_machine() {
-        let studio = database("round-trip-studio");
-        let laptop = database("round-trip-laptop");
-        save_local_snapshot_at(&studio, "Studio", vec![sample_source(100, 400, 900)])
-            .expect("save studio snapshot");
-        save_local_snapshot_at(&laptop, "Laptop", vec![sample_source(50, 200, 600)])
-            .expect("save laptop snapshot");
-
-        let studio_bundle = export_bundle_at(&studio).expect("export studio");
-        import_bundle_at(&laptop, &studio_bundle).expect("import studio on laptop");
-        let laptop_bundle = export_bundle_at(&laptop).expect("export laptop and studio");
-        let rollup = import_bundle_at(&studio, &laptop_bundle).expect("round-trip to studio");
-
-        assert_eq!(rollup.machines.len(), 2);
-        assert_eq!(rollup.local_machine_name.as_deref(), Some("Studio"));
-        assert_eq!(rollup.totals.month_tokens, 1_500);
-        fs::remove_file(studio).expect("remove studio database");
-        fs::remove_file(laptop).expect("remove laptop database");
-    }
-
-    #[test]
-    fn lower_bound_cost_is_not_presented_as_a_complete_machine_total() {
-        let path = database("lower-bound");
-        let mut source = sample_source(100, 400, 900);
-        source.summaries[2].api_equivalent_cost_coverage = Some(ApiEquivalentCostCoverage {
-            total_tokens: 900,
-            priced_tokens: 800,
-            percent: 800.0 / 900.0 * 100.0,
-            complete: false,
-            cost_is_lower_bound: true,
-        });
-
-        let rollup = save_local_snapshot_at(&path, "Studio", vec![source]).expect("save snapshot");
-
-        assert_eq!(rollup.totals.month_cost, None);
-        fs::remove_file(path).expect("remove test database");
-    }
-}
+#[path = "machines/tests.rs"]
+mod tests;

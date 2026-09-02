@@ -359,6 +359,16 @@ function aggregateCoverage(summaries: CostSummary[]): ApiEquivalentCostCoverage 
   };
 }
 
+function aggregateCacheHitRate(rows: ReadonlyArray<TokenBreakdown>): number | null {
+  const supported = rows.filter((row) => row.cache_hit_rate !== null);
+  const inputSide = supported.reduce(
+    (sum, row) => sum + row.input_tokens + row.cache_creation_tokens + row.cache_read_tokens,
+    0,
+  );
+  if (inputSide === 0) return null;
+  return supported.reduce((sum, row) => sum + row.cache_read_tokens, 0) / inputSide * 100;
+}
+
 function aggregateModels(summaries: CostSummary[]): ModelCostSummary[] {
   const models = new Map<string, ModelCostSummary[]>();
   for (const summary of summaries) {
@@ -383,8 +393,7 @@ function aggregateModels(summaries: CostSummary[]): ModelCostSummary[] {
         total_tokens: 0,
       };
       for (const row of rows) addTokens(tokens, row.tokens);
-      const inputSide = tokens.input_tokens + tokens.cache_creation_tokens + tokens.cache_read_tokens;
-      tokens.cache_hit_rate = inputSide > 0 ? (tokens.cache_read_tokens / inputSide) * 100 : null;
+      tokens.cache_hit_rate = aggregateCacheHitRate(rows.map((row) => row.tokens));
       const kinds = new Set(rows.map((row) => row.cost_kind));
       return {
         model,
@@ -424,8 +433,7 @@ export function aggregateUsageOverviews(overviews: UsageOverview[]): UsageOvervi
       total_tokens: 0,
     };
     for (const summary of sourceSummaries) addTokens(tokens, summary.tokens);
-    const inputSide = tokens.input_tokens + tokens.cache_creation_tokens + tokens.cache_read_tokens;
-    tokens.cache_hit_rate = inputSide > 0 ? (tokens.cache_read_tokens / inputSide) * 100 : null;
+    tokens.cache_hit_rate = aggregateCacheHitRate(sourceSummaries.map((summary) => summary.tokens));
     const evidenceSummaries = sourceSummaries.filter((summary) =>
       summary.valid_entries > 0
       || summary.models.length > 0
