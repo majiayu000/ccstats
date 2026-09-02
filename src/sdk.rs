@@ -317,9 +317,16 @@ pub enum SdkError {
 /// Returns an error when the source or timezone is invalid, or when an explicit
 /// date or timestamp range has `since` after `until`.
 pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> {
+    summarize_cost_at(options, Utc::now())
+}
+
+pub(super) fn summarize_cost_at(
+    options: SummaryOptions,
+    observed_at: DateTime<Utc>,
+) -> Result<CostSummary, SdkError> {
     let timezone = Timezone::parse(options.timezone.as_deref())
         .map_err(|err| SdkError::Configuration(err.to_string()))?;
-    let today = timezone.to_fixed_offset(Utc::now()).date_naive();
+    let today = timezone.to_fixed_offset(observed_at).date_naive();
     let (since, until) = options.range.resolve(today)?;
     let mut filter = DateFilter::new(since, until);
     if let Some((since_timestamp, until_timestamp)) = options.range.timestamp_bounds() {
