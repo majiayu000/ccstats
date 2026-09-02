@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "ccstats"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "ccstats-desktop"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "ccstats",
  "chrono",

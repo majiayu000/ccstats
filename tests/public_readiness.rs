@@ -54,11 +54,11 @@ fn public_docs_describe_the_full_registry_without_exact_setup_promises() {
 fn changelog_names_every_source_added_across_the_nine_provider_batches() {
     let changelog = fs::read_to_string("CHANGELOG.md").expect("changelog");
     let release = changelog
-        .split_once("## [0.5.1]")
-        .expect("0.5.1 release")
+        .split_once("## [0.5.2]")
+        .expect("0.5.2 release")
         .1
         .split_once("## [0.5.0]")
-        .expect("0.5.0 release follows 0.5.1")
+        .expect("0.5.0 release follows 0.5.2")
         .0;
 
     assert!(release.contains("5 to 29 sources across nine provider batches"));
@@ -73,7 +73,7 @@ fn changelog_names_every_source_added_across_the_nine_provider_batches() {
         "Unsloth Studio",
         "DeepSeek Harness",
     ] {
-        assert!(release.contains(batch), "0.5.1 does not name batch {batch}");
+        assert!(release.contains(batch), "0.5.2 does not name batch {batch}");
     }
 }
 

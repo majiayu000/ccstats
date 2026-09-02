@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ccstats",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "identifier": "io.ccstats.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -31,6 +31,7 @@
     "category": "DeveloperTool",
     "shortDescription": "Local AI coding usage analytics",
     "icon": [
+      "../../docs/branding/final/favicon.ico",
       "../../docs/branding/final/icon-32.png",
       "../../docs/branding/final/icon-128.png",
       "../../docs/branding/final/icon-256.png",
