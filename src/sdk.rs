@@ -15,7 +15,8 @@ use crate::config::Config;
 use crate::core::{DateFilter, DayStats, LoadResult, Stats};
 use crate::pricing::{
     CurrencyConverter, PricingDb, calculate_cost, calculate_estimated_proxy_cost, model_cost_kind,
-    sum_estimated_proxy_model_costs, sum_model_costs,
+    pricing_source_for_model_stats, pricing_source_for_models, sum_estimated_proxy_model_costs,
+    sum_model_costs,
 };
 use crate::source::{CostCoverage, Source, get_source, load_daily};
 use crate::utils::Timezone;
@@ -85,14 +86,14 @@ pub enum UsageRange {
 }
 
 impl UsageRange {
-    fn timestamp_bounds(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    pub(crate) fn timestamp_bounds(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
         match self {
             UsageRange::TimestampRange { since, until } => Some((*since, *until)),
             _ => None,
         }
     }
 
-    pub(in crate::sdk) fn resolve(
+    pub(crate) fn resolve(
         &self,
         today: NaiveDate,
     ) -> Result<(Option<NaiveDate>, Option<NaiveDate>), SdkError> {
@@ -176,6 +177,8 @@ pub struct TokenBreakdown {
     #[serde(default)]
     pub cache_creation_1h_tokens: i64,
     pub cache_read_tokens: i64,
+    /// Difference between the source-authoritative total and the named buckets.
+    pub reported_total_adjustment: i64,
     /// Reported prompt-cache hit rate as a percentage from 0 to 100.
     /// `None` means the source does not expose trustworthy cache-read data or
     /// the summary has no input-side tokens.
@@ -194,6 +197,7 @@ pub struct ModelCostSummary {
     pub estimated_cost: Option<f64>,
     pub estimated_cost_usd: Option<f64>,
     pub cost_kind: String,
+    pub pricing_source: String,
     pub tokens: TokenBreakdown,
 }
 
@@ -234,6 +238,7 @@ pub struct CostSummary {
     pub estimated_cost: Option<f64>,
     pub estimated_cost_usd: Option<f64>,
     pub cost_kind: String,
+    pub pricing_source: String,
     pub api_equivalent_cost_coverage: Option<ApiEquivalentCostCoverage>,
     pub tokens: TokenBreakdown,
     pub models: Vec<ModelCostSummary>,
@@ -321,6 +326,18 @@ pub fn summarize_cost_with_cli_config(options: SummaryOptions) -> Result<CostSum
     summarize_cost(apply_cli_config(options, &config))
 }
 
+/// Resolves today's date using the persisted CLI timezone.
+///
+/// # Errors
+///
+/// Returns an error when CLI configuration cannot be loaded or its timezone is invalid.
+pub fn current_usage_date_with_cli_config() -> Result<NaiveDate, SdkError> {
+    let config = load_cli_config()?;
+    let timezone = Timezone::parse(config.timezone.as_deref())
+        .map_err(|error| SdkError::Configuration(error.to_string()))?;
+    Ok(timezone.to_fixed_offset(Utc::now()).date_naive())
+}
+
 pub(super) fn load_cli_config() -> Result<Config, SdkError> {
     Config::try_load_quiet().map_err(|err| SdkError::Configuration(err.to_string()))
 }
@@ -351,6 +368,7 @@ impl TokenBreakdown {
             cache_creation_tokens: stats.cache_creation,
             cache_creation_1h_tokens: stats.cache_creation_1h,
             cache_read_tokens: stats.cache_read,
+            reported_total_adjustment: stats.reported_total_adjustment,
             cache_hit_rate: stats.cache_hit_rate(supports_cache_read),
             total_tokens: stats.total_tokens(),
         }
@@ -389,6 +407,9 @@ pub(in crate::sdk) fn build_cost_summary(
         estimated_cost: convert_cost(estimated_cost_usd, currency),
         estimated_cost_usd,
         cost_kind: model_cost_kind(&models).as_str().to_string(),
+        pricing_source: pricing_source_for_models(&models, pricing_db)
+            .as_str()
+            .to_string(),
         api_equivalent_cost_coverage: cost_coverage.map(Into::into),
         tokens: TokenBreakdown::from_stats(&stats, supports_cache_read),
         models: summarize_models(&models, pricing_db, currency, supports_cache_read),
@@ -465,6 +486,9 @@ fn summarize_models(
                 estimated_cost: convert_cost(estimated_cost_usd, currency),
                 estimated_cost_usd,
                 cost_kind: stats.cost_kind().as_str().to_string(),
+                pricing_source: pricing_source_for_model_stats(model, stats, pricing_db)
+                    .as_str()
+                    .to_string(),
                 tokens: TokenBreakdown::from_stats(stats, supports_cache_read),
             }
         })
@@ -487,253 +511,5 @@ fn summarize_models(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeSet;
-
-    #[test]
-    fn usage_source_accepts_registry_names_and_aliases() {
-        for source in crate::source::all_sources() {
-            let expected = UsageSource::from_name(source.name()).expect("SDK source variant");
-            assert_eq!(source.name().parse::<UsageSource>().unwrap(), expected);
-            assert_eq!(
-                source
-                    .name()
-                    .to_ascii_uppercase()
-                    .parse::<UsageSource>()
-                    .unwrap(),
-                expected
-            );
-            assert_eq!(
-                format!(" {} ", source.name())
-                    .parse::<UsageSource>()
-                    .unwrap(),
-                expected
-            );
-
-            for alias in source.aliases() {
-                assert_eq!(alias.parse::<UsageSource>().unwrap(), expected);
-            }
-        }
-
-        let err = " unknown ".parse::<UsageSource>().unwrap_err();
-        assert!(matches!(err, SdkError::InvalidSource { name } if name == "unknown"));
-    }
-
-    #[test]
-    fn extension_usage_sources_use_canonical_serde_names() {
-        assert_eq!(
-            serde_json::to_string(&UsageSource::RooCode).unwrap(),
-            r#""roocode""#
-        );
-        assert_eq!(
-            serde_json::to_string(&UsageSource::KiloCode).unwrap(),
-            r#""kilocode""#
-        );
-        assert_eq!(
-            serde_json::from_str::<UsageSource>(r#""roocode""#).unwrap(),
-            UsageSource::RooCode
-        );
-        assert_eq!(
-            serde_json::from_str::<UsageSource>(r#""kilocode""#).unwrap(),
-            UsageSource::KiloCode
-        );
-    }
-
-    #[test]
-    fn registry_concrete_sources_match_sdk_usage_sources() {
-        let registry_sources = crate::source::all_sources()
-            .map(Source::name)
-            .collect::<BTreeSet<_>>();
-        let sdk_sources = UsageSource::VARIANTS
-            .iter()
-            .map(|source| source.as_str())
-            .collect::<BTreeSet<_>>();
-
-        assert_eq!(registry_sources, sdk_sources);
-        assert!(crate::source::source_choices().contains(&crate::source::ALL_SOURCES));
-        assert!(crate::source::ALL_SOURCES.parse::<UsageSource>().is_err());
-
-        for source in crate::source::all_sources() {
-            assert_eq!(
-                source.name().parse::<UsageSource>().unwrap().as_str(),
-                source.name()
-            );
-            for alias in source.aliases() {
-                assert_eq!(
-                    alias.parse::<UsageSource>().unwrap().as_str(),
-                    source.name()
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn usage_range_this_week_starts_on_monday() {
-        let today = NaiveDate::from_ymd_opt(2026, 5, 9).unwrap();
-        let (since, until) = UsageRange::ThisWeek.resolve(today).unwrap();
-        assert_eq!(since, Some(NaiveDate::from_ymd_opt(2026, 5, 4).unwrap()));
-        assert_eq!(until, Some(today));
-    }
-
-    #[test]
-    fn usage_range_rejects_reversed_dates() {
-        let range = UsageRange::DateRange {
-            since: Some(NaiveDate::from_ymd_opt(2026, 5, 10).unwrap()),
-            until: Some(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap()),
-        };
-        assert!(
-            range
-                .resolve(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap())
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn usage_range_accepts_exact_utc_timestamps_and_rejects_reversed_bounds() {
-        let payload = serde_json::json!({
-            "timestamp_range": {
-                "since": "2026-08-21T05:41:00Z",
-                "until": "2026-08-21T05:43:00Z"
-            }
-        });
-        let range: UsageRange = serde_json::from_value(payload.clone()).expect("timestamp range");
-
-        assert_eq!(
-            serde_json::to_value(&range).expect("serialize range"),
-            payload
-        );
-
-        let reversed: UsageRange = serde_json::from_value(serde_json::json!({
-            "timestamp_range": {
-                "since": "2026-08-21T05:43:00Z",
-                "until": "2026-08-21T05:41:00Z"
-            }
-        }))
-        .expect("deserialize reversed range");
-        assert!(
-            reversed
-                .resolve(NaiveDate::from_ymd_opt(2026, 8, 21).expect("valid date"))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn token_breakdown_deserializes_legacy_json_without_cache_hit_rate() {
-        let legacy = r#"{
-            "input_tokens": 10,
-            "output_tokens": 5,
-            "reasoning_tokens": 0,
-            "cache_creation_tokens": 3,
-            "cache_read_tokens": 2,
-            "total_tokens": 20
-        }"#;
-        let tokens: TokenBreakdown =
-            serde_json::from_str(legacy).expect("legacy breakdown without cache_hit_rate");
-        assert_eq!(tokens.cache_hit_rate, None);
-        assert_eq!(tokens.cache_creation_1h_tokens, 0);
-        assert_eq!(tokens.total_tokens, 20);
-    }
-
-    #[test]
-    fn token_breakdown_treats_cache_creation_1h_as_subset() {
-        let stats = Stats {
-            input_tokens: 10,
-            output_tokens: 5,
-            cache_creation: 30,
-            cache_creation_1h: 25,
-            cache_read: 2,
-            ..Stats::default()
-        };
-        let tokens = TokenBreakdown::from_stats(&stats, true);
-        let serialized = serde_json::to_value(&tokens).expect("serialize breakdown");
-
-        assert_eq!(tokens.cache_creation_tokens, 30);
-        assert_eq!(tokens.cache_creation_1h_tokens, 25);
-        assert_eq!(serialized["cache_creation_tokens"], 30);
-        assert_eq!(serialized["cache_creation_1h_tokens"], 25);
-        // 1h tokens are already inside cache_creation; total must not add them again.
-        assert_eq!(tokens.total_tokens, 47);
-        assert_eq!(serialized["total_tokens"], 47);
-    }
-
-    #[test]
-    fn model_summaries_use_model_name_as_equal_cost_tiebreaker() {
-        let pricing_db = PricingDb::default();
-        let mut models = HashMap::new();
-        models.insert(
-            "gpt-5-zeta".to_string(),
-            Stats {
-                input_tokens: 10,
-                ..Stats::default()
-            },
-        );
-        models.insert(
-            "gpt-5-alpha".to_string(),
-            Stats {
-                input_tokens: 10,
-                ..Stats::default()
-            },
-        );
-
-        let rows = summarize_models(&models, &pricing_db, None, true);
-
-        assert_eq!(rows[0].model, "gpt-5-alpha");
-        assert_eq!(rows[1].model, "gpt-5-zeta");
-        assert_eq!(rows[0].cost_usd, rows[1].cost_usd);
-    }
-
-    #[test]
-    fn cli_config_fills_sdk_summary_defaults() {
-        let config = Config {
-            offline: true,
-            strict_pricing: true,
-            timezone: Some("Asia/Shanghai".to_string()),
-            currency: Some("CNY".to_string()),
-            ..Config::default()
-        };
-
-        let options = apply_cli_config(
-            SummaryOptions {
-                source: UsageSource::Codex,
-                range: UsageRange::Today,
-                ..SummaryOptions::default()
-            },
-            &config,
-        );
-
-        assert_eq!(options.source, UsageSource::Codex);
-        assert_eq!(options.range, UsageRange::Today);
-        assert!(options.offline);
-        assert!(options.strict_pricing);
-        assert_eq!(options.timezone.as_deref(), Some("Asia/Shanghai"));
-        assert_eq!(options.currency.as_deref(), Some("CNY"));
-    }
-
-    #[test]
-    fn explicit_sdk_summary_options_win_over_cli_config() {
-        let config = Config {
-            timezone: Some("Asia/Shanghai".to_string()),
-            currency: Some("CNY".to_string()),
-            ..Config::default()
-        };
-
-        let options = apply_cli_config(
-            SummaryOptions {
-                timezone: Some("UTC".to_string()),
-                currency: Some("EUR".to_string()),
-                ..SummaryOptions::default()
-            },
-            &config,
-        );
-
-        assert_eq!(options.timezone.as_deref(), Some("UTC"));
-        assert_eq!(options.currency.as_deref(), Some("EUR"));
-    }
-
-    #[test]
-    fn requested_currency_requires_available_rate() {
-        let err = load_requested_currency(Some("ZZZ"), true).expect_err("currency should fail");
-        assert!(err.to_string().contains("failed to load exchange rate"));
-    }
-}
+#[path = "sdk/tests.rs"]
+mod tests;

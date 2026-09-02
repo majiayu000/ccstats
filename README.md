@@ -9,8 +9,8 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast, local-first CLI and Rust SDK for token and cost analytics
-across 29 AI coding-agent data sources.
+`ccstats` is a fast, local-first CLI, Rust SDK, and desktop workbench for token
+and cost analytics across 29 AI coding-agent data sources.
 
 One binary turns the usage metadata your coding agents already produce into
 terminal reports and structured JSON/CSV. No ccstats account or telemetry is
@@ -41,11 +41,11 @@ missing sources.
 - **Local-first** — local session data stays on the machine; network access is
   bounded by feature and pricing refreshes can be disabled with `--offline`.
 
-ccstats keeps its CLI and Rust SDK as the accounting engine. The desktop MVP
-adds a local audit surface over the same source registry and summary APIs; it
-does not upload transcripts or substitute mock data when a source fails.
+ccstats keeps its CLI and Rust SDK as the accounting engine. The desktop app is
+a local investigation surface over the same source registry and summary APIs;
+it does not upload transcripts or substitute mock data when a source fails.
 
-## Desktop MVP development
+## Desktop application development
 
 The desktop app requires Node.js 20.19+ (or 22.12+), Rust 1.88+, and the
 platform prerequisites for [Tauri 2](https://v2.tauri.app/start/prerequisites/).
@@ -57,9 +57,24 @@ npm install
 npm run tauri -- dev
 ```
 
-The Overview reads one of the 29 registered usage sources and loads Today, This
-Week, and This Month in a single scan. It displays token buckets, model
-attribution, record and parse quality, and leaves unknown costs visibly unknown.
+The app discovers detected or configured sources at startup and opens the first
+ready ledger. If none are ready, it opens Diagnostics instead of presenting an
+empty default source. “All Sources” scans ready ledgers only; all 29 registered
+sources remain available for explicit inspection and setup.
+
+The workspace is organized by the questions a usage investigation asks:
+
+- **Observe** — totals, live 15-second monitoring, top consumers, and spikes.
+- **Explain** — model turns, tool calls, projects, sessions, and daily history.
+- **Trust** — pricing provenance, API-equivalent coverage, Codex quota, budget,
+  and source readiness.
+- **Devices** — explicit JSON snapshot exchange and a local SQLite rollup.
+
+Unknown, partial, fallback-priced, malformed, and provider-adjusted values stay
+visible as evidence states. Live, History, Limits, and Machines treat only real
+usage backed by recorded, live, or fresh cached pricing with complete coverage
+as exact cost. Machine totals use canonical USD and evaluate Today, This week,
+and This month freshness independently using the configured CLI timezone.
 
 Focused desktop checks:
 
@@ -76,6 +91,10 @@ before the page loads. Rust tests cover the command boundary, and the native tes
 launches a debug app through an embedded WebDriver before crossing Tauri IPC into
 the real ccstats SDK. Production builds call those commands directly and have no
 sample-data fallback.
+
+The desktop target is currently a development target in this repository; the
+CLI remains the installable release artifact until signed desktop packages are
+added to the release workflow.
 
 Usage files and transcripts remain local; pricing refreshes and sources configured
 with remote APIs may still make their documented network requests.

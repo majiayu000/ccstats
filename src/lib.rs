@@ -23,6 +23,7 @@
     clippy::cast_sign_loss
 )]
 
+mod activity;
 mod app;
 mod catalog;
 mod cli;
@@ -40,15 +41,25 @@ mod source;
 mod sources_cmd;
 mod utils;
 
-pub use catalog::{SourceDescriptor, list_usage_sources};
+pub use activity::{
+    ModelTurnUsage, ToolUsage, TurnToolBreakdown, turn_tool_breakdown,
+    turn_tool_breakdown_with_cli_config,
+};
+pub use catalog::{
+    AnalyticsQuality, DailyUsagePoint, DrilldownError, HistoryCostStatus, ProjectDrilldown,
+    ProjectDrilldownSummary, SessionDrilldown, SourceDescriptor, SourceDiagnosticDescriptor,
+    SourceDiagnosticStatus, UsageHistory, UsageMetrics, diagnose_usage_sources, list_usage_sources,
+    summarize_project_drilldown, summarize_project_drilldown_with_cli_config, usage_history,
+    usage_history_with_cli_config,
+};
 pub use sdk::{
     ApiEquivalentCostCoverage, CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota,
     CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
     CodexWeeklyValueWindowError, CostSummary, ModelCostSummary, MultiCostSummary,
     MultiSummaryOptions, SdkError, SummaryOptions, TokenBreakdown, UsageRange, UsageSource,
-    estimate_codex_weekly_value, estimate_codex_weekly_value_for_window, load_codex_weekly_quota,
-    summarize_cost, summarize_cost_ranges, summarize_cost_ranges_with_cli_config,
-    summarize_cost_with_cli_config,
+    current_usage_date_with_cli_config, estimate_codex_weekly_value,
+    estimate_codex_weekly_value_for_window, load_codex_weekly_quota, summarize_cost,
+    summarize_cost_ranges, summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
 };
 
 use chrono::{NaiveDate, Utc};
