@@ -14,7 +14,7 @@ use crate::source::Source;
 use crate::utils::Timezone;
 #[cfg(test)]
 use chrono::NaiveDate;
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, Utc};
 
 /// Load data from a source
 pub(super) struct DataLoader<'a> {
@@ -469,16 +469,7 @@ impl<'a> DataLoader<'a> {
             return Vec::new();
         }
 
-        // Build local time map for block calculation
-        let mut local_times: HashMap<i64, DateTime<FixedOffset>> = HashMap::new();
-        for entry in &final_entries {
-            if let Some(utc_dt) = DateTime::<Utc>::from_timestamp_millis(entry.timestamp_ms) {
-                let local_dt = timezone.to_fixed_offset(utc_dt);
-                local_times.insert(entry.timestamp_ms, local_dt);
-            }
-        }
-
-        let blocks = aggregate_blocks(final_entries, &local_times);
+        let blocks = aggregate_blocks(final_entries, timezone);
 
         if !self.quiet {
             if skipped > 0 {

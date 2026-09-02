@@ -2,12 +2,13 @@
 //!
 //! Converts raw entries into various aggregated views (daily, session, etc.)
 
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 use crate::core::types::{
     BlockStats, DayStats, Endpoint, EndpointStats, ProjectStats, RawEntry, SessionStats, Stats,
 };
+use crate::utils::Timezone;
 
 /// Aggregate entries by day (consumes entries to avoid cloning)
 pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStats> {
@@ -211,20 +212,19 @@ fn floor_to_utc_hour_ms(timestamp_ms: i64) -> i64 {
     timestamp_ms.div_euclid(UTC_HOUR_MS) * UTC_HOUR_MS
 }
 
-fn local_from_utc_ms(utc_ms: i64, offset: FixedOffset) -> DateTime<FixedOffset> {
-    DateTime::<Utc>::from_timestamp_millis(utc_ms)
-        .unwrap_or(DateTime::<Utc>::UNIX_EPOCH)
-        .with_timezone(&offset)
+fn local_from_utc_ms(utc_ms: i64, timezone: Timezone) -> DateTime<chrono::FixedOffset> {
+    let utc = DateTime::<Utc>::from_timestamp_millis(utc_ms).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
+    timezone.to_fixed_offset(utc)
 }
 
 fn into_block_stats(
     start_ms: i64,
-    offset: FixedOffset,
+    timezone: Timezone,
     stats: Stats,
     models: HashMap<String, Stats>,
 ) -> BlockStats {
-    let local_start = local_from_utc_ms(start_ms, offset);
-    let local_end = local_from_utc_ms(start_ms + SESSION_WINDOW_MS, offset);
+    let local_start = local_from_utc_ms(start_ms, timezone);
+    let local_end = local_from_utc_ms(start_ms + SESSION_WINDOW_MS, timezone);
     BlockStats {
         block_start: local_start.format("%Y-%m-%d %H:%M").to_string(),
         block_end: local_end.format("%H:%M").to_string(),
@@ -240,49 +240,41 @@ fn into_block_stats(
 /// open a new window when an entry is more than 5 hours after the start **or**
 /// more than 5 hours after the previous entry. Does not emit gap placeholders.
 ///
-/// Labels use the same local timezone as `local_times`. Not an official
-/// Anthropic billing reset.
-pub(crate) fn aggregate_blocks(
-    mut entries: Vec<RawEntry>,
-    local_times: &HashMap<i64, DateTime<FixedOffset>>,
-) -> Vec<BlockStats> {
+/// Labels convert the floored UTC start/end independently in `timezone`.
+/// Not an official Anthropic billing reset.
+pub(crate) fn aggregate_blocks(mut entries: Vec<RawEntry>, timezone: Timezone) -> Vec<BlockStats> {
     entries.sort_by_key(|entry| entry.timestamp_ms);
 
     let mut blocks = Vec::new();
-    let mut current: Option<(i64, i64, FixedOffset)> = None; // start_ms, last_ms, offset
+    let mut current: Option<(i64, i64)> = None; // start_ms, last_ms
     let mut stats = Stats::default();
     let mut models: HashMap<String, Stats> = HashMap::new();
 
     for entry in entries {
-        let Some(local_dt) = local_times.get(&entry.timestamp_ms) else {
+        if DateTime::<Utc>::from_timestamp_millis(entry.timestamp_ms).is_none() {
             continue;
-        };
-        let offset = *local_dt.offset();
+        }
         let entry_stats = entry.to_stats();
 
         let start_new = match current {
             None => true,
-            Some((start_ms, last_ms, _)) => {
+            Some((start_ms, last_ms)) => {
                 entry.timestamp_ms - start_ms > SESSION_WINDOW_MS
                     || entry.timestamp_ms - last_ms > SESSION_WINDOW_MS
             }
         };
 
         if start_new {
-            if let Some((start_ms, _, prev_offset)) = current {
+            if let Some((start_ms, _)) = current {
                 blocks.push(into_block_stats(
                     start_ms,
-                    prev_offset,
+                    timezone,
                     std::mem::take(&mut stats),
                     std::mem::take(&mut models),
                 ));
             }
-            current = Some((
-                floor_to_utc_hour_ms(entry.timestamp_ms),
-                entry.timestamp_ms,
-                offset,
-            ));
-        } else if let Some((_, last_ms, _)) = current.as_mut() {
+            current = Some((floor_to_utc_hour_ms(entry.timestamp_ms), entry.timestamp_ms));
+        } else if let Some((_, last_ms)) = current.as_mut() {
             *last_ms = entry.timestamp_ms;
         }
 
@@ -290,8 +282,8 @@ pub(crate) fn aggregate_blocks(
         models.entry(entry.model).or_default().add(&entry_stats);
     }
 
-    if let Some((start_ms, _, offset)) = current {
-        blocks.push(into_block_stats(start_ms, offset, stats, models));
+    if let Some((start_ms, _)) = current {
+        blocks.push(into_block_stats(start_ms, timezone, stats, models));
     }
     blocks
 }
@@ -764,12 +756,8 @@ mod tests {
         Utc.with_ymd_and_hms(2025, 1, 1, hour, min, 0).unwrap()
     }
 
-    fn utc_local_map(times: &[DateTime<Utc>]) -> HashMap<i64, DateTime<FixedOffset>> {
-        let offset = FixedOffset::east_opt(0).unwrap();
-        times
-            .iter()
-            .map(|dt| (dt.timestamp_millis(), dt.with_timezone(&offset)))
-            .collect()
+    fn utc_tz() -> Timezone {
+        Timezone::parse(Some("UTC")).unwrap()
     }
 
     fn entry_at(dt: DateTime<Utc>, input: i64) -> RawEntry {
@@ -786,14 +774,22 @@ mod tests {
 
     #[test]
     fn aggregate_blocks_empty() {
-        let result = aggregate_blocks(vec![], &HashMap::new());
+        let result = aggregate_blocks(vec![], utc_tz());
         assert!(result.is_empty());
     }
 
     #[test]
     fn aggregate_blocks_skips_missing_timestamps() {
-        let entries = vec![make_entry("2025-01-01", "s1", "p1", "claude", 100, 50, 999)];
-        let result = aggregate_blocks(entries, &HashMap::new());
+        let entries = vec![make_entry(
+            "2025-01-01",
+            "s1",
+            "p1",
+            "claude",
+            100,
+            50,
+            i64::MAX,
+        )];
+        let result = aggregate_blocks(entries, utc_tz());
         assert!(result.is_empty());
     }
 
@@ -805,10 +801,9 @@ mod tests {
         let t1 = utc(2, 30);
         let t2 = utc(6, 0);
         let t3 = utc(8, 0);
-        let local_times = utc_local_map(&[t1, t2, t3]);
         let entries = vec![entry_at(t1, 100), entry_at(t2, 200), entry_at(t3, 300)];
 
-        let result = aggregate_blocks(entries, &local_times);
+        let result = aggregate_blocks(entries, utc_tz());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].block_start, "2025-01-01 02:00");
         assert_eq!(result[0].block_end, "07:00");
@@ -822,10 +817,9 @@ mod tests {
     fn aggregate_blocks_sorted_chronologically() {
         let early = utc(1, 0);
         let late = utc(22, 0);
-        let local_times = utc_local_map(&[early, late]);
         let entries = vec![entry_at(late, 100), entry_at(early, 100)];
 
-        let result = aggregate_blocks(entries, &local_times);
+        let result = aggregate_blocks(entries, utc_tz());
         assert_eq!(result[0].block_start, "2025-01-01 01:00");
         assert_eq!(result[1].block_start, "2025-01-01 22:00");
     }
@@ -835,8 +829,7 @@ mod tests {
         // 10:55 UTC and 11:10 UTC same day → one window starting 10:00 UTC.
         let t1 = utc(10, 55);
         let t2 = utc(11, 10);
-        let local_times = utc_local_map(&[t1, t2]);
-        let result = aggregate_blocks(vec![entry_at(t1, 100), entry_at(t2, 200)], &local_times);
+        let result = aggregate_blocks(vec![entry_at(t1, 100), entry_at(t2, 200)], utc_tz());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].block_start, "2025-01-01 10:00");
         assert_eq!(result[0].block_end, "15:00");
@@ -848,8 +841,7 @@ mod tests {
         // 10:55 UTC then 16:10 UTC (>5h after the 10:00 start) → two windows.
         let t1 = utc(10, 55);
         let t2 = utc(16, 10);
-        let local_times = utc_local_map(&[t1, t2]);
-        let result = aggregate_blocks(vec![entry_at(t1, 100), entry_at(t2, 200)], &local_times);
+        let result = aggregate_blocks(vec![entry_at(t1, 100), entry_at(t2, 200)], utc_tz());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].block_start, "2025-01-01 10:00");
         assert_eq!(result[0].stats.input_tokens, 100);
@@ -862,8 +854,7 @@ mod tests {
         // 10:00 UTC then 16:30 UTC (6.5h gap since last activity) → two windows.
         let t1 = utc(10, 0);
         let t2 = utc(16, 30);
-        let local_times = utc_local_map(&[t1, t2]);
-        let result = aggregate_blocks(vec![entry_at(t1, 100), entry_at(t2, 200)], &local_times);
+        let result = aggregate_blocks(vec![entry_at(t1, 100), entry_at(t2, 200)], utc_tz());
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].block_start, "2025-01-01 10:00");
         assert_eq!(result[1].block_start, "2025-01-01 16:00");
@@ -871,12 +862,22 @@ mod tests {
 
     #[test]
     fn session_window_labels_convert_floored_utc_to_local() {
-        let offset = FixedOffset::east_opt(9 * 3600).unwrap();
+        let timezone = Timezone::parse(Some("Asia/Tokyo")).unwrap();
         let t1 = Utc.with_ymd_and_hms(2025, 6, 15, 10, 55, 0).unwrap();
-        let local_times = HashMap::from([(t1.timestamp_millis(), t1.with_timezone(&offset))]);
-        let result = aggregate_blocks(vec![entry_at(t1, 100)], &local_times);
+        let result = aggregate_blocks(vec![entry_at(t1, 100)], timezone);
         // 10:00 UTC → 19:00 +09:00; window end 15:00 UTC → 00:00 local.
         assert_eq!(result[0].block_start, "2025-06-15 19:00");
         assert_eq!(result[0].block_end, "00:00");
+    }
+
+    #[test]
+    fn session_window_labels_convert_start_and_end_independently_across_dst() {
+        // DST ends 2025-11-02 02:00 America/New_York (07:00 UTC).
+        // 04:30Z floors to 04:00Z = 00:00 EDT; window end 09:00Z = 04:00 EST.
+        let timezone = Timezone::parse(Some("America/New_York")).unwrap();
+        let t1 = Utc.with_ymd_and_hms(2025, 11, 2, 4, 30, 0).unwrap();
+        let result = aggregate_blocks(vec![entry_at(t1, 100)], timezone);
+        assert_eq!(result[0].block_start, "2025-11-02 00:00");
+        assert_eq!(result[0].block_end, "04:00");
     }
 }
