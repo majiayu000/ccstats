@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - `--source all` default token totals no longer include estimated-proxy rows (for example Grok context snapshots). Cost remains real-only. Estimated-proxy token counts are omitted from those default totals; they are still priced separately as `estimated_cost` when present.
 
 ### Fixed
+- Cline counts a session once when canonical `*.messages.json` and legacy `ui_messages.json` share an ID; legacy-only tasks still count.
 - Gemini session JSON last-writes on message id like the JSONL path.
 - Gemini/Google models now load from LiteLLM / fallback instead of N/A.
 

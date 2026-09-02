@@ -1,5 +1,6 @@
 //! Cline CLI and VS Code extension local usage source.
 
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -54,11 +55,10 @@ impl Source for ClineSource {
     }
 
     fn find_files(&self) -> Vec<PathBuf> {
-        let mut files = find_cline_cli_files();
-        files.extend(find_extension_files(CLINE_EXTENSION_ID));
-        files.sort();
-        files.dedup();
-        files
+        select_cline_files(
+            find_cline_cli_files(),
+            find_extension_files(CLINE_EXTENSION_ID),
+        )
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
@@ -102,6 +102,40 @@ fn find_cline_cli_files() -> Vec<PathBuf> {
         .flatten()
         .filter(|path| path.is_file())
         .collect::<Vec<_>>();
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn canonical_session_ids(path: &Path) -> impl Iterator<Item = String> {
+    let parent = path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    let stem = Some(filename_session_id(path)).filter(|id| id.as_str() != UNKNOWN);
+    [parent, stem].into_iter().flatten()
+}
+
+fn legacy_task_id(path: &Path) -> Option<&str> {
+    path.parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+}
+
+fn select_cline_files(canonical: Vec<PathBuf>, legacy: Vec<PathBuf>) -> Vec<PathBuf> {
+    let canonical_ids: HashSet<String> = canonical
+        .iter()
+        .flat_map(|path| canonical_session_ids(path))
+        .collect();
+    let mut files = canonical;
+    files.extend(
+        legacy
+            .into_iter()
+            .filter(|path| legacy_task_id(path).is_none_or(|id| !canonical_ids.contains(id))),
+    );
     files.sort();
     files.dedup();
     files
@@ -410,5 +444,73 @@ mod tests {
         assert_eq!(entry.output_tokens, 20);
         assert_eq!(entry.cache_read, 30);
         assert_eq!(entry.cache_creation, 10);
+    }
+
+    fn touch(path: &Path) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, "").unwrap();
+    }
+
+    #[test]
+    fn overlapping_legacy_ui_messages_are_skipped_when_canonical_id_matches() {
+        let temp = tempdir().unwrap();
+        let canonical = temp.path().join("sessions/abc/abc.messages.json");
+        let legacy = temp.path().join("tasks/abc/ui_messages.json");
+        touch(&canonical);
+        touch(&legacy);
+
+        let selected = select_cline_files(vec![canonical.clone()], vec![legacy]);
+
+        assert_eq!(selected, vec![canonical]);
+    }
+
+    #[test]
+    fn legacy_only_ui_messages_are_kept() {
+        let temp = tempdir().unwrap();
+        let legacy = temp.path().join("tasks/xyz/ui_messages.json");
+        touch(&legacy);
+
+        let selected = select_cline_files(Vec::new(), vec![legacy.clone()]);
+
+        assert_eq!(selected, vec![legacy]);
+    }
+
+    #[test]
+    fn distinct_canonical_and_legacy_ids_are_both_kept() {
+        let temp = tempdir().unwrap();
+        let canonical = temp.path().join("sessions/abc/abc.messages.json");
+        let legacy = temp.path().join("tasks/xyz/ui_messages.json");
+        touch(&canonical);
+        touch(&legacy);
+
+        let mut expected = vec![canonical.clone(), legacy.clone()];
+        expected.sort();
+        let selected = select_cline_files(vec![canonical], vec![legacy]);
+
+        assert_eq!(selected, expected);
+    }
+
+    #[test]
+    fn canonical_parent_and_stem_ids_both_suppress_legacy() {
+        let temp = tempdir().unwrap();
+        let canonical = temp.path().join("sessions/parent-id/stem-id.messages.json");
+        let legacy_parent = temp.path().join("tasks/parent-id/ui_messages.json");
+        let legacy_stem = temp.path().join("tasks/stem-id/ui_messages.json");
+        let legacy_other = temp.path().join("tasks/other/ui_messages.json");
+        touch(&canonical);
+        touch(&legacy_parent);
+        touch(&legacy_stem);
+        touch(&legacy_other);
+
+        let selected = select_cline_files(
+            vec![canonical.clone()],
+            vec![legacy_parent, legacy_stem, legacy_other.clone()],
+        );
+
+        assert_eq!(selected.len(), 2);
+        assert!(selected.contains(&canonical));
+        assert!(selected.contains(&legacy_other));
     }
 }
