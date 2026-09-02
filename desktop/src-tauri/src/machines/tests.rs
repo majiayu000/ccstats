@@ -29,6 +29,7 @@ fn sample_source(today: i64, week: i64, month: i64) -> MultiCostSummary {
         cost_kind: "real".to_string(),
         pricing_source: "recorded".to_string(),
         api_equivalent_cost_coverage: None,
+        grok_api_equivalent_cost: None,
         tokens: TokenBreakdown {
             input_tokens: tokens,
             total_tokens: tokens,
