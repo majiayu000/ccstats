@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `--source-breakdown` for `--source all` (per-source subtotals + combined total). Default combined output unchanged.
 - Expose `cache_creation_1h_tokens` in JSON, CSV, and SDK `TokenBreakdown`. `cache_creation_tokens` remains the inclusive cache-creation total; the 1-hour figure is a billed subset, not a sixth token bucket.
 
 ### Changed

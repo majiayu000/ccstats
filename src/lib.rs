@@ -249,6 +249,23 @@ fn load_currency_converter(
     })
 }
 
+fn validate_source_breakdown(cli: &Cli, source_name: &str, source_cmd: SourceCommand) {
+    if !cli.source_breakdown {
+        return;
+    }
+    if !source_cmd.supports_source_breakdown() {
+        eprintln!(
+            "Error: {} does not support --source-breakdown",
+            source_cmd.cli_name()
+        );
+        std::process::exit(1);
+    }
+    if !source_name.eq_ignore_ascii_case(ALL_SOURCES) {
+        eprintln!("Error: --source-breakdown requires --source all");
+        std::process::exit(1);
+    }
+}
+
 fn validate_codex_scope(scope: CodexScope, source_name: &str) {
     if scope == CodexScope::All {
         return;
@@ -339,6 +356,7 @@ pub fn run_cli() {
         cli.source.as_deref(),
         source_cmd,
     );
+    validate_source_breakdown(&cli, source_name, source_cmd);
     validate_codex_scope(cli.codex_scope, source_name);
     let needs_currency = source_cmd != SourceCommand::Quota && needs_pricing;
     let currency_converter = load_currency_converter(&cli, needs_currency, is_statusline);
