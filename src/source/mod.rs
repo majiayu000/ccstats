@@ -18,6 +18,7 @@ mod gemini;
 mod goose;
 mod grok;
 mod hermes;
+mod inventory;
 mod kimi;
 mod loader;
 mod openclaw;
@@ -613,6 +614,8 @@ pub(crate) use codex::load_weekly_window_usage_from_home;
 pub use codex::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
 pub(crate) use codex::{CodexScope, CodexSource, load_weekly_quota, load_weekly_quota_from_home};
 pub(crate) use grok::{GrokCostReport, load_daily_with_cost_reports as load_grok_daily_with_cost};
+
+pub use inventory::UsageSource;
 
 // Re-export registry functions
 pub(crate) use registry::{ALL_SOURCES, all_sources, get_source, source_choices, suggest_source};
