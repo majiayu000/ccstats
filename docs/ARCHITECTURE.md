@@ -403,6 +403,9 @@ Preferred file: platform cache dir / `ccstats/pricing.json` (for example `~/Libr
 
 `block_start` / `block_end` labels use the selected local timezone. This is inferred from local logs, **not** an official Anthropic billing reset. Gap placeholder rows, `--active`, and burn-rate projection are not emitted.
 
-## Parked (do not invent a fix)
+## CLI period grain vs SDK current period
 
-- **CLI `weekly` vs SDK `ThisWeek`:** `ccstats weekly` loads history (only `today` / `statusline` apply a today filter). SDK `UsageRange::ThisWeek` is Monday–today in the selected timezone. Same English word, different dates. See issue [#136](https://github.com/majiayu000/ccstats/issues/136).
+These share English words but are different concepts. Decided in issue [#136](https://github.com/majiayu000/ccstats/issues/136): keep current behavior; no `--current` flag.
+
+- **CLI `weekly` / `monthly`** are aggregation grains. They group already-filtered history by ISO week (Monday start) or calendar month. Only `today` / `statusline` apply a today date filter. Bound dates with `--since` / `--until`.
+- **SDK `UsageRange::ThisWeek` / `ThisMonth`** are current-period date ranges in the selected timezone: Monday–today and month-start–today.

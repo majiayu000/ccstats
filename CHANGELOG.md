@@ -19,6 +19,9 @@ All notable changes to this project will be documented in this file.
 - Gemini session JSON last-writes on message id like the JSONL path.
 - Gemini/Google models now load from LiteLLM / fallback instead of N/A.
 
+### Documentation
+- Distinguish CLI `weekly`/`monthly` grouping of filtered history from SDK `UsageRange::ThisWeek`/`ThisMonth` current-period date ranges.
+
 ## [0.5.1] - 2026-08-31
 
 ### Added

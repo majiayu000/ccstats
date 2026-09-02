@@ -302,6 +302,11 @@ for summary in overview.summaries {
 }
 ```
 
+`UsageRange::ThisWeek` and `ThisMonth` are current-period date filters
+(Monday–today / month-start–today in the selected timezone). They are not the
+CLI `weekly` / `monthly` commands, which group already-filtered history by
+period instead of loading only the current week or month.
+
 ## Usage
 
 ### Claude Code
@@ -313,10 +318,11 @@ ccstats today
 # Daily breakdown
 ccstats daily
 
-# Weekly summary
+# Weekly grouping of history (not "this week")
 ccstats weekly
+ccstats weekly --since 20260901 --until 20260915
 
-# Monthly summary
+# Monthly grouping of history (not "this month")
 ccstats monthly
 
 # By project
@@ -346,6 +352,13 @@ ccstats today --debug
 # Unknown models are reported as: Pricing: <model> -> no match (unknown)
 ccstats today --breakdown --strict-pricing --debug
 ```
+
+`weekly` and `monthly` are aggregation grains: they group already-filtered
+history by week (Monday start) or calendar month. They do not default to the
+current period. Bound dates with `--since` / `--until`. There is no `--current`
+flag. SDK `UsageRange::ThisWeek` / `ThisMonth` are a different concept: those
+filter to the current period in the selected timezone (Monday–today /
+month-start–today).
 
 By default, ccstats checks Claude Code logs under `~/.claude/projects/`.
 If Claude Code uses a moved config directory, set `CLAUDE_CONFIG_DIR` to the
