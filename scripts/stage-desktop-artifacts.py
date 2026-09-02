@@ -52,8 +52,8 @@ def stage(search_root: Path, output_dir: Path, target: str) -> Path:
     destination = output_dir / f"ccstats-desktop-{target}{canonical_suffix(source)}"
     destination.write_bytes(source.read_bytes())
     sidecar = output_dir / f"{destination.name}.sha256"
-    sidecar.write_text(
-        f"{sha256_file(destination)}  {destination.name}\n", encoding="ascii"
+    sidecar.write_bytes(
+        f"{sha256_file(destination)}  {destination.name}\n".encode("ascii")
     )
     print(destination)
     print(sidecar)
@@ -78,8 +78,8 @@ def self_test() -> None:
                 raise SystemExit(f"staged path {staged} != {expected}")
             sidecar = expected.with_name(expected.name + ".sha256")
             digest = sha256_file(expected)
-            expected_sidecar = f"{digest}  {expected.name}\n"
-            if sidecar.read_text(encoding="ascii") != expected_sidecar:
+            expected_sidecar = f"{digest}  {expected.name}\n".encode("ascii")
+            if sidecar.read_bytes() != expected_sidecar:
                 raise SystemExit(f"checksum mismatch for {target}")
     print("stage-desktop-artifacts self-test passed")
 

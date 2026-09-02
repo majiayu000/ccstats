@@ -105,7 +105,8 @@ jobs:
           cd target/${{ matrix.target }}/release
           7z a ../../../ccstats-${{ matrix.target }}.zip ccstats.exe
           cd ../../..
-          (Get-FileHash ccstats-${{ matrix.target }}.zip -Algorithm SHA256).Hash.ToLower() + "  ccstats-${{ matrix.target }}.zip" | Out-File -Encoding ascii ccstats-${{ matrix.target }}.zip.sha256
+          $checksum = (Get-FileHash ccstats-${{ matrix.target }}.zip -Algorithm SHA256).Hash.ToLower() + "  ccstats-${{ matrix.target }}.zip`n"
+          [IO.File]::WriteAllText((Join-Path $PWD "ccstats-${{ matrix.target }}.zip.sha256"), $checksum, [Text.Encoding]::ASCII)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
