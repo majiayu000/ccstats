@@ -2,14 +2,14 @@
 
 > **Source of truth for registered sources is** [`src/source/inventory.rs`](../src/source/inventory.rs) (`define_sources!`). That table expands `UsageSource`, canonical names, and boxed constructors. `registry.rs` only looks up those constructors by name/alias. The SDK re-exports the generated `UsageSource` enum — do not keep a second list in `sdk.rs`.
 >
-> Audit and design (read these; this file does not repeat them):
+> The 2026-09-02 audit is a snapshot. This file wins for inventory, `--source all` token provenance, and Google pricing families after the follow-up PRs landed. Still-open product questions stay in GitHub issues, not here as invented behavior.
 >
 > - [Codebase audit (2026-09-02)](audits/2026-09-02-codebase-audit.md)
 > - [Provenance, pricing families, and source inventory](architecture/2026-09-02-provenance-and-source-decoupling.md)
 
 ccstats is a local-first CLI and Rust SDK for token and cost analytics from coding-agent logs. Each product implements `Source`, parses into one `RawEntry` shape, then shares loader, aggregation, pricing, and output.
 
-Default CLI source when neither a nested command nor `--source` is set: `claude`. `--source all` is a registry sentinel (not an inventory row) that merges every registered source.
+Default CLI source is `claude` when neither a nested command, `--source`, nor `config.toml` `source` is set. Nested command and `--source` beat the config file. `--source all` is a registry sentinel (not an inventory row) that merges every registered source.
 
 ## Directory layout
 
@@ -32,7 +32,7 @@ src/
 └── utils/                 # timezone, date parsing, jq
 ```
 
-Parsers live under `src/source/<name>/` (some older sources are still a single `src/source/<name>.rs` file). Do not treat a hand-written file list as the product surface — the inventory table is the list.
+Most sources are a single `src/source/<name>.rs` file. Claude, Codex, Cursor, Grok, and Kimi use a directory. `reasonix` is inlined in `source/mod.rs`. Do not treat a hand-written file list as the product surface — the inventory table is the list.
 
 ## Registered sources
 
@@ -104,7 +104,7 @@ pub trait Source: Send + Sync {
 }
 ```
 
-Required for a new source: `name`, `capabilities`, `find_files`, `parse_file`. Put CLI aliases on `aliases()`. `finalize_entries` is used after parse (Grok uses it to suppress overlapping snapshot rows). Tool-call hooks are Claude-only today. Cursor overrides `find_files_for_filter` so API requests can follow the date range.
+Required for a new source: `name`, `capabilities`, `find_files`, `parse_file`. Put CLI aliases on `aliases()`. `finalize_entries` runs only on the **dedup path** (after `DedupAccumulator`), not on incremental daily/session aggregation. Grok uses it to **reclassify** overlapping `EstimatedProxy` snapshot rows to `CostKind::Real` with `recorded_cost_usd = Some(0.0)` when the same session already has API-equivalent priced rows — it does not drop those rows. Snapshot-only sessions stay `EstimatedProxy`. Tool-call hooks are Claude-only today. Cursor overrides `find_files_for_filter` so API requests can follow the date range.
 
 ## `Capabilities`
 
@@ -169,7 +169,9 @@ inventory.rs  →  registry lookup (name / alias / "all")
         ▼
 DataLoader
   find_files[_for_filter] → parse_file (rayon) → date filter
-  → finalize_entries → dedup (if needs_dedup)
+  then either:
+    needs_dedup: DedupAccumulator → finalize_entries → aggregate
+    else: aggregate incrementally (no finalize_entries)
         │
         ▼
 RawEntry  (five buckets + CostKind + session_key)
