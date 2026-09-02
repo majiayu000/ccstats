@@ -39,7 +39,14 @@ ccstats writes only operational data needed to make repeated reports reliable:
   under `~/.cache/ccstats/`;
 - a Grok inference ledger under the ccstats cache directory because Grok may
   trim its live log in place;
+- desktop machine snapshots under the app data directory. These snapshots
+  contain only aggregate source/model token and cost summaries. The optional
+  JSON export uses the same aggregate-only payload so users can move it between
+  their own devices;
 - no prompt, response, or source-code archive.
+
+The desktop app does not send machine snapshots itself. Cross-device rollups
+require an explicit JSON export on one device and an explicit import on another.
 
 The optional TOML config is user-created. ccstats reads the first configured
 path documented in the README and fails clearly if that file is malformed.

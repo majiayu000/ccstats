@@ -1,5 +1,7 @@
 //! Unified data loader for all sources
 
+mod entries;
+
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -216,7 +218,7 @@ impl<'a> DataLoader<'a> {
     }
 
     /// Load and deduplicate entries incrementally to avoid buffering all raw records in memory.
-    fn load_deduped_entries_incremental(
+    pub(super) fn load_deduped_entries_incremental(
         &self,
         filter: &DateFilter,
         timezone: Timezone,

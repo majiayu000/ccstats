@@ -628,6 +628,14 @@ pub(crate) fn all_capabilities() -> Capabilities {
 pub(crate) use loader::{load_blocks, load_daily, load_projects, load_sessions};
 pub(crate) use tool_loader::load_tool_calls;
 
+pub(crate) fn load_entries(
+    source: &dyn Source,
+    filter: &DateFilter,
+    timezone: Timezone,
+) -> (Vec<RawEntry>, i64, usize) {
+    loader::DataLoader::new(source, true, false).load_entries(filter, timezone)
+}
+
 /// Load per-endpoint stats (native vs proxy) for a source. Claude-only; other
 /// sources return empty. Lives here (not in `loader.rs`) to keep that file
 /// under the module size limit.
