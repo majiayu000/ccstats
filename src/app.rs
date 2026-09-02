@@ -1,14 +1,13 @@
 mod codex_scope;
 mod cost_coverage;
 mod period_table;
+mod source_breakdown;
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 use crate::cli::{Cli, SourceCommand, TopDimension};
 use crate::core::{
     BlockStats, DateFilter, LoadResult, ProjectStats, SessionStats, ToolSummary, aggregate_tools,
-    apply_real_token_totals_for_all_source, merge_day_stats,
 };
 use crate::output::NumberFormat;
 use crate::output::{
@@ -24,9 +23,8 @@ use crate::output::{
 };
 use crate::pricing::{CostDisplayMode, PricingDb};
 use crate::source::{
-    Capabilities, CodexScope, CostCoverage, GrokCostReport, Source, all_capabilities, all_sources,
-    load_blocks, load_daily, load_grok_daily_with_cost, load_projects, load_sessions,
-    load_tool_calls,
+    Capabilities, CodexScope, CostCoverage, GrokCostReport, Source, load_blocks, load_daily,
+    load_grok_daily_with_cost, load_projects, load_sessions, load_tool_calls,
 };
 use crate::utils::{Timezone, filter_json};
 
@@ -73,7 +71,10 @@ fn source_label(source: &dyn Source, ctx: &CommandContext<'_>) -> String {
     }
 }
 
-fn should_render_empty_structured_result(result: &LoadResult, ctx: &CommandContext<'_>) -> bool {
+pub(super) fn should_render_empty_structured_result(
+    result: &LoadResult,
+    ctx: &CommandContext<'_>,
+) -> bool {
     result.day_stats.is_empty()
         && result.data_quality().has_warnings()
         && matches!(
@@ -621,27 +622,8 @@ pub(crate) fn handle_source_command(
 }
 
 fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabilities) {
-    let start = Instant::now();
-    let mut combined = LoadResult::default();
-    let caps = all_capabilities();
-
-    for source in all_sources() {
-        let result = load_daily(source, ctx.filter, ctx.timezone, quiet, ctx.cli.debug);
-        combined.skipped += result.skipped;
-        combined.valid += result.valid;
-        combined.parse_errors += result.parse_errors;
-        merge_day_stats(&mut combined.day_stats, result.day_stats);
-    }
-
-    // Default all-source token columns are CostKind::Real only. Keep
-    // estimated_proxy populated so estimated_cost still reports proxy rows
-    // (e.g. Grok context snapshots). Display buckets are already real, so
-    // callers must use CostDisplayMode::Total — RealOnly would subtract
-    // estimated_proxy a second time.
-    apply_real_token_totals_for_all_source(&mut combined.day_stats);
-
-    combined.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    (combined, caps)
+    let loaded = source_breakdown::load_all_sources(ctx, quiet, false);
+    (loaded.combined, loaded.caps)
 }
 
 fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
@@ -651,6 +633,11 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
         SourceCommand::Monthly => Period::Month,
         _ => return,
     };
+
+    if ctx.cli.source_breakdown {
+        source_breakdown::render(period, ctx);
+        return;
+    }
 
     let (result, caps) = load_all_daily(ctx, false);
     if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {

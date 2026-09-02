@@ -158,6 +158,33 @@ impl SourceCommand {
     pub(crate) fn needs_today_filter(self) -> bool {
         matches!(self, SourceCommand::Today | SourceCommand::Statusline)
     }
+
+    /// CLI subcommand token used in user-facing errors.
+    pub(crate) fn cli_name(self) -> &'static str {
+        match self {
+            Self::Doctor => "doctor",
+            Self::Sources => "sources",
+            Self::Daily => "daily",
+            Self::Weekly => "weekly",
+            Self::Quota => "quota",
+            Self::Monthly => "monthly",
+            Self::Today => "today",
+            Self::Session => "session",
+            Self::Project => "project",
+            Self::Blocks => "blocks",
+            Self::Endpoints => "endpoints",
+            Self::Statusline => "statusline",
+            Self::Tools => "tools",
+            Self::Top { .. } => "top",
+        }
+    }
+
+    pub(crate) fn supports_source_breakdown(self) -> bool {
+        matches!(
+            self,
+            Self::Daily | Self::Weekly | Self::Monthly | Self::Today
+        )
+    }
 }
 
 impl From<&Commands> for SourceCommand {
@@ -337,5 +364,32 @@ mod tests {
         let parsed = parse_command(Some(&Commands::Doctor));
         assert_eq!(parsed.command, SourceCommand::Doctor);
         assert_eq!(parsed.source_hint, None);
+    }
+
+    #[test]
+    fn source_breakdown_supported_only_for_period_views() {
+        assert!(SourceCommand::Daily.supports_source_breakdown());
+        assert!(SourceCommand::Weekly.supports_source_breakdown());
+        assert!(SourceCommand::Monthly.supports_source_breakdown());
+        assert!(SourceCommand::Today.supports_source_breakdown());
+        assert!(!SourceCommand::Session.supports_source_breakdown());
+        assert!(!SourceCommand::Statusline.supports_source_breakdown());
+        assert!(
+            !SourceCommand::Top {
+                dim: TopDimension::Model,
+                limit: 10
+            }
+            .supports_source_breakdown()
+        );
+        assert_eq!(SourceCommand::Session.cli_name(), "session");
+        assert_eq!(SourceCommand::Statusline.cli_name(), "statusline");
+        assert_eq!(
+            SourceCommand::Top {
+                dim: TopDimension::Model,
+                limit: 3
+            }
+            .cli_name(),
+            "top"
+        );
     }
 }
