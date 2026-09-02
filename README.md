@@ -177,6 +177,13 @@ Download installers and SHA-256 checksums from [GitHub Releases](https://github.
 - Linux x64: `ccstats-desktop-x86_64-unknown-linux-gnu.AppImage`
 - Linux ARM64: `ccstats-desktop-aarch64-unknown-linux-gnu.AppImage`
 
+Make an AppImage executable before launching it:
+
+```bash
+chmod +x ccstats-desktop-*.AppImage
+./ccstats-desktop-x86_64-unknown-linux-gnu.AppImage
+```
+
 The desktop app is a local investigation surface over the same accounting
 engine as the CLI. It does not create a ccstats account or upload transcripts.
 

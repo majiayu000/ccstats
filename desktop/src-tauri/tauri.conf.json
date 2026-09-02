@@ -27,7 +27,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "msi", "appimage"],
     "createUpdaterArtifacts": false,
     "category": "DeveloperTool",
     "shortDescription": "Local AI coding usage analytics",
@@ -39,8 +38,7 @@
     ],
     "macOS": {
       "hardenedRuntime": true,
-      "minimumSystemVersion": "11.0",
-      "signingIdentity": "-"
+      "minimumSystemVersion": "11.0"
     },
     "linux": {
       "appimage": {

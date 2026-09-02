@@ -20,8 +20,8 @@ fn crate_publish_waits_for_every_platform_build() {
         .expect("homebrew job")
         .1;
 
-    assert!(publish.contains("needs: [preflight, build]"));
-    assert!(release.contains("needs: [build, publish]"));
+    assert!(publish.contains("needs: [preflight, build, desktop]"));
+    assert!(release.contains("needs: [build, desktop, publish]"));
     assert!(homebrew.contains("needs: release"));
 }
 

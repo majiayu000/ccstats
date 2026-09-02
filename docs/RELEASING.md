@@ -17,10 +17,34 @@ GitHub Release:
 - Linux: `ccstats-desktop-x86_64-unknown-linux-gnu.AppImage` and
   `ccstats-desktop-aarch64-unknown-linux-gnu.AppImage`
 
-Each installer has a matching `.sha256` sidecar. macOS DMGs use an ad-hoc
-signature so Apple Silicon downloads are not marked damaged. Windows MSIs are
-unsigned. macOS Gatekeeper or Windows SmartScreen may ask for a manual allow
-on first open.
+Each installer has a matching `.sha256` sidecar. macOS apps use a Developer ID
+certificate and are notarized before the DMG is created. Windows MSIs use an
+Authenticode certificate and a trusted timestamp. The release fails instead
+of publishing unsigned macOS or Windows installers when credentials are absent.
+
+Configure these GitHub Actions secrets before pushing a release tag:
+
+- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12`
+- `APPLE_CERTIFICATE_PASSWORD`: password for that `.p12`
+- `APPLE_SIGNING_IDENTITY`: full Developer ID Application identity
+- `APPLE_ID`: Apple account used for notarization
+- `APPLE_PASSWORD`: app-specific password for that account
+- `APPLE_TEAM_ID`: Apple Developer team identifier
+- `WINDOWS_CERTIFICATE`: base64-encoded Authenticode `.pfx`
+- `WINDOWS_CERTIFICATE_PASSWORD`: password for that `.pfx`
+
+Rotate a certificate by replacing its certificate and password secrets before
+the old certificate expires, then verify the next release with `codesign` and
+`Get-AuthenticodeSignature`. Revoke the old certificate after verification.
+Certificate contents and passwords must never be committed or printed in logs.
+
+Contributors can build unsigned packages locally without release credentials:
+
+```bash
+cd desktop
+npm ci
+npm run tauri -- build
+```
 
 Do not enable app sandboxing. The desktop app reads local agent logs under the
 user home directory.
@@ -64,7 +88,9 @@ The existing `HOMEBREW_TAP_TOKEN` secret must retain permission to update
    ```
 
 4. Create and push the matching tag, for example `v0.5.1` for version `0.5.1`.
-5. Confirm every job in the Release workflow succeeds.
+5. Confirm every job in the Release workflow succeeds. The workflow validates
+   the macOS notarization staple and Gatekeeper assessment, and rejects a
+   Windows MSI unless PowerShell reports a valid Authenticode signature.
 
 ## Public verification
 

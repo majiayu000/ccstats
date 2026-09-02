@@ -117,6 +117,8 @@ jobs:
     name: Desktop ${{ matrix.target }}
     needs: preflight
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -131,7 +133,7 @@ jobs:
             os: ubuntu-22.04
             args: --bundles appimage
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-22.04-arm
+            os: ubuntu-24.04-arm
             args: --bundles appimage
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -168,14 +170,100 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      - name: Build desktop installer
-        uses: tauri-apps/tauri-action@v1
+      - name: Build Linux installer
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: npm run tauri -- build ${{ matrix.args }}
+
+      - name: Build signed and notarized macOS installer
+        if: runner.os == 'macOS'
+        working-directory: desktop
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: desktop
-          includeUpdaterJson: false
-          args: ${{ matrix.args }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "$(printenv "$name")" ]; then
+              echo "::error::$name must be configured for signed macOS releases"
+              exit 1
+            fi
+          done
+          npm run tauri -- build ${{ matrix.args }}
+          dmg_path="$(find src-tauri/target -type f -name '*.dmg' -print -quit)"
+          if [ -z "$dmg_path" ]; then
+            echo "::error::Signed macOS build did not produce a DMG."
+            exit 1
+          fi
+          xcrun stapler validate "$dmg_path"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg_path"
+
+      - name: Build signed Windows installer
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            throw "WINDOWS_CERTIFICATE must be configured for signed Windows releases"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            throw "WINDOWS_CERTIFICATE_PASSWORD must be configured for signed Windows releases"
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP "ccstats-code-signing.pfx"
+          $configPath = Join-Path $env:RUNNER_TEMP "ccstats-windows-signing.json"
+          $importedCertificates = @()
+          $certificate = $null
+          try {
+            [IO.File]::WriteAllBytes(
+              $certificatePath,
+              [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+            )
+            $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $importedCertificates = @(Import-PfxCertificate `
+                -FilePath $certificatePath `
+                -CertStoreLocation Cert:\CurrentUser\My `
+                -Password $password)
+            $certificate = $importedCertificates |
+              Where-Object { $_.HasPrivateKey } |
+              Select-Object -First 1
+            if ($null -eq $certificate -or [string]::IsNullOrWhiteSpace($certificate.Thumbprint)) {
+              throw "The Windows code-signing certificate could not be imported."
+            }
+            @{
+              bundle = @{
+                windows = @{
+                  certificateThumbprint = $certificate.Thumbprint
+                  digestAlgorithm = "sha256"
+                  timestampUrl = "http://timestamp.digicert.com"
+                }
+              }
+            } | ConvertTo-Json -Depth 4 -Compress | Set-Content -Encoding utf8 $configPath
+            Remove-Item Env:WINDOWS_CERTIFICATE, Env:WINDOWS_CERTIFICATE_PASSWORD
+            npm run tauri -- build ${{ matrix.args }} --config $configPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Tauri Windows build failed with exit code $LASTEXITCODE"
+            }
+            $installers = @(Get-ChildItem src-tauri/target -Recurse -Filter *.msi)
+            if ($installers.Count -ne 1) {
+              throw "Expected exactly one Windows MSI, found $($installers.Count)."
+            }
+            $signature = Get-AuthenticodeSignature $installers[0].FullName
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              throw "Windows MSI Authenticode verification failed: $($signature.StatusMessage)"
+            }
+          } finally {
+            Remove-Item $certificatePath, $configPath -Force -ErrorAction SilentlyContinue
+            foreach ($importedCertificate in $importedCertificates) {
+              Remove-Item "Cert:\CurrentUser\My\$($importedCertificate.Thumbprint)" -Force
+            }
+          }
 
       - name: Stage desktop artifacts
         shell: bash
