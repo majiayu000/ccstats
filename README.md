@@ -325,7 +325,7 @@ ccstats project
 # By session
 ccstats session
 
-# 5-hour billing blocks
+# Estimated 5-hour session windows (not an official Anthropic billing reset)
 ccstats blocks
 
 # Top-N leaderboard (ranks by cost, falls back to tokens when costs unknown)

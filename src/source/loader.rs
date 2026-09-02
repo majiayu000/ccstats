@@ -483,12 +483,12 @@ impl<'a> DataLoader<'a> {
         if !self.quiet {
             if skipped > 0 {
                 eprintln!(
-                    "Found {} billing blocks after deduplicating {} entries",
+                    "Found {} estimated session windows after deduplicating {} entries",
                     blocks.len(),
                     skipped
                 );
             } else {
-                eprintln!("Found {} billing blocks", blocks.len());
+                eprintln!("Found {} estimated session windows", blocks.len());
             }
         }
 
