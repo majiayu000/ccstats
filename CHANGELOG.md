@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.5.1] - 2026-09-03
+## [0.5.2] - 2026-09-03
 
 ### Added
 - Desktop DMG, MSI, and AppImage installers on the existing `v*` GitHub Release workflow. Without certificates, macOS packages use an ad-hoc signature and Windows packages are unsigned.
@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 - Improve the README first-run path, positioning, installation maintenance, and package metadata.
 
 ### Fixed
+- Include the Windows ICO resource required to build the desktop MSI.
 - Cline counts a session once when canonical `*.messages.json` and legacy `ui_messages.json` share an ID; legacy-only tasks still count.
 - Gemini session JSON last-writes on message id like the JSONL path.
 - Gemini/Google models now load from LiteLLM / fallback instead of N/A.
