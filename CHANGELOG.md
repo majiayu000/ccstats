@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Desktop DMG, MSI, and AppImage installers on the existing `v*` GitHub Release workflow. Developer ID notarization and Windows Authenticode signing run when repository secrets are configured.
+- Desktop DMG, MSI, and AppImage installers on the existing `v*` GitHub Release workflow.
 - `--source-breakdown` for `--source all` (per-source subtotals + combined total). Default combined output unchanged. Monthly `--monthly-budget --csv` keeps budget columns.
 - Expose `cache_creation_1h_tokens` in JSON, CSV, and SDK `TokenBreakdown`. `cache_creation_tokens` remains the inclusive cache-creation total; the 1-hour figure is a billed subset, not a sixth token bucket.
 

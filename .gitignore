@@ -5,6 +5,5 @@
 /desktop/playwright-report/
 /desktop/src-tauri/gen/
 /desktop/src-tauri/target/
-/desktop/src-tauri/ci-windows-signing.json
 src/**/CLAUDE.md
 tests/CLAUDE.md

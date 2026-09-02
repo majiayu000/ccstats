@@ -86,7 +86,7 @@ npm run tauri -- build
 ```
 
 macOS produces a DMG, Windows an MSI, and Linux an AppImage. See
-[docs/RELEASING.md](docs/RELEASING.md) for signed GitHub Release artifacts.
+[docs/RELEASING.md](docs/RELEASING.md) for GitHub Release artifacts.
 
 Focused desktop checks:
 
@@ -179,10 +179,6 @@ Download installers and SHA-256 checksums from [GitHub Releases](https://github.
 
 The desktop app is a local investigation surface over the same accounting
 engine as the CLI. It does not create a ccstats account or upload transcripts.
-
-Until Apple Developer ID and Windows Authenticode secrets are configured,
-macOS Gatekeeper and Windows SmartScreen may require a manual allow. See
-[docs/RELEASING.md](docs/RELEASING.md) for the signing setup.
 
 ### Manual download
 

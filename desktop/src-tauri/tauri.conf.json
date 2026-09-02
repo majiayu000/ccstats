@@ -39,11 +39,8 @@
     ],
     "macOS": {
       "hardenedRuntime": true,
-      "minimumSystemVersion": "11.0"
-    },
-    "windows": {
-      "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com"
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
     },
     "linux": {
       "appimage": {

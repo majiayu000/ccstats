@@ -136,15 +136,6 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             args: --bundles msi
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v6
@@ -177,44 +168,6 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      - name: Use ad-hoc macOS signature without Developer ID
-        if: runner.os == 'macOS'
-        run: |
-          if [ -z "${APPLE_CERTIFICATE}" ]; then
-            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
-            echo "APPLE_CERTIFICATE is unset; using ad-hoc signing so Apple Silicon DMGs are not marked damaged."
-          fi
-
-      - name: Import Windows signing certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            Write-Host "WINDOWS_CERTIFICATE is unset; building an unsigned MSI."
-            exit 0
-          }
-          $dir = Join-Path $env:RUNNER_TEMP "windows-cert"
-          New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          $pfxPath = Join-Path $dir "certificate.pfx"
-          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE.Trim())
-          [IO.File]::WriteAllBytes($pfxPath, $bytes)
-          $secure = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
-          $imported = @(Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $secure)
-          $cert = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
-          if (-not $cert) {
-            $cert = $imported | Select-Object -First 1
-          }
-          $thumb = $cert.Thumbprint
-          if (-not $thumb) {
-            throw "Imported WINDOWS_CERTIFICATE but could not read a thumbprint."
-          }
-          $configPath = Join-Path $pwd "desktop/src-tauri/ci-windows-signing.json"
-          $json = '{"bundle":{"windows":{"certificateThumbprint":"' + $thumb + '","digestAlgorithm":"sha256","timestampUrl":"http://timestamp.digicert.com"}}}'
-          $utf8 = New-Object System.Text.UTF8Encoding $false
-          [System.IO.File]::WriteAllText($configPath, $json, $utf8)
-          Add-Content -Path $env:GITHUB_ENV -Value "TAURI_EXTRA_ARGS=--config src-tauri/ci-windows-signing.json"
-          Write-Host "Imported Windows certificate $thumb"
-
       - name: Build desktop installer
         uses: tauri-apps/tauri-action@v1
         env:
@@ -222,7 +175,7 @@ jobs:
         with:
           projectPath: desktop
           includeUpdaterJson: false
-          args: ${{ matrix.args }} ${{ env.TAURI_EXTRA_ARGS }}
+          args: ${{ matrix.args }}
 
       - name: Stage desktop artifacts
         shell: bash

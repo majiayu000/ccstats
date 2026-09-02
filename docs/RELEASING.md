@@ -17,43 +17,13 @@ GitHub Release:
 - Linux: `ccstats-desktop-x86_64-unknown-linux-gnu.AppImage` and
   `ccstats-desktop-aarch64-unknown-linux-gnu.AppImage`
 
-Each installer has a matching `.sha256` sidecar. The workflow builds unsigned
-or ad-hoc packages when signing secrets are missing so the pipeline can be
-tested without certificates. Gatekeeper and SmartScreen stay noisy until the
-secrets below are set.
+Each installer has a matching `.sha256` sidecar. macOS DMGs use an ad-hoc
+signature so Apple Silicon downloads are not marked damaged. Windows MSIs are
+unsigned. macOS Gatekeeper or Windows SmartScreen may ask for a manual allow
+on first open.
 
 Do not enable app sandboxing. The desktop app reads local agent logs under the
 user home directory.
-
-### Signing secrets
-
-Configure these GitHub Actions secrets on `majiayu000/ccstats`. Leave them
-unset to publish ad-hoc macOS DMGs and unsigned Windows MSIs.
-
-#### macOS Developer ID + notarization
-
-| Secret | Value |
-| --- | --- |
-| `APPLE_CERTIFICATE` | Base64-encoded Developer ID Application `.p12` |
-| `APPLE_CERTIFICATE_PASSWORD` | Password for that `.p12` |
-| `APPLE_SIGNING_IDENTITY` | Identity string from `security find-identity -v -p codesigning`, for example `Developer ID Application: Name (TEAMID)` |
-| `APPLE_ID` | Apple ID email |
-| `APPLE_PASSWORD` | App-specific password, not the account password |
-| `APPLE_TEAM_ID` | 10-character Team ID |
-
-All six are required for a notarized DMG. A Developer ID certificate without
-notarization credentials will fail the macOS desktop job.
-
-#### Windows Authenticode
-
-| Secret | Value |
-| --- | --- |
-| `WINDOWS_CERTIFICATE` | Base64-encoded `.pfx` |
-| `WINDOWS_CERTIFICATE_PASSWORD` | Export password for that `.pfx` |
-
-The Windows job imports the certificate into the runner certificate store and
-passes the thumbprint into Tauri for the MSI. Linux AppImages are checksummed
-only; do not add a GPG signing step in this workflow.
 
 ## One-time crates.io setup
 
@@ -112,8 +82,7 @@ ccstats --version
 ```
 
 Confirm the GitHub Release includes both CLI archives and the five desktop
-installers plus checksums. On macOS, a notarized build reports
-`source=Notarized Developer ID` from `spctl --assess --verbose`.
+installers plus checksums.
 
 crates.io indexing and Homebrew tap updates can lag briefly. The published
 version, release assets, and formula must all agree before announcing a
