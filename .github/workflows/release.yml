@@ -177,7 +177,7 @@ jobs:
         working-directory: desktop
         run: npm run tauri -- build ${{ matrix.args }}
 
-      - name: Build signed and notarized macOS installer
+      - name: Build macOS installer
         if: runner.os == 'macOS'
         working-directory: desktop
         env:
@@ -188,12 +188,30 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          apple_signing_count=0
           for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "$(printenv "$name")" ]; then
-              echo "::error::$name must be configured for signed macOS releases"
-              exit 1
+            if [ -n "$(printenv "$name")" ]; then
+              apple_signing_count=$((apple_signing_count + 1))
             fi
           done
+
+          if [ "$apple_signing_count" -eq 0 ]; then
+            echo "::warning::Apple signing credentials are not configured; publishing an ad-hoc-signed macOS installer."
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            export APPLE_SIGNING_IDENTITY=-
+            npm run tauri -- build ${{ matrix.args }}
+            dmg_path="$(find src-tauri/target -type f -name '*.dmg' -print -quit)"
+            if [ -z "$dmg_path" ]; then
+              echo "::error::Ad-hoc-signed macOS build did not produce a DMG."
+              exit 1
+            fi
+            exit 0
+          fi
+
+          if [ "$apple_signing_count" -ne 6 ]; then
+            echo "::error::Configure all six Apple signing secrets or leave all of them unset."
+            exit 1
+          fi
 
           original_keychain="$(security default-keychain -d user | tr -d '"')"
           original_keychains=()
@@ -258,7 +276,7 @@ jobs:
           xcrun stapler validate "$dmg_path"
           spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg_path"
 
-      - name: Build signed Windows installer
+      - name: Build Windows installer
         if: runner.os == 'Windows'
         working-directory: desktop
         shell: pwsh
@@ -266,11 +284,24 @@ jobs:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
-            throw "WINDOWS_CERTIFICATE must be configured for signed Windows releases"
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
+          if ($hasCertificate -xor $hasPassword) {
+            throw "Configure both Windows signing secrets or leave both of them unset."
           }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
-            throw "WINDOWS_CERTIFICATE_PASSWORD must be configured for signed Windows releases"
+
+          if (-not $hasCertificate) {
+            Write-Output "::warning::Windows signing credentials are not configured; publishing an unsigned Windows installer."
+            Remove-Item Env:WINDOWS_CERTIFICATE, Env:WINDOWS_CERTIFICATE_PASSWORD
+            npm run tauri -- build ${{ matrix.args }}
+            if ($LASTEXITCODE -ne 0) {
+              throw "Tauri Windows build failed with exit code $LASTEXITCODE"
+            }
+            $installers = @(Get-ChildItem src-tauri/target -Recurse -Filter *.msi)
+            if ($installers.Count -ne 1) {
+              throw "Expected exactly one unsigned Windows MSI, found $($installers.Count)."
+            }
+            exit 0
           }
 
           $certificatePath = Join-Path $env:RUNNER_TEMP "ccstats-code-signing.pfx"
