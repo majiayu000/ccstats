@@ -321,6 +321,14 @@ fn aggregate_entries_for_filter(
 }
 
 fn discovery_filter(ranges: &[ResolvedRange]) -> DateFilter {
+    let timestamp_range_count = ranges
+        .iter()
+        .filter(|range| range.filter.has_timestamp_range())
+        .count();
+    if timestamp_range_count > 0 && timestamp_range_count < ranges.len() {
+        return DateFilter::default();
+    }
+
     let since = ranges
         .iter()
         .all(|range| range.since.is_some())
@@ -679,6 +687,31 @@ mod tests {
                 .expect("valid until")
                 .timestamp_millis()
         );
+    }
+
+    #[test]
+    fn mixed_timestamp_and_date_ranges_leave_shared_discovery_unbounded() {
+        let ranges = resolve_ranges(
+            &[
+                UsageRange::TimestampRange {
+                    since: "2026-02-06T01:00:00Z".parse().expect("valid since"),
+                    until: "2026-02-06T02:00:00Z".parse().expect("valid until"),
+                },
+                UsageRange::DateRange {
+                    since: Some(d(2026, 2, 6)),
+                    until: Some(d(2026, 2, 6)),
+                },
+            ],
+            d(2026, 2, 6),
+        )
+        .expect("resolve ranges");
+
+        let filter = discovery_filter(&ranges);
+
+        assert_eq!(filter.since, None);
+        assert_eq!(filter.until, None);
+        assert!(!filter.has_timestamp_range());
+        assert!(ranges[0].filter.has_timestamp_range());
     }
 
     #[test]
