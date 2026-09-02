@@ -732,7 +732,7 @@ Warning: ignored <N> malformed records
 
 | Source | Directory | Override | Features |
 |--------|-----------|----------|----------|
-| Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Billing Blocks, Deduplication |
+| Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Estimated session windows, Deduplication |
 | OpenAI Codex | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` | Reasoning Tokens, cumulative-event deduplication |
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor | Cursor usage API | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Per-event tokens, cache tokens, recorded `chargedCents` |
