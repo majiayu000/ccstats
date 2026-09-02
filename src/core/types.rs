@@ -334,7 +334,7 @@ pub(crate) struct ProjectStats {
     pub(crate) models: HashMap<String, Stats>,
 }
 
-/// 5-hour billing block statistics
+/// Estimated 5-hour session window statistics (inferred from local logs; not an official billing reset)
 #[derive(Debug, Default, Clone)]
 pub(crate) struct BlockStats {
     pub(crate) block_start: String,
