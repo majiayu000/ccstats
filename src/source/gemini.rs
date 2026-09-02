@@ -280,29 +280,47 @@ fn parse_session_json(
         return Vec::new();
     };
 
-    messages
-        .iter()
-        .filter_map(|message| {
-            let model = non_empty_string(message.get("model"))?;
-            let token_value = message.get("tokens")?;
-            let timestamp_ms = parse_timestamp(message.get("timestamp")).or(fallback_timestamp);
-            let Some(timestamp_ms) = timestamp_ms else {
-                *errors += 1;
-                return None;
-            };
-            let message_id =
-                non_empty_string(message.get("id")).map(|id| format!("gemini:{session_id}:{id}"));
-            build_entry(
-                path,
-                timezone,
-                &session_id,
-                model,
-                timestamp_ms,
-                session_tokens(token_value),
-                message_id,
-            )
-        })
-        .collect()
+    let mut entries = Vec::new();
+    let mut direct_indices = HashMap::<String, usize>::new();
+    for message in messages {
+        let Some(model) = non_empty_string(message.get("model")) else {
+            continue;
+        };
+        let Some(token_value) = message.get("tokens") else {
+            continue;
+        };
+        let timestamp_ms = parse_timestamp(message.get("timestamp")).or(fallback_timestamp);
+        let Some(timestamp_ms) = timestamp_ms else {
+            *errors += 1;
+            continue;
+        };
+        let raw_id = non_empty_string(message.get("id"));
+        let message_id = raw_id
+            .as_ref()
+            .map(|id| format!("gemini:{session_id}:{id}"));
+        let Some(entry) = build_entry(
+            path,
+            timezone,
+            &session_id,
+            model,
+            timestamp_ms,
+            session_tokens(token_value),
+            message_id,
+        ) else {
+            continue;
+        };
+        if let Some(id) = raw_id {
+            if let Some(index) = direct_indices.get(&id).copied() {
+                entries[index] = entry;
+            } else {
+                direct_indices.insert(id, entries.len());
+                entries.push(entry);
+            }
+        } else {
+            entries.push(entry);
+        }
+    }
+    entries
 }
 
 struct HeadlessUsage {
@@ -652,6 +670,117 @@ mod tests {
         assert_eq!(entry.cache_read, 200);
         assert_eq!(entry.reasoning_tokens, 20);
         assert_eq!(entry.date_str, "2026-08-31");
+    }
+
+    #[test]
+    fn session_json_last_writes_on_duplicate_message_id() {
+        let temp = tempdir().unwrap();
+        let chats = temp.path().join("tmp/project/chats");
+        fs::create_dir_all(&chats).unwrap();
+        let path = chats.join("session.json");
+        fs::write(
+            &path,
+            r#"{
+                "sessionId": "gemini-session",
+                "messages": [
+                    {
+                        "id": "message-1",
+                        "timestamp": "2026-08-31T03:04:05Z",
+                        "model": "gemini-2.5-pro",
+                        "tokens": {
+                            "input": 1000,
+                            "output": 50,
+                            "cached": 200,
+                            "thoughts": 20,
+                            "tool": 5
+                        }
+                    },
+                    {
+                        "id": "message-1",
+                        "timestamp": "2026-08-31T03:05:05Z",
+                        "model": "gemini-2.5-pro",
+                        "tokens": {
+                            "input": 2000,
+                            "output": 80,
+                            "cached": 400,
+                            "thoughts": 30,
+                            "tool": 10
+                        }
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_gemini_file(&path, Timezone::Named(chrono_tz::UTC), false);
+
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 1);
+        let entry = &parsed.entries[0];
+        assert_eq!(
+            entry.message_id.as_deref(),
+            Some("gemini:gemini-session:message-1")
+        );
+        assert_eq!(entry.input_tokens, 1610);
+        assert_eq!(entry.output_tokens, 80);
+        assert_eq!(entry.cache_read, 400);
+        assert_eq!(entry.reasoning_tokens, 30);
+    }
+
+    #[test]
+    fn session_json_keeps_unique_message_ids() {
+        let temp = tempdir().unwrap();
+        let chats = temp.path().join("tmp/project/chats");
+        fs::create_dir_all(&chats).unwrap();
+        let path = chats.join("session.json");
+        fs::write(
+            &path,
+            r#"{
+                "sessionId": "gemini-session",
+                "messages": [
+                    {
+                        "id": "message-1",
+                        "timestamp": "2026-08-31T03:04:05Z",
+                        "model": "gemini-2.5-pro",
+                        "tokens": {
+                            "input": 1000,
+                            "output": 50,
+                            "cached": 200,
+                            "thoughts": 20,
+                            "tool": 5
+                        }
+                    },
+                    {
+                        "id": "message-2",
+                        "timestamp": "2026-08-31T03:05:05Z",
+                        "model": "gemini-2.5-pro",
+                        "tokens": {
+                            "input": 2000,
+                            "output": 80,
+                            "cached": 400,
+                            "thoughts": 30,
+                            "tool": 10
+                        }
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let parsed = parse_gemini_file(&path, Timezone::Named(chrono_tz::UTC), false);
+
+        assert_eq!(parsed.errors, 0);
+        assert_eq!(parsed.entries.len(), 2);
+        assert_eq!(
+            parsed.entries[0].message_id.as_deref(),
+            Some("gemini:gemini-session:message-1")
+        );
+        assert_eq!(parsed.entries[0].input_tokens, 805);
+        assert_eq!(
+            parsed.entries[1].message_id.as_deref(),
+            Some("gemini:gemini-session:message-2")
+        );
+        assert_eq!(parsed.entries[1].input_tokens, 1610);
     }
 
     #[test]
