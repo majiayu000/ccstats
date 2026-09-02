@@ -15,6 +15,10 @@ use crate::pricing::PricingDb;
 use crate::source::{CostCoverage, Source, get_source};
 use crate::utils::Timezone;
 
+mod grok;
+
+use grok::summarize_grok_cost_ranges;
+
 /// Options for [`summarize_cost_ranges`].
 ///
 /// Use [`summarize_cost_ranges_with_cli_config`] when SDK output should follow
@@ -70,16 +74,19 @@ struct ResolvedRange {
 
 /// Summarize multiple local token usage ranges while reusing source and pricing work.
 ///
-/// This preserves the ordering of `options.ranges` in `summaries`, resolves
-/// timezone/source/pricing/currency once, scans source files once, and then
-/// applies each range's filtering, deduplication, and aggregation semantics to
-/// the shared parsed entries.
+/// This preserves the ordering of `options.ranges` in `summaries`. Most sources
+/// scan their files once; Grok evaluates each range through the single-range
+/// SDK path so request reconciliation and API-equivalent estimates stay exact.
 ///
 /// # Errors
 ///
 /// Returns an error when no ranges are requested, when the source or timezone is
 /// invalid, or when any explicit date or timestamp range is reversed.
 pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
+    if options.source == UsageSource::Grok {
+        return summarize_grok_cost_ranges(&options);
+    }
+
     let start = Instant::now();
     let MultiSummaryOptions {
         source: usage_source,
@@ -314,6 +321,14 @@ fn aggregate_entries_for_filter(
 }
 
 fn discovery_filter(ranges: &[ResolvedRange]) -> DateFilter {
+    let timestamp_range_count = ranges
+        .iter()
+        .filter(|range| range.filter.has_timestamp_range())
+        .count();
+    if timestamp_range_count > 0 && timestamp_range_count < ranges.len() {
+        return DateFilter::default();
+    }
+
     let since = ranges
         .iter()
         .all(|range| range.since.is_some())
@@ -672,6 +687,31 @@ mod tests {
                 .expect("valid until")
                 .timestamp_millis()
         );
+    }
+
+    #[test]
+    fn mixed_timestamp_and_date_ranges_leave_shared_discovery_unbounded() {
+        let ranges = resolve_ranges(
+            &[
+                UsageRange::TimestampRange {
+                    since: "2026-02-06T01:00:00Z".parse().expect("valid since"),
+                    until: "2026-02-06T02:00:00Z".parse().expect("valid until"),
+                },
+                UsageRange::DateRange {
+                    since: Some(d(2026, 2, 6)),
+                    until: Some(d(2026, 2, 6)),
+                },
+            ],
+            d(2026, 2, 6),
+        )
+        .expect("resolve ranges");
+
+        let filter = discovery_filter(&ranges);
+
+        assert_eq!(filter.since, None);
+        assert_eq!(filter.until, None);
+        assert!(!filter.has_timestamp_range());
+        assert!(ranges[0].filter.has_timestamp_range());
     }
 
     #[test]

@@ -321,6 +321,14 @@ fn assert_stable_summary_eq(actual: &CostSummary, expected: &CostSummary) {
     assert_eq!(actual.estimated_cost, expected.estimated_cost);
     assert_eq!(actual.estimated_cost_usd, expected.estimated_cost_usd);
     assert_eq!(actual.cost_kind, expected.cost_kind);
+    assert_eq!(
+        actual.api_equivalent_cost_coverage,
+        expected.api_equivalent_cost_coverage
+    );
+    assert_eq!(
+        actual.grok_api_equivalent_cost,
+        expected.grok_api_equivalent_cost
+    );
     assert_eq!(actual.tokens, expected.tokens);
     assert_eq!(actual.models, expected.models);
     assert_eq!(actual.valid_entries, expected.valid_entries);
@@ -786,5 +794,103 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     assert_eq!(
         batch_json["summaries"][0]["api_equivalent_cost_coverage"]["total_tokens"],
         1500
+    );
+}
+
+#[test]
+fn sdk_exposes_grok_partial_cost_estimate_for_exact_window() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let root = tempfile::tempdir().expect("temp dir");
+    let grok_home = root.path().join("grok-home");
+    let session_dir = grok_home
+        .join("sessions")
+        .join("%2Ftmp%2Fgrok-project")
+        .join("sdk-grok-cost-session");
+    write_file(
+        &session_dir.join("summary.json"),
+        r#"{"updated_at":"2026-08-16T01:00:00Z","current_model_id":"grok-4.5-build","git_root_dir":"/tmp/grok-project/"}"#,
+    );
+    write_file(
+        &session_dir.join("updates.jsonl"),
+        r#"{"timestamp":1786838400,"params":{"sessionId":"sdk-grok-cost-session","update":{"sessionUpdate":"turn_completed","prompt_id":"p1","usage":{"inputTokens":100,"outputTokens":20,"cachedReadTokens":40,"reasoningTokens":5,"modelCalls":1,"costUsdTicks":20000000000,"modelUsage":{"grok-4.5-build":{"inputTokens":100,"outputTokens":20,"cachedReadTokens":40,"reasoningTokens":5,"modelCalls":1,"costUsdTicks":20000000000}}}}}}
+{"timestamp":1786839000,"params":{"sessionId":"sdk-grok-cost-session","update":{"sessionUpdate":"turn_completed","prompt_id":"p2","usage":{"inputTokens":50,"outputTokens":10,"cachedReadTokens":10,"reasoningTokens":2,"modelCalls":1,"costUsdTicks":5000000000,"modelUsage":{"grok-4.5-build":{"inputTokens":50,"outputTokens":10,"cachedReadTokens":10,"reasoningTokens":2,"modelCalls":1,"costUsdTicks":5000000000}}}}}}
+{"timestamp":1786842000,"params":{"sessionId":"sdk-grok-cost-session","update":{"sessionUpdate":"turn_completed","prompt_id":"outside","usage":{"inputTokens":1000,"outputTokens":100,"cachedReadTokens":0,"reasoningTokens":0,"modelCalls":1,"costUsdTicks":5000000000,"modelUsage":{"grok-4.5-build":{"inputTokens":1000,"outputTokens":100,"cachedReadTokens":0,"reasoningTokens":0,"modelCalls":1,"costUsdTicks":5000000000}}}}}}
+"#,
+    );
+    write_file(
+        &grok_home.join("logs/unified.jsonl"),
+        r#"{"ts":"2026-08-16T00:00:00Z","sid":"sdk-grok-cost-session","msg":"shell.turn.inference_done","ctx":{"loop_index":1,"prompt_tokens":100,"cached_prompt_tokens":40,"completion_tokens":20,"reasoning_tokens":5}}
+{"ts":"2026-08-16T01:00:00Z","sid":"sdk-grok-cost-session","msg":"shell.turn.inference_done","ctx":{"loop_index":2,"prompt_tokens":1000,"cached_prompt_tokens":0,"completion_tokens":100,"reasoning_tokens":0}}
+"#,
+    );
+
+    let range = UsageRange::TimestampRange {
+        since: "2026-08-16T00:00:00Z".parse().expect("valid since"),
+        until: "2026-08-16T00:30:00Z".parse().expect("valid until"),
+    };
+    let previous_home = std::env::var_os("HOME");
+    let previous_xdg_data = std::env::var_os("XDG_DATA_HOME");
+    let previous_grok_home = std::env::var_os("GROK_HOME");
+    unsafe {
+        std::env::set_var("HOME", root.path());
+        std::env::set_var("XDG_DATA_HOME", root.path().join("xdg-data"));
+        std::env::set_var("GROK_HOME", &grok_home);
+    }
+
+    let summary = summarize_cost(SummaryOptions {
+        source: UsageSource::Grok,
+        range: range.clone(),
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        ..SummaryOptions::default()
+    })
+    .expect("summarize exact Grok cost window");
+    let batch = summarize_cost_ranges(MultiSummaryOptions {
+        source: UsageSource::Grok,
+        ranges: vec![range],
+        timezone: Some("UTC".to_string()),
+        offline: true,
+        strict_pricing: false,
+        currency: None,
+    })
+    .expect("summarize exact Grok cost window in batch");
+
+    match previous_home {
+        Some(value) => unsafe { std::env::set_var("HOME", value) },
+        None => unsafe { std::env::remove_var("HOME") },
+    }
+    match previous_xdg_data {
+        Some(value) => unsafe { std::env::set_var("XDG_DATA_HOME", value) },
+        None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
+    }
+    match previous_grok_home {
+        Some(value) => unsafe { std::env::set_var("GROK_HOME", value) },
+        None => unsafe { std::env::remove_var("GROK_HOME") },
+    }
+
+    assert_eq!(summary.tokens.total_tokens, 180);
+    let coverage = summary
+        .api_equivalent_cost_coverage
+        .as_ref()
+        .expect("Grok cost coverage");
+    assert_eq!(coverage.total_tokens, 180);
+    assert_eq!(coverage.priced_tokens, 120);
+    assert!((coverage.percent - 66.666_666_666_666_66).abs() < 1e-12);
+
+    let estimate = summary
+        .grok_api_equivalent_cost
+        .as_ref()
+        .expect("Grok API-equivalent estimate");
+    assert!((estimate.observed_usd - 0.000_252).abs() < 1e-12);
+    assert!((estimate.estimated_usd.expect("point estimate") - 0.000_395).abs() < 1e-12);
+    assert!((estimate.minimum_usd.expect("minimum") - 0.000_395).abs() < 1e-12);
+    assert!((estimate.maximum_usd.expect("maximum") - 0.000_538).abs() < 1e-12);
+    assert_eq!(estimate.priced_tokens, 120);
+    assert_eq!(estimate.total_tokens, 180);
+    assert_eq!(estimate.coverage_status, "partial");
+    assert_eq!(estimate.excluded_request_tokens, 0);
+    assert_eq!(
+        batch.summaries[0].grok_api_equivalent_cost,
+        summary.grok_api_equivalent_cost
     );
 }

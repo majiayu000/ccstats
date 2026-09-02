@@ -161,6 +161,7 @@ impl DailyBuilder {
     }
 }
 
+#[derive(Clone)]
 struct InferenceObservation {
     entry: RawEntry,
     tokens: CostTokens,
@@ -169,7 +170,6 @@ struct InferenceObservation {
 struct SnapshotInputs {
     usage_entries: Vec<RawEntry>,
     inference_observations: Vec<InferenceObservation>,
-    skipped: i64,
     parse_errors: usize,
     mismatch: bool,
 }
@@ -180,9 +180,28 @@ pub(crate) fn load_daily_with_cost_reports(
     quiet: bool,
     debug: bool,
 ) -> (LoadResult, HashMap<String, GrokCostReport>) {
-    load_daily_with_cost_reports_from_files_and_options(
-        &find_grok_files(),
+    load_daily_ranges_with_cost_reports(
         filter,
+        std::slice::from_ref(filter),
+        timezone,
+        quiet,
+        debug,
+    )
+    .pop()
+    .unwrap_or_else(|| (LoadResult::default(), HashMap::new()))
+}
+
+pub(crate) fn load_daily_ranges_with_cost_reports(
+    discovery_filter: &DateFilter,
+    filters: &[DateFilter],
+    timezone: Timezone,
+    quiet: bool,
+    debug: bool,
+) -> Vec<(LoadResult, HashMap<String, GrokCostReport>)> {
+    load_daily_ranges_with_cost_reports_from_files_and_options(
+        &find_grok_files(),
+        discovery_filter,
+        filters,
         timezone,
         quiet,
         debug,
@@ -195,28 +214,81 @@ fn load_daily_with_cost_reports_from_files(
     filter: &DateFilter,
     timezone: Timezone,
 ) -> (LoadResult, HashMap<String, GrokCostReport>) {
-    load_daily_with_cost_reports_from_files_and_options(files, filter, timezone, true, false)
+    load_daily_ranges_with_cost_reports_from_files_and_options(
+        files,
+        filter,
+        std::slice::from_ref(filter),
+        timezone,
+        true,
+        false,
+    )
+    .pop()
+    .unwrap_or_else(|| (LoadResult::default(), HashMap::new()))
 }
 
-fn load_daily_with_cost_reports_from_files_and_options(
+fn load_daily_ranges_with_cost_reports_from_files_and_options(
     files: &[PathBuf],
-    filter: &DateFilter,
+    discovery_filter: &DateFilter,
+    filters: &[DateFilter],
     timezone: Timezone,
     quiet: bool,
     debug: bool,
-) -> (LoadResult, HashMap<String, GrokCostReport>) {
+) -> Vec<(LoadResult, HashMap<String, GrokCostReport>)> {
     let load_start = Instant::now();
     if !quiet && !files.is_empty() {
         eprintln!("Scanning {} Grok files...", files.len());
     }
 
-    let SnapshotInputs {
-        mut usage_entries,
-        inference_observations,
-        skipped,
-        parse_errors,
-        mismatch,
-    } = read_snapshot_files(files, filter, timezone, debug);
+    let snapshot = read_snapshot_files(files, discovery_filter, timezone, debug);
+    let mut results: Vec<_> = filters
+        .iter()
+        .map(|filter| cost_report_for_filter(&snapshot, filter))
+        .collect();
+    let elapsed_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+    for (result, _) in &mut results {
+        result.elapsed_ms = elapsed_ms;
+    }
+
+    if !quiet && !files.is_empty() {
+        eprintln!(
+            "Parsed {} files in one Grok snapshot ({elapsed_ms:.2}ms)",
+            files.len()
+        );
+        if let Some(skipped) = results.iter().map(|(result, _)| result.skipped).max()
+            && skipped > 0
+        {
+            eprintln!("Deduplicated {skipped} entries");
+        }
+        if snapshot.parse_errors > 0 {
+            eprintln!(
+                "Warning: ignored {} malformed records",
+                snapshot.parse_errors
+            );
+        }
+    }
+
+    results
+}
+
+fn cost_report_for_filter(
+    snapshot: &SnapshotInputs,
+    filter: &DateFilter,
+) -> (LoadResult, HashMap<String, GrokCostReport>) {
+    let mut usage = DedupAccumulator::new();
+    usage.extend(
+        snapshot
+            .usage_entries
+            .iter()
+            .filter(|entry| entry_in_filter(entry, filter))
+            .cloned(),
+    );
+    let (mut usage_entries, skipped) = usage.finalize();
+    let inference_observations = snapshot
+        .inference_observations
+        .iter()
+        .filter(|observation| entry_in_filter(&observation.entry, filter))
+        .cloned()
+        .collect();
     let mut builders: HashMap<String, DailyBuilder> = HashMap::new();
     for entry in &usage_entries {
         if entry.cost_kind == CostKind::EstimatedProxy {
@@ -242,7 +314,7 @@ fn load_daily_with_cost_reports_from_files_and_options(
     let reports: HashMap<String, GrokCostReport> = builders
         .into_iter()
         .filter_map(|(date, mut builder)| {
-            builder.mismatch |= mismatch;
+            builder.mismatch |= snapshot.mismatch;
             let report = builder.finish();
             (report.total_tokens > 0).then_some((date, report))
         })
@@ -262,28 +334,13 @@ fn load_daily_with_cost_reports_from_files_and_options(
     }
     let valid = usage_entries.len() as i64;
     let day_stats = aggregate_daily(usage_entries);
-    let elapsed_ms = load_start.elapsed().as_secs_f64() * 1000.0;
-
-    if !quiet && !files.is_empty() {
-        eprintln!(
-            "Parsed {} files in one Grok snapshot ({elapsed_ms:.2}ms)",
-            files.len()
-        );
-        if skipped > 0 {
-            eprintln!("Deduplicated {skipped} entries");
-        }
-        if parse_errors > 0 {
-            eprintln!("Warning: ignored {parse_errors} malformed records");
-        }
-    }
-
     (
         LoadResult {
             day_stats,
             skipped,
             valid,
-            parse_errors,
-            elapsed_ms,
+            parse_errors: snapshot.parse_errors,
+            elapsed_ms: 0.0,
         },
         reports,
     )
@@ -295,7 +352,7 @@ fn read_snapshot_files(
     timezone: Timezone,
     debug: bool,
 ) -> SnapshotInputs {
-    let mut usage = DedupAccumulator::new();
+    let mut usage_entries = Vec::new();
     let mut inference_observations = Vec::new();
     let mut mismatch = false;
     let mut parse_errors = 0;
@@ -349,7 +406,7 @@ fn read_snapshot_files(
                 let parsed =
                     super::parser::parse_grok_session_file_for_provider(path, timezone, debug);
                 parse_errors += parsed.errors;
-                usage.extend(
+                usage_entries.extend(
                     parsed
                         .entries
                         .into_iter()
@@ -359,11 +416,9 @@ fn read_snapshot_files(
         }
     }
 
-    let (usage_entries, skipped) = usage.finalize();
     SnapshotInputs {
         usage_entries,
         inference_observations,
-        skipped,
         parse_errors,
         mismatch,
     }
@@ -416,6 +471,9 @@ fn reconcile_inference_observations(
 }
 
 fn entry_in_filter(entry: &RawEntry, filter: &DateFilter) -> bool {
+    if filter.has_timestamp_range() {
+        return filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms);
+    }
     chrono::NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
         .is_ok_and(|date| filter.contains(date))
 }
