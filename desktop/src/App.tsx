@@ -92,7 +92,7 @@ function QualityPanel({ summary }: { summary: CostSummary }) {
         <h2 id="quality-title">{hasWarnings ? "Review needed" : "Ledger healthy"}</h2>
         <p>
           {hasWarnings
-            ? `${summary.skipped_entries} deduplicated · ${summary.parse_error_entries} malformed`
+            ? `${summary.skipped_entries} deduplicated · ${summary.parse_error_entries} malformed in combined scan`
             : `${summary.valid_entries} records reconciled with no parse warnings`}
         </p>
       </div>
@@ -106,7 +106,7 @@ function QualityPanel({ summary }: { summary: CostSummary }) {
           <dd>{formatTokens(summary.skipped_entries)}</dd>
         </div>
         <div>
-          <dt>Malformed</dt>
+          <dt>Scan malformed</dt>
           <dd>{formatTokens(summary.parse_error_entries)}</dd>
         </div>
       </dl>
@@ -156,14 +156,37 @@ function ModelTable({ summary }: { summary: CostSummary }) {
   );
 }
 
-function EmptyState({ source }: { source: string }) {
+function EmptyState({
+  source,
+  rangeLabel,
+  parseErrors,
+}: {
+  source: string;
+  rangeLabel: string;
+  parseErrors: number;
+}) {
+  const hasUnattributedErrors = parseErrors > 0;
+
   return (
     <section className="empty-state">
       <span className="empty-index">00</span>
       <div>
-        <p className="section-kicker">No local records</p>
-        <h2>The {source} ledger is quiet in this window.</h2>
-        <p>Run the source once or choose a wider time window. ccstats never invents missing usage.</p>
+        <p className="section-kicker">
+          {hasUnattributedErrors ? "Unattributed parse warnings" : "No local records"}
+        </p>
+        <h2>
+          {hasUnattributedErrors
+            ? `No valid ${source} records in this window.`
+            : `The ${source} ledger is quiet in this window.`}
+        </h2>
+        {hasUnattributedErrors ? (
+          <p data-testid="unattributed-parse-errors">
+            {formatTokens(parseErrors)} malformed records were rejected during the combined range
+            scan. The summary does not expose their dates, so they cannot be assigned to {rangeLabel}.
+          </p>
+        ) : (
+          <p>Run the source once or choose a wider time window. ccstats never invents missing usage.</p>
+        )}
       </div>
     </section>
   );
@@ -221,6 +244,9 @@ export default function App() {
   const selectedRangeLabel = RANGE_OPTIONS.find((range) => range.value === selectedRange)?.label;
   const missingRangeError =
     overview && !summary ? `${selectedRangeLabel} is missing from the usage response.` : null;
+  const costCoverage = summary?.api_equivalent_cost_coverage ?? null;
+  const costIsLowerBound =
+    summary !== null && summary.cost !== null && costCoverage?.cost_is_lower_bound === true;
 
   function changeSource(source: string) {
     setSelectedSource(source);
@@ -328,17 +354,12 @@ export default function App() {
               </p>
             </section>
 
-            {summary.valid_entries === 0 && summary.parse_error_entries > 0 ? (
-              <section className="error-state" role="alert">
-                <span className="error-code">ERR / PARSE</span>
-                <h2>No records could be parsed.</h2>
-                <p>
-                  {formatTokens(summary.parse_error_entries)} malformed entries were rejected. Review the source data before trusting this window.
-                </p>
-                <button type="button" onClick={retry}>Try again</button>
-              </section>
-            ) : summary.valid_entries === 0 && summary.tokens.total_tokens === 0 ? (
-              <EmptyState source={overview?.display_name ?? selectedSource} />
+            {summary.valid_entries === 0 && summary.tokens.total_tokens === 0 ? (
+              <EmptyState
+                source={overview?.display_name ?? selectedSource}
+                rangeLabel={selectedRangeLabel ?? selectedRange}
+                parseErrors={summary.parse_error_entries}
+              />
             ) : (
               <>
                 <section className="metric-rack" aria-label="Usage totals">
@@ -348,11 +369,17 @@ export default function App() {
                     <span>Provider-reported components</span>
                   </article>
                   <article>
-                    <p>Total cost</p>
+                    <p>{costIsLowerBound ? "Cost lower bound" : "Total cost"}</p>
                     <strong data-testid="total-cost" className={summary.cost === null ? "unknown-cost" : ""}>
-                      {formatCost(summary.cost, summary.currency)}
+                      {costIsLowerBound ? "≥ " : ""}{formatCost(summary.cost, summary.currency)}
                     </strong>
-                    <span>{summary.cost === null ? "No trustworthy price" : summary.cost_kind}</span>
+                    {costIsLowerBound && costCoverage ? (
+                      <span data-testid="cost-coverage">
+                        {formatTokens(costCoverage.priced_tokens)} / {formatTokens(costCoverage.total_tokens)} tokens priced ({costCoverage.percent.toFixed(1)}%)
+                      </span>
+                    ) : (
+                      <span>{summary.cost === null ? "No trustworthy price" : summary.cost_kind}</span>
+                    )}
                   </article>
                   <article>
                     <p>Records</p>

@@ -88,6 +88,7 @@ async function reserveAvailablePort(): Promise<number> {
 type MockOptions = {
   delay?: number;
   qualityWarning?: boolean;
+  partialCostCoverage?: boolean;
   fail?: boolean;
   omitWeek?: boolean;
   allMalformed?: boolean;
@@ -95,7 +96,7 @@ type MockOptions = {
 };
 
 async function injectBridge(page: Page, options: MockOptions = {}) {
-  await page.addInitScript(({ delay, qualityWarning, fail, omitWeek, allMalformed, failCatalogOnce }) => {
+  await page.addInitScript(({ delay, qualityWarning, partialCostCoverage, fail, omitWeek, allMalformed, failCatalogOnce }) => {
     const calls: string[] = [];
     let catalogCalls = 0;
     const summaries = [
@@ -158,7 +159,15 @@ async function injectBridge(page: Page, options: MockOptions = {}) {
             estimated_cost: null,
             estimated_cost_usd: null,
             cost_kind: index === 0 ? "unknown" : "priced",
-            api_equivalent_cost_coverage: null,
+            api_equivalent_cost_coverage: partialCostCoverage && index === 1
+              ? {
+                  total_tokens: 8_420,
+                  priced_tokens: 5_000,
+                  percent: 59.382_422_802_850_36,
+                  complete: false,
+                  cost_is_lower_bound: true,
+                }
+              : null,
             tokens: {
               input_tokens: allMalformed ? 0 : total - 300,
               output_tokens: allMalformed ? 0 : 180,
@@ -232,7 +241,19 @@ test("surfaces data quality warnings", async ({ page }) => {
 
   await expect(page.getByRole("status")).toContainText("Review needed");
   await expect(page.getByRole("status")).toContainText("2 deduplicated");
-  await expect(page.getByRole("status")).toContainText("1 malformed");
+  await expect(page.getByRole("status")).toContainText("1 malformed in combined scan");
+});
+
+test("labels partial API-equivalent cost as a lower bound", async ({ page }) => {
+  await injectBridge(page, { partialCostCoverage: true });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "This week" }).click();
+  await expect(page.getByText("Cost lower bound")).toBeVisible();
+  await expect(page.getByTestId("total-cost")).toHaveText("≥ $7.42");
+  await expect(page.getByTestId("cost-coverage")).toHaveText(
+    "5,000 / 8,420 tokens priced (59.4%)",
+  );
 });
 
 test("shows a recoverable error without fallback data", async ({ page }) => {
@@ -252,13 +273,20 @@ test("reports a missing requested range instead of leaving the page blank", asyn
   await expect(page.getByRole("alert")).toContainText("This week is missing from the usage response");
 });
 
-test("reports malformed records instead of calling the ledger empty", async ({ page }) => {
+test("does not attribute combined-scan parse errors to the selected range", async ({ page }) => {
   await injectBridge(page, { allMalformed: true });
   await page.goto("/");
 
-  await expect(page.getByRole("alert")).toContainText("No records could be parsed");
-  await expect(page.getByRole("alert")).toContainText("3 malformed entries");
-  await expect(page.getByText("ledger is quiet")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "No valid Claude Code records in this window." }),
+  ).toBeVisible();
+  await expect(page.getByTestId("unattributed-parse-errors")).toContainText(
+    "3 malformed records were rejected during the combined range scan",
+  );
+  await expect(page.getByTestId("unattributed-parse-errors")).toContainText(
+    "cannot be assigned to Today",
+  );
 });
 
 test("retries source discovery when catalog initialization fails", async ({ page }) => {

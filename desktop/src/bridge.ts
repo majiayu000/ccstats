@@ -33,6 +33,14 @@ export interface ModelCostSummary {
   tokens: TokenBreakdown;
 }
 
+export interface ApiEquivalentCostCoverage {
+  total_tokens: number;
+  priced_tokens: number;
+  percent: number;
+  complete: boolean;
+  cost_is_lower_bound: boolean;
+}
+
 export interface CostSummary {
   range: UsageRange;
   since: string | null;
@@ -40,6 +48,7 @@ export interface CostSummary {
   currency: string;
   cost: number | null;
   cost_kind: string;
+  api_equivalent_cost_coverage: ApiEquivalentCostCoverage | null;
   tokens: TokenBreakdown;
   models: ModelCostSummary[];
   valid_entries: number;
