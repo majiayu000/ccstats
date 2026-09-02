@@ -18,7 +18,9 @@ use crate::pricing::{
     pricing_source_for_model_stats, pricing_source_for_models, sum_estimated_proxy_model_costs,
     sum_model_costs,
 };
-use crate::source::{CostCoverage, Source, get_source, load_daily};
+use crate::source::{
+    CostCoverage, GrokCostReport, Source, get_source, load_daily, load_grok_daily_with_cost,
+};
 use crate::utils::Timezone;
 
 pub use crate::source::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, UsageSource};
@@ -233,6 +235,36 @@ impl From<CostCoverage> for ApiEquivalentCostCoverage {
     }
 }
 
+/// Grok API-equivalent cost derived from complete turns and request telemetry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GrokApiEquivalentCostSummary {
+    pub observed_usd: f64,
+    pub estimated_usd: Option<f64>,
+    pub minimum_usd: Option<f64>,
+    pub maximum_usd: Option<f64>,
+    pub priced_tokens: i64,
+    pub total_tokens: i64,
+    pub coverage_percent: f64,
+    pub coverage_status: String,
+    pub excluded_request_tokens: i64,
+}
+
+impl From<GrokCostReport> for GrokApiEquivalentCostSummary {
+    fn from(report: GrokCostReport) -> Self {
+        Self {
+            observed_usd: report.observed_api_cost_usd,
+            estimated_usd: report.estimated_api_cost_usd(),
+            minimum_usd: report.api_cost_lower_bound_usd,
+            maximum_usd: report.api_cost_upper_bound_usd,
+            priced_tokens: report.priced_tokens,
+            total_tokens: report.total_tokens,
+            coverage_percent: report.coverage_percent(),
+            coverage_status: report.status().to_string(),
+            excluded_request_tokens: report.excluded_request_tokens,
+        }
+    }
+}
+
 /// Structured usage and cost summary for SDK consumers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CostSummary {
@@ -250,6 +282,7 @@ pub struct CostSummary {
     pub cost_kind: String,
     pub pricing_source: String,
     pub api_equivalent_cost_coverage: Option<ApiEquivalentCostCoverage>,
+    pub grok_api_equivalent_cost: Option<GrokApiEquivalentCostSummary>,
     pub tokens: TokenBreakdown,
     pub models: Vec<ModelCostSummary>,
     pub valid_entries: i64,
@@ -304,9 +337,15 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
         |conv| conv.currency_code().to_string(),
     );
 
-    let result = load_daily(source, &filter, timezone, true, false);
+    let (result, grok_api_equivalent_cost) = if options.source == UsageSource::Grok {
+        let (result, reports) = load_grok_daily_with_cost(&filter, timezone, true, false);
+        let report = reports.values().copied().reduce(GrokCostReport::merge);
+        (result, report.map(Into::into))
+    } else {
+        (load_daily(source, &filter, timezone, true, false), None)
+    };
     let cost_coverage = CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
-    Ok(build_cost_summary(
+    let mut summary = build_cost_summary(
         options.source,
         source,
         options.range,
@@ -317,7 +356,9 @@ pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> 
         currency.as_ref(),
         &currency_code,
         cost_coverage,
-    ))
+    );
+    summary.grok_api_equivalent_cost = grok_api_equivalent_cost;
+    Ok(summary)
 }
 
 /// Summarize local token usage using the same reusable config defaults as the CLI.
@@ -475,6 +516,7 @@ pub(in crate::sdk) fn build_cost_summary(
             .as_str()
             .to_string(),
         api_equivalent_cost_coverage: cost_coverage.map(Into::into),
+        grok_api_equivalent_cost: None,
         tokens: TokenBreakdown::from_stats(&stats, supports_cache_read),
         models: summarize_models(&models, pricing_db, currency, supports_cache_read),
         valid_entries: result.valid,

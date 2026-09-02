@@ -416,6 +416,9 @@ fn reconcile_inference_observations(
 }
 
 fn entry_in_filter(entry: &RawEntry, filter: &DateFilter) -> bool {
+    if filter.has_timestamp_range() {
+        return filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms);
+    }
     chrono::NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
         .is_ok_and(|date| filter.contains(date))
 }

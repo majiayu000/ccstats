@@ -5,8 +5,8 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CostSummary, SdkError, UsageRange, UsageSource, build_cost_summary, load_cli_config,
-    load_requested_currency,
+    CostSummary, SdkError, SummaryOptions, UsageRange, UsageSource, build_cost_summary,
+    load_cli_config, load_requested_currency, summarize_cost,
 };
 use crate::config::Config;
 use crate::consts::DATE_FORMAT;
@@ -70,16 +70,19 @@ struct ResolvedRange {
 
 /// Summarize multiple local token usage ranges while reusing source and pricing work.
 ///
-/// This preserves the ordering of `options.ranges` in `summaries`, resolves
-/// timezone/source/pricing/currency once, scans source files once, and then
-/// applies each range's filtering, deduplication, and aggregation semantics to
-/// the shared parsed entries.
+/// This preserves the ordering of `options.ranges` in `summaries`. Most sources
+/// scan their files once; Grok evaluates each range through the single-range
+/// SDK path so request reconciliation and API-equivalent estimates stay exact.
 ///
 /// # Errors
 ///
 /// Returns an error when no ranges are requested, when the source or timezone is
 /// invalid, or when any explicit date or timestamp range is reversed.
 pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
+    if options.source == UsageSource::Grok {
+        return summarize_grok_cost_ranges(options);
+    }
+
     let start = Instant::now();
     let MultiSummaryOptions {
         source: usage_source,
@@ -133,6 +136,41 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         source_name: source.name().to_string(),
         display_name: source.display_name().to_string(),
         currency: currency_code,
+        generated_at: Utc::now().to_rfc3339(),
+        summaries,
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+    })
+}
+
+fn summarize_grok_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
+    if options.ranges.is_empty() {
+        return Err(SdkError::Configuration(
+            "at least one usage range is required".to_string(),
+        ));
+    }
+
+    let start = Instant::now();
+    let summaries = options
+        .ranges
+        .into_iter()
+        .map(|range| {
+            summarize_cost(SummaryOptions {
+                source: UsageSource::Grok,
+                range,
+                timezone: options.timezone.clone(),
+                offline: options.offline,
+                strict_pricing: options.strict_pricing,
+                currency: options.currency.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let first = &summaries[0];
+
+    Ok(MultiCostSummary {
+        source: UsageSource::Grok,
+        source_name: first.source_name.clone(),
+        display_name: first.display_name.clone(),
+        currency: first.currency.clone(),
         generated_at: Utc::now().to_rfc3339(),
         summaries,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
