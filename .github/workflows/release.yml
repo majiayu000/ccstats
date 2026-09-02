@@ -196,20 +196,39 @@ jobs:
           done
 
           original_keychain="$(security default-keychain -d user | tr -d '"')"
+          original_keychains=()
+          while IFS= read -r existing_keychain; do
+            if [ -n "$existing_keychain" ]; then
+              original_keychains+=("$existing_keychain")
+            fi
+          done < <(
+            security list-keychains -d user \
+              | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//'
+          )
           keychain_path="$RUNNER_TEMP/ccstats-signing.keychain-db"
           certificate_path="$RUNNER_TEMP/ccstats-developer-id.p12"
           keychain_password="$(openssl rand -hex 32)"
 
           cleanup_signing() {
+            status=$?
             rm -f "$certificate_path"
-            security default-keychain -d user -s "$original_keychain" || true
-            security delete-keychain "$keychain_path" 2>/dev/null || true
+            if ! security default-keychain -d user -s "$original_keychain"; then
+              echo "::warning::Failed to restore the default macOS keychain"
+            fi
+            if ! security list-keychains -d user -s "${original_keychains[@]}"; then
+              echo "::warning::Failed to restore the macOS keychain search list"
+            fi
+            if ! security delete-keychain "$keychain_path"; then
+              echo "::warning::Failed to delete the temporary macOS signing keychain"
+            fi
+            return "$status"
           }
           trap cleanup_signing EXIT
 
           printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate_path"
           security create-keychain -p "$keychain_password" "$keychain_path"
           security default-keychain -d user -s "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" "${original_keychains[@]}"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
           security import "$certificate_path" \
