@@ -473,16 +473,23 @@ fn source_all_daily_json_source_breakdown_wraps_per_source_and_total() {
         "flag wraps JSON; default remains an array"
     );
     let sources = json["sources"].as_array().expect("sources");
-    assert!(
-        sources.len() >= 2,
-        "expected per-source sections, got {sources:?}"
-    );
     let names: Vec<&str> = sources
         .iter()
         .filter_map(|entry| entry["source"].as_str())
         .collect();
-    assert!(names.contains(&"claude"), "sources: {names:?}");
-    assert!(names.contains(&"codex"), "sources: {names:?}");
+    assert_eq!(
+        names,
+        vec!["claude", "codex"],
+        "empty sources must be omitted"
+    );
+    for entry in sources {
+        let rows = entry["rows"].as_array().expect("rows");
+        assert!(
+            !rows.is_empty(),
+            "empty source leaked into breakdown: {}",
+            entry["source"]
+        );
+    }
 
     let claude = sources
         .iter()
@@ -498,6 +505,57 @@ fn source_all_daily_json_source_breakdown_wraps_per_source_and_total() {
     let total = json["total"].as_array().expect("total");
     assert_eq!(total[0]["date"].as_str(), Some("2026-02-06"));
     assert_eq!(total[0]["total_tokens"].as_i64(), Some(165));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn source_all_monthly_csv_source_breakdown_keeps_budget_columns() {
+    let root = unique_temp_dir("source-all-monthly-breakdown-budget");
+    write_file(
+        &root.join(".claude/projects/myapp/claude-session.jsonl"),
+        r#"{"timestamp":"2025-02-10T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":1000000,"output_tokens":100000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "monthly",
+            "--source",
+            "all",
+            "--source-breakdown",
+            "--csv",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2025-02-01",
+            "--until",
+            "2025-02-10",
+            "--monthly-budget",
+            "10",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8_lossy(&stdout);
+    assert!(
+        output.contains("budget_projected"),
+        "budget columns missing: {output}"
+    );
+    assert!(
+        output.contains("budget_status"),
+        "budget status missing: {output}"
+    );
+    assert!(
+        output.contains("source,month"),
+        "source column missing: {output}"
+    );
+    assert!(
+        output.contains("over_budget"),
+        "budget status row missing: {output}"
+    );
 
     let _ = fs::remove_dir_all(root);
 }

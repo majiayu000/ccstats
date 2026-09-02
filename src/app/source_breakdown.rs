@@ -10,9 +10,10 @@ use super::{
 };
 use crate::core::{LoadResult, apply_real_token_totals_for_all_source, merge_day_stats};
 use crate::output::{
-    OutputFormat, Period, PeriodSummaryFooter, TokenTableOptions, add_monthly_budget_to_json,
-    append_data_quality_csv_comment, csv_escape, monthly_budget_reports,
-    output_period_csv_with_quality, output_period_json_with_quality, print_period_table,
+    MonthlyBudgetOptions, OutputFormat, Period, PeriodSummaryFooter, TokenTableOptions,
+    add_monthly_budget_to_json, append_data_quality_csv_comment, csv_escape,
+    monthly_budget_reports, output_monthly_budget_csv, output_period_csv_with_quality,
+    output_period_json_with_quality, print_period_table,
 };
 use crate::pricing::CostDisplayMode;
 use crate::source::{Capabilities, CostCoverage, all_capabilities, all_sources, load_daily};
@@ -118,6 +119,24 @@ fn period_csv(
     caps: &Capabilities,
     ctx: &CommandContext<'_>,
 ) -> String {
+    if period == Period::Month
+        && let Some(budget) = ctx.cli.monthly_budget
+    {
+        return output_monthly_budget_csv(
+            &result.day_stats,
+            ctx.pricing_db,
+            MonthlyBudgetOptions {
+                order: ctx.cli.sort_order(),
+                breakdown: ctx.cli.breakdown,
+                show_cost: ctx.cli.show_cost(),
+                supports_cache_read: caps.has_cache_read,
+                limit: budget,
+                as_of: ctx.budget_as_of,
+                currency: ctx.currency,
+                cost_mode: CostDisplayMode::Total,
+            },
+        );
+    }
     output_period_csv_with_quality(
         &result.day_stats,
         period,
