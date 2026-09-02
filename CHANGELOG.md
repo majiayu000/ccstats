@@ -4,40 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-03
+
 ### Added
-- Desktop DMG, MSI, and AppImage installers on the existing `v*` GitHub Release workflow.
+- Desktop DMG, MSI, and AppImage installers on the existing `v*` GitHub Release workflow. macOS and Windows packages are published unsigned when signing credentials are unavailable.
 - `--source-breakdown` for `--source all` (per-source subtotals + combined total). Default combined output unchanged. Monthly `--monthly-budget --csv` keeps budget columns.
 - Expose `cache_creation_1h_tokens` in JSON, CSV, and SDK `TokenBreakdown`. `cache_creation_tokens` remains the inclusive cache-creation total; the 1-hour figure is a billed subset, not a sixth token bucket.
-
-### Changed
-- `blocks` uses activity-driven 5-hour estimated session windows (ccusage-style), not clock-aligned 00/05/10/15/20 buckets. Not an official billing reset.
-- Rewrite `ARCHITECTURE.md` against the source inventory and current runtime.
-- Register sources and `UsageSource` from one inventory so adding a source is a single table edit.
-- `--source all` default token totals no longer include estimated-proxy rows (for example Grok context snapshots). Cost remains real-only. Estimated-proxy token counts are omitted from those default totals; they are still priced separately as `estimated_cost` when present.
-
-### Fixed
-- Cline counts a session once when canonical `*.messages.json` and legacy `ui_messages.json` share an ID; legacy-only tasks still count.
-- Gemini session JSON last-writes on message id like the JSONL path.
-- Gemini/Google models now load from LiteLLM / fallback instead of N/A.
-
-### Documentation
-- Distinguish CLI `weekly`/`monthly` grouping of filtered history from SDK `UsageRange::ThisWeek`/`ThisMonth` current-period date ranges.
-
-## [0.5.1] - 2026-08-31
-
-### Added
 - Expose provider-authoritative Codex weekly quota reports through the Rust SDK with typed data and errors.
 - Expand local usage support from 5 to 29 sources across nine provider batches: Gemini CLI, Amp, Qwen Code, Cline, Roo Code, and Kilo Code; OpenCode, MiMo Code, and Kilo CLI; Pi, Senpi, and Kimchi; Gajae Code, Prime Agent, and Oh My Pi; GitHub Copilot CLI and Goose; OpenClaw, Xum, and Hermes Agent; Reasonix and Vercel Fx; Unsloth Studio; and DeepSeek Harness.
 - Add `ccstats doctor` for read-only, machine-readable diagnostics across all 29 registered sources.
 - Document privacy boundaries, network access, and the release process.
 
 ### Changed
+- `blocks` uses activity-driven 5-hour estimated session windows (ccusage-style), not clock-aligned 00/05/10/15/20 buckets. Not an official billing reset.
+- Rewrite `ARCHITECTURE.md` against the source inventory and current runtime.
+- Register sources and `UsageSource` from one inventory so adding a source is a single table edit.
+- `--source all` default token totals no longer include estimated-proxy rows (for example Grok context snapshots). Cost remains real-only. Estimated-proxy token counts are omitted from those default totals; they are still priced separately as `estimated_cost` when present.
 - Calculate Grok 4.5 and 4.6 USD cost from per-inference `unified.jsonl` token records, including prompt-cache rates and the 200k-token whole-request pricing tier, instead of using `turn_completed.costUsdTicks` as the Grok Build weekly-allowance value.
 - Improve the README first-run path, positioning, installation maintenance, and package metadata.
 
 ### Fixed
+- Cline counts a session once when canonical `*.messages.json` and legacy `ui_messages.json` share an ID; legacy-only tasks still count.
+- Gemini session JSON last-writes on message id like the JSONL path.
+- Gemini/Google models now load from LiteLLM / fallback instead of N/A.
 - Preserve Grok inference records in an atomic ccstats ledger so upstream head trimming does not remove usage that ccstats has already observed.
 - Publish crates.io through short-lived OIDC credentials before creating GitHub Releases or updating Homebrew.
+
+### Documentation
+- Distinguish CLI `weekly`/`monthly` grouping of filtered history from SDK `UsageRange::ThisWeek`/`ThisMonth` current-period date ranges.
 
 ## [0.5.0] - 2026-08-20
 

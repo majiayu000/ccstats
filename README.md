@@ -177,6 +177,11 @@ Download installers and SHA-256 checksums from [GitHub Releases](https://github.
 - Linux x64: `ccstats-desktop-x86_64-unknown-linux-gnu.AppImage`
 - Linux ARM64: `ccstats-desktop-aarch64-unknown-linux-gnu.AppImage`
 
+macOS and Windows installers may be unsigned when release signing credentials
+are unavailable. Gatekeeper or SmartScreen may warn because publisher identity
+cannot be verified. Check the matching `.sha256` file before choosing an
+operating-system override.
+
 Make an AppImage executable before launching it:
 
 ```bash
