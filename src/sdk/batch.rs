@@ -5,8 +5,8 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CostSummary, SdkError, SummaryOptions, UsageRange, UsageSource, build_cost_summary,
-    load_cli_config, load_requested_currency, summarize_cost_at,
+    CostSummary, SdkError, UsageRange, UsageSource, build_cost_summary, load_cli_config,
+    load_requested_currency,
 };
 use crate::config::Config;
 use crate::consts::DATE_FORMAT;
@@ -14,6 +14,10 @@ use crate::core::{DateFilter, DedupAccumulator, LoadResult, RawEntry, aggregate_
 use crate::pricing::PricingDb;
 use crate::source::{CostCoverage, Source, get_source};
 use crate::utils::Timezone;
+
+mod grok;
+
+use grok::summarize_grok_cost_ranges;
 
 /// Options for [`summarize_cost_ranges`].
 ///
@@ -80,7 +84,7 @@ struct ResolvedRange {
 /// invalid, or when any explicit date or timestamp range is reversed.
 pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
     if options.source == UsageSource::Grok {
-        return summarize_grok_cost_ranges(options);
+        return summarize_grok_cost_ranges(&options);
     }
 
     let start = Instant::now();
@@ -136,51 +140,6 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         source_name: source.name().to_string(),
         display_name: source.display_name().to_string(),
         currency: currency_code,
-        generated_at: Utc::now().to_rfc3339(),
-        summaries,
-        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
-    })
-}
-
-fn summarize_grok_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSummary, SdkError> {
-    summarize_grok_cost_ranges_at(options, Utc::now())
-}
-
-fn summarize_grok_cost_ranges_at(
-    options: MultiSummaryOptions,
-    observed_at: DateTime<Utc>,
-) -> Result<MultiCostSummary, SdkError> {
-    if options.ranges.is_empty() {
-        return Err(SdkError::Configuration(
-            "at least one usage range is required".to_string(),
-        ));
-    }
-
-    let start = Instant::now();
-    let summaries = options
-        .ranges
-        .into_iter()
-        .map(|range| {
-            summarize_cost_at(
-                SummaryOptions {
-                    source: UsageSource::Grok,
-                    range,
-                    timezone: options.timezone.clone(),
-                    offline: options.offline,
-                    strict_pricing: options.strict_pricing,
-                    currency: options.currency.clone(),
-                },
-                observed_at,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let first = &summaries[0];
-
-    Ok(MultiCostSummary {
-        source: UsageSource::Grok,
-        source_name: first.source_name.clone(),
-        display_name: first.display_name.clone(),
-        currency: first.currency.clone(),
         generated_at: Utc::now().to_rfc3339(),
         summaries,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
@@ -564,42 +523,6 @@ mod tests {
         let err = resolve_ranges(&[], d(2026, 5, 9)).expect_err("empty ranges should fail");
 
         assert!(err.to_string().contains("at least one usage range"));
-    }
-
-    #[test]
-    fn grok_batch_resolves_relative_ranges_from_one_observation_time() {
-        let root = tempfile::tempdir().expect("temp dir");
-        let previous_grok_home = std::env::var_os("GROK_HOME");
-        unsafe {
-            std::env::set_var("GROK_HOME", root.path());
-        }
-
-        let summary = summarize_grok_cost_ranges_at(
-            MultiSummaryOptions {
-                source: UsageSource::Grok,
-                ranges: vec![UsageRange::Today, UsageRange::Today, UsageRange::ThisWeek],
-                timezone: Some("Asia/Shanghai".to_string()),
-                offline: true,
-                strict_pricing: false,
-                currency: None,
-            },
-            "2026-09-06T15:59:59Z"
-                .parse()
-                .expect("valid observation time"),
-        )
-        .expect("summarize Grok ranges");
-
-        match previous_grok_home {
-            Some(value) => unsafe { std::env::set_var("GROK_HOME", value) },
-            None => unsafe { std::env::remove_var("GROK_HOME") },
-        }
-
-        assert_eq!(summary.summaries[0].since, Some(d(2026, 9, 6)));
-        assert_eq!(summary.summaries[0].until, Some(d(2026, 9, 6)));
-        assert_eq!(summary.summaries[1].since, summary.summaries[0].since);
-        assert_eq!(summary.summaries[1].until, summary.summaries[0].until);
-        assert_eq!(summary.summaries[2].since, Some(d(2026, 8, 31)));
-        assert_eq!(summary.summaries[2].until, Some(d(2026, 9, 6)));
     }
 
     #[test]

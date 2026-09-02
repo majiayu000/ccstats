@@ -613,7 +613,10 @@ pub(crate) type BoxedSource = Box<dyn Source>;
 pub(crate) use codex::load_weekly_window_usage_from_home;
 pub use codex::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
 pub(crate) use codex::{CodexScope, CodexSource, load_weekly_quota, load_weekly_quota_from_home};
-pub(crate) use grok::{GrokCostReport, load_daily_with_cost_reports as load_grok_daily_with_cost};
+pub(crate) use grok::{
+    GrokCostReport, load_daily_ranges_with_cost_reports as load_grok_daily_ranges_with_cost,
+    load_daily_with_cost_reports as load_grok_daily_with_cost,
+};
 
 pub use inventory::UsageSource;
 
