@@ -181,14 +181,13 @@ fn claude_blocks_json_groups_by_5h_window() {
     let root = unique_temp_dir("claude-blocks");
     let session = root.join(".claude/projects/myapp/session-blocks.jsonl");
 
-    // Entry at 10:00 UTC → block 10:00-15:00
-    // Entry at 14:30 UTC → same block 10:00-15:00
-    // Entry at 15:00 UTC → block 15:00-20:00
+    // Activity-driven windows: 10:00 floors to 10:00, lasts until 15:00.
+    // 14:30 stays in that window. 15:00:01 exceeds it and floors to 15:00.
     write_file(
         &session,
         r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_a","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
 {"timestamp":"2026-02-06T14:30:00Z","message":{"id":"msg_b","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
-{"timestamp":"2026-02-06T15:00:00Z","message":{"id":"msg_c","model":"claude-4-opus-20250514","stop_reason":"end_turn","usage":{"input_tokens":300,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"timestamp":"2026-02-06T15:00:01Z","message":{"id":"msg_c","model":"claude-4-opus-20250514","stop_reason":"end_turn","usage":{"input_tokens":300,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
 "#,
     );
 
@@ -660,12 +659,11 @@ fn claude_blocks_csv_outputs_correct_format() {
     let root = unique_temp_dir("claude-csv-blocks");
     let session = root.join(".claude/projects/myapp/session-blocks.jsonl");
 
-    // Entry at 10:00 UTC → block 10:00-15:00
-    // Entry at 15:00 UTC → block 15:00-20:00
+    // 10:00 starts a window until 15:00. 15:00:01 exceeds it (15:00 exact would stay).
     write_file(
         &session,
         r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_a","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}
-{"timestamp":"2026-02-06T15:00:00Z","message":{"id":"msg_b","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":300,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"timestamp":"2026-02-06T15:00:01Z","message":{"id":"msg_b","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":300,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
 "#,
     );
 

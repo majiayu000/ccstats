@@ -386,19 +386,7 @@ fn source_flag_can_select_codex_without_subcommand() {
 fn source_all_daily_json_merges_registered_sources() {
     let root = unique_temp_dir("source-all-daily");
     let codex_home = root.join("codex-home");
-    let claude_session = root.join(".claude/projects/myapp/claude-session.jsonl");
-    let codex_session = codex_home.join("sessions").join("codex-session.jsonl");
-
-    write_file(
-        &claude_session,
-        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
-"#,
-    );
-    write_file(
-        &codex_session,
-        r#"{"timestamp":"2026-02-06T11:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"model":"gpt-5"}}}
-"#,
-    );
+    write_claude_and_codex_daily_fixture(&root, &codex_home);
 
     let (ok, stdout, stderr) = run_ccstats(
         &[
@@ -438,6 +426,185 @@ fn source_all_daily_json_merges_registered_sources() {
     assert!(models.iter().any(|model| model.as_str() == Some("gpt-5")));
 
     let _ = fs::remove_dir_all(root);
+}
+
+fn write_claude_and_codex_daily_fixture(root: &Path, codex_home: &Path) {
+    write_file(
+        &root.join(".claude/projects/myapp/claude-session.jsonl"),
+        r#"{"timestamp":"2026-02-06T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+    write_file(
+        &codex_home.join("sessions").join("codex-session.jsonl"),
+        r#"{"timestamp":"2026-02-06T11:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"model":"gpt-5"}}}
+"#,
+    );
+}
+
+#[test]
+fn source_all_daily_json_source_breakdown_wraps_per_source_and_total() {
+    let root = unique_temp_dir("source-all-daily-breakdown");
+    let codex_home = root.join("codex-home");
+    write_claude_and_codex_daily_fixture(&root, &codex_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "all",
+            "--source-breakdown",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root), ("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    assert!(
+        json.is_object(),
+        "flag wraps JSON; default remains an array"
+    );
+    let sources = json["sources"].as_array().expect("sources");
+    let names: Vec<&str> = sources
+        .iter()
+        .filter_map(|entry| entry["source"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["claude", "codex"],
+        "empty sources must be omitted"
+    );
+    for entry in sources {
+        let rows = entry["rows"].as_array().expect("rows");
+        assert!(
+            !rows.is_empty(),
+            "empty source leaked into breakdown: {}",
+            entry["source"]
+        );
+    }
+
+    let claude = sources
+        .iter()
+        .find(|entry| entry["source"] == "claude")
+        .expect("claude section");
+    assert_eq!(claude["rows"][0]["total_tokens"].as_i64(), Some(150));
+    let codex = sources
+        .iter()
+        .find(|entry| entry["source"] == "codex")
+        .expect("codex section");
+    assert_eq!(codex["rows"][0]["total_tokens"].as_i64(), Some(15));
+
+    let total = json["total"].as_array().expect("total");
+    assert_eq!(total[0]["date"].as_str(), Some("2026-02-06"));
+    assert_eq!(total[0]["total_tokens"].as_i64(), Some(165));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn source_all_monthly_csv_source_breakdown_keeps_budget_columns() {
+    let root = unique_temp_dir("source-all-monthly-breakdown-budget");
+    write_file(
+        &root.join(".claude/projects/myapp/claude-session.jsonl"),
+        r#"{"timestamp":"2025-02-10T10:00:00Z","message":{"id":"msg_1","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":1000000,"output_tokens":100000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+"#,
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "monthly",
+            "--source",
+            "all",
+            "--source-breakdown",
+            "--csv",
+            "-O",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2025-02-01",
+            "--until",
+            "2025-02-10",
+            "--monthly-budget",
+            "10",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    let output = String::from_utf8_lossy(&stdout);
+    assert!(
+        output.contains("budget_projected"),
+        "budget columns missing: {output}"
+    );
+    assert!(
+        output.contains("budget_status"),
+        "budget status missing: {output}"
+    );
+    assert!(
+        output.contains("source,month"),
+        "source column missing: {output}"
+    );
+    assert!(
+        output.contains("over_budget"),
+        "budget status row missing: {output}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn source_breakdown_with_source_claude_errors() {
+    let (ok, _stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "claude",
+            "--source-breakdown",
+            "-O",
+            "--no-cost",
+        ],
+        &[],
+    );
+    assert!(
+        !ok,
+        "expected --source-breakdown without --source all to fail"
+    );
+    let stderr = String::from_utf8_lossy(&stderr);
+    assert!(
+        stderr.contains("--source-breakdown requires --source all"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn source_breakdown_rejected_for_session_statusline_and_top() {
+    for command in ["session", "statusline", "top"] {
+        let (ok, _stdout, stderr) = run_ccstats(
+            &[
+                command,
+                "--source",
+                "all",
+                "--source-breakdown",
+                "-O",
+                "--no-cost",
+            ],
+            &[],
+        );
+        assert!(!ok, "expected {command} to reject --source-breakdown");
+        let stderr = String::from_utf8_lossy(&stderr);
+        assert!(
+            stderr.contains(&format!("{command} does not support --source-breakdown")),
+            "stderr for {command}: {stderr}"
+        );
+    }
 }
 
 #[test]

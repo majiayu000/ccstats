@@ -506,7 +506,7 @@ impl SourceDiagnostic {
 pub(crate) struct Capabilities {
     /// Supports project-level aggregation
     pub(crate) has_projects: bool,
-    /// Supports 5-hour billing block aggregation
+    /// Supports 5-hour estimated session window aggregation
     pub(crate) has_billing_blocks: bool,
     /// Has reasoning tokens (e.g., o1 models)
     pub(crate) has_reasoning_tokens: bool,

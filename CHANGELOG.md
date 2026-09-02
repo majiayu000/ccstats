@@ -5,14 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `--source-breakdown` for `--source all` (per-source subtotals + combined total). Default combined output unchanged. Monthly `--monthly-budget --csv` keeps budget columns.
 - Expose `cache_creation_1h_tokens` in JSON, CSV, and SDK `TokenBreakdown`. `cache_creation_tokens` remains the inclusive cache-creation total; the 1-hour figure is a billed subset, not a sixth token bucket.
 
 ### Changed
+- `blocks` uses activity-driven 5-hour estimated session windows (ccusage-style), not clock-aligned 00/05/10/15/20 buckets. Not an official billing reset.
 - Rewrite `ARCHITECTURE.md` against the source inventory and current runtime.
 - Register sources and `UsageSource` from one inventory so adding a source is a single table edit.
 - `--source all` default token totals no longer include estimated-proxy rows (for example Grok context snapshots). Cost remains real-only. Estimated-proxy token counts are omitted from those default totals; they are still priced separately as `estimated_cost` when present.
 
 ### Fixed
+- Cline counts a session once when canonical `*.messages.json` and legacy `ui_messages.json` share an ID; legacy-only tasks still count.
 - Gemini session JSON last-writes on message id like the JSONL path.
 - Gemini/Google models now load from LiteLLM / fallback instead of N/A.
 

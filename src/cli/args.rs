@@ -64,6 +64,10 @@ pub(crate) struct Cli {
     #[arg(short, long, global = true)]
     pub(crate) breakdown: bool,
 
+    /// Show per-source subtotals with `--source all` (plus the combined total)
+    #[arg(long, global = true)]
+    pub(crate) source_breakdown: bool,
+
     /// Output as JSON
     #[arg(short, long, global = true)]
     pub(crate) json: bool,
@@ -535,6 +539,14 @@ mod tests {
     fn output_format_csv_wins_over_json_flag() {
         let cli = Cli::parse_from(["ccstats", "daily", "--json", "--csv"]);
         assert_eq!(cli.output_format(), OutputFormat::Csv);
+    }
+
+    #[test]
+    fn source_breakdown_flag_parses() {
+        let cli = Cli::parse_from(["ccstats", "daily", "--source", "all", "--source-breakdown"]);
+        assert!(cli.source_breakdown);
+        let cli = Cli::parse_from(["ccstats", "daily", "--source", "all"]);
+        assert!(!cli.source_breakdown);
     }
 
     #[test]

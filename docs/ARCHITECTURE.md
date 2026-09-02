@@ -342,7 +342,7 @@ Input: `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl` (default `~/.claude/projects`).
 4. Strip `anthropic.` / `claude-` prefixes and `-YYYYMMDD` suffixes from the model name.
 5. Five buckets from `usage`; `cache_creation_1h` from `ephemeral_1h_input_tokens`, clamped to `cache_creation`.
 6. Dedup by `message_id` (source-wide prefix); keep the completed (`stop_reason`) entry.
-7. Aggregate daily / session / project / clock-aligned blocks.
+7. Aggregate daily / session / project / activity-driven 5-hour estimated session windows.
 
 ## Codex CLI parse sketch
 
@@ -393,13 +393,19 @@ Preferred file: platform cache dir / `ccstats/pricing.json` (for example `~/Libr
 - Lazy pricing load and 24h cache
 - Streaming JSONL reads
 
+## Session windows (`blocks`)
+
+`ccstats blocks` groups Claude usage into activity-driven 5-hour estimated session windows (ccusage `identifySessionBlocks` / `floorToHour`):
+
+1. Sort entries by timestamp.
+2. Floor the first activity to the UTC hour; the window lasts 5 hours from that start.
+3. Close the window and start a new one (again floor-to-UTC-hour) when an entry is more than 5 hours after the window start **or** more than 5 hours after the previous entry.
+
+`block_start` / `block_end` labels use the selected local timezone. This is inferred from local logs, **not** an official Anthropic billing reset. Gap placeholder rows, `--active`, and burn-rate projection are not emitted.
+
 ## CLI period grain vs SDK current period
 
 These share English words but are different concepts. Decided in issue [#136](https://github.com/majiayu000/ccstats/issues/136): keep current behavior; no `--current` flag.
 
 - **CLI `weekly` / `monthly`** are aggregation grains. They group already-filtered history by ISO week (Monday start) or calendar month. Only `today` / `statusline` apply a today date filter. Bound dates with `--since` / `--until`.
 - **SDK `UsageRange::ThisWeek` / `ThisMonth`** are current-period date ranges in the selected timezone: Monday–today and month-start–today.
-
-## Parked (do not invent a fix)
-
-- **`blocks`** are clock-aligned 5-hour windows (`hour() / 5 * 5` → local 00:00 / 05:00 / 10:00 / 15:00 / 20:00), not Anthropic’s rolling billing window. See issue [#135](https://github.com/majiayu000/ccstats/issues/135).
