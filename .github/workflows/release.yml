@@ -18,6 +18,9 @@ jobs:
       - name: Validate release metadata
         run: scripts/check-release.sh
 
+      - name: Stage-artifact helper self-test
+        run: python3 scripts/stage-desktop-artifacts.py --self-test
+
       - name: Test
         run: cargo test --locked
 
@@ -26,7 +29,7 @@ jobs:
 
   publish:
     name: Publish crate
-    needs: [preflight, build]
+    needs: [preflight, build, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -110,9 +113,177 @@ jobs:
           name: ccstats-${{ matrix.target }}
           path: ccstats-${{ matrix.target }}.*
 
+  desktop:
+    name: Desktop ${{ matrix.target }}
+    needs: preflight
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            args: --target aarch64-apple-darwin --bundles dmg
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            args: --target x86_64-apple-darwin --bundles dmg
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            args: --bundles appimage
+            fuse_package: libfuse2
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            args: --bundles appimage
+            fuse_package: libfuse2t64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            args: --bundles msi
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ${{ matrix.fuse_package }} xdg-utils
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          prefix-key: desktop-${{ matrix.target }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build Linux installer
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: npm run tauri -- build ${{ matrix.args }}
+
+      - name: Build signed and notarized macOS installer
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "$(printenv "$name")" ]; then
+              echo "::error::$name must be configured for signed macOS releases"
+              exit 1
+            fi
+          done
+          npm run tauri -- build ${{ matrix.args }}
+          dmg_path="$(find src-tauri/target -type f -name '*.dmg' -print -quit)"
+          if [ -z "$dmg_path" ]; then
+            echo "::error::Signed macOS build did not produce a DMG."
+            exit 1
+          fi
+          xcrun stapler validate "$dmg_path"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg_path"
+
+      - name: Build signed Windows installer
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) {
+            throw "WINDOWS_CERTIFICATE must be configured for signed Windows releases"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            throw "WINDOWS_CERTIFICATE_PASSWORD must be configured for signed Windows releases"
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP "ccstats-code-signing.pfx"
+          $configPath = Join-Path $env:RUNNER_TEMP "ccstats-windows-signing.json"
+          $importedCertificates = @()
+          $certificate = $null
+          try {
+            [IO.File]::WriteAllBytes(
+              $certificatePath,
+              [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+            )
+            $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+            $importedCertificates = @(Import-PfxCertificate `
+                -FilePath $certificatePath `
+                -CertStoreLocation Cert:\CurrentUser\My `
+                -Password $password)
+            $certificate = $importedCertificates |
+              Where-Object { $_.HasPrivateKey } |
+              Select-Object -First 1
+            if ($null -eq $certificate -or [string]::IsNullOrWhiteSpace($certificate.Thumbprint)) {
+              throw "The Windows code-signing certificate could not be imported."
+            }
+            @{
+              bundle = @{
+                windows = @{
+                  certificateThumbprint = $certificate.Thumbprint
+                  digestAlgorithm = "sha256"
+                  timestampUrl = "http://timestamp.digicert.com"
+                }
+              }
+            } | ConvertTo-Json -Depth 4 -Compress | Set-Content -Encoding utf8 $configPath
+            Remove-Item Env:WINDOWS_CERTIFICATE, Env:WINDOWS_CERTIFICATE_PASSWORD
+            npm run tauri -- build ${{ matrix.args }} --config $configPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Tauri Windows build failed with exit code $LASTEXITCODE"
+            }
+            $installers = @(Get-ChildItem src-tauri/target -Recurse -Filter *.msi)
+            if ($installers.Count -ne 1) {
+              throw "Expected exactly one Windows MSI, found $($installers.Count)."
+            }
+            $signature = Get-AuthenticodeSignature $installers[0].FullName
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              throw "Windows MSI Authenticode verification failed: $($signature.StatusMessage)"
+            }
+          } finally {
+            Remove-Item $certificatePath, $configPath -Force -ErrorAction SilentlyContinue
+            foreach ($importedCertificate in $importedCertificates) {
+              Remove-Item "Cert:\CurrentUser\My\$($importedCertificate.Thumbprint)" -Force
+            }
+          }
+
+      - name: Stage desktop artifacts
+        shell: bash
+        run: |
+          python3 scripts/stage-desktop-artifacts.py \
+            --search-root desktop/src-tauri/target \
+            --output-dir staged-desktop \
+            --target "${{ matrix.target }}"
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ccstats-desktop-${{ matrix.target }}
+          path: staged-desktop/ccstats-desktop-${{ matrix.target }}.*
+
   release:
     name: Create Release
-    needs: [build, publish]
+    needs: [build, desktop, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write

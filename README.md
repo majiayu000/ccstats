@@ -76,6 +76,18 @@ usage backed by recorded, live, or fresh cached pricing with complete coverage
 as exact cost. Machine totals use canonical USD and evaluate Today, This week,
 and This month freshness independently using the configured CLI timezone.
 
+Production installers are built from `desktop/` by the tag-triggered Release
+workflow. Local packaging:
+
+```bash
+cd desktop
+npm ci
+npm run tauri -- build
+```
+
+macOS produces a DMG, Windows an MSI, and Linux an AppImage. See
+[docs/RELEASING.md](docs/RELEASING.md) for GitHub Release artifacts.
+
 Focused desktop checks:
 
 ```bash
@@ -91,10 +103,6 @@ before the page loads. Rust tests cover the command boundary, and the native tes
 launches a debug app through an embedded WebDriver before crossing Tauri IPC into
 the real ccstats SDK. Production builds call those commands directly and have no
 sample-data fallback.
-
-The desktop target is currently a development target in this repository; the
-CLI remains the installable release artifact until signed desktop packages are
-added to the release workflow.
 
 Usage files and transcripts remain local; pricing refreshes and sources configured
 with remote APIs may still make their documented network requests.
@@ -159,9 +167,29 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh 
 curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | VERSION=v0.5.0 sh
 ```
 
+### Desktop app
+
+Download installers and SHA-256 checksums from [GitHub Releases](https://github.com/majiayu000/ccstats/releases):
+
+- macOS Apple Silicon: `ccstats-desktop-aarch64-apple-darwin.dmg`
+- macOS Intel: `ccstats-desktop-x86_64-apple-darwin.dmg`
+- Windows: `ccstats-desktop-x86_64-pc-windows-msvc.msi`
+- Linux x64: `ccstats-desktop-x86_64-unknown-linux-gnu.AppImage`
+- Linux ARM64: `ccstats-desktop-aarch64-unknown-linux-gnu.AppImage`
+
+Make an AppImage executable before launching it:
+
+```bash
+chmod +x ccstats-desktop-*.AppImage
+./ccstats-desktop-x86_64-unknown-linux-gnu.AppImage
+```
+
+The desktop app is a local investigation surface over the same accounting
+engine as the CLI. It does not create a ccstats account or upload transcripts.
+
 ### Manual download
 
-Download prebuilt archives and SHA-256 checksums from [GitHub Releases](https://github.com/majiayu000/ccstats/releases).
+Download prebuilt CLI archives and SHA-256 checksums from [GitHub Releases](https://github.com/majiayu000/ccstats/releases).
 
 ### Upgrade and uninstall
 

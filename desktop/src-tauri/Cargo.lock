@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "ccstats-desktop"
-version = "0.1.0"
+version = "0.5.1"
 dependencies = [
  "ccstats",
  "chrono",
