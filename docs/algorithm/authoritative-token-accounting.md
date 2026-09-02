@@ -661,7 +661,7 @@ session_id         ← conversationId
 
 ### 限制
 
-- 不支持项目聚合和 5 小时 billing block。
+- 不支持项目聚合和估算 session 窗口（`blocks`）。
 - 个人 dashboard API 不是公开稳定接口，session cookie 会过期。
 - Self-serve 计划可能只返回 token、事件成本为 0；ccstats 记录该 billed 金额，不用 LiteLLM 估算 Cursor 订阅费用。
 - 默认抓取当前计费周期（dashboard）或最近 90 天（Admin API）。

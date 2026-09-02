@@ -223,7 +223,7 @@ pub(crate) fn print_block_table(
         table.add_row(row);
     }
 
-    println!("\n  {source_label} 5-Hour Billing Blocks\n");
+    println!("\n  {source_label} Estimated 5-Hour Session Windows\n");
     println!("{table}");
     if show_cost && has_estimated_cost {
         println!(

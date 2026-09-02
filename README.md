@@ -325,7 +325,7 @@ ccstats project
 # By session
 ccstats session
 
-# 5-hour billing blocks
+# Estimated 5-hour session windows (not an official Anthropic billing reset)
 ccstats blocks
 
 # Top-N leaderboard (ranks by cost, falls back to tokens when costs unknown)
@@ -456,7 +456,7 @@ CURSOR_SESSION_TOKEN="..." ccstats daily --source cursor
 Current limitations:
 
 - ccstats does not read local Cursor SQLite auth tokens. Set `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN` explicitly.
-- Project aggregation and 5-hour billing blocks are not supported for Cursor.
+- Project aggregation and estimated session windows (`blocks`) are not supported for Cursor.
 - Dashboard session cookies expire; refresh `CURSOR_SESSION_TOKEN` when requests start failing.
 - Self-serve plans may return token counts with `$0` event costs. ccstats records that billed amount instead of estimating Cursor subscription cost from LiteLLM prices.
 
@@ -504,7 +504,7 @@ Current limitations:
 - The durable ledger starts when ccstats first observes an inference. It cannot recover records Grok trimmed before the first run or between ccstats runs, so incomplete request coverage produces an estimated API equivalent and a short/long-context range.
 - `turn_completed.usage.costUsdTicks` is reported separately as a provider metric. xAI does not document this field as public API list price or as the user's actual subscription charge.
 - Grok models without a published ccstats per-inference tier remain unpriced and reduce priced-token coverage.
-- Grok 5-hour billing blocks are not supported.
+- Grok estimated session windows (`blocks`) are not supported.
 
 ### Kimi Code
 
@@ -543,7 +543,7 @@ Current limitations:
 
 - Kimi Code subscription models (e.g. `kimi-code/k3`) have no public per-token pricing; costs use fallback estimates based on Moonshot's official `kimi-k2.6` API rates and are marked as `fallback` in structured output. Use `--strict-pricing` to show N/A instead.
 - Cache creation tokens are reported but priced at $0 by the Kimi fallback estimate (Moonshot does not publish a separate cache-creation rate).
-- Kimi 5-hour billing blocks and tool-call statistics are not supported.
+- Kimi estimated session windows (`blocks`) and tool-call statistics are not supported.
 
 ### Common Options
 
@@ -732,7 +732,7 @@ Warning: ignored <N> malformed records
 
 | Source | Directory | Override | Features |
 |--------|-----------|----------|----------|
-| Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Billing Blocks, Deduplication |
+| Claude Code | `~/.claude/projects/` | `CLAUDE_CONFIG_DIR` | Projects, Estimated session windows, Deduplication |
 | OpenAI Codex | `~/.codex/sessions/` and `~/.codex/archived_sessions/` | `CODEX_HOME` | Reasoning Tokens, cumulative-event deduplication |
 | All Sources | Multiple | Source-specific env vars | Combined daily/weekly/monthly/today/statusline summaries |
 | Cursor | Cursor usage API | `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` | Per-event tokens, cache tokens, recorded `chargedCents` |

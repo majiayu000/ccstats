@@ -194,7 +194,7 @@ fn render_project(projects: &[ProjectStats], source: &dyn Source, ctx: &CommandC
 fn handle_blocks(source: &dyn Source, ctx: &CommandContext<'_>) {
     let blocks = load_blocks(source, ctx.filter, ctx.timezone, false);
     if blocks.is_empty() {
-        print_no_data_hint(source.display_name(), "billing block");
+        print_no_data_hint(source.display_name(), "session window");
         return;
     }
 
@@ -583,7 +583,7 @@ pub(crate) fn handle_source_command(
         SourceCommand::Blocks => {
             if !caps.has_billing_blocks {
                 println!(
-                    "{} does not support billing block aggregation.\nHint: try `daily`/`session`, or run `ccstats sources` to inspect capabilities.",
+                    "{} does not support estimated session window aggregation.\nHint: try `daily`/`session`, or run `ccstats sources` to inspect capabilities.",
                     source.display_name()
                 );
                 return;

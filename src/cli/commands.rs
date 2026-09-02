@@ -35,7 +35,10 @@ pub(crate) enum Commands {
     Session,
     /// Show usage by project
     Project,
-    /// Show usage by 5-hour billing blocks
+    /// Show usage by estimated 5-hour session windows
+    ///
+    /// Windows are inferred from local logs (ccusage-style activity-driven).
+    /// This is not an official Anthropic billing reset.
     Blocks,
     /// Show usage split by serving endpoint (native Anthropic vs proxy)
     Endpoints,
