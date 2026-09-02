@@ -557,14 +557,18 @@ pub(crate) fn import_bundle_at(path: &Path, content: &str) -> Result<MachineRoll
             ));
         }
         if snapshot.machine_id == local_id {
-            return Err("an imported bundle cannot replace this machine's snapshot".to_string());
+            continue;
         }
         validate_snapshot(snapshot)?;
     }
     let transaction = connection
         .transaction()
         .map_err(|error| format!("failed to start machine import transaction: {error}"))?;
-    for snapshot in &bundle.machines {
+    for snapshot in bundle
+        .machines
+        .iter()
+        .filter(|snapshot| snapshot.machine_id != local_id)
+    {
         write_snapshot(&transaction, snapshot, true)?;
     }
     let rollup = machine_rollup(&transaction)?;
@@ -735,23 +739,24 @@ mod tests {
     }
 
     #[test]
-    fn import_cannot_replace_the_local_machine() {
-        let path = database("local-id");
-        save_local_snapshot_at(&path, "Studio", vec![sample_source(100, 400, 900)])
-            .expect("save local snapshot");
-        let bundle = export_bundle_at(&path).expect("export local snapshot");
+    fn bundles_round_trip_without_replacing_the_local_machine() {
+        let studio = database("round-trip-studio");
+        let laptop = database("round-trip-laptop");
+        save_local_snapshot_at(&studio, "Studio", vec![sample_source(100, 400, 900)])
+            .expect("save studio snapshot");
+        save_local_snapshot_at(&laptop, "Laptop", vec![sample_source(50, 200, 600)])
+            .expect("save laptop snapshot");
 
-        let error = import_bundle_at(&path, &bundle).expect_err("local identity must be protected");
+        let studio_bundle = export_bundle_at(&studio).expect("export studio");
+        import_bundle_at(&laptop, &studio_bundle).expect("import studio on laptop");
+        let laptop_bundle = export_bundle_at(&laptop).expect("export laptop and studio");
+        let rollup = import_bundle_at(&studio, &laptop_bundle).expect("round-trip to studio");
 
-        assert!(error.contains("cannot replace this machine"));
-        assert_eq!(
-            machine_rollup_at(&path)
-                .expect("rollup")
-                .totals
-                .month_tokens,
-            900
-        );
-        fs::remove_file(path).expect("remove test database");
+        assert_eq!(rollup.machines.len(), 2);
+        assert_eq!(rollup.local_machine_name.as_deref(), Some("Studio"));
+        assert_eq!(rollup.totals.month_tokens, 1_500);
+        fs::remove_file(studio).expect("remove studio database");
+        fs::remove_file(laptop).expect("remove laptop database");
     }
 
     #[test]

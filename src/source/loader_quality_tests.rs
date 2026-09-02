@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, NaiveDate, Utc};
 
 use crate::core::{DateFilter, RawEntry};
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::{Capabilities, ParseOutput, Source, load_entries};
 use crate::utils::Timezone;
 
 use super::load_daily;
@@ -122,6 +122,24 @@ fn load_daily_dedup_reports_skipped_and_parse_errors() {
     assert_eq!(result.valid, 1);
     assert_eq!(result.skipped, 1);
     assert_eq!(result.parse_errors, 3);
+}
+
+#[test]
+fn load_entries_preserves_non_deduplicated_records_without_message_identity() {
+    let mut record = entry("unused", 10);
+    record.message_id = None;
+    record.stop_reason = None;
+    let source = TestSource {
+        needs_dedup: false,
+        files: vec![(PathBuf::from("usage.jsonl"), vec![record], 2)],
+    };
+
+    let (entries, skipped, parse_errors) = load_entries(&source, &filter(), tz());
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].input_tokens, 10);
+    assert_eq!(skipped, 0);
+    assert_eq!(parse_errors, 2);
 }
 
 #[test]

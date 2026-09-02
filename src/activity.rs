@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{AnalyticsQuality, apply_cli_config};
 use crate::core::{DateFilter, RawEntry, aggregate_tools};
 use crate::sdk::{SdkError, SummaryOptions, TokenBreakdown, UsageRange, UsageSource};
-use crate::source::{get_source, load_deduped_entries, load_tool_calls};
+use crate::source::{get_source, load_entries, load_tool_calls};
 use crate::utils::Timezone;
 
 const MAX_RECENT_TURNS: usize = 100;
@@ -88,7 +88,7 @@ pub fn turn_tool_breakdown(options: &SummaryOptions) -> Result<TurnToolBreakdown
     }
 
     let (mut entries, dedup_skipped_entries, parse_error_entries) =
-        load_deduped_entries(source, &filter, timezone);
+        load_entries(source, &filter, timezone);
     let total_turns = entries.len();
     entries.sort_by(|left, right| {
         right

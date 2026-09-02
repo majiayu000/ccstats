@@ -1,5 +1,7 @@
 //! Unified data loader for all sources
 
+mod entries;
+
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::time::Instant;

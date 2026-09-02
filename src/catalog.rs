@@ -356,7 +356,9 @@ fn usage_metrics(
     let model_rows = model_summaries(models, context, supports_cache_read);
     let active_rows = model_rows
         .iter()
-        .filter(|model| model.tokens.total_tokens > 0)
+        .filter(|model| {
+            model.tokens.total_tokens > 0 || model.cost_usd.is_some_and(|cost| cost > 0.0)
+        })
         .collect::<Vec<_>>();
     let known_cost = active_rows.iter().all(|model| model.cost_usd.is_some());
     let cost_usd = known_cost.then(|| active_rows.iter().filter_map(|model| model.cost_usd).sum());
@@ -656,9 +658,35 @@ impl UsageHistory {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use super::*;
+
+    #[test]
+    fn usage_metrics_preserve_recorded_cost_without_tokens() {
+        let stats = Stats {
+            count: 1,
+            records: 1,
+            recorded_cost_usd: 1.25,
+            recorded_cost_entries: 1,
+            ..Stats::default()
+        };
+        let models = HashMap::from([("provider-recorded".to_string(), stats.clone())]);
+        let context = AnalysisContext {
+            range: UsageRange::Today,
+            as_of_date: NaiveDate::from_ymd_opt(2026, 9, 2).expect("valid date"),
+            filter: DateFilter::default(),
+            timezone: Timezone::parse(Some("UTC")).expect("valid timezone"),
+            pricing_db: PricingDb::default(),
+            currency: None,
+            currency_code: "USD".to_string(),
+        };
+
+        let metrics = usage_metrics(&stats, &models, &context, false);
+
+        assert_eq!(metrics.cost_usd, Some(1.25));
+        assert_eq!(metrics.cost, Some(1.25));
+    }
 
     #[test]
     fn source_diagnostics_project_every_registered_source() {
