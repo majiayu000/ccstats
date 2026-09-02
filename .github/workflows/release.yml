@@ -196,12 +196,13 @@ jobs:
           done
 
           if [ "$apple_signing_count" -eq 0 ]; then
-            echo "::warning::Apple signing credentials are not configured; publishing an unsigned macOS installer."
+            echo "::warning::Apple signing credentials are not configured; publishing an ad-hoc-signed macOS installer."
             unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            export APPLE_SIGNING_IDENTITY=-
             npm run tauri -- build ${{ matrix.args }}
             dmg_path="$(find src-tauri/target -type f -name '*.dmg' -print -quit)"
             if [ -z "$dmg_path" ]; then
-              echo "::error::Unsigned macOS build did not produce a DMG."
+              echo "::error::Ad-hoc-signed macOS build did not produce a DMG."
               exit 1
             fi
             exit 0

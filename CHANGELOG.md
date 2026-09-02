@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ## [0.5.1] - 2026-09-03
 
 ### Added
-- Desktop DMG, MSI, and AppImage installers on the existing `v*` GitHub Release workflow. macOS and Windows packages are published unsigned when signing credentials are unavailable.
+- Desktop DMG, MSI, and AppImage installers on the existing `v*` GitHub Release workflow. Without certificates, macOS packages use an ad-hoc signature and Windows packages are unsigned.
 - `--source-breakdown` for `--source all` (per-source subtotals + combined total). Default combined output unchanged. Monthly `--monthly-budget --csv` keeps budget columns.
 - Expose `cache_creation_1h_tokens` in JSON, CSV, and SDK `TokenBreakdown`. `cache_creation_tokens` remains the inclusive cache-creation total; the 1-hour figure is a billed subset, not a sixth token bucket.
 - Expose provider-authoritative Codex weekly quota reports through the Rust SDK with typed data and errors.
