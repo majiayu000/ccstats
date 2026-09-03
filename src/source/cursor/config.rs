@@ -54,7 +54,7 @@ impl Source for CursorSource {
     }
 
     fn setup_hint(&self) -> &'static str {
-        "Set CURSOR_API_KEY, CURSOR_SESSION_TOKEN, or CURSOR_USAGE_FILE"
+        "Run `ccstats login cursor` or set CURSOR_API_KEY, CURSOR_SESSION_TOKEN, or CURSOR_USAGE_FILE"
     }
 
     fn diagnose(&self) -> SourceDiagnostic {

@@ -4,12 +4,13 @@
 //! Admin API. Individual and self-serve plans use `CURSOR_SESSION_TOKEN` against
 //! the dashboard usage endpoints.
 
-use std::env;
 use std::thread;
 use std::time::Duration;
 
 use chrono::Utc;
 use serde_json::{Value, json};
+
+use crate::credentials::{CursorAuth, resolve_cursor_credentials};
 
 const ADMIN_EVENTS_URL: &str = "https://api.cursor.com/teams/filtered-usage-events";
 const DASHBOARD_EVENTS_URL: &str = "https://cursor.com/api/dashboard/get-filtered-usage-events";
@@ -23,9 +24,6 @@ const MAX_PAGES: usize = 100;
 const ADMIN_PAGE_SIZE: u32 = 1000;
 const DASHBOARD_PAGE_SIZE: u32 = 100;
 
-pub(super) const API_KEY_ENV: &str = "CURSOR_API_KEY";
-pub(super) const SESSION_TOKEN_ENV: &str = "CURSOR_SESSION_TOKEN";
-
 #[derive(Debug, Clone, Copy)]
 enum CursorApi {
     Admin,
@@ -33,7 +31,7 @@ enum CursorApi {
 }
 
 pub(super) fn has_api_credentials() -> bool {
-    env_nonempty(API_KEY_ENV) || env_nonempty(SESSION_TOKEN_ENV)
+    resolve_cursor_credentials().is_some()
 }
 
 pub(super) fn fetch_usage_events(
@@ -41,29 +39,27 @@ pub(super) fn fetch_usage_events(
     requested_end_ms: Option<i64>,
     debug: bool,
 ) -> Result<Vec<Value>, String> {
-    let api_key = env_nonempty(API_KEY_ENV).then(|| env::var(API_KEY_ENV).unwrap_or_default());
-    let session_token =
-        env_nonempty(SESSION_TOKEN_ENV).then(|| env::var(SESSION_TOKEN_ENV).unwrap_or_default());
-
-    match (api_key, session_token) {
-        (Some(api_key), _) => fetch_paginated(
-            CursorApi::Admin,
-            Some(&api_key),
-            None,
-            requested_start_ms,
-            requested_end_ms,
-            debug,
-        ),
-        (None, Some(token)) => fetch_paginated(
-            CursorApi::Dashboard,
-            None,
-            Some(&token),
-            requested_start_ms,
-            requested_end_ms,
-            debug,
-        ),
-        (None, None) => Err(
-            "Cursor usage API credentials were not found. Set CURSOR_API_KEY or CURSOR_SESSION_TOKEN."
+    match resolve_cursor_credentials() {
+        Some(resolved) => match resolved.auth {
+            CursorAuth::ApiKey(api_key) => fetch_paginated(
+                CursorApi::Admin,
+                Some(&api_key),
+                None,
+                requested_start_ms,
+                requested_end_ms,
+                debug,
+            ),
+            CursorAuth::SessionToken(token) => fetch_paginated(
+                CursorApi::Dashboard,
+                None,
+                Some(&token),
+                requested_start_ms,
+                requested_end_ms,
+                debug,
+            ),
+        },
+        None => Err(
+            "Cursor usage API credentials were not found. Run `ccstats login cursor` or set CURSOR_API_KEY or CURSOR_SESSION_TOKEN."
                 .to_string(),
         ),
     }
@@ -276,10 +272,6 @@ fn read_json_body(response: ureq::http::Response<ureq::Body>) -> Result<Value, S
     }
     serde_json::from_str(&text)
         .map_err(|err| format!("Cursor usage API returned invalid JSON: {err}"))
-}
-
-fn env_nonempty(key: &str) -> bool {
-    env::var(key).is_ok_and(|value| !value.trim().is_empty())
 }
 
 fn base64_encode(input: &[u8]) -> String {

@@ -562,6 +562,37 @@ mod tests {
     }
 
     #[test]
+    fn login_cursor_parses_session_token_flags() {
+        let cli = Cli::parse_from([
+            "ccstats",
+            "login",
+            "cursor",
+            "--session-token",
+            "abc",
+            "--no-browser",
+        ]);
+        match cli.command {
+            Some(crate::cli::Commands::Login {
+                target:
+                    crate::cli::LoginTarget::Cursor {
+                        api_key,
+                        session_token,
+                        check,
+                        clear,
+                        no_browser,
+                    },
+            }) => {
+                assert!(api_key.is_none());
+                assert_eq!(session_token.as_deref(), Some("abc"));
+                assert!(!check);
+                assert!(!clear);
+                assert!(no_browser);
+            }
+            _ => panic!("expected login cursor"),
+        }
+    }
+
+    #[test]
     fn empty_config_changes_nothing() {
         let cli = Cli::parse_from(["ccstats", "daily"]);
         let config = Config::default();

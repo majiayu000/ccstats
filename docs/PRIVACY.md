@@ -53,9 +53,11 @@ path documented in the README and fails clearly if that file is malformed.
 
 ## Credentials
 
-Cursor credentials are read from `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN` and
-sent only to the corresponding Cursor endpoint. ccstats does not print them,
-write them to its cache, or include them in doctor JSON/CSV output.
+Cursor credentials are read from `CURSOR_API_KEY` or `CURSOR_SESSION_TOKEN`, or
+from a local `credentials.toml` next to the ccstats config directory. They stay
+on this machine and are sent only to the corresponding Cursor endpoint. ccstats
+does not print them, write them to its cache, or include them in doctor JSON/CSV
+output.
 
 When reporting a bug, include `ccstats doctor --json` and the command's stderr.
 Do not attach session logs, environment dumps, config files containing secrets,

@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Add `ccstats login cursor` to store a Cursor API key or session token in a local `credentials.toml`. Environment variables still take precedence. ccstats still does not read Cursor SQLite.
+
 ## [0.5.2] - 2026-09-03
 
 ### Added
