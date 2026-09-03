@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Print a one-line human conclusion before table-mode daily, today, weekly, and monthly reports. The amounts reuse the table footer; JSON and CSV stdout stay structured.
+
 ## [0.5.2] - 2026-09-03
 
 ### Added

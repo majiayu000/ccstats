@@ -34,6 +34,8 @@ pub(crate) struct TokenTableOptions<'a> {
     pub(crate) secondary_cost_display_overrides: Option<&'a HashMap<String, String>>,
     pub(crate) secondary_total_cost_display_override: Option<&'a str>,
     pub(crate) pricing_note_override: Option<&'a str>,
+    pub(crate) is_today: bool,
+    pub(crate) source_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -486,6 +488,34 @@ fn add_total_cost_cells(
     }
 }
 
+fn print_period_conclusion(
+    day_stats: &HashMap<String, DayStats>,
+    displayed: &HashMap<String, DayStats>,
+    pricing_db: &PricingDb,
+    options: &TokenTableOptions<'_>,
+    footer_cost: f64,
+) {
+    let footer_cost_text = total_cost_display(footer_cost, options);
+    if let Some(line) =
+        super::conclusion::period_conclusion_line(&super::conclusion::PeriodConclusionInput {
+            day_stats,
+            displayed,
+            is_today: options.is_today,
+            source_count: options.source_count,
+            compact: options.compact,
+            show_cost: options.show_cost,
+            number_format: options.number_format,
+            currency: options.currency,
+            cost_mode: options.cost_mode,
+            pricing_db,
+            footer_cost,
+            footer_cost_text: &footer_cost_text,
+        })
+    {
+        println!("\n  {line}");
+    }
+}
+
 pub(crate) fn print_period_table(
     day_stats: &HashMap<String, DayStats>,
     period: Period,
@@ -555,6 +585,7 @@ pub(crate) fn print_period_table(
         &options,
     );
 
+    print_period_conclusion(day_stats, stats_ref, pricing_db, &options, total_cost);
     println!("\n  {}\n", cfg.title);
     println!("{table}");
     if options.show_cost && has_estimated_proxy {

@@ -27,6 +27,7 @@ pub(super) struct SourceSection {
 pub(super) struct AllSourceLoad {
     pub(super) combined: LoadResult,
     pub(super) caps: Capabilities,
+    pub(super) contributing_sources: usize,
     sections: Vec<SourceSection>,
 }
 
@@ -39,9 +40,13 @@ pub(super) fn load_all_sources(
     let mut combined = LoadResult::default();
     let caps = all_capabilities();
     let mut sections = Vec::new();
+    let mut contributing_sources = 0;
 
     for source in all_sources() {
         let mut result = load_daily(source, ctx.filter, ctx.timezone, quiet, ctx.cli.debug);
+        if !result.day_stats.is_empty() {
+            contributing_sources += 1;
+        }
         if keep_sections {
             apply_real_token_totals_for_all_source(&mut result.day_stats);
         }
@@ -73,11 +78,12 @@ pub(super) fn load_all_sources(
     AllSourceLoad {
         combined,
         caps,
+        contributing_sources,
         sections,
     }
 }
 
-pub(super) fn render(period: Period, ctx: &CommandContext<'_>) {
+pub(super) fn render(period: Period, is_today: bool, ctx: &CommandContext<'_>) {
     let loaded = load_all_sources(ctx, false, true);
     if loaded.combined.day_stats.is_empty()
         && !should_render_empty_structured_result(&loaded.combined, ctx)
@@ -89,7 +95,7 @@ pub(super) fn render(period: Period, ctx: &CommandContext<'_>) {
     match ctx.cli.output_format() {
         OutputFormat::Csv => render_csv(&loaded, period, ctx),
         OutputFormat::Json => render_json(&loaded, period, ctx),
-        OutputFormat::Table => render_table(&loaded, period, ctx),
+        OutputFormat::Table => render_table(&loaded, period, is_today, ctx),
     }
 }
 
@@ -248,7 +254,12 @@ fn render_csv(loaded: &AllSourceLoad, period: Period, ctx: &CommandContext<'_>) 
     print!("{csv}");
 }
 
-fn table_options<'a>(caps: &Capabilities, ctx: &'a CommandContext<'a>) -> TokenTableOptions<'a> {
+fn table_options<'a>(
+    caps: &Capabilities,
+    ctx: &'a CommandContext<'a>,
+    is_today: bool,
+    source_count: Option<usize>,
+) -> TokenTableOptions<'a> {
     TokenTableOptions {
         order: ctx.cli.sort_order(),
         use_color: ctx.cli.use_color(),
@@ -267,6 +278,8 @@ fn table_options<'a>(caps: &Capabilities, ctx: &'a CommandContext<'a>) -> TokenT
         secondary_cost_display_overrides: None,
         secondary_total_cost_display_override: None,
         pricing_note_override: None,
+        is_today,
+        source_count,
     }
 }
 
@@ -276,6 +289,7 @@ fn print_section_table(
     caps: &Capabilities,
     ctx: &CommandContext<'_>,
     heading: &str,
+    is_today: bool,
 ) {
     println!("\n  {heading}");
     print_period_table(
@@ -288,11 +302,11 @@ fn print_section_table(
             elapsed_ms: Some(result.elapsed_ms),
         },
         ctx.pricing_db,
-        table_options(caps, ctx),
+        table_options(caps, ctx, is_today, None),
     );
 }
 
-fn render_table(loaded: &AllSourceLoad, period: Period, ctx: &CommandContext<'_>) {
+fn render_table(loaded: &AllSourceLoad, period: Period, is_today: bool, ctx: &CommandContext<'_>) {
     for section in &loaded.sections {
         print_section_table(
             &section.result,
@@ -300,6 +314,7 @@ fn render_table(loaded: &AllSourceLoad, period: Period, ctx: &CommandContext<'_>
             &loaded.caps,
             ctx,
             section.display_name,
+            is_today,
         );
     }
     println!("\n  All Sources");
@@ -310,6 +325,10 @@ fn render_table(loaded: &AllSourceLoad, period: Period, ctx: &CommandContext<'_>
         None,
         None,
         ctx,
-        CostDisplayMode::Total,
+        period_table::PeriodTableFlags {
+            cost_mode: CostDisplayMode::Total,
+            is_today,
+            source_count: (loaded.contributing_sources > 1).then_some(loaded.contributing_sources),
+        },
     );
 }

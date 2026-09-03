@@ -10,6 +10,13 @@ use crate::source::{Capabilities, CodexScope, GrokCostReport};
 
 use super::{CommandContext, cost_coverage};
 
+#[derive(Clone, Copy)]
+pub(super) struct PeriodTableFlags {
+    pub(super) cost_mode: CostDisplayMode,
+    pub(super) is_today: bool,
+    pub(super) source_count: Option<usize>,
+}
+
 pub(super) fn render(
     result: &LoadResult,
     period: Period,
@@ -17,7 +24,7 @@ pub(super) fn render(
     codex_scope: Option<CodexScope>,
     grok_reports: Option<&HashMap<String, GrokCostReport>>,
     ctx: &CommandContext<'_>,
-    cost_mode: CostDisplayMode,
+    flags: PeriodTableFlags,
 ) {
     if let Some(scope) = codex_scope {
         println!("\n  Codex scope: {}", scope.as_str());
@@ -46,7 +53,7 @@ pub(super) fn render(
             show_cache_creation: caps.has_cache_creation,
             supports_cache_read: caps.has_cache_read,
             currency: ctx.currency,
-            cost_mode,
+            cost_mode: flags.cost_mode,
             cost_label: if selected_grok_report.is_some() {
                 "Grok Reported"
             } else {
@@ -68,6 +75,8 @@ pub(super) fn render(
             pricing_note_override: selected_grok_report.map(|_| {
                 "Grok Reported comes from costUsdTicks; API Eq. Price uses xAI public rates. ~ is estimated, ranges mark unknown request boundaries, and ≥ marks partial Grok coverage."
             }),
+            is_today: flags.is_today,
+            source_count: flags.source_count,
         },
     );
     if ctx.cli.show_cost() {
@@ -83,7 +92,7 @@ pub(super) fn render(
             budget,
             ctx.budget_as_of,
             ctx.currency,
-            cost_mode,
+            flags.cost_mode,
         );
         print_monthly_budget_table(&reports, ctx.cli.use_color(), ctx.currency);
     }
