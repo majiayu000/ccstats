@@ -34,6 +34,7 @@ mod credentials;
 mod doctor_cmd;
 mod endpoints_cmd;
 mod error;
+mod limits_cmd;
 mod login_cmd;
 mod output;
 mod pricing;

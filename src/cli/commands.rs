@@ -25,8 +25,15 @@ pub(crate) enum Commands {
     Daily,
     /// Show weekly usage
     Weekly,
-    /// Estimate the current Codex weekly quota pace
+    /// Estimate the current Codex weekly quota pace (Codex-only)
     Quota,
+    /// Combined Codex weekly quota and Claude estimated session window
+    ///
+    /// Prints every honest local limit: Codex weekly quota snapshots and the
+    /// current Claude activity-driven 5-hour window. Omit `--source` or use
+    /// `--source all` for both; `--source codex` or `--source claude` for one
+    /// section. Other sources are not supported.
+    Limits,
     /// Show monthly usage
     Monthly,
     /// Show today's usage
@@ -108,7 +115,7 @@ pub(crate) enum CodexCommands {
     Daily,
     /// Show weekly Codex usage
     Weekly,
-    /// Estimate the current Codex weekly quota pace
+    /// Estimate the current Codex weekly quota pace (Codex-only)
     Quota,
     /// Show monthly Codex usage
     Monthly,
@@ -166,6 +173,7 @@ pub(crate) enum SourceCommand {
     Daily,
     Weekly,
     Quota,
+    Limits,
     Monthly,
     Today,
     Session,
@@ -196,6 +204,7 @@ impl SourceCommand {
             Self::Daily => "daily",
             Self::Weekly => "weekly",
             Self::Quota => "quota",
+            Self::Limits => "limits",
             Self::Monthly => "monthly",
             Self::Today => "today",
             Self::Session => "session",
@@ -225,6 +234,7 @@ impl From<&Commands> for SourceCommand {
             Commands::Daily => SourceCommand::Daily,
             Commands::Weekly => SourceCommand::Weekly,
             Commands::Quota => SourceCommand::Quota,
+            Commands::Limits => SourceCommand::Limits,
             Commands::Monthly => SourceCommand::Monthly,
             Commands::Today => SourceCommand::Today,
             Commands::Session => SourceCommand::Session,
@@ -355,6 +365,13 @@ mod tests {
         }));
         assert_eq!(nested.command, SourceCommand::Quota);
         assert_eq!(nested.source_hint, Some("codex"));
+    }
+
+    #[test]
+    fn parse_command_limits_has_no_source_hint() {
+        let parsed = parse_command(Some(&Commands::Limits));
+        assert_eq!(parsed.command, SourceCommand::Limits);
+        assert_eq!(parsed.source_hint, None);
     }
 
     #[test]

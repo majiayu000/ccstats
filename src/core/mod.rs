@@ -13,6 +13,7 @@ mod types;
 pub(crate) use aggregator::{
     aggregate_blocks, aggregate_by_endpoint, aggregate_daily, aggregate_projects,
     aggregate_sessions, aggregate_sessions_map, format_project_name, merge_day_stats,
+    select_active_block,
 };
 pub(crate) use dedup::{DedupAccumulator, source_wide_message_id};
 pub(crate) use tool_aggregator::aggregate_tools;

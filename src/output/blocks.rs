@@ -307,6 +307,7 @@ mod tests {
         BlockStats {
             block_start: start.to_string(),
             block_end: end.to_string(),
+            start_ms: 0,
             stats: Stats {
                 input_tokens: input,
                 output_tokens: output,
@@ -327,6 +328,7 @@ mod tests {
         BlockStats {
             block_start: start.to_string(),
             block_end: end.to_string(),
+            start_ms: 0,
             stats: Stats {
                 input_tokens: input,
                 output_tokens: output,
@@ -441,6 +443,7 @@ mod tests {
         let blocks = vec![BlockStats {
             block_start: "2026-02-12 10:00".to_string(),
             block_end: "2026-02-12 15:00".to_string(),
+            start_ms: 0,
             stats: Stats::default(),
             models,
         }];

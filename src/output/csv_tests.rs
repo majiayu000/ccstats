@@ -221,6 +221,7 @@ fn block_csv_structure() {
     let blocks = vec![BlockStats {
         block_start: "2025-01-01 00:00".to_string(),
         block_end: "2025-01-01 05:00".to_string(),
+        start_ms: 0,
         stats: Stats {
             input_tokens: 800,
             output_tokens: 300,

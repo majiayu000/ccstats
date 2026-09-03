@@ -4,6 +4,7 @@ mod csv;
 mod endpoints;
 mod format;
 mod json;
+mod limits;
 mod period;
 mod pricing_meta;
 mod project;
@@ -39,6 +40,10 @@ pub(crate) use csv::{
 pub(crate) use endpoints::{EndpointTableOptions, output_endpoint_json, print_endpoint_table};
 pub(crate) use format::{NumberFormat, csv_escape, format_cost};
 pub(crate) use json::output_period_json_with_quality;
+pub(crate) use limits::{
+    BOTH_MISSING_HINT, CLAUDE_WINDOW_DISCLAIMER, ClaudeWindowView, LimitsTableOptions, LimitsView,
+    NO_ACTIVE_CLAUDE_WINDOW, output_limits_csv, output_limits_json, print_limits_table,
+};
 pub(crate) use period::{Period, aggregate_day_stats_by_period, period_key};
 pub(crate) use project::{ProjectTableOptions, output_project_json, print_project_table};
 pub(crate) use quota::{
