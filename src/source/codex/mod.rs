@@ -3,6 +3,7 @@
 //! Parses JSONL logs from ~/.codex/sessions/ directory.
 //! Codex log format uses cumulative token counts that need delta computation.
 
+mod cache;
 mod config;
 mod parser;
 mod quota;

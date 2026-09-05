@@ -12,7 +12,7 @@ use crate::utils::Timezone;
 
 /// Aggregate entries by day (consumes entries to avoid cloning)
 pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStats> {
-    let mut day_stats: HashMap<String, DayStats> = HashMap::with_capacity(entries.len());
+    let mut day_stats: HashMap<String, DayStats> = HashMap::new();
 
     for entry in entries {
         let stats = entry.to_stats();
