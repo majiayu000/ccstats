@@ -396,6 +396,8 @@ pub(crate) struct ProjectStats {
 pub(crate) struct BlockStats {
     pub(crate) block_start: String,
     pub(crate) block_end: String,
+    /// Floored UTC-hour start of this window, in Unix milliseconds.
+    pub(crate) start_ms: i64,
     pub(crate) stats: Stats,
     pub(crate) models: HashMap<String, Stats>,
 }

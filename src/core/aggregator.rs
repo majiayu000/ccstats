@@ -228,9 +228,26 @@ fn into_block_stats(
     BlockStats {
         block_start: local_start.format("%Y-%m-%d %H:%M").to_string(),
         block_end: local_end.format("%H:%M").to_string(),
+        start_ms,
         stats,
         models,
     }
+}
+
+/// Pick the activity window that currently contains `now`.
+///
+/// Returns the block and remaining milliseconds until the 5-hour window ends.
+/// Expired historical windows are not treated as active; callers must not
+/// invent a 0% remaining quota when this returns `None`.
+pub(crate) fn select_active_block(
+    blocks: &[BlockStats],
+    now: DateTime<Utc>,
+) -> Option<(&BlockStats, i64)> {
+    let now_ms = now.timestamp_millis();
+    blocks.iter().find_map(|block| {
+        let end_ms = block.start_ms.saturating_add(SESSION_WINDOW_MS);
+        (now_ms >= block.start_ms && now_ms < end_ms).then_some((block, end_ms - now_ms))
+    })
 }
 
 /// Aggregate entries into activity-driven 5-hour estimated session windows.
@@ -807,6 +824,7 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].block_start, "2025-01-01 02:00");
         assert_eq!(result[0].block_end, "07:00");
+        assert_eq!(result[0].start_ms, utc(2, 0).timestamp_millis());
         assert_eq!(result[0].stats.input_tokens, 300);
         assert_eq!(result[1].block_start, "2025-01-01 08:00");
         assert_eq!(result[1].block_end, "13:00");
@@ -879,5 +897,19 @@ mod tests {
         let result = aggregate_blocks(vec![entry_at(t1, 100)], timezone);
         assert_eq!(result[0].block_start, "2025-11-02 00:00");
         assert_eq!(result[0].block_end, "04:00");
+    }
+
+    #[test]
+    fn select_active_block_picks_window_containing_now() {
+        let t1 = utc(10, 55);
+        let t2 = utc(16, 10);
+        let blocks = aggregate_blocks(vec![entry_at(t1, 100), entry_at(t2, 200)], utc_tz());
+        let now = utc(11, 30);
+        let (active, remaining_ms) = select_active_block(&blocks, now).unwrap();
+        assert_eq!(active.block_start, "2025-01-01 10:00");
+        assert_eq!(remaining_ms, 3 * 60 * 60 * 1000 + 30 * 60 * 1000);
+        assert!(select_active_block(&blocks, utc(15, 30)).is_none());
+        let (later, _) = select_active_block(&blocks, utc(16, 30)).unwrap();
+        assert_eq!(later.block_start, "2025-01-01 16:00");
     }
 }

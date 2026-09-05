@@ -34,6 +34,7 @@ mod credentials;
 mod doctor_cmd;
 mod endpoints_cmd;
 mod error;
+mod limits_cmd;
 mod login_cmd;
 mod output;
 mod pricing;
@@ -211,6 +212,10 @@ fn resolve_source_name<'a>(
 ) -> Option<&'a str> {
     if matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources) {
         return Some("claude");
+    }
+
+    if source_cmd == SourceCommand::Limits {
+        return Some(source_override.unwrap_or(ALL_SOURCES));
     }
 
     match (source_hint, source_override) {
