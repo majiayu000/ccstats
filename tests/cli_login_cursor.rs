@@ -201,3 +201,37 @@ fn no_flags_non_tty_exit_1() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn corrupt_credentials_are_errors_without_secret_disclosure() {
+    let root = unique_temp_dir("login-corrupt-file");
+    fs::create_dir_all(credentials_path(&root).parent().unwrap()).unwrap();
+    fs::write(
+        credentials_path(&root),
+        format!("[cursor]\nsession_token = \"{FILE_TOKEN}"),
+    )
+    .unwrap();
+    for args in [
+        vec!["login", "cursor", "--check"],
+        vec!["doctor", "--json"],
+        vec!["daily", "-O", "--no-cost"],
+    ] {
+        let (ok, stdout, stderr) = run_isolated(&root, &args);
+        assert!(!ok, "corrupt credentials should fail: {args:?}");
+        assert_no_secret(&stdout, &stderr, FILE_TOKEN);
+        let output = format!(
+            "{}{}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        );
+        assert!(output.contains("failed to parse credentials"), "{output}");
+    }
+    let (ok, stdout, stderr) = run_isolated_with(
+        &root,
+        &["login", "cursor", "--check"],
+        &[("CURSOR_API_KEY", Path::new(ENV_TOKEN))],
+    );
+    assert!(ok, "environment credentials must override the broken file");
+    assert_no_secret(&stdout, &stderr, ENV_TOKEN);
+    fs::remove_dir_all(root).unwrap();
+}

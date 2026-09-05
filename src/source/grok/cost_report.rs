@@ -524,6 +524,7 @@ fn entry_cost_tokens(entry: &RawEntry) -> CostTokens {
         cache_read: entry.cache_read,
         reasoning_tokens: 0,
         count: 0,
+        ..CostTokens::default()
     }
 }
 

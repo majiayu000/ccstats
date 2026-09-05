@@ -75,7 +75,10 @@ use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
 use pricing::{CurrencyConverter, PricingDb};
-use source::{ALL_SOURCES, CodexScope, CodexSource, get_source, source_choices, suggest_source};
+use source::{
+    ALL_SOURCES, CodexScope, CodexSource, auto_detected_source_name, get_source,
+    ready_source_names, source_choices, suggest_source,
+};
 use utils::{Timezone, parse_date};
 
 enum TimezoneSource {
@@ -206,16 +209,21 @@ fn resolve_source_name<'a>(
     source_hint: Option<&'static str>,
     source_override: Option<&'a str>,
     source_cmd: SourceCommand,
-) -> &'a str {
+) -> Option<&'a str> {
     if matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources) {
-        return "claude";
+        return Some("claude");
     }
 
     match (source_hint, source_override) {
-        (Some(hint), Some(override_name)) => resolve_overridden_command_source(hint, override_name),
-        (Some(hint), None) => hint,
-        (None, Some(name)) => name,
-        (None, None) => "claude",
+        (Some(hint), Some(override_name)) => {
+            Some(resolve_overridden_command_source(hint, override_name))
+        }
+        (Some(hint), None) => Some(hint),
+        (None, Some(name)) => Some(name),
+        (None, None) => auto_detected_source_name(&ready_source_names().unwrap_or_else(|error| {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        })),
     }
 }
 
@@ -369,33 +377,42 @@ pub fn run_cli() {
     let budget_as_of = until.map_or(today, |end| end.min(today));
     let filter = build_date_filter(source_cmd, today, since, until);
     let show_cost = cli.show_cost();
-    let metadata_only = matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources);
-    let needs_pricing = !metadata_only && (is_statusline || show_cost);
-    let pricing_db = load_pricing_db(&cli, needs_pricing, is_statusline);
     let source_name = resolve_source_name(
         parsed_command.source_hint,
         cli.source.as_deref(),
         source_cmd,
     );
-    validate_source_breakdown(&cli, source_name, source_cmd);
-    validate_codex_scope(cli.codex_scope, source_name);
-    let needs_currency = source_cmd != SourceCommand::Quota && needs_pricing;
+    if source_name.is_none() && is_statusline {
+        println!();
+        return;
+    }
+
+    let metadata_only = matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources)
+        || source_name.is_none();
+    let needs_pricing = !metadata_only && (is_statusline || show_cost);
+    let pricing_db = load_pricing_db(&cli, needs_pricing, is_statusline);
+    if let Some(source_name) = source_name {
+        validate_source_breakdown(&cli, source_name, source_cmd);
+        validate_codex_scope(cli.codex_scope, source_name);
+    }
+    let needs_currency =
+        source_name.is_some() && source_cmd != SourceCommand::Quota && needs_pricing;
     let currency_converter = load_currency_converter(&cli, needs_currency, is_statusline);
 
-    dispatch_command(
-        source_name,
-        source_cmd,
-        &CommandContext {
-            filter: &filter,
-            cli: &cli,
-            pricing_db: &pricing_db,
-            timezone,
-            number_format,
-            jq_filter,
-            currency: currency_converter.as_ref(),
-            budget_as_of,
-        },
-    );
+    let context = CommandContext {
+        filter: &filter,
+        cli: &cli,
+        pricing_db: &pricing_db,
+        timezone,
+        number_format,
+        jq_filter,
+        currency: currency_converter.as_ref(),
+        budget_as_of,
+    };
+    match source_name {
+        Some(source_name) => dispatch_command(source_name, source_cmd, &context),
+        None => crate::doctor_cmd::handle_doctor(&context),
+    }
 
     if cli.debug && needs_pricing {
         for diagnostic in pricing_db.pricing_diagnostics() {

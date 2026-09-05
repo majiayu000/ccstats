@@ -455,6 +455,7 @@ pub(crate) enum DiagnosticStatus {
     Detected,
     Configured,
     Missing,
+    Error,
 }
 
 impl DiagnosticStatus {
@@ -463,7 +464,12 @@ impl DiagnosticStatus {
             Self::Detected => "detected",
             Self::Configured => "configured",
             Self::Missing => "missing",
+            Self::Error => "error",
         }
+    }
+
+    pub(crate) fn is_ready(self) -> bool {
+        matches!(self, Self::Detected | Self::Configured)
     }
 }
 
@@ -475,6 +481,14 @@ pub(crate) struct SourceDiagnostic {
 }
 
 impl SourceDiagnostic {
+    pub(crate) fn error(detail: impl Into<String>) -> Self {
+        Self {
+            status: DiagnosticStatus::Error,
+            files: 0,
+            detail: detail.into(),
+        }
+    }
+
     pub(crate) fn detected(files: usize, detail: impl Into<String>) -> Self {
         Self {
             status: DiagnosticStatus::Detected,
@@ -592,6 +606,25 @@ pub(crate) trait Source: Send + Sync {
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
 
+    /// Sources with a usage cache can apply the range before expanding cached records.
+    fn parse_file_filtered(
+        &self,
+        path: &Path,
+        filter: &DateFilter,
+        timezone: Timezone,
+        debug: bool,
+    ) -> ParseOutput {
+        let parsed = self.parse_file(path, timezone, debug);
+        ParseOutput {
+            entries: loader::DataLoader::filter_entries(parsed.entries, filter, timezone),
+            errors: parsed.errors,
+        }
+    }
+
+    fn cached_file_count(&self) -> usize {
+        0
+    }
+
     fn finalize_entries(&self, entries: Vec<RawEntry>) -> Vec<RawEntry> {
         entries
     }
@@ -621,7 +654,10 @@ pub(crate) use grok::{
 pub use inventory::UsageSource;
 
 // Re-export registry functions
-pub(crate) use registry::{ALL_SOURCES, all_sources, get_source, source_choices, suggest_source};
+pub(crate) use registry::{
+    ALL_SOURCES, all_sources, auto_detected_source_name, get_source, ready_source_names,
+    source_choices, suggest_source,
+};
 
 pub(crate) fn all_capabilities() -> Capabilities {
     Capabilities::combine(all_sources())

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, ErrorKind, Write};
+use std::io::{BufReader, BufWriter, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -163,9 +163,11 @@ pub(super) fn load_raw_cache_snapshot_from_paths(
             path: path.clone(),
             source,
         })?;
-        let data = serde_json::from_reader(file).map_err(|source| CacheReadError::Malformed {
-            path: path.clone(),
-            source,
+        let data = serde_json::from_reader(BufReader::new(file)).map_err(|source| {
+            CacheReadError::Malformed {
+                path: path.clone(),
+                source,
+            }
         })?;
         return Ok(Some(RawPricingCacheSnapshot {
             data,
@@ -209,9 +211,11 @@ pub(super) fn load_raw_cache_if_fresh_from_paths(
             path: path.clone(),
             source,
         })?;
-        let data = serde_json::from_reader(file).map_err(|source| CacheReadError::Malformed {
-            path: path.clone(),
-            source,
+        let data = serde_json::from_reader(BufReader::new(file)).map_err(|source| {
+            CacheReadError::Malformed {
+                path: path.clone(),
+                source,
+            }
         })?;
         return Ok(Some(RawPricingCacheSnapshot { data, metadata }));
     }

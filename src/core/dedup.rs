@@ -4,7 +4,7 @@
 //! We keep the entry with `stop_reason` (completed message) to get accurate token counts.
 
 use crate::core::types::RawEntry;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 const SOURCE_WIDE_DEDUP_PREFIX: &str = "source-wide:";
 
@@ -51,16 +51,18 @@ impl Deduplicatable for RawEntry {
 #[derive(Debug)]
 struct CandidateState<T: Deduplicatable> {
     /// Best completed entry seen so far (excluding `latest` when it is completed).
-    best_completed: Option<T>,
+    // Most entries never need a second candidate. Avoid reserving another full
+    // RawEntry in every hash bucket when that slot is empty.
+    best_completed: Option<Box<T>>,
     /// Latest entry by timestamp (fallback)
-    latest: T,
+    latest: Box<T>,
 }
 
 impl<T: Deduplicatable> CandidateState<T> {
     fn new(entry: T) -> Self {
         Self {
             best_completed: None,
-            latest: entry,
+            latest: Box::new(entry),
         }
     }
 
@@ -84,7 +86,7 @@ impl<T: Deduplicatable> CandidateState<T> {
             None => true,
         };
         if should_replace {
-            self.best_completed = Some(entry);
+            self.best_completed = Some(Box::new(entry));
         }
     }
 
@@ -93,10 +95,10 @@ impl<T: Deduplicatable> CandidateState<T> {
         if entry_ts > self.latest.timestamp_ms() {
             // Move completed latest into the completed slot before replacing it.
             if self.latest.has_stop_reason() {
-                let old_latest = std::mem::replace(&mut self.latest, entry);
+                let old_latest = std::mem::replace(&mut *self.latest, entry);
                 self.replace_best_completed_if_newer(old_latest);
             } else {
-                self.latest = entry;
+                *self.latest = entry;
             }
             return;
         }
@@ -112,9 +114,9 @@ impl<T: Deduplicatable> CandidateState<T> {
             latest,
         } = other;
         if let Some(entry) = best_completed {
-            self.update(entry);
+            self.update(*entry);
         }
-        self.update(latest);
+        self.update(*latest);
     }
 
     /// Get the best entry: completed if available, otherwise latest
@@ -124,9 +126,9 @@ impl<T: Deduplicatable> CandidateState<T> {
                 if !self.latest.has_stop_reason()
                     || best.timestamp_ms() > self.latest.timestamp_ms() =>
             {
-                best
+                *best
             }
-            _ => self.latest,
+            _ => *self.latest,
         }
     }
 }
@@ -161,10 +163,10 @@ impl<T: Deduplicatable> DedupAccumulator<T> {
                 entry.dedup_scope().unwrap_or_default().to_string(),
                 id.to_string(),
             );
-            match self.message_map.get_mut(&key) {
-                Some(state) => state.update(entry),
-                None => {
-                    self.message_map.insert(key, CandidateState::new(entry));
+            match self.message_map.entry(key) {
+                Entry::Occupied(mut state) => state.get_mut().update(entry),
+                Entry::Vacant(slot) => {
+                    slot.insert(CandidateState::new(entry));
                 }
             }
         } else if entry.has_stop_reason() {
@@ -186,10 +188,10 @@ impl<T: Deduplicatable> DedupAccumulator<T> {
         self.no_id_entries.extend(other.no_id_entries);
 
         for (key, state) in other.message_map {
-            match self.message_map.get_mut(&key) {
-                Some(existing) => existing.merge(state),
-                None => {
-                    self.message_map.insert(key, state);
+            match self.message_map.entry(key) {
+                Entry::Occupied(mut existing) => existing.get_mut().merge(state),
+                Entry::Vacant(slot) => {
+                    slot.insert(state);
                 }
             }
         }

@@ -118,20 +118,20 @@ impl CursorCredentials {
 }
 
 /// Resolve Cursor API credentials: environment variables, then `credentials.toml`.
-pub(crate) fn resolve_cursor_credentials() -> Option<ResolvedCursorCredentials> {
+pub(crate) fn resolve_cursor_credentials()
+-> Result<Option<ResolvedCursorCredentials>, CredentialsError> {
     if let Some(auth) = env_cursor_auth() {
-        return Some(ResolvedCursorCredentials {
+        return Ok(Some(ResolvedCursorCredentials {
             auth,
             origin: CredentialOrigin::Env,
-        });
+        }));
     }
-    match load_cursor_auth_from_file() {
-        Ok(Some(auth)) => Some(ResolvedCursorCredentials {
+    Ok(
+        load_cursor_auth_from_file()?.map(|auth| ResolvedCursorCredentials {
             auth,
             origin: CredentialOrigin::File,
         }),
-        Ok(None) | Err(_) => None,
-    }
+    )
 }
 
 pub(crate) fn save_cursor_auth(auth: CursorAuth) -> Result<(), CredentialsError> {
@@ -144,10 +144,14 @@ pub(crate) fn save_cursor_auth(auth: CursorAuth) -> Result<(), CredentialsError>
 }
 
 pub(crate) fn clear_cursor_credentials() -> Result<(), CredentialsError> {
-    let Some(path) = existing_credentials_path() else {
-        return Ok(());
-    };
-    fs::remove_file(&path).map_err(|source| CredentialsError::Write { path, source })
+    for path in credentials_paths() {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(source) if source.kind() == ErrorKind::NotFound => {}
+            Err(source) => return Err(CredentialsError::Write { path, source }),
+        }
+    }
+    Ok(())
 }
 
 fn env_cursor_auth() -> Option<CursorAuth> {
@@ -258,7 +262,6 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), CredentialsError> {
             source,
         }
     })?;
-    restrict_final_permissions(path);
     Ok(())
 }
 
@@ -302,29 +305,14 @@ fn open_private_temp(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)
-}
-
-fn restrict_final_permissions(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(source) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
-            eprintln!(
-                "Warning: could not set 0600 on {}: {source}",
-                path.display()
-            );
-        }
-    }
+    let file = options.open(path)?;
     #[cfg(windows)]
-    {
-        if let Err(source) = restrict_windows_acl(path) {
-            eprintln!(
-                "Warning: could not restrict ACLs on {}; the credentials file was still written ({source}).",
-                path.display()
-            );
-        }
+    if let Err(error) = restrict_windows_acl(path) {
+        drop(file);
+        fs::remove_file(path)?;
+        return Err(error);
     }
+    Ok(file)
 }
 
 #[cfg(windows)]
@@ -360,6 +348,24 @@ fn nonempty_str(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_write_replaces_existing_credentials() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(CREDENTIALS_FILE);
+        atomic_write(&path, b"first").unwrap();
+        atomic_write(&path, b"second").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
 
     #[test]
     fn credentials_paths_use_credentials_filename() {

@@ -30,8 +30,8 @@ enum CursorApi {
     Dashboard,
 }
 
-pub(super) fn has_api_credentials() -> bool {
-    resolve_cursor_credentials().is_some()
+pub(super) fn has_api_credentials() -> Result<bool, crate::credentials::CredentialsError> {
+    resolve_cursor_credentials().map(|credentials| credentials.is_some())
 }
 
 pub(super) fn fetch_usage_events(
@@ -39,7 +39,7 @@ pub(super) fn fetch_usage_events(
     requested_end_ms: Option<i64>,
     debug: bool,
 ) -> Result<Vec<Value>, String> {
-    match resolve_cursor_credentials() {
+    match resolve_cursor_credentials().map_err(|error| error.to_string())? {
         Some(resolved) => match resolved.auth {
             CursorAuth::ApiKey(api_key) => fetch_paginated(
                 CursorApi::Admin,

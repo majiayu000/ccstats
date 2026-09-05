@@ -30,7 +30,9 @@ pub(super) fn find_cursor_files(filter: &DateFilter, timezone: Timezone) -> Vec<
         return vec![PathBuf::from(path)];
     }
 
-    if has_api_credentials() {
+    // Invalid credentials still enter the API parser, which reports the error
+    // as a failed source load instead of silently dropping Cursor.
+    if has_api_credentials().unwrap_or(true) {
         let start_ms = filter.since_timestamp_ms.or_else(|| {
             filter
                 .since

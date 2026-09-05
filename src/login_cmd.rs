@@ -49,9 +49,7 @@ fn handle_cursor_login(
     if clear {
         clear_cursor_credentials().map_err(|error| error.to_string())?;
         println!("Removed stored Cursor credentials.");
-        if check {
-            print_cursor_check();
-        }
+        print_cursor_check()?;
         return Ok(());
     }
 
@@ -60,7 +58,7 @@ fn handle_cursor_login(
             .map_err(|error| error.to_string())?;
         println!("Saved Cursor credentials locally.");
         if check {
-            print_cursor_check();
+            print_cursor_check()?;
         }
         return Ok(());
     }
@@ -70,13 +68,13 @@ fn handle_cursor_login(
             .map_err(|error| error.to_string())?;
         println!("Saved Cursor credentials locally.");
         if check {
-            print_cursor_check();
+            print_cursor_check()?;
         }
         return Ok(());
     }
 
     if check {
-        print_cursor_check();
+        print_cursor_check()?;
         return Ok(());
     }
 
@@ -87,13 +85,14 @@ fn handle_cursor_login(
     interactive_cursor_login(no_browser)
 }
 
-fn print_cursor_check() {
-    match resolve_cursor_credentials() {
+fn print_cursor_check() -> Result<(), String> {
+    match resolve_cursor_credentials().map_err(|error| error.to_string())? {
         Some(resolved) => {
             println!("cursor: configured ({})", resolved.origin.as_str());
         }
         None => println!("cursor: missing"),
     }
+    Ok(())
 }
 
 fn interactive_cursor_login(no_browser: bool) -> Result<(), String> {
@@ -155,17 +154,8 @@ fn parse_secret(raw: &str) -> Result<String, String> {
 }
 
 fn read_secret_line() -> Result<String, String> {
-    let guard = TtyEchoGuard::hide();
-    let mut line = String::new();
-    let result = io::stdin()
-        .read_line(&mut line)
-        .map_err(|error| format!("failed to read credential: {error}"));
-    let hidden = guard.echo_was_hidden();
-    drop(guard);
-    if hidden {
-        println!();
-    }
-    result?;
+    let line = rpassword::read_password()
+        .map_err(|error| format!("failed to read hidden credential: {error}"))?;
     parse_secret(&line)
 }
 
@@ -179,48 +169,7 @@ fn open_url(url: &str) {
     } else {
         return;
     };
-    let _ = result;
-}
-
-struct TtyEchoGuard {
-    restore: bool,
-}
-
-impl TtyEchoGuard {
-    fn hide() -> Self {
-        if !io::stdin().is_terminal() {
-            return Self { restore: false };
-        }
-        Self {
-            restore: set_tty_echo(false),
-        }
-    }
-
-    fn echo_was_hidden(&self) -> bool {
-        self.restore
-    }
-}
-
-impl Drop for TtyEchoGuard {
-    fn drop(&mut self) {
-        if self.restore {
-            let _ = set_tty_echo(true);
-        }
-    }
-}
-
-fn set_tty_echo(enable: bool) -> bool {
-    #[cfg(unix)]
-    {
-        let arg = if enable { "echo" } else { "-echo" };
-        Command::new("stty")
-            .arg(arg)
-            .status()
-            .is_ok_and(|status| status.success())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = enable;
-        false
+    if !result.is_ok_and(|status| status.success()) {
+        eprintln!("Could not open the browser; open {url} manually.");
     }
 }

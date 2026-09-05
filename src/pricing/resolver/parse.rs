@@ -37,6 +37,7 @@ pub(crate) fn parse_litellm_data(
             .unwrap_or(0.0);
 
         let pricing = ModelPricing {
+            above_272k: long_context_pricing(&value, output, cache_create),
             input,
             output,
             reasoning_output,
@@ -123,6 +124,32 @@ fn insert_google_aliases(
     } else {
         models.entry(bare.to_string()).or_insert(pricing.clone());
     }
+}
+
+fn long_context_pricing(
+    value: &serde_json::Value,
+    output: f64,
+    cache_create: f64,
+) -> Option<super::super::types::LongContextPricing> {
+    value
+        .get("input_cost_per_token_above_272k_tokens")
+        .and_then(serde_json::Value::as_f64)
+        .map(|long_input| super::super::types::LongContextPricing {
+            input: long_input,
+            output: value
+                .get("output_cost_per_token_above_272k_tokens")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(output),
+            cache_read: value
+                .get("cache_read_input_token_cost_above_272k_tokens")
+                .or_else(|| value.get("cache_read_input_token_cost"))
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.0),
+            cache_create: value
+                .get("cache_creation_input_token_cost_above_272k_tokens")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(cache_create),
+        })
 }
 
 #[cfg(test)]
