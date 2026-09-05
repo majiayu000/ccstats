@@ -49,10 +49,12 @@ pub use activity::{
     turn_tool_breakdown_with_cli_config,
 };
 pub use catalog::{
-    AnalyticsQuality, DailyUsagePoint, DrilldownError, HistoryCostStatus, ProjectDrilldown,
-    ProjectDrilldownSummary, SessionDrilldown, SourceDescriptor, SourceDiagnosticDescriptor,
-    SourceDiagnosticStatus, UsageHistory, UsageMetrics, diagnose_usage_sources, list_usage_sources,
-    summarize_project_drilldown, summarize_project_drilldown_with_cli_config, usage_history,
+    AnalysisFilter, AnalysisSummary, AnalyticsQuality, DailyUsagePoint, DrilldownError,
+    HistoryCostStatus, HourlyUsagePoint, ProjectDrilldown, ProjectDrilldownSummary,
+    SessionDrilldown, SourceDescriptor, SourceDiagnosticDescriptor, SourceDiagnosticStatus,
+    UsageAnalysis, UsageHistory, UsageMetrics, diagnose_usage_sources, list_usage_sources,
+    summarize_project_drilldown, summarize_project_drilldown_with_cli_config,
+    usage_analysis_cancellable_with_cli_config, usage_analysis_with_cli_config, usage_history,
     usage_history_with_cli_config,
 };
 pub use sdk::{
@@ -65,6 +67,7 @@ pub use sdk::{
     estimate_codex_weekly_value_for_window, load_codex_weekly_quota, summarize_cost,
     summarize_cost_ranges, summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
 };
+pub use source::session_titles::{SessionTitle, SessionTitleOrigin, load_session_titles};
 
 use chrono::{NaiveDate, Utc};
 use clap::Parser;

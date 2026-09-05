@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { rankConsumers } from "../src/bridge";
+import { rankConsumers, type ProjectDrilldownSummary } from "../src/bridge";
 
 const WEB_ELEMENT_ID = "element-6066-11e4-a52e-4f735466cecf";
 
@@ -108,10 +108,11 @@ type MockOptions = {
   liveFailAfterGrowth?: boolean;
   noReadySources?: boolean;
   totalAdjustment?: boolean;
+  titleMode?: "missing" | "error";
 };
 
 async function injectBridge(page: Page, options: MockOptions = {}) {
-  await page.addInitScript(({ delay, qualityWarning, fail, omitWeek, allMalformed, failCatalogOnce, quotaFail, liveGrowth, liveFailAfterGrowth, noReadySources, totalAdjustment }) => {
+  await page.addInitScript(({ delay, qualityWarning, fail, omitWeek, allMalformed, failCatalogOnce, quotaFail, liveGrowth, liveFailAfterGrowth, noReadySources, totalAdjustment, titleMode }) => {
     const calls: string[] = [];
     const exportCalls: string[] = [];
     let catalogCalls = 0;
@@ -282,13 +283,15 @@ async function injectBridge(page: Page, options: MockOptions = {}) {
       usageOverviews: async (sources: string[]) => Promise.all(
         sources.map((source) => window.__CCSTATS_TEST_BRIDGE__!.usageOverview(source)),
       ),
-      projectDrilldown: async (source, range) => ({
+      projectDrilldown: async (source, range): Promise<ProjectDrilldownSummary> => ({
         source,
         source_name: source,
         display_name: "Claude Code",
         range,
         currency: "USD",
         quality: { valid_entries: 4, dedup_skipped_entries: 0, parse_error_entries: 0 },
+        session_titles: titleMode ? {} : { "session-abc123": { text: "完善用量聚合", origin: "source_summary" } },
+        session_titles_error: titleMode === "error" ? "Malformed session title index at line 2" : null,
         projects: [{
           project_path: "/work/ccstats",
           project_name: "ccstats",
@@ -771,6 +774,97 @@ test("drills from a project into its real sessions", async ({ page }) => {
   await expect(page.getByRole("row", { name: /ccstats/ })).toContainText("1,200");
   await page.getByRole("button", { name: /ccstats/ }).click();
   await expect(page.getByText("session-abc123")).toBeVisible();
+  await expect(page.locator(".session-title-text")).toHaveText("完善用量聚合");
+  await expect(page.getByText(/Source summary/)).toBeVisible();
+});
+
+async function openSession(page: Page) {
+  await page.getByRole("button", { name: "Projects", exact: true }).click();
+  await page.getByRole("button", { name: "ccstats", exact: true }).click();
+}
+
+test("session titles persist locally, restore source names, and preserve usage and source identity", async ({ page }, testInfo) => {
+  await injectBridge(page);
+  await page.goto("/");
+  await page.evaluate(() => localStorage.setItem('ccstats.session-title:["codex","session-abc123"]', "Other source title"));
+  await openSession(page);
+  const usage = await page.locator(".session-list dl").innerText();
+  await page.getByRole("button", { name: "Rename session session-abc123" }).click();
+  await page.getByLabel("Session title", { exact: true }).fill("手动命名 <b>保留文本</b>");
+  await page.getByRole("button", { name: "Save title" }).click();
+  await expect(page.locator(".session-title-text")).toHaveText("手动命名 <b>保留文本</b>");
+  await expect(page.locator(".session-title-text b")).toHaveCount(0);
+  await expect(page.locator(".session-list dl")).toHaveText(usage, { useInnerText: true });
+  await page.reload();
+  await openSession(page);
+  await expect(page.locator(".session-title-text")).toHaveText("手动命名 <b>保留文本</b>");
+  await expect(page.getByText(/Manual title/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("session-title-saved.png"), fullPage: true });
+  await page.getByRole("button", { name: "Use source title" }).click();
+  await expect(page.locator(".session-title-text")).toHaveText("完善用量聚合");
+  await expect(page.getByText(/Source summary/)).toBeVisible();
+  await page.getByRole("button", { name: "Rename session session-abc123" }).click();
+  await page.screenshot({ path: testInfo.outputPath("session-title-editor.png"), fullPage: true });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await page.evaluate(() => localStorage.getItem('ccstats.session-title:["codex","session-abc123"]'))).toBe("Other source title");
+  await page.reload();
+  await openSession(page);
+  await expect(page.locator(".session-title-text")).toHaveText("完善用量聚合");
+});
+
+test("missing session titles use project, first activity and short ID; empty edits do not save", async ({ page }) => {
+  await injectBridge(page, { titleMode: "missing" });
+  await page.goto("/");
+  await openSession(page);
+  const fallback = await page.evaluate(() => `ccstats · ${new Date("2026-08-31T06:00:00Z").toLocaleString()} · session-`);
+  await expect(page.locator(".session-title-text")).toHaveText(fallback);
+  await expect(page.getByText(/Session label/)).toBeVisible();
+  await page.getByRole("button", { name: "Rename session session-abc123" }).click();
+  await page.getByLabel("Session title", { exact: true }).fill("   ");
+  await page.getByRole("button", { name: "Save title" }).click();
+  await expect(page.getByRole("alert")).toContainText("Enter a title");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.locator(".session-title-text")).toHaveText(fallback);
+});
+
+test("source title errors remain visible while session usage stays available", async ({ page }) => {
+  await injectBridge(page, { titleMode: "error" });
+  await page.goto("/");
+  await openSession(page);
+  await expect(page.getByRole("alert")).toContainText("Source titles could not be loaded");
+  await expect(page.getByRole("alert")).toContainText("line 2");
+  await expect(page.locator(".session-list dl")).toContainText("1,200");
+  await expect(page.locator(".session-list dl")).toContainText("$2.40");
+});
+
+test("failed session title saves report an error and retain the current title", async ({ page }) => {
+  await injectBridge(page);
+  await page.goto("/");
+  await openSession(page);
+  await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException("Storage is full", "QuotaExceededError"); }; });
+  await page.getByRole("button", { name: "Rename session session-abc123" }).click();
+  await page.getByLabel("Session title", { exact: true }).fill("New title");
+  await page.getByRole("button", { name: "Save title" }).click();
+  await expect(page.getByRole("alert")).toContainText("Title could not be saved");
+  await expect(page.locator(".session-title-text")).toHaveText("完善用量聚合");
+  await expect(page.getByLabel("Session title", { exact: true })).toHaveValue("New title");
+});
+
+test("failed saved title reads report an error and can be retried", async ({ page }) => {
+  await injectBridge(page);
+  await page.goto("/");
+  await page.evaluate(() => {
+    const read = Storage.prototype.getItem;
+    Storage.prototype.getItem = function(key) {
+      Storage.prototype.getItem = read;
+      throw new DOMException(`Storage blocked for ${key}`, "SecurityError");
+    };
+  });
+  await openSession(page);
+  await expect(page.getByRole("alert")).toContainText("Saved title could not be read");
+  await page.getByRole("button", { name: "Retry saved title" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Rename session session-abc123" })).toBeVisible();
 });
 
 test("shows real history dates and exports CSV and JSON", async ({ page }) => {

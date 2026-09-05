@@ -42,6 +42,7 @@ struct Payload<'a> {
     #[serde(rename = "type")]
     payload_type: Option<&'a str>,
     id: Option<&'a str>,
+    cwd: Option<&'a str>,
     info: Option<TokenInfo<'a>>,
     model: Option<&'a str>,
     source: Option<serde_json::Value>,
@@ -173,7 +174,7 @@ impl UsageTotals {
 // File discovery
 // ============================================================================
 
-fn codex_root_candidate() -> Option<PathBuf> {
+pub(crate) fn codex_root_candidate() -> Option<PathBuf> {
     if let Some(codex_home) = env::var_os(CODEX_HOME_ENV) {
         return Some(PathBuf::from(codex_home));
     }
@@ -290,6 +291,8 @@ struct CodexParseState {
     previous_totals: Option<UsageTotals>,
     current_model: Option<String>,
     logical_session_key: String,
+    session_id: Option<String>,
+    project_path: String,
     session_origin: CodexSessionOrigin,
 }
 
@@ -301,6 +304,8 @@ impl CodexParseState {
             previous_totals: None,
             current_model: None,
             logical_session_key: session_key,
+            session_id: None,
+            project_path: String::new(),
             session_origin: CodexSessionOrigin::Unknown,
         }
     }
@@ -438,6 +443,13 @@ fn update_session_metadata(payload: Option<&Payload<'_>>, state: &mut CodexParse
         && let Some(id) = non_empty_model(payload.id)
     {
         state.logical_session_key = format!("codex-session:{id}");
+        state.session_id = Some(id.to_string());
+    }
+    if let Some(cwd) = payload
+        .and_then(|payload| payload.cwd)
+        .filter(|cwd| !cwd.is_empty())
+    {
+        state.project_path = cwd.to_string();
     }
     state.session_origin = session_origin_from_payload(payload);
 }
@@ -640,8 +652,11 @@ fn push_codex_entry(
         date_str: date.format(DATE_FORMAT).to_string(),
         message_id: Some(message_id),
         session_key: context.identity.session_key.clone(),
-        session_id: context.identity.session_id.clone(),
-        project_path: String::new(), // Codex doesn't track projects
+        session_id: state
+            .session_id
+            .clone()
+            .unwrap_or_else(|| context.identity.session_id.clone()),
+        project_path: state.project_path.clone(),
         model,
         input_tokens,
         output_tokens,

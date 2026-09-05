@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-06
+
+### Added
+- Expose unified filtered workspace analytics: summaries, projects, sessions, daily and hourly usage, with cancellation support.
+- Read existing Codex and Claude session titles separately from usage totals; support local manual titles in the desktop session list without changing transcripts.
+- Attribute Codex sessions to metadata IDs and recorded project directories while retaining file-scoped deduplication.
+
+### Fixed
+- Preserve both cache-write usage and session/project attribution when reusing Codex facts across restarts. Cache v3 rebuilds once from source logs because stored fields changed.
+
+### Changed
+- Refresh the desktop workspace presentation while preserving existing source diagnostics and unavailable-feature explanations.
+
 ## [0.6.0] - 2026-09-05
 
 ### Added

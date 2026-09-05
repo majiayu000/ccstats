@@ -86,7 +86,7 @@ impl Source for CodexSource {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            has_projects: false,       // Codex doesn't track projects
+            has_projects: true,        // Recorded session_meta.cwd when available
             has_billing_blocks: false, // Different billing model
             has_reasoning_tokens: true,
             has_cache_creation: true,

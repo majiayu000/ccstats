@@ -13,6 +13,66 @@ use chrono::{Datelike, Days, Duration, NaiveDate, Timelike, Utc};
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn sdk_session_titles_respect_source_roots_and_leave_accounting_unchanged() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let root = tempfile::tempdir().expect("temp dir");
+    let claude_home = root.path().join("claude-home");
+    let codex_home = root.path().join("codex-home");
+    let transcript = claude_home.join("projects/project/one.jsonl");
+    let content = r#"{"timestamp":"2026-09-02T06:00:00Z","message":{"id":"message-one","model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"output_tokens":20}}}
+"#;
+    write_file(&transcript, content);
+    write_file(
+        &claude_home.join("projects/project/sessions-index.json"),
+        r#"{"entries":[{"sessionId":"one","summary":"Claude summary"}]}"#,
+    );
+    write_file(
+        &codex_home.join("session_index.jsonl"),
+        "{\"id\":\"one\",\"thread_name\":\"Codex title\"}\n",
+    );
+    let previous_claude = std::env::var_os("CLAUDE_CONFIG_DIR");
+    let previous_codex = std::env::var_os("CODEX_HOME");
+    // Match this integration suite's serialized source-environment convention.
+    unsafe {
+        std::env::set_var("CLAUDE_CONFIG_DIR", &claude_home);
+        std::env::set_var("CODEX_HOME", &codex_home);
+    }
+    let options = SummaryOptions {
+        source: UsageSource::Claude,
+        range: UsageRange::DateRange {
+            since: NaiveDate::from_ymd_opt(2026, 9, 2),
+            until: NaiveDate::from_ymd_opt(2026, 9, 2),
+        },
+        timezone: Some("UTC".into()),
+        offline: true,
+        ..SummaryOptions::default()
+    };
+    let before = ccstats::summarize_project_drilldown(&options);
+    let ids = vec!["one".to_owned()];
+    let claude = ccstats::load_session_titles(UsageSource::Claude, &ids);
+    let codex = ccstats::load_session_titles(UsageSource::Codex, &ids);
+    let after = ccstats::summarize_project_drilldown(&options);
+    match previous_claude {
+        Some(value) => unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", value) },
+        None => unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") },
+    }
+    match previous_codex {
+        Some(value) => unsafe { std::env::set_var("CODEX_HOME", value) },
+        None => unsafe { std::env::remove_var("CODEX_HOME") },
+    }
+    assert_eq!(claude.expect("Claude titles")["one"].text, "Claude summary");
+    assert_eq!(codex.expect("Codex titles")["one"].text, "Codex title");
+    let before = before.expect("project accounting");
+    assert_eq!(before.projects[0].sessions[0].session_id, "one");
+    assert_eq!(before.projects[0].metrics.tokens.total_tokens, 120);
+    assert_eq!(before, after.expect("accounting after title lookup"));
+    assert_eq!(
+        fs::read_to_string(transcript).expect("original log"),
+        content
+    );
+}
+
+#[test]
 fn sdk_loads_codex_weekly_quota_from_explicit_home() {
     let root = tempfile::tempdir().expect("temp dir");
     let codex_home = root.path().join("isolated-[quota]*-home");

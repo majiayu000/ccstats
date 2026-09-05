@@ -831,3 +831,16 @@ adopt/adapt/reject decisions behind the additional providers.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+### Workspace SDK APIs
+
+`usage_analysis_with_cli_config` and its cancellable variant return summaries,
+projects, sessions, daily history and hourly usage from one filtered fact set.
+Codex project attribution uses recorded working directories; session IDs come
+from source metadata. Missing attribution stays missing.
+
+`load_session_titles(source, &session_ids)` reads existing Codex thread names
+and Claude indexed summaries, returning `SessionTitle { text, origin }`.
+Missing indices return no titles; unreadable or malformed indices return errors.
+No model call or transcript summarization is performed. Desktop users can keep
+manual titles locally without changing source transcripts.

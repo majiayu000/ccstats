@@ -148,6 +148,11 @@ export interface UsageMetrics {
   models: ModelCostSummary[];
 }
 
+export interface SessionTitle {
+  text: string;
+  origin: "source_title" | "source_summary";
+}
+
 export interface SessionDrilldown {
   session_id: string;
   project_path: string;
@@ -172,6 +177,8 @@ export interface ProjectDrilldownSummary {
   currency: string;
   quality: AnalyticsQuality;
   projects: ProjectDrilldown[];
+  session_titles: Record<string, SessionTitle>;
+  session_titles_error: string | null;
 }
 
 export interface DailyUsagePoint {

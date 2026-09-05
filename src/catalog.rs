@@ -1,5 +1,11 @@
 //! Public projections for graphical and SDK consumers.
 
+mod analysis;
+pub use analysis::{
+    AnalysisFilter, AnalysisSummary, HourlyUsagePoint, UsageAnalysis,
+    usage_analysis_cancellable_with_cli_config, usage_analysis_with_cli_config,
+};
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -727,13 +733,13 @@ mod tests {
     #[test]
     fn project_drilldown_rejects_sources_without_project_capability() {
         let options = crate::sdk::SummaryOptions {
-            source: UsageSource::Codex,
+            source: UsageSource::Gemini,
             range: crate::sdk::UsageRange::Today,
             offline: true,
             ..crate::sdk::SummaryOptions::default()
         };
         let error = summarize_project_drilldown(&options)
-            .expect_err("Codex project drilldown must fail clearly");
+            .expect_err("Gemini project drilldown must fail clearly");
 
         assert!(
             error

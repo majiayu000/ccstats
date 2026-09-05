@@ -18,6 +18,14 @@ in the README's complete supported-source table.
 environment-variable presence. It does not parse session contents or contact
 remote services.
 
+The desktop session list also reads existing Codex thread names from
+`CODEX_HOME/session_index.jsonl` (default `~/.codex`) and existing Claude
+summaries from `CLAUDE_CONFIG_DIR/projects/*/sessions-index.json` (default
+`~/.claude`). Titles may contain sensitive task descriptions. ccstats does not
+generate them, use the `firstPrompt` field as a title, or send them to a model.
+Unreadable/malformed title indices produce a visible error independently of
+usage totals; absent indices simply have no source title.
+
 ## Network access
 
 | Feature | Endpoint | Data sent |
@@ -37,9 +45,9 @@ ccstats writes only operational data needed to make repeated reports reliable:
 
 - pricing cache under the platform cache directory and exchange-rate cache
   under `~/.cache/ccstats/`;
-- a Codex usage cache at `<platform cache>/ccstats/codex-usage-v2.sqlite3`
+- a Codex usage cache at `<platform cache>/ccstats/codex-usage-v3.sqlite3`
   (with SQLite WAL/SHM sidecars). It stores file identities, event timestamps,
-  model names, deduplication keys, and token counts; it does not store conversation
+  model names, deduplication keys, session IDs, working directories, and token counts; it does not store conversation
   text or fixed prices. Unchanged files reuse these facts across reports and
   timezones. Changed files are reparsed, and removed source files stop contributing.
   Deleting this cache and its sidecars while ccstats is stopped forces a rebuild;
@@ -50,6 +58,12 @@ ccstats writes only operational data needed to make repeated reports reliable:
   JSON export uses the same aggregate-only payload so users can move it between
   their own devices;
 - no prompt, response, or source-code archive.
+
+Manual session names are stored separately in the desktop WebView's local
+storage, keyed by source and session ID. They survive app restarts on that
+device, are removed with **Use source title**, and are not included in machine
+snapshot exports. Clearing the app's website data removes these manual names.
+The source's indices and original transcripts are never modified.
 
 The desktop app does not send machine snapshots itself. Cross-device rollups
 require an explicit JSON export on one device and an explicit import on another.

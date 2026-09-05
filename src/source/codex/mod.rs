@@ -10,6 +10,7 @@ mod quota;
 mod quota_value;
 
 pub(crate) use config::{CodexScope, CodexSource};
+pub(super) use parser::codex_root_candidate;
 pub use quota::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
 pub(crate) use quota::{load_weekly_quota, load_weekly_quota_from_home};
 pub(crate) use quota_value::load_weekly_window_usage_from_home;

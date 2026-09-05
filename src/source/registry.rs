@@ -243,7 +243,7 @@ mod tests {
     fn test_codex_capabilities() {
         let source = get_source("codex").unwrap();
         let caps = source.capabilities();
-        assert!(!caps.has_projects);
+        assert!(caps.has_projects);
         assert!(!caps.has_billing_blocks);
         assert!(caps.has_cache_creation);
         assert!(caps.has_cache_read);

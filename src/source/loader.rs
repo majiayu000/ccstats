@@ -23,6 +23,7 @@ pub(super) struct DataLoader<'a> {
     source: &'a dyn Source,
     quiet: bool,
     debug: bool,
+    cancelled: Option<&'a (dyn Fn() -> bool + Sync)>,
 }
 
 impl<'a> DataLoader<'a> {
@@ -31,7 +32,13 @@ impl<'a> DataLoader<'a> {
             source,
             quiet,
             debug,
+            cancelled: None,
         }
+    }
+
+    pub(super) fn with_cancellation(mut self, cancelled: &'a (dyn Fn() -> bool + Sync)) -> Self {
+        self.cancelled = Some(cancelled);
+        self
     }
 
     #[cfg(test)]
@@ -196,6 +203,9 @@ impl<'a> DataLoader<'a> {
         let (result, parse_errors) = files
             .par_iter()
             .map(|path| {
+                if self.cancelled.is_some_and(|cancelled| cancelled()) {
+                    return (init(), 0);
+                }
                 let parsed = self
                     .source
                     .parse_file_filtered(path, filter, timezone, self.debug);

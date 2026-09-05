@@ -11,7 +11,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 
-use crate::consts::{DATE_FORMAT, UNKNOWN};
+use crate::consts::DATE_FORMAT;
 use crate::core::{CostKind, DateFilter, Endpoint, RawEntry};
 use crate::source::{ParseOutput, loader::DataLoader};
 use crate::utils::Timezone;
@@ -22,7 +22,7 @@ use super::parser::parse_codex_file_with_scope;
 type CacheResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 // Version the filename when the parser's usage semantics or stored fields change.
-const CACHE_FILE: &str = "codex-usage-v2.sqlite3";
+const CACHE_FILE: &str = "codex-usage-v3.sqlite3";
 
 #[derive(Default)]
 pub(super) struct CodexCache {
@@ -31,30 +31,38 @@ pub(super) struct CodexCache {
     reported_error: AtomicBool,
 }
 
-// Timestamp, milliseconds, dedup identity, model, input, output, cache read,
-// reasoning, cache creation.
-// Session paths and local dates are reconstructed, never serialized per event.
+// Timestamp, milliseconds, dedup identity, model, input, output, cache, reasoning.
+// Followed by dedup session identity, display ID, working directory and cache writes.
 #[derive(Deserialize)]
-struct StoredEntry(String, i64, Option<String>, String, i64, i64, i64, i64, i64);
+struct StoredEntry(
+    String,
+    i64,
+    Option<String>,
+    String,
+    i64,
+    i64,
+    i64,
+    i64,
+    String,
+    String,
+    String,
+    i64,
+);
 
 impl StoredEntry {
-    fn expand(self, path: &Path, date: NaiveDate) -> RawEntry {
+    fn expand(self, _path: &Path, date: NaiveDate) -> RawEntry {
         RawEntry {
             timestamp: self.0,
             timestamp_ms: self.1,
             date_str: date.format(DATE_FORMAT).to_string(),
             message_id: self.2,
-            session_key: path.display().to_string(),
-            session_id: path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(UNKNOWN)
-                .to_string(),
-            project_path: String::new(),
+            session_key: self.8,
+            session_id: self.9,
+            project_path: self.10,
             model: self.3,
             input_tokens: self.4,
             output_tokens: self.5,
-            cache_creation: self.8,
+            cache_creation: self.11,
             cache_creation_1h: 0,
             cache_read: self.6,
             reasoning_tokens: self.7,
@@ -269,6 +277,9 @@ impl CodexCache {
                     entry.output_tokens,
                     entry.cache_read,
                     entry.reasoning_tokens,
+                    &entry.session_key,
+                    &entry.session_id,
+                    &entry.project_path,
                     entry.cache_creation,
                 )
             })

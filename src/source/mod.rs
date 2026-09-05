@@ -32,6 +32,7 @@ mod pi_forks;
 mod pi_paths;
 mod qwen;
 mod registry;
+pub(crate) mod session_titles;
 mod tool_loader;
 mod unsloth;
 mod xum;
@@ -673,6 +674,17 @@ pub(crate) fn load_entries(
     timezone: Timezone,
 ) -> (Vec<RawEntry>, i64, usize) {
     loader::DataLoader::new(source, true, false).load_entries(filter, timezone)
+}
+
+pub(crate) fn load_entries_cancellable(
+    source: &dyn Source,
+    filter: &DateFilter,
+    timezone: Timezone,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> (Vec<RawEntry>, i64, usize) {
+    loader::DataLoader::new(source, true, false)
+        .with_cancellation(cancelled)
+        .load_entries(filter, timezone)
 }
 
 /// Load per-endpoint stats (native vs proxy) for a source. Claude-only; other

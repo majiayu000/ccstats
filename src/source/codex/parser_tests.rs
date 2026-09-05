@@ -243,6 +243,7 @@ fn test_cached_input_both_none_returns_zero() {
 #[test]
 fn test_extract_model_from_info_model() {
     let payload = Payload {
+        cwd: None,
         payload_type: None,
         id: None,
         model: Some("fallback-model"),
@@ -264,6 +265,7 @@ fn test_extract_model_from_info_model() {
 #[test]
 fn test_extract_model_falls_back_to_model_name() {
     let payload = Payload {
+        cwd: None,
         payload_type: None,
         id: None,
         model: Some("fallback"),
@@ -283,6 +285,7 @@ fn test_extract_model_falls_back_to_model_name() {
 #[test]
 fn test_extract_model_falls_back_to_metadata() {
     let payload = Payload {
+        cwd: None,
         payload_type: None,
         id: None,
         model: Some("fallback"),
@@ -304,6 +307,7 @@ fn test_extract_model_falls_back_to_metadata() {
 #[test]
 fn test_extract_model_falls_back_to_payload_model() {
     let payload = Payload {
+        cwd: None,
         payload_type: None,
         id: None,
         model: Some("payload-model"),
@@ -323,6 +327,7 @@ fn test_extract_model_falls_back_to_payload_model() {
 #[test]
 fn test_extract_model_no_info_uses_payload() {
     let payload = Payload {
+        cwd: None,
         payload_type: None,
         id: None,
         model: Some("payload-only"),
@@ -336,6 +341,7 @@ fn test_extract_model_no_info_uses_payload() {
 #[test]
 fn test_extract_model_all_none_returns_none() {
     let payload = Payload {
+        cwd: None,
         payload_type: None,
         id: None,
         model: None,
@@ -349,6 +355,7 @@ fn test_extract_model_all_none_returns_none() {
 #[test]
 fn test_extract_model_empty_strings_skipped() {
     let payload = Payload {
+        cwd: None,
         payload_type: None,
         id: None,
         model: Some("real-model"),

@@ -26,7 +26,7 @@ fn event(timestamp: &str, total: i64) -> String {
 
 fn session(path: &Path) {
     fs::write(path, format!("{}\n{}\n{}{}",
-        serde_json::json!({"type":"session_meta","payload":{"id":"shared-session","source":"cli"}}),
+        serde_json::json!({"type":"session_meta","payload":{"id":"shared-session","source":"cli","cwd":"/work/real-project"}}),
         serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5"}}),
         event("2026-09-01T23:30:00.123456Z", 10),
         event("2026-09-02T00:30:00Z", 30),
@@ -69,6 +69,9 @@ fn warm_cache_preserves_all_fields_and_session_identity_across_reopening() {
     let first = cache(root.path());
     let expected = parse(&first, &path, &DateFilter::default(), utc());
     assert_eq!(first.hits(), 0);
+    assert_eq!(expected.entries[0].session_id, "shared-session");
+    assert_eq!(expected.entries[0].session_key, path.display().to_string());
+    assert_eq!(expected.entries[0].project_path, "/work/real-project");
     let second = cache(root.path());
     assert_equal(
         &parse(&second, &path, &DateFilter::default(), utc()),

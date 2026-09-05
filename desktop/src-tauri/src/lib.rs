@@ -1,14 +1,15 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
 
 use ccstats::{
     CodexWeeklyQuota, CodexWeeklyValueEstimate, CodexWeeklyValueWindow, MultiCostSummary,
-    MultiSummaryOptions, ProjectDrilldownSummary, SourceDescriptor, SourceDiagnosticDescriptor,
-    SummaryOptions, TurnToolBreakdown, UsageHistory, UsageRange, UsageSource,
-    diagnose_usage_sources, estimate_codex_weekly_value_for_window, list_usage_sources,
-    load_codex_weekly_quota, summarize_cost_ranges_with_cli_config,
-    summarize_project_drilldown_with_cli_config, turn_tool_breakdown_with_cli_config,
-    usage_history_with_cli_config,
+    MultiSummaryOptions, ProjectDrilldownSummary, SessionTitle, SourceDescriptor,
+    SourceDiagnosticDescriptor, SummaryOptions, TurnToolBreakdown, UsageHistory, UsageRange,
+    UsageSource, diagnose_usage_sources, estimate_codex_weekly_value_for_window,
+    list_usage_sources, load_codex_weekly_quota, load_session_titles,
+    summarize_cost_ranges_with_cli_config, summarize_project_drilldown_with_cli_config,
+    turn_tool_breakdown_with_cli_config, usage_history_with_cli_config,
 };
 use serde::Serialize;
 use tauri::Manager;
@@ -120,14 +121,38 @@ fn summary_options(source: &str, range: &str) -> Result<SummaryOptions, String> 
     })
 }
 
+#[derive(Debug, Serialize)]
+struct DesktopProjectDrilldown {
+    #[serde(flatten)]
+    usage: ProjectDrilldownSummary,
+    session_titles: HashMap<String, SessionTitle>,
+    session_titles_error: Option<String>,
+}
+
 #[tauri::command]
 async fn project_drilldown(
     source: String,
     range: String,
-) -> Result<ProjectDrilldownSummary, String> {
+) -> Result<DesktopProjectDrilldown, String> {
     let options = summary_options(&source, &range)?;
     tauri::async_runtime::spawn_blocking(move || {
-        summarize_project_drilldown_with_cli_config(options).map_err(|error| error.to_string())
+        let usage = summarize_project_drilldown_with_cli_config(options)
+            .map_err(|error| error.to_string())?;
+        let ids = usage
+            .projects
+            .iter()
+            .flat_map(|project| &project.sessions)
+            .map(|session| session.session_id.clone())
+            .collect::<Vec<_>>();
+        let (session_titles, session_titles_error) = match load_session_titles(usage.source, &ids) {
+            Ok(titles) => (titles, None),
+            Err(error) => (HashMap::new(), Some(error.to_string())),
+        };
+        Ok(DesktopProjectDrilldown {
+            usage,
+            session_titles,
+            session_titles_error,
+        })
     })
     .await
     .map_err(|error| format!("project scan task failed: {error}"))?

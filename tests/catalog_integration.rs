@@ -27,7 +27,7 @@ fn catalog_projects_every_registered_usage_source() {
         .iter()
         .find(|source| source.name == "codex")
         .expect("Codex descriptor");
-    assert!(!codex.has_projects);
+    assert!(codex.has_projects);
     assert!(codex.has_cache_creation);
     assert!(codex.has_cache_read);
     assert!(codex.has_reasoning_tokens);

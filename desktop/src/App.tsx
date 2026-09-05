@@ -23,26 +23,28 @@ import { ActivityView } from "./ActivityView";
 import { CostTrustView } from "./CostTrustView";
 import { LiveView, useLiveUsage } from "./LiveView";
 import { MachinesView } from "./MachinesView";
+import { Icon } from "./Icon";
+import { SessionTitle } from "./SessionTitle";
 
 type AnalyticsView = "overview" | "trust" | "live" | "top" | "limits" | "machines" | "activity" | "projects" | "history" | "diagnostics";
-const VIEW_GROUPS: ReadonlyArray<{ label: string; views: ReadonlyArray<{ value: AnalyticsView; label: string; detail: string }> }> = [
-  { label: "Observe", views: [
-    { value: "overview", label: "Overview", detail: "Source totals" },
-    { value: "live", label: "Live", detail: "15-second watch" },
-    { value: "top", label: "Top consumers", detail: "Rankings and spikes" },
+const VIEW_GROUPS: ReadonlyArray<{ label: string; views: ReadonlyArray<{ value: AnalyticsView; label: string }> }> = [
+  { label: "Workspace", views: [
+    { value: "overview", label: "Overview" },
+    { value: "live", label: "Live" },
+    { value: "top", label: "Top consumers" },
   ] },
-  { label: "Explain", views: [
-    { value: "activity", label: "Turns & tools", detail: "Evidence trace" },
-    { value: "projects", label: "Projects", detail: "Session trace" },
-    { value: "history", label: "History", detail: "Daily movement" },
+  { label: "Explore", views: [
+    { value: "activity", label: "Turns & tools" },
+    { value: "projects", label: "Projects" },
+    { value: "history", label: "History" },
   ] },
-  { label: "Trust", views: [
-    { value: "trust", label: "Cost evidence", detail: "Pricing provenance" },
-    { value: "limits", label: "Limits", detail: "Quota and budget" },
-    { value: "diagnostics", label: "Diagnostics", detail: "Source readiness" },
+  { label: "Manage", views: [
+    { value: "trust", label: "Cost evidence" },
+    { value: "limits", label: "Limits" },
+    { value: "diagnostics", label: "Diagnostics" },
   ] },
   { label: "Devices", views: [
-    { value: "machines", label: "Machines", detail: "Cross-device rollup" },
+    { value: "machines", label: "Machines" },
   ] },
 ];
 
@@ -98,49 +100,35 @@ function displayedCost(summary: CostSummary) {
 }
 
 function TokenMap({ tokens }: { tokens: TokenBreakdown }) {
-  const adjustment = tokens.reported_total_adjustment;
-  const namedBuckets = [
-    { label: "Input", value: tokens.input_tokens, tone: "input" },
-    { label: "Output", value: tokens.output_tokens, tone: "output" },
-    { label: "Reasoning", value: tokens.reasoning_tokens, tone: "reasoning" },
-    { label: "Cache write", value: tokens.cache_creation_tokens, tone: "cache-write" },
-    { label: "Cache read", value: tokens.cache_read_tokens, tone: "cache-read" },
+  const buckets = [
+    { label: "Input", value: tokens.input_tokens, tone: "input", color: "#ca6546" },
+    { label: "Output", value: tokens.output_tokens, tone: "output", color: "#e9ae89" },
+    { label: "Reasoning", value: tokens.reasoning_tokens, tone: "reasoning", color: "#6d7f91" },
+    { label: "Cache write", value: tokens.cache_creation_tokens, tone: "cache-write", color: "#c9bc9e" },
+    { label: "Cache read", value: tokens.cache_read_tokens, tone: "cache-read", color: "#718477" },
+    ...(tokens.reported_total_adjustment !== 0 ? [{ label: "Provider adjustment", value: tokens.reported_total_adjustment, tone: "adjustment", color: "#a494af" }] : []),
   ];
-  const componentTotal = namedBuckets.reduce((sum, bucket) => sum + Math.max(bucket.value, 0), 0);
-  const total = Math.max(tokens.total_tokens, componentTotal, 1);
-  const buckets = adjustment > 0
-    ? [...namedBuckets, { label: "Provider adjustment", value: adjustment, tone: "adjustment" }]
-    : namedBuckets;
-
+  const positiveTotal = buckets.reduce((sum, bucket) => sum + Math.max(bucket.value, 0), 0);
+  let offset = 0;
   return (
-    <>
-      <div className="token-map" aria-label="Token composition">
-        {buckets.map((bucket) => {
-          const percentage = (bucket.value / total) * 100;
-          return bucket.value > 0 ? (
-            <div
-              className={`token-map-segment map-${bucket.tone}`}
-              key={bucket.label}
-              style={{ flexBasis: `${percentage}%` }}
-            >
-              {percentage >= 10 ? (
-                <><span>{bucket.label}</span><strong>{formatTokens(bucket.value)}</strong></>
-              ) : null}
-            </div>
-          ) : null;
-        })}
+    <div className="composition-layout">
+      <div className="composition-ring">
+        <svg viewBox="0 0 200 200" role="img" aria-label="Token composition; exact values in the legend">
+          <circle cx="100" cy="100" r="82" fill="none" stroke="var(--line)" strokeWidth="20" />
+          {buckets.filter((bucket) => bucket.value > 0).map((bucket) => {
+            const share = bucket.value / positiveTotal * 100;
+            const start = offset;
+            offset += share;
+            return <circle key={bucket.tone} cx="100" cy="100" r="82" fill="none" stroke={bucket.color} strokeWidth="20" pathLength="100" strokeDasharray={`${share} ${100 - share}`} strokeDashoffset={-start} transform="rotate(-90 100 100)" />;
+          })}
+        </svg>
+        <div className="ring-label"><span>Token mix</span><strong>{new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(tokens.total_tokens)}</strong><small>Total tokens</small></div>
       </div>
       <dl className="token-key">
-        {[...namedBuckets, ...(adjustment !== 0 ? [{ label: "Provider adjustment", value: adjustment, tone: "adjustment" }] : [])].map((bucket) => (
-          <div key={bucket.label}>
-            <dt><i className={`key-${bucket.tone}`} />{bucket.label}</dt>
-            <dd>{formatTokens(bucket.value)}</dd>
-            <small>{((bucket.value / total) * 100).toFixed(1)}%</small>
-          </div>
-        ))}
+        {buckets.map((bucket) => <div key={bucket.tone}><dt><i className={`key-${bucket.tone}`} />{bucket.label}</dt><dd>{formatTokens(bucket.value)}</dd></div>)}
       </dl>
-      {adjustment < 0 ? <p className="token-adjustment-note">The provider-reported total is {formatTokens(Math.abs(adjustment))} tokens below the named components. The total remains authoritative.</p> : null}
-    </>
+      {tokens.reported_total_adjustment < 0 ? <p className="token-adjustment-note">The provider-reported total is {formatTokens(Math.abs(tokens.reported_total_adjustment))} tokens below the named components. The total remains authoritative; the ring shows positive components.</p> : null}
+    </div>
   );
 }
 
@@ -218,68 +206,40 @@ function EmptyState({ source, range, parseErrors }: { source: string; range: str
   );
 }
 
-function OverviewView({
-  overview,
-  summary,
-  sourceDescriptor,
-  range,
-}: {
+function OverviewView({ overview, summary, sourceDescriptor, range, onNavigate }: {
   overview: UsageOverview;
   summary: CostSummary;
   sourceDescriptor: SourceDescriptor | null;
   range: UsageRange;
+  onNavigate: (view: AnalyticsView) => void;
 }) {
+  const models = [...summary.models].sort((a, b) => b.tokens.total_tokens - a.tokens.total_tokens);
+  const modelTokens = models.reduce((sum, model) => sum + model.tokens.total_tokens, 0);
+  const leadingShare = modelTokens > 0 && models[0] ? models[0].tokens.total_tokens / modelTokens * 100 : 0;
+  if (summary.valid_entries === 0 && summary.tokens.total_tokens === 0) {
+    return <EmptyState source={overview.display_name} range={range.replaceAll("_", " ")} parseErrors={summary.parse_error_entries} />;
+  }
   return (
     <>
-      <div className="report-meta">
-        <div><span className="source-beacon" /><strong>{overview.display_name}</strong><span>{summary.range.replaceAll("_", " ")}</span></div>
-        <span>Scanned in {overview.elapsed_ms.toFixed(1)} ms · {new Date(overview.generated_at).toLocaleString()}</span>
-      </div>
+      <div className="report-meta"><div><span className="source-beacon" /><strong>{overview.display_name}</strong><span> / {range.replaceAll("_", " ")}</span></div><span>Updated {new Date(overview.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div>
+      <section className="metric-grid" aria-label="Usage snapshot">
+        <article className="metric-card metric-primary"><div className="metric-label"><span>Total tokens</span><Icon name="activity" /></div><strong data-testid="total-tokens">{formatTokens(summary.tokens.total_tokens)}</strong><small><span className="metric-dot" />Across {summary.models.length} observed {summary.models.length === 1 ? "model" : "models"}</small></article>
+        <article className="metric-card"><div className="metric-label"><span>{costIsLowerBound(summary) ? "Cost lower bound" : hasExactCost(summary) ? "Total cost" : "Cost to review"}</span><Icon name="trust" /></div><strong data-testid="total-cost" className={hasExactCost(summary) ? "" : "unknown-cost"}>{displayedCost(summary)}</strong><small data-testid={costIsLowerBound(summary) ? "cost-coverage" : undefined}>{costIsLowerBound(summary) && summary.api_equivalent_cost_coverage ? `${formatTokens(summary.api_equivalent_cost_coverage.priced_tokens)} / ${formatTokens(summary.api_equivalent_cost_coverage.total_tokens)} tokens priced (${summary.api_equivalent_cost_coverage.percent.toFixed(1)}%)` : summary.cost === null ? "Pricing is not available" : `${summary.pricing_source.replaceAll("_", " ")} pricing · ${summary.currency}`}</small></article>
+        <article className="metric-card"><div className="metric-label"><span>Cache hit rate</span><Icon name="refresh" /></div><strong>{summary.tokens.cache_hit_rate === null ? "—" : summary.tokens.cache_hit_rate.toFixed(1)}{summary.tokens.cache_hit_rate !== null ? <em>%</em> : null}</strong><small>{formatTokens(summary.tokens.cache_read_tokens)} tokens reused</small></article>
+        <article className="metric-card"><div className="metric-label"><span>Parsed records</span><Icon name="history" /></div><strong>{formatTokens(summary.valid_entries)}</strong><small>{overview.elapsed_ms.toFixed(1)} ms to scan this ledger</small></article>
+      </section>
 
-      {summary.valid_entries === 0 && summary.tokens.total_tokens === 0 ? (
-        <EmptyState source={overview.display_name} range={range.replaceAll("_", " ")} parseErrors={summary.parse_error_entries} />
-      ) : (
-        <>
-          <section className="overview-workbench">
-            <article className="work-pane token-map-pane">
-              <header className="pane-heading">
-                <div><h2>Token map</h2><p>Reported components reconciled on one shared scale.</p></div>
-                <span>{summary.currency}</span>
-              </header>
-              <div className="primary-reading">
-                <span>Total tokens</span>
-                <strong data-testid="total-tokens">{formatTokens(summary.tokens.total_tokens)}</strong>
-              </div>
-              <TokenMap tokens={summary.tokens} />
-              <QualityStatus summary={summary} />
-            </article>
-
-            <aside className="work-pane snapshot-pane" aria-label="Usage snapshot">
-              <header className="pane-heading"><div><h2>Snapshot</h2><p>Trust and accounting signals.</p></div></header>
-              <dl className="snapshot-list">
-                <div>
-                  <dt>{costIsLowerBound(summary) ? "Cost lower bound" : hasExactCost(summary) ? "Total cost" : "Cost to review"}</dt>
-                  <dd data-testid="total-cost" className={hasExactCost(summary) ? "known-cost" : "unknown-cost"}>{displayedCost(summary)}</dd>
-                  <small data-testid={costIsLowerBound(summary) ? "cost-coverage" : undefined}>{costIsLowerBound(summary) && summary.api_equivalent_cost_coverage ? `${formatTokens(summary.api_equivalent_cost_coverage.priced_tokens)} / ${formatTokens(summary.api_equivalent_cost_coverage.total_tokens)} tokens priced (${summary.api_equivalent_cost_coverage.percent.toFixed(1)}%)` : summary.cost === null ? "No trustworthy price" : hasExactCost(summary) ? summary.cost_kind : summary.pricing_source}</small>
-                </div>
-                <div><dt>Records</dt><dd>{formatTokens(summary.valid_entries)}</dd><small>Parsed source events</small></div>
-                <div><dt>Cache hit</dt><dd>{summary.tokens.cache_hit_rate === null ? "—" : `${summary.tokens.cache_hit_rate.toFixed(1)}%`}</dd><small>Input-side reuse</small></div>
-              </dl>
-              <div className="capability-block">
-                <span>Available evidence</span>
-                <div>
-                  {sourceDescriptor?.has_projects ? <em>Projects</em> : null}
-                  {sourceDescriptor?.has_reasoning_tokens ? <em>Reasoning</em> : null}
-                  {sourceDescriptor?.has_cache_read ? <em>Cache read</em> : null}
-                  {sourceDescriptor?.has_cache_creation ? <em>Cache write</em> : null}
-                </div>
-              </div>
-            </aside>
-          </section>
-          <SourceTable overview={overview} range={range} />
-          <ModelTable summary={summary} />
-        </>
-      )}
+      <section className="overview-workbench">
+        <article className="work-pane token-map-pane"><header className="pane-heading"><div><span className="eyebrow">THE BREAKDOWN</span><h2>Where your tokens go</h2></div><span className="subtle-tag">Tokens</span></header><TokenMap tokens={summary.tokens} /></article>
+        <article className="work-pane model-distribution"><header className="pane-heading"><div><span className="eyebrow">MODEL MIX</span><h2>Your most-used models</h2></div><Icon name="top" /></header>
+          {models.length > 0 ? <><p className="model-insight"><strong>{leadingShare.toFixed(0)}<span>%</span></strong><span>of model-attributed tokens<br />from <b>{models[0].model}</b></span></p><ol className="model-bars">{models.slice(0, 4).map((model, index) => <li key={model.model}><div><span><i className={`model-dot model-color-${index}`} />{model.model}</span><strong>{modelTokens > 0 ? (model.tokens.total_tokens / modelTokens * 100).toFixed(1) : "0.0"}%</strong></div><div className="model-track"><i className={`model-color-${index}`} style={{ width: `${modelTokens > 0 ? model.tokens.total_tokens / modelTokens * 100 : 0}%` }} /></div></li>)}</ol></> : <p className="evidence-note">No model attribution was recorded for this period.</p>}
+          <button className="text-action" onClick={() => onNavigate("top")}>Explore consumers <Icon name="arrow" /></button>
+        </article>
+      </section>
+      <div className="quality-row"><QualityStatus summary={summary} /><button className="text-action" onClick={() => onNavigate("trust")}>Inspect pricing <Icon name="arrow" /></button></div>
+      <SourceTable overview={overview} range={range} />
+      <ModelTable summary={summary} />
+      <aside className="explore-banner"><div className="banner-icon"><Icon name="projects" /></div><div><strong>Follow the numbers back to the work.</strong><p>{sourceDescriptor?.has_projects ? "Explore the projects and sessions behind this usage." : "Inspect the recorded model turns behind this usage."}</p></div><button onClick={() => onNavigate(sourceDescriptor?.has_projects ? "projects" : "activity")}>{sourceDescriptor?.has_projects ? "Open explorer" : "View activity"}<Icon name="arrow" /></button></aside>
     </>
   );
 }
@@ -291,7 +251,12 @@ function ProjectView({ data }: { data: ProjectDrilldownSummary }) {
   if (data.projects.length === 0 && data.quality.parse_error_entries > 0) return <AnalysisQualityNotice quality={data.quality} />;
   if (data.projects.length === 0) return <EmptyState source={data.display_name} range={data.range.replaceAll("_", " ")} parseErrors={0} />;
   return (
-    <><AnalysisQualityNotice quality={data.quality} /><section className="project-workbench" aria-labelledby="projects-title">
+    <><AnalysisQualityNotice quality={data.quality} />
+    {data.session_titles_error && <aside role="alert" className="quality-notice quality-notice-error">
+      <strong>Source titles could not be loaded.</strong>
+      <span>{data.session_titles_error} Usage totals are still available. Refresh to retry.</span>
+    </aside>}
+    <section className="project-workbench" aria-labelledby="projects-title">
       <div className="work-pane project-master">
         <header className="pane-heading">
           <div><h2 id="projects-title">Projects &amp; sessions</h2><p>Select a project to inspect its sessions.</p></div>
@@ -326,15 +291,15 @@ function ProjectView({ data }: { data: ProjectDrilldownSummary }) {
             </header>
             <div className="session-list">
               {selected.sessions.map((session) => (
-                <article key={session.session_id}>
-                  <div><strong>{session.session_id}</strong><span>{new Date(session.last_timestamp).toLocaleString()}</span></div>
+                <article key={`${data.source_name}:${session.session_id}`}>
+                  <SessionTitle source={data.source_name} projectName={selected.project_name} session={session} sourceTitle={data.session_titles[session.session_id]} />
                   <dl><div><dt>Tokens</dt><dd>{formatTokens(session.metrics.tokens.total_tokens)}</dd></div><div><dt>Cost</dt><dd className={hasExactCost(session.metrics) ? "known-cost" : "unknown-cost"}>{session.metrics.api_equivalent_cost_coverage?.cost_is_lower_bound ? "≥ " : session.metrics.cost !== null && !hasExactCost(session.metrics) ? "≈ " : ""}{formatCost(session.metrics.cost, data.currency)}<small>{session.metrics.pricing_source}</small></dd></div></dl>
                 </article>
               ))}
             </div>
           </>
         ) : (
-          <div className="inspector-empty"><span aria-hidden="true">↳</span><h2>Select a project</h2><p>Its session IDs, last activity, tokens, and cost will appear here.</p></div>
+          <div className="inspector-empty"><span aria-hidden="true">↳</span><h2>Select a project</h2><p>Its session titles, IDs, last activity, tokens, and cost will appear here.</p></div>
         )}
       </aside>
     </section></>
@@ -353,11 +318,11 @@ function HistoryView({ data, exporting, onExport }: { data: UsageHistory; export
         <div className="export-actions"><button type="button" disabled={exporting} onClick={() => onExport("csv")}>Export CSV</button><button type="button" disabled={exporting} onClick={() => onExport("json")}>Export JSON</button></div>
       </header>
       <figure className="history-chart">
-        <div className="chart-plot" aria-label="Token history chart">
+        <div className="chart-plot" aria-label="Token history chart" style={{ minWidth: `${data.points.length * 46}px` }}>
           {data.points.map((point) => (
-            <div className="chart-slot" key={point.date}>
+            <div className="chart-slot" key={point.date} title={`${point.date}: ${formatTokens(point.tokens.total_tokens)} tokens`}>
               <span className="chart-value">{formatTokens(point.tokens.total_tokens)}</span>
-              <i style={{ height: `${Math.max((point.tokens.total_tokens / maxTokens) * 100, 3)}%` }} />
+              <i style={{ height: `${(point.tokens.total_tokens / maxTokens) * 100}%` }} />
               <small>{point.date.slice(5)}</small>
             </div>
           ))}
@@ -499,6 +464,7 @@ function QuotaBudgetView({ quota, quotaError, monthly, budget, onBudgetChange }:
           <header className="pane-heading"><div><h3 id="quota-title">Codex weekly quota</h3><p>Latest provider-reported weekly window.</p></div></header>
           {quota ? (
             <>
+              <div className={`usage-meter ${quota.quota.projected_pct_at_reset > 100 ? "meter-watch" : ""}`} role="progressbar" aria-label="Codex weekly quota used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.max(0, quota.quota.used_pct))}><i style={{ width: `${Math.min(100, Math.max(0, quota.quota.used_pct))}%` }} /></div>
               <dl className="limit-metrics">
                 <div><dt>Used</dt><dd data-testid="quota-used">{formatPercent(quota.quota.used_pct)}</dd></div>
                 <div><dt>Remaining</dt><dd data-testid="quota-remaining">{formatPercent(quota.quota.remaining_pct)}</dd></div>
@@ -519,6 +485,7 @@ function QuotaBudgetView({ quota, quotaError, monthly, budget, onBudgetChange }:
           <header className="pane-heading"><div><h3 id="budget-title">Monthly budget</h3><p>Forecast from confirmed month-to-date cost.</p></div></header>
           <label className="budget-input">Monthly budget<input aria-label="Monthly budget" type="number" min="0.01" step="1" value={budget} onChange={(event) => onBudgetChange(event.target.value)} /></label>
           {!validLimit ? <p className="inline-warning">Enter a positive monthly budget.</p> : null}
+          {validLimit && spentIsExact && spent !== null ? <div className={`usage-meter ${spent > limit ? "meter-watch" : ""}`} role="progressbar" aria-label="Monthly budget used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.max(0, spent / limit * 100))}><i style={{ width: `${Math.min(100, Math.max(0, spent / limit * 100))}%` }} /></div> : null}
           <dl className="limit-metrics">
             <div><dt>Spent</dt><dd data-testid="budget-spent">{spentPrefix}{formatCost(spent, monthly?.currency ?? "USD")}</dd></div>
             <div><dt>Remaining</dt><dd data-testid="budget-remaining">{formatCost(remaining, monthly?.currency ?? "USD")}</dd></div>
@@ -711,7 +678,7 @@ export default function App() {
 
   const pageTitle = view === "overview" ? "Usage overview" : view === "trust" ? "Cost trust" : view === "live" ? "Live usage" : view === "top" ? "Top consumers" : view === "limits" ? "Quota and budget" : view === "machines" ? "Machine rollup" : view === "activity" ? "Turns and tools" : view === "projects" ? "Project explorer" : view === "history" ? "Usage history" : "Source diagnostics";
   const pageDescription = view === "overview"
-    ? "Reconcile tokens, cost, and provider evidence."
+    ? "A little clarity on everything your AI is using."
     : view === "trust"
       ? "Trace every displayed amount to its usage basis, pricing source, and coverage boundary."
     : view === "live"
@@ -731,11 +698,11 @@ export default function App() {
         : "Check every registered source and see the next setup action.";
 
   return (
-    <div className="polar-shell">
+    <div className="ledger-shell">
       <aside className="sidebar">
-        <div className="brand-lockup"><span aria-hidden="true">c</span><div><strong>ccstats</strong><small>Usage intelligence</small></div></div>
+        <div className="brand-lockup"><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span><strong>ccstats<span>.</span></strong><small>DESKTOP</small></div><div className="workspace-label"><span className="workspace-avatar">P</span><div><strong>Personal workspace</strong><small>Local usage analytics</small></div></div>
         <nav className="side-nav" aria-label="Analytics view">
-          {VIEW_GROUPS.map((group) => <section className="nav-group" aria-label={group.label} key={group.label}><h2>{group.label}</h2>{group.views.map((item) => <button type="button" key={item.value} className={view === item.value ? "active" : ""} aria-label={item.label} aria-pressed={view === item.value} disabled={loading || sources.length === 0} onClick={() => void loadView(item.value, selectedSource, selectedRange)}><div><strong>{item.label}</strong><small>{item.detail}</small></div></button>)}</section>)}
+          {VIEW_GROUPS.map((group) => <section className="nav-group" aria-label={group.label} key={group.label}><h2>{group.label}</h2>{group.views.map((item) => <button type="button" key={item.value} className={view === item.value ? "active" : ""} aria-label={item.label} aria-pressed={view === item.value} disabled={loading || sources.length === 0} onClick={() => void loadView(item.value, selectedSource, selectedRange)}><Icon name={item.value} /><strong>{item.label}</strong>{item.value === "live" ? <i className="nav-live-dot" /> : null}</button>)}</section>)}
         </nav>
         <div className="sidebar-source">
           <label htmlFor="source-select">Usage source</label>
@@ -747,17 +714,18 @@ export default function App() {
           </div>
           <small>{Math.max(sources.length - 1, 0)} registered · {readySourceNames.length} ready</small>
         </div>
-        <div className="local-status"><i aria-hidden="true" /><div><strong>Local only</strong><small>No transcript upload</small></div></div>
+        <div className="local-status"><Icon name="shield" /><div><strong>Your data stays yours.</strong><small>No transcript upload</small></div></div>
       </aside>
 
       <div className="workspace">
+        <div className="workspace-topbar"><div><Icon name={view} /><span>Workspace</span><span className="breadcrumb-divider">/</span><strong>{VIEW_GROUPS.flatMap((group) => group.views).find((item) => item.value === view)?.label}</strong></div><span className="local-badge"><i />Local workspace</span></div>
         <header className="workspace-toolbar">
-          <div className="page-heading"><span>{view === "machines" ? "Local snapshot store" : selectedSourceLabel}</span><h1>{pageTitle}</h1><p>{pageDescription}</p></div>
+          <div className="page-heading"><span className="eyebrow">{view === "machines" ? "YOUR CONNECTED DEVICES" : "YOUR AI, ACCOUNTED FOR"}</span><h1>{pageTitle}</h1><p>{pageDescription}</p></div>
           <div className="toolbar-actions">
             {view !== "diagnostics" && view !== "limits" && view !== "live" && view !== "machines" ? <div className="period-control" aria-label="Usage period">
               {RANGE_OPTIONS.map((range) => <button type="button" key={range.value} aria-label={range.label} aria-pressed={selectedRange === range.value} className={selectedRange === range.value ? "active" : ""} onClick={() => changeRange(range.value)}>{range.label}</button>)}
             </div> : null}
-            {view !== "machines" && view !== "activity" ? <button type="button" className="refresh-button" aria-label="Refresh ledger" onClick={() => view === "live" ? void live.refresh(false) : void loadView(view, selectedSource, selectedRange)} disabled={loading || live.refreshing || selectedSource.length === 0}><span aria-hidden="true">↻</span> Refresh</button> : null}
+            {view !== "machines" && view !== "activity" ? <button type="button" className="refresh-button" aria-label="Refresh ledger" onClick={() => view === "live" ? void live.refresh(false) : void loadView(view, selectedSource, selectedRange)} disabled={loading || live.refreshing || selectedSource.length === 0}><Icon name="refresh" /> Refresh</button> : null}
           </div>
         </header>
 
@@ -789,10 +757,10 @@ export default function App() {
               ? <section className="state-pane empty-state"><span aria-hidden="true">↳</span><div><h2>Choose one source</h2><p>Choose a concrete source to inspect and export daily history.</p></div></section>
               : history ? <HistoryView data={history} exporting={exporting} onExport={(format) => void exportHistory(format)} /> : null
           ) : summary && overview ? (
-            <div data-testid="overview-content"><OverviewView overview={overview} summary={summary} sourceDescriptor={sourceDescriptor} range={selectedRange} /></div>
+            <div data-testid="overview-content"><OverviewView overview={overview} summary={summary} sourceDescriptor={sourceDescriptor} range={selectedRange} onNavigate={(nextView) => void loadView(nextView, selectedSource, selectedRange)} /></div>
           ) : null}
         </main>
-        <footer className="workspace-footer"><span>Authoritative fields over inferred totals</span><span>{selectedRangeLabel}</span></footer>
+        <footer className="workspace-footer"><span><span className="footer-mark">cc.</span> A clearer picture of your AI usage.</span><span>{selectedSourceLabel} · {selectedRangeLabel}</span></footer>
       </div>
     </div>
   );
