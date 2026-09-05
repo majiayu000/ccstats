@@ -208,16 +208,6 @@ pub(super) fn find_codex_files() -> Vec<PathBuf> {
 // Parsing
 // ============================================================================
 
-fn estimate_entry_capacity(file: &File, approx_bytes_per_entry: u64) -> usize {
-    let estimate = file
-        .metadata()
-        .ok()
-        .map(|meta| meta.len() / approx_bytes_per_entry)
-        .and_then(|n| usize::try_from(n).ok())
-        .unwrap_or(0);
-    estimate.saturating_add(1)
-}
-
 fn non_empty_model(model: Option<&str>) -> Option<&str> {
     model.filter(|m| !m.trim().is_empty())
 }
@@ -356,8 +346,7 @@ fn parse_codex_file(
         Ok(file) => file,
         Err(output) => return output,
     };
-    let estimated_capacity = estimate_entry_capacity(&file, 260);
-    let mut state = CodexParseState::new(estimated_capacity, context.identity.session_key.clone());
+    let mut state = CodexParseState::new(0, context.identity.session_key.clone());
 
     parse_codex_reader(BufReader::new(file), &context, &mut state);
     state.finish()
@@ -397,7 +386,7 @@ fn parse_codex_reader<R: BufRead>(
                     );
                 }
                 state.parse_errors += 1;
-                continue;
+                break;
             }
         };
         if bytes_read == 0 {

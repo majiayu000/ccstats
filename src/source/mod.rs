@@ -592,6 +592,25 @@ pub(crate) trait Source: Send + Sync {
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
 
+    /// Sources with a usage cache can apply the range before expanding cached records.
+    fn parse_file_filtered(
+        &self,
+        path: &Path,
+        filter: &DateFilter,
+        timezone: Timezone,
+        debug: bool,
+    ) -> ParseOutput {
+        let parsed = self.parse_file(path, timezone, debug);
+        ParseOutput {
+            entries: loader::DataLoader::filter_entries(parsed.entries, filter, timezone),
+            errors: parsed.errors,
+        }
+    }
+
+    fn cached_file_count(&self) -> usize {
+        0
+    }
+
     fn finalize_entries(&self, entries: Vec<RawEntry>) -> Vec<RawEntry> {
         entries
     }
