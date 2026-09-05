@@ -1,5 +1,6 @@
 mod blocks;
 mod budget;
+mod conclusion;
 mod csv;
 mod endpoints;
 mod format;
