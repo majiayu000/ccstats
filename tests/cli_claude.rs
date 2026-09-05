@@ -420,6 +420,8 @@ fn claude_daily_json_missing_claude_config_dir_returns_no_data() {
     let (ok, stdout, stderr) = run_ccstats(
         &[
             "daily",
+            "--source",
+            "claude",
             "-j",
             "-O",
             "--no-cost",
