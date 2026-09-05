@@ -78,6 +78,68 @@ fn warm_cache_preserves_all_fields_and_session_identity_across_reopening() {
 }
 
 #[test]
+fn cache_writes_and_long_context_classification_survive_reopening() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("writes.jsonl");
+    let mut lines = vec![
+        serde_json::json!({"type":"session_meta","payload":{"id":"writes","source":"cli"}}),
+        serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5"}}),
+    ];
+    let mut total_input = 0;
+    let mut total_writes = 0;
+    for (index, input) in [272_000, 272_001, 100_000].into_iter().enumerate() {
+        total_input += input;
+        total_writes += 20_000;
+        lines.push(serde_json::json!({
+            "type":"event_msg", "timestamp":format!("2026-09-02T00:0{index}:00Z"),
+            "payload":{"type":"token_count", "info":{
+                "total_token_usage":{"input_tokens":total_input,
+                    "cache_write_input_tokens":total_writes,"output_tokens":0,
+                    "total_tokens":total_input}
+            }}
+        }));
+    }
+    fs::write(
+        &path,
+        lines
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .unwrap();
+    let expected = parse_codex_file_with_scope(&path, utc(), false, CodexScope::All);
+    assert_eq!(expected.errors, 0);
+    assert_eq!(expected.entries.len(), 3);
+    assert_eq!(
+        expected
+            .entries
+            .iter()
+            .map(|e| e.cache_creation)
+            .sum::<i64>(),
+        60_000
+    );
+    assert_eq!(expected.entries[0].to_stats().above_272k.cache_creation, 0);
+    assert_eq!(
+        expected.entries[1].to_stats().above_272k.cache_creation,
+        20_000
+    );
+    let cold = cache(root.path());
+    assert_equal(
+        &parse(&cold, &path, &DateFilter::default(), utc()),
+        &expected,
+    );
+    drop(cold);
+    let reopened = cache(root.path());
+    let warm = parse(&reopened, &path, &DateFilter::default(), utc());
+    assert_equal(&warm, &expected);
+    assert_eq!(reopened.hits(), 1);
+    for (actual, expected) in warm.entries.iter().zip(&expected.entries) {
+        assert_eq!(actual.to_stats().above_272k, expected.to_stats().above_272k);
+    }
+}
+
+#[test]
 fn cached_ranges_and_timezone_changes_match_uncached_filtering() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("old-session.jsonl");

@@ -37,7 +37,7 @@ ccstats writes only operational data needed to make repeated reports reliable:
 
 - pricing cache under the platform cache directory and exchange-rate cache
   under `~/.cache/ccstats/`;
-- a Codex usage cache at `<platform cache>/ccstats/codex-usage-v1.sqlite3`
+- a Codex usage cache at `<platform cache>/ccstats/codex-usage-v2.sqlite3`
   (with SQLite WAL/SHM sidecars). It stores file identities, event timestamps,
   model names, deduplication keys, and token counts; it does not store conversation
   text or fixed prices. Unchanged files reuse these facts across reports and

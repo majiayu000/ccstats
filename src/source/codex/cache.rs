@@ -22,7 +22,7 @@ use super::parser::parse_codex_file_with_scope;
 type CacheResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 // Version the filename when the parser's usage semantics or stored fields change.
-const CACHE_FILE: &str = "codex-usage-v1.sqlite3";
+const CACHE_FILE: &str = "codex-usage-v2.sqlite3";
 
 #[derive(Default)]
 pub(super) struct CodexCache {
@@ -31,10 +31,11 @@ pub(super) struct CodexCache {
     reported_error: AtomicBool,
 }
 
-// Timestamp, milliseconds, dedup identity, model, input, output, cache, reasoning.
+// Timestamp, milliseconds, dedup identity, model, input, output, cache read,
+// reasoning, cache creation.
 // Session paths and local dates are reconstructed, never serialized per event.
 #[derive(Deserialize)]
-struct StoredEntry(String, i64, Option<String>, String, i64, i64, i64, i64);
+struct StoredEntry(String, i64, Option<String>, String, i64, i64, i64, i64, i64);
 
 impl StoredEntry {
     fn expand(self, path: &Path, date: NaiveDate) -> RawEntry {
@@ -53,7 +54,7 @@ impl StoredEntry {
             model: self.3,
             input_tokens: self.4,
             output_tokens: self.5,
-            cache_creation: 0,
+            cache_creation: self.8,
             cache_creation_1h: 0,
             cache_read: self.6,
             reasoning_tokens: self.7,
@@ -268,6 +269,7 @@ impl CodexCache {
                     entry.output_tokens,
                     entry.cache_read,
                     entry.reasoning_tokens,
+                    entry.cache_creation,
                 )
             })
             .collect();
