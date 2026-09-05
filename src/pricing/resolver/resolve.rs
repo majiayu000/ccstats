@@ -299,7 +299,7 @@ fn strip_yyyy_mm_dd_suffix(key: &str) -> Option<&str> {
 }
 
 fn unique_pricing(
-    candidates: Vec<(String, String, [u64; 6], &ModelPricing)>,
+    candidates: Vec<(String, String, [u64; 11], &ModelPricing)>,
 ) -> Option<PricingMatch> {
     match resolve_unique_pricing(candidates) {
         PricingResolution::Resolved(pricing) => Some(pricing),
@@ -308,7 +308,7 @@ fn unique_pricing(
 }
 
 fn resolve_unique_pricing(
-    candidates: Vec<(String, String, [u64; 6], &ModelPricing)>,
+    candidates: Vec<(String, String, [u64; 11], &ModelPricing)>,
 ) -> PricingResolution {
     let mut unique = HashMap::new();
     for (canonical, matched_key, signature, pricing) in candidates {
@@ -339,7 +339,7 @@ fn resolve_unique_pricing(
     })
 }
 
-fn pricing_signature(pricing: &ModelPricing) -> [u64; 6] {
+fn pricing_signature(pricing: &ModelPricing) -> [u64; 11] {
     [
         pricing.input.to_bits(),
         pricing.output.to_bits(),
@@ -347,6 +347,20 @@ fn pricing_signature(pricing: &ModelPricing) -> [u64; 6] {
         pricing.cache_read.to_bits(),
         pricing.cache_create.to_bits(),
         pricing.cache_create_1h.to_bits(),
+        u64::from(pricing.above_272k.is_some()),
+        pricing.above_272k.as_ref().map_or(0, |p| p.input.to_bits()),
+        pricing
+            .above_272k
+            .as_ref()
+            .map_or(0, |p| p.output.to_bits()),
+        pricing
+            .above_272k
+            .as_ref()
+            .map_or(0, |p| p.cache_read.to_bits()),
+        pricing
+            .above_272k
+            .as_ref()
+            .map_or(0, |p| p.cache_create.to_bits()),
     ]
 }
 

@@ -392,6 +392,7 @@ mod tests {
         db.models.insert(
             "sonnet-4".to_string(),
             ModelPricing {
+                above_272k: None,
                 input: 3e-6,
                 output: 15e-6,
                 reasoning_output: 15e-6,
@@ -425,6 +426,7 @@ mod tests {
         db.models.insert(
             "sonnet-4".to_string(),
             ModelPricing {
+                above_272k: None,
                 input: 3e-6,
                 output: 15e-6,
                 reasoning_output: 15e-6,
@@ -497,6 +499,7 @@ mod tests {
         db.models.insert(
             "opus-4".to_string(),
             ModelPricing {
+                above_272k: None,
                 input: 15e-6,
                 output: 75e-6,
                 reasoning_output: 75e-6,
