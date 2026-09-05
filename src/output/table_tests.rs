@@ -23,6 +23,9 @@ fn default_opts() -> TokenTableOptions<'static> {
         secondary_cost_display_overrides: None,
         secondary_total_cost_display_override: None,
         pricing_note_override: None,
+        comparison_days: None,
+        is_today: false,
+        source_count: None,
     }
 }
 

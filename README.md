@@ -9,24 +9,44 @@
 
 ![ccstats token and cost analytics card](docs/branding/readme-card.png)
 
-`ccstats` is a fast, local-first CLI, Rust SDK, and desktop workbench for token
-and cost analytics across 29 AI coding-agent data sources.
-
-One binary turns the usage metadata your coding agents already produce into
-terminal reports and structured JSON/CSV. No ccstats account or telemetry is
-required.
+`ccstats` is a local-first CLI for token and cost analytics across 29 AI
+coding-agent data sources. One binary turns the usage metadata your coding
+agents already produce into terminal reports and structured JSON/CSV. No
+ccstats account or telemetry is required. A desktop workbench is available as
+a downloadable installer over the same accounting engine; it is not required
+to use the CLI.
 
 ## 30-second start
 
 ```bash
 brew install majiayu000/tap/ccstats
-ccstats doctor
-ccstats daily --source all
+ccstats
 ```
 
-`doctor` is read-only and never contacts remote providers. It shows which
-registered sources are detected or configured, plus a practical hint for
-missing sources.
+With no arguments, `ccstats` uses sources detected or configured on this
+machine. If none are ready, it shows `doctor` instead of an empty report.
+`doctor` is read-only and never contacts remote providers.
+
+## Core sources
+
+Canonical commands use `--source`. `ccstats codex today` is an alias of
+`ccstats today --source codex` (the same pattern exists for `grok` and `kimi`).
+
+| Source | Usage input | Start here |
+|--------|-------------|------------|
+| Claude Code | `~/.claude/projects/` | `ccstats today --source claude` |
+| OpenAI Codex | `~/.codex/sessions/` and local quota snapshots | `ccstats today --source codex` |
+| Cursor | Official usage API or an explicit replay file | `ccstats today --source cursor` |
+| Gemini CLI | `~/.gemini/tmp/` | `ccstats today --source gemini` |
+| Grok | `~/.grok/logs/unified.jsonl` with session fallback | `ccstats today --source grok` |
+| Kimi Code | `~/.kimi-code/sessions/` wire logs | `ccstats today --source kimi` |
+| OpenCode | Platform data directory under `opencode/opencode*.db` | `ccstats today --source opencode` |
+
+See the [complete source registry](#complete-source-registry) for all 29
+sources, including DeepSeek Harness. Run `ccstats sources` for aliases and
+per-source capabilities, or `ccstats doctor --json` for machine-readable
+setup diagnostics. The reusable Rust SDK is on
+[docs.rs/ccstats](https://docs.rs/ccstats/latest/ccstats/).
 
 ## Why ccstats
 
@@ -45,83 +65,6 @@ ccstats keeps its CLI and Rust SDK as the accounting engine. The desktop app is
 a local investigation surface over the same source registry and summary APIs;
 it does not upload transcripts or substitute mock data when a source fails.
 
-## Desktop application development
-
-The desktop app requires Node.js 20.19+ (or 22.12+), Rust 1.88+, and the
-platform prerequisites for [Tauri 2](https://v2.tauri.app/start/prerequisites/).
-From the repository root:
-
-```bash
-cd desktop
-npm install
-npm run tauri -- dev
-```
-
-The app discovers detected or configured sources at startup and opens the first
-ready ledger. If none are ready, it opens Diagnostics instead of presenting an
-empty default source. “All Sources” scans ready ledgers only; all 29 registered
-sources remain available for explicit inspection and setup.
-
-The workspace is organized by the questions a usage investigation asks:
-
-- **Observe** — totals, live 15-second monitoring, top consumers, and spikes.
-- **Explain** — model turns, tool calls, projects, sessions, and daily history.
-- **Trust** — pricing provenance, API-equivalent coverage, Codex quota, budget,
-  and source readiness.
-- **Devices** — explicit JSON snapshot exchange and a local SQLite rollup.
-
-Unknown, partial, fallback-priced, malformed, and provider-adjusted values stay
-visible as evidence states. Live, History, Limits, and Machines treat only real
-usage backed by recorded, live, or fresh cached pricing with complete coverage
-as exact cost. Machine totals use canonical USD and evaluate Today, This week,
-and This month freshness independently using the configured CLI timezone.
-
-Production installers are built from `desktop/` by the tag-triggered Release
-workflow. Local packaging:
-
-```bash
-cd desktop
-npm ci
-npm run tauri -- build
-```
-
-macOS produces a DMG, Windows an MSI, and Linux an AppImage. See
-[docs/RELEASING.md](docs/RELEASING.md) for GitHub Release artifacts.
-
-Focused desktop checks:
-
-```bash
-cd desktop
-npm run build
-npm run test:e2e
-cargo test --manifest-path src-tauri/Cargo.toml
-npm run test:e2e:native
-```
-
-Playwright exercises the renderer contract by injecting an explicit window bridge
-before the page loads. Rust tests cover the command boundary, and the native test
-launches a debug app through an embedded WebDriver before crossing Tauri IPC into
-the real ccstats SDK. Production builds call those commands directly and have no
-sample-data fallback.
-
-Usage files and transcripts remain local; pricing refreshes and sources configured
-with remote APIs may still make their documented network requests.
-
-## Start with common sources
-
-| Source | Usage input | Start here |
-|--------|-------------|------------|
-| Claude Code | `~/.claude/projects/` | `ccstats today` |
-| OpenAI Codex | `~/.codex/sessions/` and local quota snapshots | `ccstats codex today` / `ccstats quota` |
-| Cursor | Official usage API or an explicit replay file | `ccstats today --source cursor` |
-| Grok | `~/.grok/logs/unified.jsonl` with session fallback | `ccstats grok today` |
-| Kimi Code | `~/.kimi-code/sessions/` wire logs | `ccstats kimi today` |
-
-The complete registry contains 29 sources, including DeepSeek Harness. See the
-full [source table](#supported-data-sources) below. Run `ccstats sources` for
-aliases and per-source capabilities, or `ccstats doctor --json` for
-machine-readable setup diagnostics.
-
 ## Privacy and network access
 
 ccstats extracts usage metadata from known source locations. It does not store
@@ -136,7 +79,8 @@ Network access occurs only when a selected feature needs it:
 
 Use `--offline` to prevent pricing and exchange-rate refreshes. See the full
 [privacy and data-access reference](docs/PRIVACY.md) for files read, caches
-written, and endpoints contacted.
+written, and endpoints contacted. Module layout and how to add a source are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Installation
 
@@ -191,6 +135,10 @@ chmod +x ccstats-desktop-*.AppImage
 
 The desktop app is a local investigation surface over the same accounting
 engine as the CLI. It does not create a ccstats account or upload transcripts.
+
+From-source desktop development (Node, Rust, `npm run tauri`) is in
+[desktop/README.md](desktop/README.md). Release packaging is in
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ### Manual download
 
@@ -321,77 +269,6 @@ DeepSeek Harness reads the durable session ledger rather than message text. It
 reconciles streamed usage with final responses and retries, excludes forked
 history through `seedLength`, counts compaction calls separately, and validates
 plain or concatenated zstd persistence before accepting usage.
-
-## Crate Documentation
-
-- docs.rs: <https://docs.rs/ccstats/latest/ccstats/>
-- crates.io: <https://crates.io/crates/ccstats>
-- The crate-level Rustdoc in `src/lib.rs` explains the SDK entry points and CLI runtime.
-
-## Rust SDK
-
-`ccstats` can be used as a Rust library when another app needs structured local usage and cost data without spawning the CLI.
-
-```rust
-use ccstats::{SummaryOptions, UsageRange, UsageSource, summarize_cost_with_cli_config};
-
-let summary = summarize_cost_with_cli_config(SummaryOptions {
-    source: UsageSource::Codex,
-    range: UsageRange::Today,
-    ..SummaryOptions::default()
-})?;
-
-println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
-```
-
-The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, cache hit rate, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
-
-Use `UsageRange::TimestampRange` with inclusive UTC `DateTime<Utc>` bounds when an app must align usage to an exact provider quota window instead of whole local dates.
-
-Codex weekly quota pace is also available as structured SDK data without
-spawning the CLI:
-
-```rust
-use ccstats::load_codex_weekly_quota;
-
-let quota = load_codex_weekly_quota(None)?;
-println!("weekly used: {:.1}%", quota.used_pct);
-println!("projected at reset: {:.1}%", quota.projected_pct_at_reset);
-```
-
-Pass `Some(codex_home)` to read an explicit Codex home without modifying
-process environment variables. The explicit path is authoritative and never
-falls back to `CODEX_HOME` or `~/.codex`. Missing, stale, malformed, and
-unreadable snapshots return typed `CodexQuotaError` values.
-
-Apps that need several windows at once can use the batch API so source logs,
-pricing, and currency are loaded once for the request:
-
-```rust
-use ccstats::{MultiSummaryOptions, UsageRange, UsageSource, summarize_cost_ranges};
-
-let overview = summarize_cost_ranges(MultiSummaryOptions {
-    source: UsageSource::Claude,
-    ranges: vec![
-        UsageRange::Today,
-        UsageRange::ThisWeek,
-        UsageRange::ThisMonth,
-    ],
-    timezone: None,
-    offline: true,
-    strict_pricing: false,
-    currency: Some("USD".to_string()),
-})?;
-
-for summary in overview.summaries {
-    println!("{:?}: ${:.2}", summary.range, summary.cost_usd.unwrap_or(0.0));
-}
-```
-
-`UsageRange::ThisWeek` and `ThisMonth` are current-period date filters
-(Monday–today / month-start–today in the selected timezone). They are not the
-CLI `weekly` / `monthly` commands, which group already-filtered history by
-period instead of loading only the current week or month.
 
 ## Usage
 
@@ -827,7 +704,79 @@ When malformed JSONL records are encountered, ccstats reports them in stderr:
 Warning: ignored <N> malformed records
 ```
 
-## Supported Data Sources
+## Rust SDK
+
+Full API docs: [docs.rs/ccstats](https://docs.rs/ccstats/latest/ccstats/).
+The crate-level rustdoc in `src/lib.rs` explains SDK entry points and the CLI
+runtime. crates.io: <https://crates.io/crates/ccstats>.
+
+`ccstats` can be used as a Rust library when another app needs structured local usage and cost data without spawning the CLI.
+
+```rust
+use ccstats::{SummaryOptions, UsageRange, UsageSource, summarize_cost_with_cli_config};
+
+let summary = summarize_cost_with_cli_config(SummaryOptions {
+    source: UsageSource::Codex,
+    range: UsageRange::Today,
+    ..SummaryOptions::default()
+})?;
+
+println!("today: ${:.2}", summary.cost_usd.unwrap_or(0.0));
+```
+
+The SDK uses the same source registry, parsers, aggregation logic, pricing cache, and fallback pricing as the CLI. Use `summarize_cost_with_cli_config` when SDK output should follow the same persisted CLI defaults for timezone, offline pricing, strict pricing, and currency. Use `summarize_cost` when the caller wants fully explicit options. Returned summaries include total tokens, cache read/create tokens, cache hit rate, reasoning tokens, per-model breakdowns, `cost_usd`, and an optional converted `cost` when `SummaryOptions::currency` is set.
+
+Use `UsageRange::TimestampRange` with inclusive UTC `DateTime<Utc>` bounds when an app must align usage to an exact provider quota window instead of whole local dates.
+
+Codex weekly quota pace is also available as structured SDK data without
+spawning the CLI:
+
+```rust
+use ccstats::load_codex_weekly_quota;
+
+let quota = load_codex_weekly_quota(None)?;
+println!("weekly used: {:.1}%", quota.used_pct);
+println!("projected at reset: {:.1}%", quota.projected_pct_at_reset);
+```
+
+Pass `Some(codex_home)` to read an explicit Codex home without modifying
+process environment variables. The explicit path is authoritative and never
+falls back to `CODEX_HOME` or `~/.codex`. Missing, stale, malformed, and
+unreadable snapshots return typed `CodexQuotaError` values.
+
+Apps that need several windows at once can use the batch API so source logs,
+pricing, and currency are loaded once for the request:
+
+```rust
+use ccstats::{MultiSummaryOptions, UsageRange, UsageSource, summarize_cost_ranges};
+
+let overview = summarize_cost_ranges(MultiSummaryOptions {
+    source: UsageSource::Claude,
+    ranges: vec![
+        UsageRange::Today,
+        UsageRange::ThisWeek,
+        UsageRange::ThisMonth,
+    ],
+    timezone: None,
+    offline: true,
+    strict_pricing: false,
+    currency: Some("USD".to_string()),
+})?;
+
+for summary in overview.summaries {
+    println!("{:?}: ${:.2}", summary.range, summary.cost_usd.unwrap_or(0.0));
+}
+```
+
+`UsageRange::ThisWeek` and `ThisMonth` are current-period date filters
+(Monday–today / month-start–today in the selected timezone). They are not the
+CLI `weekly` / `monthly` commands, which group already-filtered history by
+period instead of loading only the current week or month.
+
+## Complete source registry
+
+This is the full table of 29 AI coding-agent data sources. The [core sources](#core-sources)
+table above is the recommended first-run set.
 
 | Source | Directory | Override | Features |
 |--------|-----------|----------|----------|
