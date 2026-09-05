@@ -10,7 +10,7 @@ This pack is the implementation contract for the first-run and decision-surface 
 | F2 README + GitHub identity | #165 [F2-identity/](F2-identity/product.md) | after #164 for the default-command sentence | Docs-only |
 | F3 Conclusion line | #166 [F3-conclusion/](F3-conclusion/product.md) | `origin/main` | Yes |
 | F4 `login cursor` | #167 [F4-cursor-login/](F4-cursor-login/product.md) | `origin/main` | Yes |
-| F5 `limits` | #168 [F5-limits/](F5-limits/product.md) | `origin/main` | Yes; do not edit F4 files |
+| F5 `limits` | #168 [F5-limits/](F5-limits/product.md) | #172 login branch, then retarget to `main` after #172 merges | Requires F1/F4 integration checks |
 
 ## Command grammar (this wave)
 

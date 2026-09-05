@@ -24,7 +24,7 @@ https://github.com/majiayu000/ccstats/issues/166
 3. Cost sentence construction:
    - Sum display cost with existing `sum_display_model_costs` / coverage flags already computed for the table footer.
    - If `cost_is_lower_bound` or mixed unknown models: prefix `≥ ` using the same rule as desktop `displayedCost`.
-4. Pace sentence for `today` only: compare today's display cost (or tokens if no cost) to mean of previous up-to-7 complete local days in the already-loaded `day_stats` if those days exist. If fewer than 3 prior days, skip pace.
+4. For non-compact table-mode `today`, load today plus the previous seven local calendar days through the existing aggregation path. Keep the displayed table, totals, and quality metadata restricted to today; pass prior days only to the comparison. JSON/CSV keep their original query range. Compare against at least three prior days with complete data and known costs (or tokens with `--no-cost`); otherwise omit the comparison. Do not substitute older active dates for missing days in this seven-day window.
 5. Keep the existing trailing summary line (record counts / elapsed). Conclusion is extra, not a replacement.
 
 ## Product-to-Test Mapping
