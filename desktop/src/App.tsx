@@ -216,12 +216,13 @@ function OverviewView({ overview, summary, sourceDescriptor, range, onNavigate }
   const models = [...summary.models].sort((a, b) => b.tokens.total_tokens - a.tokens.total_tokens);
   const modelTokens = models.reduce((sum, model) => sum + model.tokens.total_tokens, 0);
   const leadingShare = modelTokens > 0 && models[0] ? models[0].tokens.total_tokens / modelTokens * 100 : 0;
+  const reportMetadata = <div className="report-meta"><div><span className="source-beacon" /><strong>{overview.display_name}</strong><span> / {range.replaceAll("_", " ")}</span></div><span>Updated {new Date(overview.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div>;
   if (summary.valid_entries === 0 && summary.tokens.total_tokens === 0) {
-    return <EmptyState source={overview.display_name} range={range.replaceAll("_", " ")} parseErrors={summary.parse_error_entries} />;
+    return <>{reportMetadata}<EmptyState source={overview.display_name} range={range.replaceAll("_", " ")} parseErrors={summary.parse_error_entries} /></>;
   }
   return (
     <>
-      <div className="report-meta"><div><span className="source-beacon" /><strong>{overview.display_name}</strong><span> / {range.replaceAll("_", " ")}</span></div><span>Updated {new Date(overview.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span></div>
+      {reportMetadata}
       <section className="metric-grid" aria-label="Usage snapshot">
         <article className="metric-card metric-primary"><div className="metric-label"><span>Total tokens</span><Icon name="activity" /></div><strong data-testid="total-tokens">{formatTokens(summary.tokens.total_tokens)}</strong><small><span className="metric-dot" />Across {summary.models.length} observed {summary.models.length === 1 ? "model" : "models"}</small></article>
         <article className="metric-card"><div className="metric-label"><span>{costIsLowerBound(summary) ? "Cost lower bound" : hasExactCost(summary) ? "Total cost" : "Cost to review"}</span><Icon name="trust" /></div><strong data-testid="total-cost" className={hasExactCost(summary) ? "" : "unknown-cost"}>{displayedCost(summary)}</strong><small data-testid={costIsLowerBound(summary) ? "cost-coverage" : undefined}>{costIsLowerBound(summary) && summary.api_equivalent_cost_coverage ? `${formatTokens(summary.api_equivalent_cost_coverage.priced_tokens)} / ${formatTokens(summary.api_equivalent_cost_coverage.total_tokens)} tokens priced (${summary.api_equivalent_cost_coverage.percent.toFixed(1)}%)` : summary.cost === null ? "Pricing is not available" : `${summary.pricing_source.replaceAll("_", " ")} pricing · ${summary.currency}`}</small></article>

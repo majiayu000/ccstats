@@ -1,6 +1,6 @@
 [package]
 name = "ccstats-desktop"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -17,7 +17,7 @@ native-e2e = ["dep:tauri-plugin-wdio-webdriver"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-ccstats = { path = "../..", version = "0.7.0" }
+ccstats = { path = "../..", version = "0.7.1" }
 chrono = "0.4.43"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

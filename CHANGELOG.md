@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-06
+
+### Fixed
+- Keep the selected source, period, and refresh timestamp visible for empty desktop reports. The existing native IPC test continues to verify the real SDK source identity.
+
 ## [0.7.0] - 2026-09-06
 
 ### Added
