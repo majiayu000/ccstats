@@ -558,6 +558,7 @@ fn handle_period(
                 .map_or(CostDisplayMode::Total, |_| CostDisplayMode::RealOnly),
             is_today: command == SourceCommand::Today,
             source_count: None,
+            source_name: Some(source.name()),
         },
     );
 }
@@ -661,6 +662,7 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
             cost_mode: CostDisplayMode::Total,
             is_today,
             source_count: (contributing_sources > 1).then_some(contributing_sources),
+            source_name: None,
         },
     );
 }

@@ -271,3 +271,89 @@ fn unpriced_table_does_not_headline_zero_dollars() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+fn write_prior_days(root: &std::path::Path, offsets: &[i64]) {
+    for offset in offsets {
+        let timestamp = (Utc::now() - chrono::Duration::days(*offset)).format("%Y-%m-%dT12:00:00Z");
+        write_file(
+            &root.join(format!(".claude/projects/myproject/prior-{offset}.jsonl")),
+            &serde_json::json!({"timestamp":timestamp.to_string(),"message":{
+                "id":format!("prior-{offset}"),"model":"claude-3-5-sonnet-20241022",
+                "stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50}
+            }})
+            .to_string(),
+        );
+    }
+}
+
+#[test]
+fn real_today_command_compares_history_without_adding_it_to_totals() {
+    let root = unique_temp_dir("period-conclusion-history");
+    write_today_claude(&root, 1_000, 500);
+    write_prior_days(&root, &[1, 2, 3]);
+    for source in ["claude", "all"] {
+        let (ok, stdout, stderr) = run_ccstats(
+            &[
+                "today",
+                "--source",
+                source,
+                "--no-cost",
+                "-O",
+                "--timezone",
+                "UTC",
+            ],
+            &[("HOME", &root)],
+        );
+        assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+        let output = String::from_utf8(stdout).unwrap();
+        assert!(
+            output.contains("Today: 1,500 tokens. Faster than the last 3-day mean (150 tokens)."),
+            "{output}"
+        );
+        assert!(
+            !output.contains("1,950"),
+            "history leaked into totals: {output}"
+        );
+        let (ok, stdout, stderr) = run_ccstats(
+            &[
+                "today",
+                "--source",
+                source,
+                "--no-cost",
+                "-j",
+                "-O",
+                "--timezone",
+                "UTC",
+            ],
+            &[("HOME", &root)],
+        );
+        assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+        let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        let rows = json.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["total_tokens"], 1_500);
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn today_comparison_does_not_use_old_active_dates() {
+    let root = unique_temp_dir("period-conclusion-old-history");
+    write_today_claude(&root, 1_000, 500);
+    write_prior_days(&root, &[1, 2, 8, 9]);
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "today",
+            "--source",
+            "claude",
+            "--no-cost",
+            "-O",
+            "--timezone",
+            "UTC",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+    assert!(!String::from_utf8_lossy(&stdout).contains("mean"));
+    fs::remove_dir_all(root).unwrap();
+}

@@ -279,6 +279,7 @@ fn table_options<'a>(
         secondary_total_cost_display_override: None,
         pricing_note_override: None,
         is_today,
+        comparison_days: None,
         source_count,
     }
 }
@@ -329,6 +330,7 @@ fn render_table(loaded: &AllSourceLoad, period: Period, is_today: bool, ctx: &Co
             cost_mode: CostDisplayMode::Total,
             is_today,
             source_count: (loaded.contributing_sources > 1).then_some(loaded.contributing_sources),
+            source_name: None,
         },
     );
 }

@@ -123,14 +123,28 @@ fn pace_clause(input: &PeriodConclusionInput<'_>) -> Option<String> {
     if !input.is_today {
         return None;
     }
-    let today_key = today_key(input.day_stats)?;
+    let today_key = today_key(input.displayed)?;
     let prior = prior_complete_days(input.day_stats, today_key);
     if prior.len() < PACE_PRIOR_MIN {
         return None;
     }
 
-    let today = input.day_stats.get(today_key)?;
+    let today = input.displayed.get(today_key)?;
     let n = prior.len();
+    if input.show_cost
+        && (is_floor(input)
+            || !today_metric_cost(today, input).is_finite()
+            || prior.iter().any(|day| {
+                CostCoverage::from_stats([&day.stats])
+                    .is_some_and(CostCoverage::cost_is_lower_bound)
+                    || day.models.iter().any(|(model, stats)| {
+                        !calculate_display_cost(stats, model, input.pricing_db, input.cost_mode)
+                            .is_finite()
+                    })
+            }))
+    {
+        return None;
+    }
     let compare_cost = input.show_cost
         && today_metric_cost(today, input).is_finite()
         && prior
@@ -188,7 +202,8 @@ fn prior_complete_days<'a>(
         .iter()
         .filter_map(|(key, day)| {
             let date = NaiveDate::parse_from_str(key, DATE_FORMAT).ok()?;
-            (date < today_date).then_some((date, day))
+            (date < today_date && today_date.signed_duration_since(date).num_days() <= 7)
+                .then_some((date, day))
         })
         .collect();
     prior.sort_by_key(|(date, _)| Reverse(*date));
