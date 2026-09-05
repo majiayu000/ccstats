@@ -218,7 +218,7 @@ mod tests {
         let caps = source.capabilities();
         assert!(!caps.has_projects);
         assert!(!caps.has_billing_blocks);
-        assert!(!caps.has_cache_creation);
+        assert!(caps.has_cache_creation);
         assert!(caps.has_cache_read);
         assert!(caps.needs_dedup);
         assert!(caps.has_reasoning_tokens);

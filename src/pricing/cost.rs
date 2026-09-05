@@ -19,12 +19,25 @@ fn calculate_token_cost(tokens: CostTokens, model: &str, pricing_db: &PricingDb)
         Some(pricing) => {
             let long_ttl_tokens = tokens.cache_creation_1h.min(tokens.cache_creation);
             let short_ttl_tokens = tokens.cache_creation - long_ttl_tokens;
-            tokens.input_tokens as f64 * pricing.input
+            let base_cost = tokens.input_tokens as f64 * pricing.input
                 + tokens.output_tokens as f64 * pricing.output
                 + tokens.reasoning_tokens as f64 * pricing.reasoning_output
                 + short_ttl_tokens as f64 * pricing.cache_create
                 + long_ttl_tokens as f64 * pricing.cache_create_1h
-                + tokens.cache_read as f64 * pricing.cache_read
+                + tokens.cache_read as f64 * pricing.cache_read;
+            // Only the token subset classified before aggregation receives the
+            // long-context rates. Recorded provider costs still bypass pricing.
+            let long = tokens.above_272k;
+            let adjustment = pricing.above_272k.as_ref().map_or(0.0, |rate| {
+                long.input_tokens as f64 * (rate.input - pricing.input)
+                    + long.output_tokens as f64 * (rate.output - pricing.output)
+                    + long.reasoning_tokens as f64 * (rate.output - pricing.reasoning_output)
+                    + long.cache_read as f64 * (rate.cache_read - pricing.cache_read)
+                    + (long.cache_creation - long.cache_creation_1h) as f64
+                        * (rate.cache_create - pricing.cache_create)
+                    + long.cache_creation_1h as f64 * (rate.cache_create - pricing.cache_create_1h)
+            });
+            base_cost + adjustment
         }
         None => f64::NAN,
     }
@@ -307,8 +320,88 @@ mod tests {
         db
     }
 
+    fn astra_pricing_db() -> PricingDb {
+        let data = HashMap::from([(
+            "gpt-6-astra".to_string(),
+            serde_json::json!({
+                "input_cost_per_token": 0.00001,
+                "output_cost_per_token": 0.00005,
+                "cache_read_input_token_cost": 1e-6,
+                "cache_creation_input_token_cost": 1.25e-5,
+                "input_cost_per_token_above_272k_tokens": 0.00002,
+                "output_cost_per_token_above_272k_tokens": 7.5e-5,
+                "cache_read_input_token_cost_above_272k_tokens": 2e-6,
+                "cache_creation_input_token_cost_above_272k_tokens": 2.5e-5,
+            }),
+        )]);
+        let mut models = super::super::resolver::parse_litellm_data(data);
+        pricing_db_with("gpt-6-astra", models.remove("gpt-6-astra").unwrap())
+    }
+
+    fn context_entry(input: i64) -> crate::core::RawEntry {
+        crate::core::RawEntry {
+            timestamp: String::new(),
+            timestamp_ms: 0,
+            date_str: String::new(),
+            message_id: None,
+            session_key: String::new(),
+            session_id: String::new(),
+            project_path: String::new(),
+            model: "gpt-6-astra".to_string(),
+            input_tokens: input,
+            cache_read: 190_000,
+            cache_creation: 10_000,
+            output_tokens: 600,
+            reasoning_tokens: 400,
+            call_count: 1,
+            cache_creation_1h: 0,
+            reported_total_tokens: None,
+            stop_reason: None,
+            cost_kind: CostKind::Real,
+            endpoint: crate::core::Endpoint::Unknown,
+            recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
+        }
+    }
+
+    #[test]
+    fn long_context_prices_each_request_before_aggregation() {
+        let db = astra_pricing_db();
+        // Exactly 272K stays standard; 272K+1 changes the entire request tier,
+        // including cached input, cache writes and reasoning output.
+        let short = context_entry(72_000).to_stats();
+        let long = context_entry(72_001).to_stats();
+        assert!((calculate_cost(&short, "gpt-6-astra", &db) - 1.085).abs() < 1e-9);
+        assert!((calculate_cost(&long, "gpt-6-astra", &db) - 2.14502).abs() < 1e-9);
+        let mut combined = short.clone();
+        combined.add(&short);
+        // Total input is already >272K, but neither request crosses the boundary.
+        assert!((calculate_cost(&combined, "gpt-6-astra", &db) - 2.17).abs() < 1e-9);
+        combined.add(&long);
+        assert!((calculate_cost(&combined, "gpt-6-astra", &db) - 4.31502).abs() < 1e-9);
+        assert_eq!(combined.total_tokens(), 819_001);
+    }
+
+    #[test]
+    fn long_context_preserves_recorded_cost_and_proxy_filtering() {
+        let db = astra_pricing_db();
+        let mut recorded = context_entry(72_001);
+        recorded.recorded_cost_usd = Some(7.0);
+        let mut stats = recorded.to_stats();
+        stats.add(&context_entry(72_001).to_stats());
+        let mut proxy = context_entry(72_001);
+        proxy.cost_kind = CostKind::EstimatedProxy;
+        stats.add(&proxy.to_stats());
+        assert!((calculate_cost(&stats, "gpt-6-astra", &db) - 11.29004).abs() < 1e-9);
+        assert!((calculate_real_cost(&stats, "gpt-6-astra", &db) - 9.14502).abs() < 1e-9);
+        stats.retain_real_token_totals();
+        assert!((calculate_cost(&stats, "gpt-6-astra", &db) - 9.14502).abs() < 1e-9);
+    }
+
     fn fable_pricing() -> super::super::types::ModelPricing {
         super::super::types::ModelPricing {
+            above_272k: None,
             input: 1e-5,
             output: 5e-5,
             reasoning_output: 5e-5,
