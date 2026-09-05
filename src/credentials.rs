@@ -378,8 +378,11 @@ mod tests {
                     == Some(CREDENTIALS_FILE))
         );
         assert!(paths.iter().any(|path| {
-            path.to_string_lossy()
-                .contains(".config/ccstats/credentials.toml")
+            path.ends_with(
+                Path::new(".config")
+                    .join("ccstats")
+                    .join("credentials.toml"),
+            )
         }));
     }
 
