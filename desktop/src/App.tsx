@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   aggregateUsageOverviews,
+  readySourcesForAggregation,
   detectUsageAnomaly,
   desktopBridge,
   hasExactCost,
@@ -559,8 +560,7 @@ export default function App() {
   const readOverview = useCallback(async (source: string) => {
     if (source !== "all") return bridge.usageOverview(source);
     const findings = await bridge.sourceDiagnostics(); setDiagnostics(findings);
-    const ready = new Set(findings.filter((row) => (row.status === "detected" || row.status === "configured")).map((row) => row.name));
-    const names = sources.filter((item) => item.name !== "all" && ready.has(item.name)).map((item) => item.name);
+    const names = readySourcesForAggregation(sources, findings);
     if (names.length === 0) throw new Error("No detected or configured sources are ready to aggregate.");
     return aggregateUsageOverviews(await bridge.usageOverviews(names));
   }, [bridge, sources]);
