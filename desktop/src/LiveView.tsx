@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   aggregateUsageOverviews,
+  readySourcesForAggregation,
   hasExactCost,
   type CostSummary,
   type DesktopBridge,
@@ -39,8 +40,7 @@ export function useLiveUsage(
     }
     try {
       const findings = selectedSource === "all" ? await bridge.sourceDiagnostics() : [];
-      const ready = new Set(findings.filter((row) => row.status !== "missing").map((row) => row.name));
-      const names = sources.filter((source) => source.name !== "all" && ready.has(source.name)).map((source) => source.name);
+      const names = readySourcesForAggregation(sources, findings);
       if (selectedSource === "all" && names.length === 0) throw new Error("No detected or configured sources are ready to aggregate.");
       const next = selectedSource === "all" ? aggregateUsageOverviews(await bridge.usageOverviews(names)) : await bridge.usageOverview(selectedSource);
       const today = next.summaries.find((summary) => summary.range === "today");

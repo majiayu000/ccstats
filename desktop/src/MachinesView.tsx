@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ChangeEvent } from "react";
 import type { DesktopBridge, MachineRollup, SourceDescriptor } from "./bridge";
+import { readySourcesForAggregation } from "./bridge";
 import { errorMessage, formatCost, formatTokens } from "./format";
 
 const MAX_BUNDLE_BYTES = 10 * 1024 * 1024;
@@ -33,8 +34,7 @@ export function MachinesView({ bridge, sources }: { bridge: DesktopBridge; sourc
     setError(null);
     try {
       const findings = await bridge.sourceDiagnostics();
-      const ready = new Set(findings.filter((row) => row.status !== "missing").map((row) => row.name));
-      const names = sources.filter((source) => source.name !== "all" && ready.has(source.name)).map((source) => source.name);
+      const names = readySourcesForAggregation(sources, findings);
       if (names.length === 0) throw new Error("No registered sources are available to capture.");
       setRollup(await bridge.saveMachineSnapshot(machineName, await bridge.usageOverviews(names)));
     } catch (nextError) {

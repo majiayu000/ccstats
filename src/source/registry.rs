@@ -22,11 +22,18 @@ pub(crate) fn all_sources() -> impl Iterator<Item = &'static dyn Source> {
 ///
 /// This inspects local files and credentials only. It does not parse logs or
 /// contact remote APIs.
-pub(crate) fn ready_source_names() -> Vec<&'static str> {
-    all_sources()
-        .filter(|source| source.diagnose().status.is_ready())
-        .map(Source::name)
-        .collect()
+pub(crate) fn ready_source_names() -> Result<Vec<&'static str>, String> {
+    let mut ready = Vec::new();
+    for source in all_sources() {
+        let diagnostic = source.diagnose();
+        if diagnostic.status == super::DiagnosticStatus::Error {
+            return Err(format!("{}: {}", source.display_name(), diagnostic.detail));
+        }
+        if diagnostic.status.is_ready() {
+            ready.push(source.name());
+        }
+    }
+    Ok(ready)
 }
 
 pub(crate) fn auto_detected_source_name(ready: &[&'static str]) -> Option<&'static str> {

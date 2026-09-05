@@ -30,9 +30,11 @@ mod cli;
 mod config;
 mod consts;
 mod core;
+mod credentials;
 mod doctor_cmd;
 mod endpoints_cmd;
 mod error;
+mod login_cmd;
 mod output;
 mod pricing;
 mod quota_cmd;
@@ -67,7 +69,7 @@ use chrono::{NaiveDate, Utc};
 use clap::Parser;
 
 use app::{CommandContext, handle_all_sources_command, handle_source_command};
-use cli::{Cli, SourceCommand, parse_command};
+use cli::{Cli, Commands, SourceCommand, parse_command};
 use config::Config;
 use core::DateFilter;
 use output::NumberFormat;
@@ -217,7 +219,10 @@ fn resolve_source_name<'a>(
         }
         (Some(hint), None) => Some(hint),
         (None, Some(name)) => Some(name),
-        (None, None) => auto_detected_source_name(&ready_source_names()),
+        (None, None) => auto_detected_source_name(&ready_source_names().unwrap_or_else(|error| {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        })),
     }
 }
 
@@ -345,6 +350,10 @@ fn dispatch_command(source_name: &str, source_cmd: SourceCommand, context: &Comm
 /// so they receive structured data instead of rendered CLI output.
 pub fn run_cli() {
     let raw_cli = Cli::parse();
+    if let Some(Commands::Login { target }) = &raw_cli.command {
+        crate::login_cmd::handle_login(target);
+        return;
+    }
     let cli_timezone_was_set = raw_cli.timezone.is_some();
     let cli_currency_was_set = raw_cli.currency.is_some();
     let parsed_command = parse_command(raw_cli.command.as_ref());

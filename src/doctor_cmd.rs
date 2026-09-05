@@ -23,6 +23,12 @@ pub(crate) fn handle_doctor(ctx: &CommandContext<'_>) {
         OutputFormat::Json => render_json(&rows, ctx),
         OutputFormat::Csv => render_csv(&rows),
     }
+    if rows
+        .iter()
+        .any(|row| row.diagnostic.status == DiagnosticStatus::Error)
+    {
+        std::process::exit(1);
+    }
 }
 
 fn render_table(rows: &[DiagnosticRow]) {

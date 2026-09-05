@@ -70,6 +70,35 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: Option<KimiCommands>,
     },
+    /// Store local provider credentials
+    Login {
+        #[command(subcommand)]
+        target: LoginTarget,
+    },
+}
+
+/// Credential wizard targets. Nested under `login` so sources do not grow a
+/// fourth CLI grammar (`ccstats cursor …`).
+#[derive(Subcommand)]
+pub(crate) enum LoginTarget {
+    /// Store a Cursor API key or dashboard session token
+    Cursor {
+        /// Cursor Admin API key (enterprise)
+        #[arg(long, value_name = "KEY")]
+        api_key: Option<String>,
+        /// Dashboard `WorkosCursorSessionToken` cookie
+        #[arg(long, value_name = "TOKEN")]
+        session_token: Option<String>,
+        /// Report whether credentials are configured without printing secrets
+        #[arg(long)]
+        check: bool,
+        /// Remove stored Cursor credentials
+        #[arg(long)]
+        clear: bool,
+        /// Print dashboard URLs without opening a browser
+        #[arg(long)]
+        no_browser: bool,
+    },
 }
 
 /// Codex-specific subcommands
@@ -208,9 +237,10 @@ impl From<&Commands> for SourceCommand {
                 dim: *dim,
                 limit: *limit,
             },
-            Commands::Codex { .. } | Commands::Grok { .. } | Commands::Kimi { .. } => {
-                SourceCommand::Daily
-            } // Default, handled separately
+            Commands::Codex { .. }
+            | Commands::Grok { .. }
+            | Commands::Kimi { .. }
+            | Commands::Login { .. } => SourceCommand::Daily, // Default, handled separately
         }
     }
 }

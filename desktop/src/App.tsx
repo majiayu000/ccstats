@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   aggregateUsageOverviews,
+  readySourcesForAggregation,
   detectUsageAnomaly,
   desktopBridge,
   hasExactCost,
@@ -553,14 +554,13 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   const readySourceNames = useMemo(() => {
-    const ready = new Set(diagnostics?.filter((row) => row.status !== "missing").map((row) => row.name) ?? []);
+    const ready = new Set(diagnostics?.filter((row) => (row.status === "detected" || row.status === "configured")).map((row) => row.name) ?? []);
     return sources.filter((source) => source.name !== "all" && ready.has(source.name)).map((source) => source.name);
   }, [diagnostics, sources]);
   const readOverview = useCallback(async (source: string) => {
     if (source !== "all") return bridge.usageOverview(source);
     const findings = await bridge.sourceDiagnostics(); setDiagnostics(findings);
-    const ready = new Set(findings.filter((row) => row.status !== "missing").map((row) => row.name));
-    const names = sources.filter((item) => item.name !== "all" && ready.has(item.name)).map((item) => item.name);
+    const names = readySourcesForAggregation(sources, findings);
     if (names.length === 0) throw new Error("No detected or configured sources are ready to aggregate.");
     return aggregateUsageOverviews(await bridge.usageOverviews(names));
   }, [bridge, sources]);
@@ -649,7 +649,7 @@ export default function App() {
         has_cache_read: catalog.some((source) => source.has_cache_read),
       };
       if (request !== requestId.current) return;
-      const ready = new Set(findings.filter((row) => row.status !== "missing").map((row) => row.name));
+      const ready = new Set(findings.filter((row) => (row.status === "detected" || row.status === "configured")).map((row) => row.name));
       const initial = catalog.find((source) => ready.has(source.name));
       setSources([allSources, ...catalog]);
       setDiagnostics(findings);

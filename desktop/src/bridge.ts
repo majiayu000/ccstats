@@ -13,7 +13,7 @@ export interface SourceDescriptor {
   has_cache_read: boolean;
 }
 
-export type SourceDiagnosticStatus = "detected" | "configured" | "missing";
+export type SourceDiagnosticStatus = "detected" | "configured" | "missing" | "error";
 
 export interface SourceDiagnosticDescriptor {
   source: string;
@@ -23,6 +23,18 @@ export interface SourceDiagnosticDescriptor {
   files: number;
   detail: string;
   setup: string;
+}
+
+export function readySourcesForAggregation(
+  sources: SourceDescriptor[],
+  findings: SourceDiagnosticDescriptor[],
+): string[] {
+  const errors = findings.filter((row) => row.status === "error");
+  if (errors.length > 0) {
+    throw new Error(errors.map((row) => `${row.display_name}: ${row.detail}`).join("\n"));
+  }
+  const ready = new Set(findings.filter((row) => row.status === "detected" || row.status === "configured").map((row) => row.name));
+  return sources.filter((source) => source.name !== "all" && ready.has(source.name)).map((source) => source.name);
 }
 
 export interface CodexWeeklyQuota {

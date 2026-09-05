@@ -46,6 +46,7 @@ pub enum SourceDiagnosticStatus {
     Detected,
     Configured,
     Missing,
+    Error,
 }
 
 impl From<DiagnosticStatus> for SourceDiagnosticStatus {
@@ -54,6 +55,7 @@ impl From<DiagnosticStatus> for SourceDiagnosticStatus {
             DiagnosticStatus::Detected => Self::Detected,
             DiagnosticStatus::Configured => Self::Configured,
             DiagnosticStatus::Missing => Self::Missing,
+            DiagnosticStatus::Error => Self::Error,
         }
     }
 }

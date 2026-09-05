@@ -54,7 +54,7 @@ impl Source for CursorSource {
     }
 
     fn setup_hint(&self) -> &'static str {
-        "Set CURSOR_API_KEY, CURSOR_SESSION_TOKEN, or CURSOR_USAGE_FILE"
+        "Run `ccstats login cursor` or set CURSOR_API_KEY, CURSOR_SESSION_TOKEN, or CURSOR_USAGE_FILE"
     }
 
     fn diagnose(&self) -> SourceDiagnostic {
@@ -67,12 +67,14 @@ impl Source for CursorSource {
             };
         }
 
-        if has_api_credentials() {
-            SourceDiagnostic::configured(
+        match has_api_credentials() {
+            Ok(true) => SourceDiagnostic::configured(
                 "Cursor API credentials are set; the provider was not contacted",
-            )
-        } else {
-            SourceDiagnostic::missing("No Cursor API credentials or replay file found")
+            ),
+            Ok(false) => {
+                SourceDiagnostic::missing("No Cursor API credentials or replay file found")
+            }
+            Err(error) => SourceDiagnostic::error(error.to_string()),
         }
     }
 

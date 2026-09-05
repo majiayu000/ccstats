@@ -455,6 +455,7 @@ pub(crate) enum DiagnosticStatus {
     Detected,
     Configured,
     Missing,
+    Error,
 }
 
 impl DiagnosticStatus {
@@ -463,6 +464,7 @@ impl DiagnosticStatus {
             Self::Detected => "detected",
             Self::Configured => "configured",
             Self::Missing => "missing",
+            Self::Error => "error",
         }
     }
 
@@ -479,6 +481,14 @@ pub(crate) struct SourceDiagnostic {
 }
 
 impl SourceDiagnostic {
+    pub(crate) fn error(detail: impl Into<String>) -> Self {
+        Self {
+            status: DiagnosticStatus::Error,
+            files: 0,
+            detail: detail.into(),
+        }
+    }
+
     pub(crate) fn detected(files: usize, detail: impl Into<String>) -> Self {
         Self {
             status: DiagnosticStatus::Detected,

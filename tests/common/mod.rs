@@ -40,6 +40,7 @@ const SOURCE_ENV_VARS: &[&str] = &[
     "HERMES_HOME",
     "UNSLOTH_STUDIO_HOME",
     "XUM_ROOT",
+    "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",
 ];
 
