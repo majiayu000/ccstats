@@ -294,3 +294,26 @@ fn quota_help_is_codex_only_and_limits_help_is_combined() {
 
     let _ = fs::remove_dir_all(home);
 }
+
+#[test]
+fn limits_empty_home_keeps_its_schema_and_ignores_unrelated_credentials() {
+    let home = unique_temp_dir("limits-empty-json");
+    for corrupt_cursor in [false, true] {
+        if corrupt_cursor {
+            write_file(
+                &home.join(".config/ccstats/credentials.toml"),
+                "[cursor]\napi_key = \"unterminated",
+            );
+        }
+        let (ok, stdout, stderr) = run_home(&home, &["limits", "--json", "--offline", "--no-cost"]);
+        assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+        let value: Value = serde_json::from_slice(&stdout).unwrap();
+        assert!(
+            value.is_object(),
+            "limits must not dispatch doctor: {value}"
+        );
+        assert!(value.get("codex").unwrap().is_null());
+        assert!(value.get("claude_blocks").unwrap().is_null());
+    }
+    fs::remove_dir_all(home).unwrap();
+}

@@ -214,6 +214,10 @@ fn resolve_source_name<'a>(
         return Some("claude");
     }
 
+    if source_cmd == SourceCommand::Limits {
+        return Some(source_override.unwrap_or(ALL_SOURCES));
+    }
+
     match (source_hint, source_override) {
         (Some(hint), Some(override_name)) => {
             Some(resolve_overridden_command_source(hint, override_name))
