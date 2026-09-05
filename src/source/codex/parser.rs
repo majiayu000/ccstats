@@ -67,6 +67,7 @@ struct Metadata<'a> {
 struct TokenUsage {
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
+    cache_write_input_tokens: Option<i64>,
     #[serde(alias = "cache_read_input_tokens")]
     alt_cache_read_input_tokens: Option<i64>,
     output_tokens: Option<i64>,
@@ -88,6 +89,11 @@ impl TokenUsage {
                 (self.input_tokens.unwrap_or(0) - prev.input_tokens.unwrap_or(0)).max(0),
             ),
             cached_input_tokens: Some((self.cached_input() - prev.cached_input()).max(0)),
+            cache_write_input_tokens: Some(
+                (self.cache_write_input_tokens.unwrap_or(0)
+                    - prev.cache_write_input_tokens.unwrap_or(0))
+                .max(0),
+            ),
             alt_cache_read_input_tokens: None,
             output_tokens: Some(
                 (self.output_tokens.unwrap_or(0) - prev.output_tokens.unwrap_or(0)).max(0),
@@ -107,6 +113,7 @@ impl TokenUsage {
     fn is_empty(&self) -> bool {
         self.input_tokens.unwrap_or(0) == 0
             && self.cached_input() == 0
+            && self.cache_write_input_tokens.unwrap_or(0) == 0
             && self.output_tokens.unwrap_or(0) == 0
             && self.reasoning_output_tokens.unwrap_or(0) == 0
     }
@@ -117,6 +124,7 @@ impl TokenUsage {
 struct UsageTotals {
     input_tokens: i64,
     cached_input_tokens: i64,
+    cache_write_input_tokens: i64,
     output_tokens: i64,
     reasoning_output_tokens: i64,
     total_tokens: i64,
@@ -127,6 +135,7 @@ impl UsageTotals {
         Self {
             input_tokens: usage.input_tokens.unwrap_or(0),
             cached_input_tokens: usage.cached_input(),
+            cache_write_input_tokens: usage.cache_write_input_tokens.unwrap_or(0),
             output_tokens: usage.output_tokens.unwrap_or(0),
             reasoning_output_tokens: usage.reasoning_output_tokens.unwrap_or(0),
             total_tokens: usage.total_tokens.unwrap_or(0),
@@ -137,6 +146,9 @@ impl UsageTotals {
         Self {
             input_tokens: (self.input_tokens - prev.input_tokens).max(0),
             cached_input_tokens: (self.cached_input_tokens - prev.cached_input_tokens).max(0),
+            cache_write_input_tokens: (self.cache_write_input_tokens
+                - prev.cache_write_input_tokens)
+                .max(0),
             output_tokens: (self.output_tokens - prev.output_tokens).max(0),
             reasoning_output_tokens: (self.reasoning_output_tokens - prev.reasoning_output_tokens)
                 .max(0),
@@ -151,6 +163,7 @@ impl UsageTotals {
     fn is_empty(self) -> bool {
         self.input_tokens == 0
             && self.cached_input_tokens == 0
+            && self.cache_write_input_tokens == 0
             && self.output_tokens == 0
             && self.reasoning_output_tokens == 0
     }
@@ -223,14 +236,16 @@ fn usage_message_id(
         CODEX_USAGE_MESSAGE_PREFIX
     };
     format!(
-        "{prefix}:{logical_session_key}:{model}:total={},{},{},{},{}:delta={},{},{},{},{}",
+        "{prefix}:{logical_session_key}:{model}:total={},{},{},{},{},{}:delta={},{},{},{},{},{}",
         total.input_tokens,
         total.cached_input_tokens,
+        total.cache_write_input_tokens,
         total.output_tokens,
         total.reasoning_output_tokens,
         total.total_tokens,
         delta.input_tokens,
         delta.cached_input_tokens,
+        delta.cache_write_input_tokens,
         delta.output_tokens,
         delta.reasoning_output_tokens,
         delta.total_tokens
@@ -460,6 +475,16 @@ fn process_event_message(
     let Some((total, delta)) = next_usage_delta(info, state) else {
         return;
     };
+    if delta.cache_write_input_tokens < 0
+        || delta.cached_input_tokens < 0
+        || delta
+            .cache_write_input_tokens
+            .saturating_add(delta.cached_input_tokens)
+            > delta.input_tokens
+    {
+        state.parse_errors += 1;
+        return;
+    }
     let Some(utc_dt) = parse_entry_timestamp(timestamp, line_no, context, state) else {
         return;
     };
@@ -620,7 +645,7 @@ fn push_codex_entry(
         model,
         input_tokens,
         output_tokens,
-        cache_creation: 0, // Codex doesn't have cache creation
+        cache_creation: delta.cache_write_input_tokens,
         cache_creation_1h: 0,
         cache_read,
         reasoning_tokens,
@@ -637,7 +662,8 @@ fn push_codex_entry(
 
 fn split_codex_usage(delta: UsageTotals) -> (i64, i64, i64, i64) {
     // Codex's input_tokens includes cached_input_tokens.
-    let input_tokens = (delta.input_tokens - delta.cached_input_tokens).max(0);
+    let input_tokens =
+        (delta.input_tokens - delta.cached_input_tokens - delta.cache_write_input_tokens).max(0);
 
     // OpenAI's output_tokens includes reasoning_output_tokens as a subset.
     // Separate them so total_tokens() and calculate_cost() don't double-count.

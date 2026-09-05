@@ -1,6 +1,7 @@
 /// Model pricing info (per token, not per million)
 #[derive(Debug, Clone, Default)]
 pub(super) struct ModelPricing {
+    pub(super) above_272k: Option<LongContextPricing>,
     pub(super) input: f64,
     pub(super) output: f64,
     pub(super) reasoning_output: f64,
@@ -9,6 +10,15 @@ pub(super) struct ModelPricing {
     /// Cache creation with 1-hour TTL (falls back to `cache_create` when the
     /// provider does not publish a separate 1h rate).
     pub(super) cache_create_1h: f64,
+}
+
+/// Standard API rates for a request whose input exceeds 272K tokens.
+#[derive(Debug, Clone)]
+pub(super) struct LongContextPricing {
+    pub(super) input: f64,
+    pub(super) output: f64,
+    pub(super) cache_read: f64,
+    pub(super) cache_create: f64,
 }
 
 /// Normalize version separators: some hosters spell version dots as `p`

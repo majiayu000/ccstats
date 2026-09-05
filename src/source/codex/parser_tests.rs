@@ -1,5 +1,56 @@
 use super::*;
 
+fn parse_cache_write_usage(writes: i64) -> ParseOutput {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("usage.jsonl");
+    let usage = serde_json::json!({
+        "input_tokens": 1000, "cached_input_tokens": 600,
+        "cache_write_input_tokens": writes, "output_tokens": 50,
+        "reasoning_output_tokens": 20, "total_tokens": 1050,
+    });
+    let event = serde_json::json!({
+        "timestamp": "2026-09-05T00:51:00Z", "type": "event_msg",
+        "payload": {"type": "token_count", "model": "gpt-6-astra",
+            "info": {"total_token_usage": usage, "last_token_usage": usage}}
+    });
+    std::fs::write(&path, event.to_string()).unwrap();
+    parse_codex_file_for_quota(&path, Timezone::Named(chrono_tz::UTC))
+}
+
+#[test]
+fn cache_writes_are_separate_from_uncached_input() {
+    let result = parse_cache_write_usage(300);
+    assert_eq!(result.errors, 0);
+    let entry = &result.entries[0];
+    assert_eq!(entry.cache_creation, 300);
+    assert_eq!(entry.input_tokens, 100);
+    assert_eq!(entry.to_stats().total_tokens(), 1050);
+}
+
+#[test]
+fn invalid_cache_write_buckets_fail_instead_of_underpricing() {
+    for writes in [-1, 401] {
+        let result = parse_cache_write_usage(writes);
+        assert_eq!(result.errors, 1);
+        assert!(result.entries.is_empty());
+    }
+}
+
+#[test]
+fn cumulative_cache_writes_participate_in_deltas_and_deduplication() {
+    let first = UsageTotals {
+        input_tokens: 1000,
+        cache_write_input_tokens: 100,
+        ..UsageTotals::default()
+    };
+    let second = UsageTotals {
+        cache_write_input_tokens: 200,
+        ..first
+    };
+    assert!(!second.is_duplicate_of(&first));
+    assert_eq!(second.subtract(first).cache_write_input_tokens, 100);
+}
+
 #[test]
 fn discovery_includes_active_and_archived_sessions() {
     let temp = tempfile::tempdir().unwrap();
@@ -20,6 +71,7 @@ fn discovery_includes_active_and_archived_sessions() {
 #[test]
 fn test_subtract_normal() {
     let total = TokenUsage {
+        cache_write_input_tokens: None,
         input_tokens: Some(1000),
         cached_input_tokens: Some(200),
         alt_cache_read_input_tokens: None,
@@ -28,6 +80,7 @@ fn test_subtract_normal() {
         total_tokens: Some(1500),
     };
     let prev = TokenUsage {
+        cache_write_input_tokens: None,
         input_tokens: Some(400),
         cached_input_tokens: Some(100),
         alt_cache_read_input_tokens: None,
@@ -46,6 +99,7 @@ fn test_subtract_normal() {
 #[test]
 fn test_subtract_clamps_negative_to_zero() {
     let total = TokenUsage {
+        cache_write_input_tokens: None,
         input_tokens: Some(100),
         cached_input_tokens: Some(50),
         alt_cache_read_input_tokens: None,
@@ -54,6 +108,7 @@ fn test_subtract_clamps_negative_to_zero() {
         total_tokens: Some(110),
     };
     let prev = TokenUsage {
+        cache_write_input_tokens: None,
         input_tokens: Some(500),
         cached_input_tokens: Some(200),
         alt_cache_read_input_tokens: None,
@@ -85,6 +140,7 @@ fn test_subtract_none_fields_treated_as_zero() {
 #[test]
 fn test_usage_totals_duplicate_when_complete_vector_matches() {
     let prev = UsageTotals {
+        cache_write_input_tokens: 0,
         input_tokens: 100,
         cached_input_tokens: 20,
         output_tokens: 30,
@@ -92,6 +148,7 @@ fn test_usage_totals_duplicate_when_complete_vector_matches() {
         total_tokens: 0,
     };
     let total = UsageTotals {
+        cache_write_input_tokens: 0,
         input_tokens: 100,
         cached_input_tokens: 20,
         output_tokens: 30,
@@ -105,6 +162,7 @@ fn test_usage_totals_duplicate_when_complete_vector_matches() {
 #[test]
 fn test_usage_totals_not_duplicate_when_component_grows_with_zero_total() {
     let prev = UsageTotals {
+        cache_write_input_tokens: 0,
         input_tokens: 100,
         cached_input_tokens: 20,
         output_tokens: 30,
@@ -112,6 +170,7 @@ fn test_usage_totals_not_duplicate_when_component_grows_with_zero_total() {
         total_tokens: 0,
     };
     let total = UsageTotals {
+        cache_write_input_tokens: 0,
         input_tokens: 150,
         cached_input_tokens: 20,
         output_tokens: 30,
