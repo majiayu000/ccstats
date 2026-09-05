@@ -2,17 +2,19 @@ use super::super::types::ModelPricing;
 
 fn openai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
+        above_272k: None,
         input,
         output,
         reasoning_output: output,
-        cache_create: 0.0,
-        cache_create_1h: 0.0,
+        cache_create: input * 1.25,
+        cache_create_1h: input * 1.25,
         cache_read,
     }
 }
 
 fn xai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
+        above_272k: None,
         input,
         output,
         reasoning_output: output,
@@ -24,6 +26,7 @@ fn xai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
 
 fn moonshot_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
+        above_272k: None,
         input,
         output,
         reasoning_output: output,
@@ -35,6 +38,7 @@ fn moonshot_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
 
 fn google_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
+        above_272k: None,
         input,
         output,
         reasoning_output: output,
@@ -49,6 +53,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
     Some(
         if model_lower.contains("opus-4-5") || model_lower.contains("opus-4.5") {
             ModelPricing {
+                above_272k: None,
                 input: 5e-6,   // $5/M
                 output: 25e-6, // $25/M
                 reasoning_output: 25e-6,
@@ -58,6 +63,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
             }
         } else if model_lower.contains("opus") {
             ModelPricing {
+                above_272k: None,
                 input: 15e-6,
                 output: 75e-6,
                 reasoning_output: 75e-6,
@@ -67,6 +73,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
             }
         } else if model_lower.contains("sonnet") {
             ModelPricing {
+                above_272k: None,
                 input: 3e-6,
                 output: 15e-6,
                 reasoning_output: 15e-6,
@@ -76,6 +83,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
             }
         } else if model_lower.contains("haiku") {
             ModelPricing {
+                above_272k: None,
                 input: 0.8e-6,
                 output: 4e-6,
                 reasoning_output: 4e-6,
