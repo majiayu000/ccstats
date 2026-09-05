@@ -53,6 +53,7 @@ fi
 
 require_same "Cargo.lock" "$(package_lock_version Cargo.lock ccstats)" "$version"
 require_same "desktop/src-tauri/Cargo.toml" "$(toml_version desktop/src-tauri/Cargo.toml)" "$version"
+require_same "desktop ccstats dependency" "$(sed -n 's/^ccstats = {.*version = "\([^"]*\)".*/\1/p' desktop/src-tauri/Cargo.toml)" "$version"
 require_same "desktop/src-tauri/Cargo.lock" "$(package_lock_version desktop/src-tauri/Cargo.lock ccstats-desktop)" "$version"
 require_same "desktop/src-tauri/tauri.conf.json" "$(json_top_version desktop/src-tauri/tauri.conf.json)" "$version"
 require_same "desktop/package.json" "$(json_top_version desktop/package.json)" "$version"
