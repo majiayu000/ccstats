@@ -25,6 +25,18 @@ export interface SourceDiagnosticDescriptor {
   setup: string;
 }
 
+export function readySourcesForAggregation(
+  sources: SourceDescriptor[],
+  findings: SourceDiagnosticDescriptor[],
+): string[] {
+  const errors = findings.filter((row) => row.status === "error");
+  if (errors.length > 0) {
+    throw new Error(errors.map((row) => `${row.display_name}: ${row.detail}`).join("\n"));
+  }
+  const ready = new Set(findings.filter((row) => row.status === "detected" || row.status === "configured").map((row) => row.name));
+  return sources.filter((source) => source.name !== "all" && ready.has(source.name)).map((source) => source.name);
+}
+
 export interface CodexWeeklyQuota {
   observed_at: string;
   resets_at: string;

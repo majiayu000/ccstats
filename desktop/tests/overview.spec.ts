@@ -641,6 +641,113 @@ test("refreshes discovery before aggregating all sources", async ({ page }) => {
   await expect(page.getByTestId("total-tokens")).toHaveText("2,480");
 });
 
+async function injectMixedSources(page: Page) {
+  await injectBridge(page);
+  await page.addInitScript(() => {
+    const bridge = window.__CCSTATS_TEST_BRIDGE__!;
+    const listSources = bridge.listSources;
+    bridge.listSources = async () => [...await listSources(), {
+      source: "cursor", name: "cursor", display_name: "Cursor", aliases: [],
+      has_projects: false, has_reasoning_tokens: false, has_cache_creation: false, has_cache_read: false,
+    }];
+    const diagnostics = bridge.sourceDiagnostics;
+    bridge.sourceDiagnostics = async () => [
+      ...(await diagnostics()).map((row) => ({ ...row, status: row.name === "codex" ? "detected" as const : "missing" as const })),
+      { source: "cursor", name: "cursor", display_name: "Cursor", status: "configured", files: 0, detail: "Credentials configured", setup: "ccstats login cursor" },
+    ];
+    const overviews = bridge.usageOverviews;
+    bridge.usageOverviews = async (names) => {
+      window.__CCSTATS_TEST_CALLS__!.push("usageOverviews");
+      return overviews(names);
+    };
+    const save = bridge.saveMachineSnapshot;
+    bridge.saveMachineSnapshot = async (name, snapshots) => {
+      window.__CCSTATS_TEST_CALLS__!.push("saveMachineSnapshot");
+      return save(name, snapshots);
+    };
+  });
+}
+
+async function corruptCursorCredentials(page: Page) {
+  await page.evaluate(() => {
+    const bridge = window.__CCSTATS_TEST_BRIDGE__!;
+    const diagnostics = bridge.sourceDiagnostics;
+    bridge.sourceDiagnostics = async () => (await diagnostics()).map((row) => row.name === "cursor"
+      ? { ...row, status: "error", detail: "Failed to parse credentials file: invalid TOML" }
+      : row);
+    window.__CCSTATS_TEST_CALLS__!.length = 0;
+  });
+}
+
+const cursorCredentialError = "Cursor: Failed to parse credentials file: invalid TOML";
+
+test("rejects mixed ready/error diagnostics when refreshing All Sources", async ({ page }) => {
+  await injectMixedSources(page);
+  await page.goto("/");
+  await page.getByLabel("Usage source").selectOption("all");
+  await expect(page.getByTestId("total-tokens")).toHaveText("2,480");
+
+  await corruptCursorCredentials(page);
+  await page.getByRole("button", { name: "Refresh ledger" }).click();
+  await expect(page.getByRole("alert")).toContainText(cursorCredentialError);
+  await expect(page.getByTestId("overview-content")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__CCSTATS_TEST_CALLS__)).toEqual([]);
+});
+
+test("rejects mixed ready/error diagnostics before starting live All Sources", async ({ page }) => {
+  await injectMixedSources(page);
+  await page.goto("/");
+  await page.getByLabel("Usage source").selectOption("all");
+  await expect(page.getByTestId("total-tokens")).toHaveText("2,480");
+  await corruptCursorCredentials(page);
+
+  await page.getByRole("button", { name: "Live", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(cursorCredentialError);
+  await expect(page.getByTestId("live-total-tokens")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__CCSTATS_TEST_CALLS__)).toEqual([]);
+});
+
+test("rejects mixed ready/error diagnostics on live refresh and labels retained data", async ({ page }) => {
+  await page.clock.install();
+  await injectMixedSources(page);
+  await page.goto("/");
+  await page.getByLabel("Usage source").selectOption("all");
+  await expect(page.getByTestId("total-tokens")).toHaveText("2,480");
+  await page.getByRole("button", { name: "Live", exact: true }).click();
+  await expect(page.getByTestId("live-total-tokens")).toHaveText("2,480");
+  await corruptCursorCredentials(page);
+
+  await page.clock.fastForward(15_000);
+  await expect(page.getByRole("alert")).toContainText(cursorCredentialError);
+  await expect(page.getByRole("alert")).toContainText("Refresh failed; showing the last trusted snapshot");
+  await expect(page.getByTestId("live-total-tokens")).toHaveText("2,480");
+  expect(await page.evaluate(() => window.__CCSTATS_TEST_CALLS__)).toEqual([]);
+});
+
+test("rejects mixed ready/error diagnostics before saving a machine snapshot", async ({ page }) => {
+  await injectMixedSources(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Machines", exact: true }).click();
+  await expect(page.getByText("No machine snapshots yet.")).toBeVisible();
+  await corruptCursorCredentials(page);
+
+  await page.getByRole("button", { name: "Capture this machine" }).click();
+  await expect(page.getByRole("alert")).toContainText(cursorCredentialError);
+  await expect(page.getByText("No machine snapshots yet.")).toBeVisible();
+  expect(await page.evaluate(() => window.__CCSTATS_TEST_CALLS__)).toEqual([]);
+
+  await page.evaluate(() => {
+    const bridge = window.__CCSTATS_TEST_BRIDGE__!;
+    const diagnostics = bridge.sourceDiagnostics;
+    bridge.sourceDiagnostics = async () => (await diagnostics()).map((row) => row.name === "cursor"
+      ? { ...row, status: "missing", detail: "No credentials configured" } : row);
+  });
+  await page.getByRole("button", { name: "Capture this machine" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByTestId("machines-today")).toHaveText("1,240");
+  expect(await page.evaluate(() => window.__CCSTATS_TEST_CALLS__)).toEqual(["usageOverviews", "codex", "saveMachineSnapshot"]);
+});
+
 test("aggregates ready sources without scanning missing ledgers", async ({ page }) => {
   await injectBridge(page);
   await page.goto("/");
