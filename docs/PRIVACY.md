@@ -37,6 +37,12 @@ ccstats writes only operational data needed to make repeated reports reliable:
 
 - pricing cache under the platform cache directory and exchange-rate cache
   under `~/.cache/ccstats/`;
+- a Codex usage cache at `<platform cache>/ccstats/codex-usage-v1.sqlite3`
+  (with SQLite WAL/SHM sidecars). It stores file identities, event timestamps,
+  model names, deduplication keys, and token counts; it does not store conversation
+  text or fixed prices. Unchanged files reuse these facts across reports and
+  timezones. Changed files are reparsed, and removed source files stop contributing.
+  Deleting this cache and its sidecars while ccstats is stopped forces a rebuild;
 - a Grok inference ledger under the ccstats cache directory because Grok may
   trim its live log in place;
 - desktop machine snapshots under the app data directory. These snapshots
