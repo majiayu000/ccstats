@@ -13,7 +13,7 @@ export interface SourceDescriptor {
   has_cache_read: boolean;
 }
 
-export type SourceDiagnosticStatus = "detected" | "configured" | "missing";
+export type SourceDiagnosticStatus = "detected" | "configured" | "missing" | "error";
 
 export interface SourceDiagnosticDescriptor {
   source: string;

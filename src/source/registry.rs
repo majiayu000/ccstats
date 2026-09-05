@@ -18,6 +18,32 @@ pub(crate) fn all_sources() -> impl Iterator<Item = &'static dyn Source> {
     SOURCES.iter().map(std::convert::AsRef::as_ref)
 }
 
+/// Ready sources: `diagnose()` is Detected or Configured, in registry order.
+///
+/// This inspects local files and credentials only. It does not parse logs or
+/// contact remote APIs.
+pub(crate) fn ready_source_names() -> Result<Vec<&'static str>, String> {
+    let mut ready = Vec::new();
+    for source in all_sources() {
+        let diagnostic = source.diagnose();
+        if diagnostic.status == super::DiagnosticStatus::Error {
+            return Err(format!("{}: {}", source.display_name(), diagnostic.detail));
+        }
+        if diagnostic.status.is_ready() {
+            ready.push(source.name());
+        }
+    }
+    Ok(ready)
+}
+
+pub(crate) fn auto_detected_source_name(ready: &[&'static str]) -> Option<&'static str> {
+    match ready {
+        [] => None,
+        [name] => Some(*name),
+        _ => Some(ALL_SOURCES),
+    }
+}
+
 /// Get a source by name or alias
 pub(crate) fn get_source(name: &str) -> Option<&'static dyn Source> {
     let name_lower = name.to_lowercase();
@@ -108,6 +134,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::source::DiagnosticStatus;
 
     #[test]
     fn test_get_source_by_name() {
@@ -308,5 +335,26 @@ mod tests {
     #[test]
     fn test_suggest_source_none_for_distant_input() {
         assert_eq!(suggest_source("totally-unknown"), None);
+    }
+
+    #[test]
+    fn auto_detected_source_name_maps_ready_counts() {
+        assert_eq!(auto_detected_source_name(&[]), None);
+        assert_eq!(auto_detected_source_name(&["codex"]), Some("codex"));
+        assert_eq!(
+            auto_detected_source_name(&["claude", "codex"]),
+            Some(ALL_SOURCES)
+        );
+        assert_eq!(
+            auto_detected_source_name(&["claude", "codex", "cursor"]),
+            Some(ALL_SOURCES)
+        );
+    }
+
+    #[test]
+    fn diagnostic_status_ready_is_detected_or_configured() {
+        assert!(DiagnosticStatus::Detected.is_ready());
+        assert!(DiagnosticStatus::Configured.is_ready());
+        assert!(!DiagnosticStatus::Missing.is_ready());
     }
 }

@@ -97,7 +97,7 @@ impl<'a> DataLoader<'a> {
         true
     }
 
-    fn filter_entries(
+    pub(super) fn filter_entries(
         entries: Vec<RawEntry>,
         filter: &DateFilter,
         timezone: Timezone,
@@ -191,13 +191,15 @@ impl<'a> DataLoader<'a> {
         }
 
         let file_count = files.len();
+        let cached_before = self.source.cached_file_count();
         let parse_start = Instant::now();
         let (result, parse_errors) = files
             .par_iter()
             .map(|path| {
-                let parsed = self.source.parse_file(path, timezone, self.debug);
-                let filtered = Self::filter_entries(parsed.entries, filter, timezone);
-                (per_file(filtered), parsed.errors)
+                let parsed = self
+                    .source
+                    .parse_file_filtered(path, filter, timezone, self.debug);
+                (per_file(parsed.entries), parsed.errors)
             })
             .reduce(
                 || (init(), 0usize),
@@ -208,7 +210,13 @@ impl<'a> DataLoader<'a> {
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
         if !self.quiet {
-            eprintln!("Parsed {file_count} files incrementally ({parse_ms:.2}ms)");
+            let cached = self
+                .source
+                .cached_file_count()
+                .saturating_sub(cached_before);
+            eprintln!(
+                "Processed {file_count} files ({cached} cached), filtered and merged ({parse_ms:.2}ms)"
+            );
             if parse_errors > 0 {
                 eprintln!("Warning: ignored {parse_errors} malformed records");
             }

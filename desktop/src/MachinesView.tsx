@@ -33,7 +33,7 @@ export function MachinesView({ bridge, sources }: { bridge: DesktopBridge; sourc
     setError(null);
     try {
       const findings = await bridge.sourceDiagnostics();
-      const ready = new Set(findings.filter((row) => row.status !== "missing").map((row) => row.name));
+      const ready = new Set(findings.filter((row) => (row.status === "detected" || row.status === "configured")).map((row) => row.name));
       const names = sources.filter((source) => source.name !== "all" && ready.has(source.name)).map((source) => source.name);
       if (names.length === 0) throw new Error("No registered sources are available to capture.");
       setRollup(await bridge.saveMachineSnapshot(machineName, await bridge.usageOverviews(names)));

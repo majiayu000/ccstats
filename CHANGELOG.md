@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Add `ccstats login cursor` to store a Cursor API key or session token in a local `credentials.toml`. Environment variables still take precedence. ccstats still does not read Cursor SQLite.
+### Changed
+- Default CLI usage commands auto-detect ready sources instead of assuming Claude. Zero ready sources print the same output as `ccstats doctor` (statusline stays a quiet empty line); one ready source uses that provider; two or more use the existing `--source all` path. Explicit `--source`, source subcommands, and config `source` still win. The Rust SDK still defaults to Claude.
 
 ## [0.5.2] - 2026-09-03
 
