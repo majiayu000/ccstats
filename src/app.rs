@@ -425,8 +425,9 @@ fn render_period_result(
     codex_scope: Option<CodexScope>,
     grok_reports: Option<&HashMap<String, GrokCostReport>>,
     ctx: &CommandContext<'_>,
-    cost_mode: CostDisplayMode,
+    flags: period_table::PeriodTableFlags,
 ) {
+    let cost_mode = flags.cost_mode;
     let cost_coverage = CostCoverage::from_stats(result.day_stats.values().map(|day| &day.stats));
     let visible_grok_reports = ctx.cli.show_cost().then_some(grok_reports).flatten();
     let selected_grok_report = cost_coverage::selected_grok_report(visible_grok_reports);
@@ -511,7 +512,7 @@ fn render_period_result(
             codex_scope,
             visible_grok_reports,
             ctx,
-            cost_mode,
+            flags,
         ),
     }
 }
@@ -550,10 +551,15 @@ fn handle_period(
         codex_scope_for_source(source, ctx),
         grok_reports.as_ref(),
         ctx,
-        grok_reports
-            .as_ref()
-            .filter(|reports| !reports.is_empty())
-            .map_or(CostDisplayMode::Total, |_| CostDisplayMode::RealOnly),
+        period_table::PeriodTableFlags {
+            cost_mode: grok_reports
+                .as_ref()
+                .filter(|reports| !reports.is_empty())
+                .map_or(CostDisplayMode::Total, |_| CostDisplayMode::RealOnly),
+            is_today: command == SourceCommand::Today,
+            source_count: None,
+            source_name: Some(source.name()),
+        },
     );
 }
 
@@ -621,9 +627,9 @@ pub(crate) fn handle_source_command(
     handle_period(source, command, &caps, ctx);
 }
 
-fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabilities) {
+fn load_all_daily(ctx: &CommandContext<'_>, quiet: bool) -> (LoadResult, Capabilities, usize) {
     let loaded = source_breakdown::load_all_sources(ctx, quiet, false);
-    (loaded.combined, loaded.caps)
+    (loaded.combined, loaded.caps, loaded.contributing_sources)
 }
 
 fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
@@ -633,13 +639,14 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
         SourceCommand::Monthly => Period::Month,
         _ => return,
     };
+    let is_today = command == SourceCommand::Today;
 
     if ctx.cli.source_breakdown {
-        source_breakdown::render(period, ctx);
+        source_breakdown::render(period, is_today, ctx);
         return;
     }
 
-    let (result, caps) = load_all_daily(ctx, false);
+    let (result, caps, contributing_sources) = load_all_daily(ctx, false);
     if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {
         print_no_data_hint("All Sources", "usage");
         return;
@@ -651,7 +658,12 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
         None,
         None,
         ctx,
-        CostDisplayMode::Total,
+        period_table::PeriodTableFlags {
+            cost_mode: CostDisplayMode::Total,
+            is_today,
+            source_count: (contributing_sources > 1).then_some(contributing_sources),
+            source_name: None,
+        },
     );
 }
 
@@ -665,7 +677,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
             std::process::exit(1);
         }
         SourceCommand::Statusline => {
-            let (result, caps) = load_all_daily(ctx, true);
+            let (result, caps, _) = load_all_daily(ctx, true);
             if ctx.cli.json {
                 let json = print_statusline_json_with_quality(
                     &result.day_stats,
@@ -708,7 +720,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                 );
                 return;
             }
-            let (result, caps) = load_all_daily(ctx, false);
+            let (result, caps, _) = load_all_daily(ctx, false);
             let rows = rank_by_model_with_cost_mode(
                 &result.day_stats,
                 ctx.pricing_db,
