@@ -1016,7 +1016,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       await webdriverRequest<string>(port, `/session/${sessionId}/element/${heading}/text`),
     );
 
-    const sourceSelect = await waitForElement(port, sessionId, "#source-select");
+    const sourceSelect = await waitForElement(port, sessionId, "#source-select:enabled");
     await expect
       .poll(
         async () =>
@@ -1052,7 +1052,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
         { timeout: 120_000 },
       )
       .toBe("dsh");
-    const overviewButton = await waitForElement(port, sessionId, "button[aria-label='Overview']");
+    const overviewButton = await waitForElement(port, sessionId, "button[aria-label='Overview']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${overviewButton}/click`,
@@ -1067,7 +1067,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       `DSH overview did not load through the native command: ${nativeStderr}`,
     ).toBe("DeepSeek Harness");
 
-    const trustButton = await waitForElement(port, sessionId, "button[aria-label='Cost evidence']");
+    const trustButton = await waitForElement(port, sessionId, "button[aria-label='Cost evidence']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${trustButton}/click`,
@@ -1082,7 +1082,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       `cost provenance did not cross IPC: ${nativeStderr}`,
     ).toBe("Cost evidence");
 
-    const activityButton = await waitForElement(port, sessionId, "button[aria-label='Turns & tools']");
+    const activityButton = await waitForElement(port, sessionId, "button[aria-label='Turns & tools']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${activityButton}/click`,
@@ -1104,7 +1104,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       ),
     ).toBe("0");
 
-    const machinesButton = await waitForElement(port, sessionId, "button[aria-label='Machines']");
+    const machinesButton = await waitForElement(port, sessionId, "button[aria-label='Machines']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${machinesButton}/click`,
