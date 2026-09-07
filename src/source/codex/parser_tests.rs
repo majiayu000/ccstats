@@ -1,5 +1,53 @@
 use super::*;
 
+#[test]
+fn escaped_working_directories_preserve_session_and_model_metadata() {
+    for cwd in [
+        r"C:\Users\example\项目",
+        r"\\server\share\project",
+        "/work/project\"quoted\"",
+        "/work/project",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("usage.jsonl");
+        let rows = [
+            serde_json::json!({"type": "session_meta", "payload": {
+                "id": "path-test-session", "source": "cli", "cwd": cwd
+            }}),
+            serde_json::json!({"type": "turn_context", "payload": {
+                "model": "gpt-6-astra", "cwd": cwd
+            }}),
+            serde_json::json!({
+                "timestamp": "2026-09-05T00:51:00Z", "type": "event_msg",
+                "payload": {"type": "token_count", "info": {
+                    "total_token_usage": {"input_tokens": 100, "output_tokens": 5}
+                }}
+            }),
+        ];
+        let lines = rows.map(|row| row.to_string()).join("\n");
+        // Exercise escaped Unicode as well as backslashes and quotes.
+        std::fs::write(&path, lines.replace("项目", r"\u9879\u76ee")).unwrap();
+
+        for result in [
+            parse_codex_file_for_quota(&path, Timezone::Named(chrono_tz::UTC)),
+            parse_codex_file_with_scope(
+                &path,
+                Timezone::Named(chrono_tz::UTC),
+                false,
+                CodexScope::Interactive,
+            ),
+        ] {
+            assert_eq!(result.errors, 0, "cwd: {cwd}");
+            assert_eq!(result.entries.len(), 1, "cwd: {cwd}");
+            let entry = &result.entries[0];
+            assert_eq!(entry.project_path, cwd);
+            assert_eq!(entry.session_id, "path-test-session");
+            assert_eq!(entry.model, "gpt-6-astra");
+            assert_eq!(entry.to_stats().total_tokens(), 105);
+        }
+    }
+}
+
 fn parse_cache_write_usage(writes: i64) -> ParseOutput {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("usage.jsonl");
