@@ -34,7 +34,7 @@ fn home_override_discovers_logs_and_config_in_literal_unicode_directory() {
         for source in ["claude", "codex"] {
             let (ok, stdout, stderr) = run_ccstats(
                 &["daily", "--source", source, "--json", "--timezone", "UTC"],
-                &[("HOME", &home)],
+                &[("HOME", home)],
             );
             assert!(ok, "{}", String::from_utf8_lossy(&stderr));
             let rows: Value = serde_json::from_slice(&stdout).expect("JSON daily report");
