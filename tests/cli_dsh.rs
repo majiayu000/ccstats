@@ -745,7 +745,11 @@ fn dsh_rejects_malformed_or_mismatched_retry_boundaries_without_phantom_attempts
 #[test]
 fn dsh_enforces_storage_identity_and_logical_sequence_before_counting() {
     let root = unique_temp_dir("dsh-storage-integrity");
-    let home = root.join("[dsh]*home");
+    let home = root.join(if cfg!(windows) {
+        "[dsh]home"
+    } else {
+        "[dsh]*home"
+    });
     let mut missing_id = assistant_at(
         2,
         1,

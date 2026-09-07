@@ -225,9 +225,6 @@ fn platform_data_root(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> 
 }
 
 fn xdg_app_root(app: &str, suffix: &[&str]) -> Option<PathBuf> {
-    if !cfg!(any(target_os = "linux", target_os = "macos")) {
-        return None;
-    }
     let mut root = platform_data_root(env_path("XDG_DATA_HOME"), dirs::home_dir())?.join(app);
     for part in suffix {
         root.push(part);

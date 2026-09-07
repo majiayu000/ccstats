@@ -345,9 +345,9 @@ fn openclaw_reads_current_sqlite_and_counted_zstd_archives() {
     write_file(
         &state.join("openclaw.json"),
         &format!(
-            "{{ session: {{ store: '{}' }}, agents: {{ list: [{{ id: 'worker', agentDir: '{}' }}] }} }}",
-            database.display(),
-            worker_dir.display()
+            "{{ session: {{ store: {} }}, agents: {{ list: [{{ id: 'worker', agentDir: {} }}] }} }}",
+            serde_json::to_string(&database).unwrap(),
+            serde_json::to_string(&worker_dir).unwrap()
         ),
     );
 
@@ -405,7 +405,10 @@ fn openclaw_resolves_logical_and_templated_config_stores() {
     );
     write_file(
         &state.join("openclaw.json"),
-        &format!("{{ session: {{ store: '{}' }} }}", logical.display()),
+        &format!(
+            "{{ session: {{ store: {} }} }}",
+            serde_json::to_string(&logical).unwrap()
+        ),
     );
     let envs = [
         ("OPENCLAW_STATE_DIR", state.as_path()),
@@ -433,8 +436,8 @@ fn openclaw_resolves_logical_and_templated_config_stores() {
     write_file(
         &state.join("openclaw.json"),
         &format!(
-            "{{ session: {{ store: '{}' }}, agents: {{ list: [{{ id: 'worker' }}] }} }}",
-            template.display()
+            "{{ session: {{ store: {} }}, agents: {{ list: [{{ id: 'worker' }}] }} }}",
+            serde_json::to_string(&template).unwrap()
         ),
     );
     let template_json = daily_json("openclaw", &envs);
