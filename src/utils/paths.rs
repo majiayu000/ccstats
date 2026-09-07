@@ -2,10 +2,31 @@
 use std::path::{Path, PathBuf};
 
 pub(crate) fn glob_pattern(root: &Path, suffix: &str) -> String {
-    format!(
-        "{}/{suffix}",
-        glob::Pattern::escape(&root.to_string_lossy())
-    )
+    let text = root.to_string_lossy();
+    #[cfg(windows)]
+    if let Some(std::path::Component::Prefix(prefix)) = root.components().next() {
+        // The prefix is a literal filesystem scope in glob, not a pattern.
+        // In particular, escaping the ? in \\?\ would corrupt canonical paths.
+        let prefix_text = prefix.as_os_str().to_string_lossy();
+        let scope = match prefix.kind() {
+            std::path::Prefix::VerbatimUNC(server, share) => {
+                // glob supports ordinary UNC scopes, but rejects verbatim UNC.
+                format!(
+                    r"\\{}\{}",
+                    server.to_string_lossy(),
+                    share.to_string_lossy()
+                )
+            }
+            _ => prefix_text.to_string(),
+        };
+        return format!(
+            "{}{}\\{}",
+            scope,
+            glob::Pattern::escape(&text[prefix_text.len()..]),
+            suffix.replace('/', r"\"),
+        );
+    }
+    format!("{}/{suffix}", glob::Pattern::escape(&text))
 }
 
 pub(crate) fn home_dir() -> Option<PathBuf> {

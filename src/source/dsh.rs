@@ -564,7 +564,7 @@ fn valid_header(header: &Header) -> bool {
         && header
             .cwd
             .as_deref()
-            .is_none_or(|cwd| Path::new(cwd).is_absolute())
+            .is_none_or(|cwd| cwd.starts_with('/') || Path::new(cwd).is_absolute())
 }
 
 fn replace_route(data: serde_json::Value, route: &mut Option<Route>) -> bool {

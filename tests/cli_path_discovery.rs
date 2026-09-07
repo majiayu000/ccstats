@@ -30,20 +30,22 @@ fn home_override_discovers_logs_and_config_in_literal_unicode_directory() {
         &home.join(".codex/sessions/session.jsonl"),
         &rows.map(|row| row.to_string()).join("\r\n"),
     );
-    for source in ["claude", "codex"] {
-        let (ok, stdout, stderr) = run_ccstats(
-            &["daily", "--source", source, "--json", "--timezone", "UTC"],
-            &[("HOME", &home)],
-        );
-        assert!(ok, "{}", String::from_utf8_lossy(&stderr));
-        let rows: Value = serde_json::from_slice(&stdout).expect("JSON daily report");
-        assert_eq!(rows.as_array().unwrap().len(), 1, "{source}: {rows}");
-        assert_eq!(rows[0]["total_tokens"], 105, "{source}: {rows}");
-        assert_eq!(rows[0]["data_quality"]["parse_errors"], 0);
-        assert!(
-            rows[0].get("cost").is_none(),
-            "HOME config must hide costs: {rows}"
-        );
+    for home in [&home, &home.canonicalize().unwrap()] {
+        for source in ["claude", "codex"] {
+            let (ok, stdout, stderr) = run_ccstats(
+                &["daily", "--source", source, "--json", "--timezone", "UTC"],
+                &[("HOME", &home)],
+            );
+            assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+            let rows: Value = serde_json::from_slice(&stdout).expect("JSON daily report");
+            assert_eq!(rows.as_array().unwrap().len(), 1, "{source}: {rows}");
+            assert_eq!(rows[0]["total_tokens"], 105, "{source}: {rows}");
+            assert_eq!(rows[0]["data_quality"]["parse_errors"], 0);
+            assert!(
+                rows[0].get("cost").is_none(),
+                "HOME config must hide costs: {rows}"
+            );
+        }
     }
     std::fs::remove_dir_all(temp).unwrap();
 }
