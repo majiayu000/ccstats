@@ -7,6 +7,7 @@
 //! Cursor HTTP clients read `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` first,
 //! then this file. Never log secret values.
 
+use crate::utils::paths as dirs;
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, ErrorKind, Write};

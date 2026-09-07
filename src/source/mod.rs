@@ -38,6 +38,7 @@ mod unsloth;
 mod xum;
 
 mod reasonix {
+    use crate::utils::paths as dirs;
     use std::env;
     use std::fs;
     use std::io::{BufRead, BufReader};

@@ -1,4 +1,5 @@
 //! Vercel Fx profile usage ledger and bounded recovery registry.
+use crate::utils::paths as dirs;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};

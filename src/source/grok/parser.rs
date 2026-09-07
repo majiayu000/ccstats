@@ -5,6 +5,8 @@
 //! session has no such events, this parser falls back to `signals.json`
 //! context-token snapshots and labels them `estimated_proxy`.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -119,7 +121,7 @@ fn collect_session_files(
     by_session: &mut HashMap<PathBuf, PathBuf>,
     preference: FilePreference,
 ) {
-    let pattern = format!("{}/**/{file_name}", sessions_dir.display());
+    let pattern = glob_pattern(sessions_dir, &format!("**/{file_name}"));
     let Ok(entries) = glob::glob(&pattern) else {
         return;
     };

@@ -1,3 +1,4 @@
+use crate::utils::paths as dirs;
 use serde::Deserialize;
 use std::fs;
 use std::io;
@@ -155,9 +156,13 @@ mod tests {
     #[test]
     fn test_config_paths_contain_expected_filenames() {
         let paths = Config::get_config_paths();
-        let has_xdg = paths
-            .iter()
-            .any(|p| p.to_string_lossy().contains(".config/ccstats/config.toml"));
+        let has_xdg = paths.iter().any(|p| {
+            p.ends_with(
+                std::path::Path::new(".config")
+                    .join("ccstats")
+                    .join("config.toml"),
+            )
+        });
         let has_dotfile = paths
             .iter()
             .any(|p| p.to_string_lossy().ends_with(".ccstats.toml"));

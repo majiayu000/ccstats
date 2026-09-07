@@ -1,5 +1,7 @@
 //! Gemini CLI local usage source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -77,12 +79,12 @@ fn find_gemini_files() -> Vec<PathBuf> {
     }
 
     let patterns = [
-        tmp.join("*").join("chats").join("*.json"),
-        tmp.join("**").join("*.jsonl"),
+        glob_pattern(&tmp, "*/chats/*.json"),
+        glob_pattern(&tmp, "**/*.jsonl"),
     ];
     let mut files = Vec::new();
     for pattern in patterns {
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+        if let Ok(matches) = glob::glob(&pattern) {
             files.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }

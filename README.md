@@ -844,3 +844,22 @@ and Claude indexed summaries, returning `SessionTitle { text, origin }`.
 Missing indices return no titles; unreadable or malformed indices return errors.
 No model call or transcript summarization is performed. Desktop users can keep
 manual titles locally without changing source transcripts.
+
+### Windows directory overrides and verification
+
+Windows uses the native user profile and application directories by default.
+An explicit nonempty `HOME` overrides the profile root for all sources, configuration,
+and credentials. With `HOME` set, Windows config/data/cache defaults become
+`$HOME/.config`, `$HOME/.local/share`, and `$HOME/.cache`; `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME`, and `XDG_CACHE_HOME` override those respective directories.
+This also allows tests to use an isolated profile without reading the real user's data.
+Source-specific overrides such as `CODEX_HOME` still take precedence for source logs.
+
+In PowerShell, set a source root with `$env:CODEX_HOME = 'C:\path\to\.codex'`
+(the inline `NAME=value command` examples above use POSIX shell syntax).
+
+On a clean Windows runner with Rust MSVC and C++ Build Tools installed, run
+`cargo test --locked --no-fail-fast`. This runs library and CLI integration targets
+even if one target fails. Windows CI also runs the desktop Rust, frontend and native
+IPC tests. Manual release acceptance still includes MSI install/start/uninstall,
+terminal Unicode output, UNC paths, and a comparison with real source logs.

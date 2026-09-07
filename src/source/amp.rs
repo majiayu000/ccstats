@@ -1,5 +1,7 @@
 //! Amp local thread usage source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -70,8 +72,8 @@ fn find_amp_files() -> Vec<PathBuf> {
     let Some(root) = amp_threads_dir() else {
         return Vec::new();
     };
-    let pattern = root.join("**").join("T-*.json");
-    let mut files = glob::glob(&pattern.to_string_lossy())
+    let pattern = glob_pattern(&root, "**/T-*.json");
+    let mut files = glob::glob(&pattern)
         .into_iter()
         .flatten()
         .flatten()

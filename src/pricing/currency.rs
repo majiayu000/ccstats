@@ -3,6 +3,7 @@
 //! Fetches rates from open.er-api.com (free, no API key required).
 //! Caches to `~/.cache/ccstats/exchange_rates.json` for 24h.
 
+use crate::utils::paths as dirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;

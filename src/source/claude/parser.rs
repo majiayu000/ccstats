@@ -2,6 +2,8 @@
 //!
 //! Parses JSONL logs from the Claude config projects directory.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::env;
@@ -79,7 +81,7 @@ pub(super) fn find_claude_files() -> Vec<PathBuf> {
     };
 
     let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", claude_path.display())) {
+    if let Ok(entries) = glob::glob(&glob_pattern(&claude_path, "**/*.jsonl")) {
         for entry in entries.flatten() {
             files.push(entry);
         }

@@ -1,3 +1,4 @@
+use crate::utils::paths as dirs;
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, ErrorKind, Write};

@@ -977,12 +977,19 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
   await mkdir(configDir, { recursive: true });
   await writeFile(join(configDir, "config.toml"), "offline = true\n", "utf8");
   const binary = fileURLToPath(
-    new URL("../src-tauri/target/debug/ccstats-desktop", import.meta.url),
+    new URL(`../src-tauri/target/debug/ccstats-desktop${process.platform === "win32" ? ".exe" : ""}`, import.meta.url),
   );
   const nativeProcess = spawn(binary, [], {
     cwd: isolatedHome,
     env: {
+      SystemRoot: process.env.SystemRoot,
+      WINDIR: process.env.WINDIR,
+      TEMP: isolatedHome,
+      TMP: isolatedHome,
       HOME: isolatedHome,
+      XDG_CONFIG_HOME: join(isolatedHome, ".config"),
+      XDG_DATA_HOME: join(isolatedHome, ".local", "share"),
+      XDG_CACHE_HOME: join(isolatedHome, ".cache"),
       LANG: process.env.LANG,
       LC_ALL: process.env.LC_ALL,
       PATH: process.env.PATH,

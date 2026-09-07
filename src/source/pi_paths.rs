@@ -1,5 +1,7 @@
 //! Session discovery for Pi-family sources.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -123,10 +125,13 @@ fn senpi_sessions_dir() -> Result<PathBuf, PathBuf> {
 }
 
 fn find_family_files(root: &Path) -> Vec<PathBuf> {
-    let patterns = [root.join("*.jsonl"), root.join("**").join("*.jsonl")];
+    let patterns = [
+        glob_pattern(root, "*.jsonl"),
+        glob_pattern(root, "**/*.jsonl"),
+    ];
     let mut files = Vec::new();
     for pattern in patterns {
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+        if let Ok(matches) = glob::glob(&pattern) {
             files.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }

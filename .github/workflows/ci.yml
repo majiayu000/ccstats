@@ -52,8 +52,12 @@ jobs:
           fail_ci_if_error: false
 
   desktop:
-    name: Desktop
-    runs-on: macos-latest
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -89,12 +93,12 @@ jobs:
         working-directory: desktop
         run: npm run test:e2e:native
 
-  windows-credentials:
-    name: Windows credentials
+  windows:
+    name: Windows
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Test private credential storage
-        run: cargo test --locked --lib credentials::tests
+      - name: Test CLI and library
+        run: cargo test --locked --no-fail-fast

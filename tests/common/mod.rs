@@ -42,6 +42,7 @@ const SOURCE_ENV_VARS: &[&str] = &[
     "XUM_ROOT",
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
 ];
 
 pub(crate) fn unique_temp_dir(prefix: &str) -> PathBuf {

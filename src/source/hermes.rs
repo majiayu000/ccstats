@@ -1,5 +1,6 @@
 //! Hermes Agent current `SQLite` usage ledger source.
 
+use crate::utils::paths as dirs;
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};

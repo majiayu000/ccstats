@@ -1,5 +1,7 @@
 //! Cline CLI and VS Code extension local usage source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -95,8 +97,8 @@ fn find_cline_cli_files() -> Vec<PathBuf> {
     let Some(root) = cline_cli_sessions_dir() else {
         return Vec::new();
     };
-    let pattern = root.join("**").join("*.messages.json");
-    let mut files = glob::glob(&pattern.to_string_lossy())
+    let pattern = glob_pattern(&root, "**/*.messages.json");
+    let mut files = glob::glob(&pattern)
         .into_iter()
         .flatten()
         .flatten()

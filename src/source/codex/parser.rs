@@ -3,6 +3,8 @@
 //! Parses JSONL logs from active and archived directories under `~/.codex`.
 //! Codex log format uses cumulative token counts that need delta computation.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::env;
@@ -192,7 +194,7 @@ fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for subdir in [SESSION_SUBDIR, ARCHIVED_SESSION_SUBDIR] {
         let sessions_dir = root.join(subdir);
-        if let Ok(entries) = glob::glob(&format!("{}/**/*.jsonl", sessions_dir.display())) {
+        if let Ok(entries) = glob::glob(&glob_pattern(&sessions_dir, "**/*.jsonl")) {
             files.extend(entries.flatten().filter(|path| path.is_file()));
         }
     }

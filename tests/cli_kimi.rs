@@ -11,10 +11,7 @@ fn write_kimi_session(kimi_home: &Path) {
     let session_dir = kimi_home.join(KIMI_SESSION_DIR);
     write_file(
         &kimi_home.join("session_index.jsonl"),
-        &format!(
-            r#"{{"sessionId":"session-kimi-1","sessionDir":"{}","workDir":"/tmp/kimi-project"}}"#,
-            session_dir.display()
-        ),
+        &serde_json::json!({"sessionId": "session-kimi-1", "sessionDir": session_dir, "workDir": "/tmp/kimi-project"}).to_string(),
     );
     write_file(
         &session_dir.join("agents/main/wire.jsonl"),

@@ -1,5 +1,7 @@
 //! `OpenCode` local `SQLite` usage source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -165,8 +167,8 @@ fn find_opencode_databases() -> Vec<PathBuf> {
     let Some(data_dir) = opencode_data_dir() else {
         return Vec::new();
     };
-    let pattern = data_dir.join("opencode*.db");
-    let mut databases = glob::glob(&pattern.to_string_lossy())
+    let pattern = glob_pattern(&data_dir, "opencode*.db");
+    let mut databases = glob::glob(&pattern)
         .into_iter()
         .flatten()
         .flatten()
@@ -208,8 +210,8 @@ fn find_family_databases(
     };
     let mut databases = Vec::new();
     for pattern in patterns {
-        let pattern = data_dir.join(pattern);
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+        let pattern = glob_pattern(&data_dir, pattern);
+        if let Ok(matches) = glob::glob(&pattern) {
             databases.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }

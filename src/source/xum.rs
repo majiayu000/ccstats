@@ -1,5 +1,7 @@
 //! Xum cumulative session usage source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -66,8 +68,8 @@ fn find_usage_files() -> Vec<PathBuf> {
     let Some(root) = xum_root() else {
         return Vec::new();
     };
-    let pattern = root.join("sessions/*/session-usage.json");
-    let mut files = glob::glob(&pattern.to_string_lossy())
+    let pattern = glob_pattern(&root, "sessions/*/session-usage.json");
+    let mut files = glob::glob(&pattern)
         .into_iter()
         .flatten()
         .flatten()
@@ -168,8 +170,8 @@ fn rollup_disposition(path: &Path) -> RollupDisposition {
     let Some(sessions_dir) = path.parent().and_then(Path::parent) else {
         return RollupDisposition::Keep;
     };
-    let pattern = sessions_dir.join("*/session-usage.json");
-    let ledgers = glob::glob(&pattern.to_string_lossy())
+    let pattern = glob_pattern(sessions_dir, "*/session-usage.json");
+    let ledgers = glob::glob(&pattern)
         .into_iter()
         .flatten()
         .flatten()

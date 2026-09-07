@@ -1,5 +1,7 @@
 //! Official session-root selection for Gajae Code, Prime Agent, and Oh My Pi.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -57,8 +59,11 @@ fn resolved_path(path: PathBuf) -> PathBuf {
 
 fn find_jsonl(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for pattern in [root.join("*.jsonl"), root.join("**").join("*.jsonl")] {
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+    for pattern in [
+        glob_pattern(root, "*.jsonl"),
+        glob_pattern(root, "**/*.jsonl"),
+    ] {
+        if let Ok(matches) = glob::glob(&pattern) {
             files.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }
