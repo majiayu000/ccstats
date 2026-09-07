@@ -42,7 +42,9 @@ struct Payload<'a> {
     #[serde(rename = "type")]
     payload_type: Option<&'a str>,
     id: Option<&'a str>,
-    cwd: Option<&'a str>,
+    // Paths may contain JSON escapes (notably Windows backslashes), which
+    // cannot be deserialized into a borrowed string.
+    cwd: Option<String>,
     info: Option<TokenInfo<'a>>,
     model: Option<&'a str>,
     source: Option<serde_json::Value>,
@@ -446,7 +448,7 @@ fn update_session_metadata(payload: Option<&Payload<'_>>, state: &mut CodexParse
         state.session_id = Some(id.to_string());
     }
     if let Some(cwd) = payload
-        .and_then(|payload| payload.cwd)
+        .and_then(|payload| payload.cwd.as_deref())
         .filter(|cwd| !cwd.is_empty())
     {
         state.project_path = cwd.to_string();
