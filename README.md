@@ -848,11 +848,15 @@ manual titles locally without changing source transcripts.
 ### Windows directory overrides and verification
 
 Windows uses the native user profile and application directories by default.
-An explicit nonempty `HOME` overrides the profile root for all sources, configuration,
-and credentials. With `HOME` set, Windows config/data/cache defaults become
-`$HOME/.config`, `$HOME/.local/share`, and `$HOME/.cache`; `XDG_CONFIG_HOME`,
-`XDG_DATA_HOME`, and `XDG_CACHE_HOME` override those respective directories.
-This also allows tests to use an isolated profile without reading the real user's data.
+An explicit nonempty absolute `HOME` overrides the profile root for source logs
+and the `~/.config` / `~/.ccstats.toml` search paths. It does not remap config,
+data, or cache directories to `$HOME/.config`, `$HOME/.local/share`, or
+`$HOME/.cache`. Native known folders stay on the search path, so existing
+AppData credentials and config keep working after upgrade.
+
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_CACHE_HOME` override those
+respective directories when set to a nonempty absolute path. Tests should set
+those variables to isolated directories instead of relying on `HOME` alone.
 Source-specific overrides such as `CODEX_HOME` still take precedence for source logs.
 
 In PowerShell, set a source root with `$env:CODEX_HOME = 'C:\path\to\.codex'`

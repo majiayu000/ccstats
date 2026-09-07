@@ -183,6 +183,81 @@ fn clear_removes_file_credentials_and_doctor_is_missing() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[cfg(windows)]
+#[test]
+fn home_without_xdg_reads_and_updates_existing_appdata_credentials() {
+    use common::{RestoredFile, lock_appdata, run_ccstats_with_isolation};
+
+    let _lock = lock_appdata();
+    let home = unique_temp_dir("appdata-cred-home");
+    let appdata_credentials = dirs::config_dir()
+        .expect("platform config directory")
+        .join("ccstats")
+        .join("credentials.toml");
+    assert_ne!(
+        credentials_path(&home),
+        appdata_credentials,
+        "isolated HOME must not be the native credentials path"
+    );
+    let _guard = RestoredFile::overwrite(
+        &appdata_credentials,
+        "[cursor]\napi_key = \"appdata-upgrade-key-179\"\n",
+    );
+
+    let (ok, stdout, stderr) = run_ccstats_with_isolation(
+        &["login", "cursor", "--check"],
+        &[("HOME", home.as_path())],
+        false,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let check = format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    );
+    assert!(
+        check.contains("file"),
+        "expected AppData credentials: {check}"
+    );
+    assert_no_secret(&stdout, &stderr, "appdata-upgrade-key-179");
+
+    let posix_home = Path::new("/c/Users/not-a-windows-home");
+    let (ok, stdout, stderr) = run_ccstats_with_isolation(
+        &["login", "cursor", "--check"],
+        &[("HOME", posix_home)],
+        false,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let check = format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    );
+    assert!(
+        check.contains("file"),
+        "non-absolute HOME must still read AppData credentials: {check}"
+    );
+
+    let (ok, stdout, stderr) = run_ccstats_with_isolation(
+        &["login", "cursor", "--api-key", "appdata-updated-key-179"],
+        &[("HOME", home.as_path())],
+        false,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    assert_no_secret(&stdout, &stderr, "appdata-updated-key-179");
+    let written = fs::read_to_string(&appdata_credentials).expect("updated AppData credentials");
+    assert!(
+        written.contains("appdata-updated-key-179"),
+        "update must keep the existing AppData file: {written}"
+    );
+    assert!(
+        !credentials_path(&home).exists(),
+        "update must not create HOME/.config credentials"
+    );
+
+    let _ = fs::remove_dir_all(home);
+}
+
 #[test]
 fn no_flags_non_tty_exit_1() {
     let root = unique_temp_dir("login-cursor-nontty");

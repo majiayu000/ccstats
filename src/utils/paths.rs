@@ -29,28 +29,27 @@ pub(crate) fn glob_pattern(root: &Path, suffix: &str) -> String {
     format!("{}/{suffix}", glob::Pattern::escape(&text))
 }
 
+fn nonempty_env_path(variable: &str) -> Option<PathBuf> {
+    Some(PathBuf::from(
+        std::env::var_os(variable).filter(|value| !value.is_empty())?,
+    ))
+}
+
 pub(crate) fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(dirs::home_dir)
+    let home = nonempty_env_path("HOME");
+    #[cfg(windows)]
+    let home = home.filter(|path| path.is_absolute());
+    home.or_else(dirs::home_dir)
 }
 
 #[cfg(windows)]
-fn overridden_dir(variable: &str, suffix: &str) -> Option<PathBuf> {
-    std::env::var_os(variable)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|value| !value.is_empty())
-                .map(|home| PathBuf::from(home).join(suffix))
-        })
+fn explicit_xdg(variable: &str) -> Option<PathBuf> {
+    nonempty_env_path(variable).filter(|path| path.is_absolute())
 }
 
 pub(crate) fn config_dir() -> Option<PathBuf> {
     #[cfg(windows)]
-    if let Some(path) = overridden_dir("XDG_CONFIG_HOME", ".config") {
+    if let Some(path) = explicit_xdg("XDG_CONFIG_HOME") {
         return Some(path);
     }
     dirs::config_dir()
@@ -58,7 +57,7 @@ pub(crate) fn config_dir() -> Option<PathBuf> {
 
 pub(crate) fn data_dir() -> Option<PathBuf> {
     #[cfg(windows)]
-    if let Some(path) = overridden_dir("XDG_DATA_HOME", ".local/share") {
+    if let Some(path) = explicit_xdg("XDG_DATA_HOME") {
         return Some(path);
     }
     dirs::data_dir()
@@ -66,7 +65,7 @@ pub(crate) fn data_dir() -> Option<PathBuf> {
 
 pub(crate) fn data_local_dir() -> Option<PathBuf> {
     #[cfg(windows)]
-    if let Some(path) = overridden_dir("XDG_DATA_HOME", ".local/share") {
+    if let Some(path) = explicit_xdg("XDG_DATA_HOME") {
         return Some(path);
     }
     dirs::data_local_dir()
@@ -74,7 +73,7 @@ pub(crate) fn data_local_dir() -> Option<PathBuf> {
 
 pub(crate) fn cache_dir() -> Option<PathBuf> {
     #[cfg(windows)]
-    if let Some(path) = overridden_dir("XDG_CACHE_HOME", ".cache") {
+    if let Some(path) = explicit_xdg("XDG_CACHE_HOME") {
         return Some(path);
     }
     dirs::cache_dir()
