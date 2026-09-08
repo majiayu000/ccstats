@@ -42,13 +42,16 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
     home.or_else(dirs::home_dir)
 }
 
-#[cfg(windows)]
 fn explicit_xdg(variable: &str) -> Option<PathBuf> {
     nonempty_env_path(variable).filter(|path| path.is_absolute())
 }
 
+/// True when `XDG_CONFIG_HOME` is a nonempty absolute override.
+pub(crate) fn has_explicit_xdg_config() -> bool {
+    explicit_xdg("XDG_CONFIG_HOME").is_some()
+}
+
 pub(crate) fn config_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
     if let Some(path) = explicit_xdg("XDG_CONFIG_HOME") {
         return Some(path);
     }
@@ -56,7 +59,6 @@ pub(crate) fn config_dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn data_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
     if let Some(path) = explicit_xdg("XDG_DATA_HOME") {
         return Some(path);
     }
@@ -64,7 +66,6 @@ pub(crate) fn data_dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn data_local_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
     if let Some(path) = explicit_xdg("XDG_DATA_HOME") {
         return Some(path);
     }
@@ -72,7 +73,6 @@ pub(crate) fn data_local_dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn cache_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
     if let Some(path) = explicit_xdg("XDG_CACHE_HOME") {
         return Some(path);
     }

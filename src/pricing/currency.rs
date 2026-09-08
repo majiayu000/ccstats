@@ -1,17 +1,19 @@
 //! Currency conversion with exchange rate caching
 //!
 //! Fetches rates from open.er-api.com (free, no API key required).
-//! Caches to `~/.cache/ccstats/exchange_rates.json` for 24h.
+//! Caches to the platform cache directory (`ccstats/exchange_rates.json`),
+//! with `~/.cache/ccstats/exchange_rates.json` as a legacy read fallback.
 
 use crate::utils::paths as dirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 const EXCHANGE_RATE_URL: &str = "https://open.er-api.com/v6/latest/USD";
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const EXCHANGE_CACHE_FILE: &str = "exchange_rates.json";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ExchangeRateResponse {
@@ -93,35 +95,81 @@ fn currency_symbol(code: &str) -> String {
     }
 }
 
-fn cache_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    Some(
-        home.join(".cache")
-            .join("ccstats")
-            .join("exchange_rates.json"),
-    )
+fn exchange_cache_file(root: &Path) -> PathBuf {
+    root.join("ccstats").join(EXCHANGE_CACHE_FILE)
+}
+
+fn legacy_exchange_cache_file(home: &Path) -> PathBuf {
+    home.join(".cache")
+        .join("ccstats")
+        .join(EXCHANGE_CACHE_FILE)
+}
+
+fn select_exchange_cache_paths(
+    platform_cache_dir: Option<&Path>,
+    home_dir: Option<&Path>,
+) -> (Option<PathBuf>, Vec<PathBuf>) {
+    let preferred = platform_cache_dir.map(exchange_cache_file);
+    let legacy = home_dir.map(legacy_exchange_cache_file);
+    let write_path = preferred.clone().or_else(|| legacy.clone());
+
+    let mut read_paths = Vec::new();
+    if let Some(path) = &write_path {
+        read_paths.push(path.clone());
+    }
+    if let Some(path) = legacy
+        && !read_paths.contains(&path)
+    {
+        read_paths.push(path);
+    }
+
+    (write_path, read_paths)
+}
+
+fn cache_paths() -> (Option<PathBuf>, Vec<PathBuf>) {
+    select_exchange_cache_paths(dirs::cache_dir().as_deref(), dirs::home_dir().as_deref())
 }
 
 fn load_cached_rates() -> Option<HashMap<String, f64>> {
-    let path = cache_path()?;
-    let meta = std::fs::metadata(&path).ok()?;
-    let modified = meta.modified().ok()?;
-    let age = SystemTime::now().duration_since(modified).ok()?;
-    if age > CACHE_TTL {
-        return None;
+    let (_, read_paths) = cache_paths();
+    for path in read_paths {
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        let Ok(age) = SystemTime::now().duration_since(modified) else {
+            continue;
+        };
+        if age > CACHE_TTL {
+            continue;
+        }
+        let Ok(file) = File::open(&path) else {
+            continue;
+        };
+        if let Ok(rates) = serde_json::from_reader(file) {
+            return Some(rates);
+        }
     }
-    let file = File::open(&path).ok()?;
-    serde_json::from_reader(file).ok()
+    None
 }
 
 fn load_any_cached_rates() -> Option<HashMap<String, f64>> {
-    let path = cache_path()?;
-    let file = File::open(&path).ok()?;
-    serde_json::from_reader(file).ok()
+    let (_, read_paths) = cache_paths();
+    for path in read_paths {
+        let Ok(file) = File::open(&path) else {
+            continue;
+        };
+        if let Ok(rates) = serde_json::from_reader(file) {
+            return Some(rates);
+        }
+    }
+    None
 }
 
 fn save_cached_rates(rates: &HashMap<String, f64>) {
-    let Some(path) = cache_path() else {
+    let Some(path) = cache_paths().0 else {
         return;
     };
     if let Some(parent) = path.parent()
@@ -217,5 +265,38 @@ mod tests {
     fn currency_code_accessor() {
         let conv = CurrencyConverter::load("USD", true).unwrap();
         assert_eq!(conv.currency_code(), "USD");
+    }
+
+    #[test]
+    fn exchange_cache_paths_prefer_platform_cache_dir() {
+        let platform = PathBuf::from("/tmp/xdg-cache");
+        let home = PathBuf::from("/tmp/home");
+        let (write_path, read_paths) =
+            select_exchange_cache_paths(Some(platform.as_path()), Some(home.as_path()));
+        assert_eq!(
+            write_path,
+            Some(platform.join("ccstats").join(EXCHANGE_CACHE_FILE))
+        );
+        assert_eq!(
+            read_paths,
+            vec![
+                platform.join("ccstats").join(EXCHANGE_CACHE_FILE),
+                home.join(".cache")
+                    .join("ccstats")
+                    .join(EXCHANGE_CACHE_FILE),
+            ]
+        );
+    }
+
+    #[test]
+    fn exchange_cache_paths_fall_back_to_home_cache() {
+        let home = PathBuf::from("/tmp/home");
+        let (write_path, read_paths) = select_exchange_cache_paths(None, Some(home.as_path()));
+        let legacy = home
+            .join(".cache")
+            .join("ccstats")
+            .join(EXCHANGE_CACHE_FILE);
+        assert_eq!(write_path, Some(legacy.clone()));
+        assert_eq!(read_paths, vec![legacy]);
     }
 }

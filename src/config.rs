@@ -117,28 +117,39 @@ impl Config {
     }
 
     fn get_config_paths() -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-
-        // 1. XDG config: ~/.config/ccstats/config.toml (Linux/cross-platform)
-        if let Some(home) = dirs::home_dir() {
-            paths.push(home.join(".config").join("ccstats").join("config.toml"));
-        }
-
-        // 2. macOS Application Support: ~/Library/Application Support/ccstats/config.toml
-        if let Some(config_dir) = dirs::config_dir() {
-            let macos_path = config_dir.join("ccstats").join("config.toml");
-            if !paths.contains(&macos_path) {
-                paths.push(macos_path);
-            }
-        }
-
-        // 3. Home directory: ~/.ccstats.toml
-        if let Some(home) = dirs::home_dir() {
-            paths.push(home.join(".ccstats.toml"));
-        }
-
-        paths
+        select_config_paths(
+            dirs::home_dir().as_deref(),
+            dirs::config_dir().as_deref(),
+            dirs::has_explicit_xdg_config(),
+        )
     }
+}
+
+fn select_config_paths(
+    home: Option<&std::path::Path>,
+    config_dir: Option<&std::path::Path>,
+    prefer_platform_config: bool,
+) -> Vec<PathBuf> {
+    let home_config = home.map(|home| home.join(".config").join("ccstats").join("config.toml"));
+    let platform_config = config_dir.map(|dir| dir.join("ccstats").join("config.toml"));
+
+    let mut paths = Vec::new();
+    let ordered = if prefer_platform_config {
+        [platform_config, home_config]
+    } else {
+        [home_config, platform_config]
+    };
+    for path in ordered.into_iter().flatten() {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+
+    if let Some(home) = home {
+        paths.push(home.join(".ccstats.toml"));
+    }
+
+    paths
 }
 
 #[cfg(test)]
@@ -168,6 +179,36 @@ mod tests {
             .any(|p| p.to_string_lossy().ends_with(".ccstats.toml"));
         assert!(has_xdg);
         assert!(has_dotfile);
+    }
+
+    #[test]
+    fn config_paths_prefer_platform_config_when_xdg_override_is_set() {
+        let home = std::path::Path::new("/tmp/home-override");
+        let xdg = std::path::Path::new("/tmp/xdg-config");
+        let paths = select_config_paths(Some(home), Some(xdg), true);
+        assert_eq!(
+            paths,
+            vec![
+                xdg.join("ccstats").join("config.toml"),
+                home.join(".config").join("ccstats").join("config.toml"),
+                home.join(".ccstats.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn config_paths_keep_home_ahead_without_xdg_override() {
+        let home = std::path::Path::new("/tmp/home-override");
+        let platform = std::path::Path::new("/tmp/AppData/Roaming");
+        let paths = select_config_paths(Some(home), Some(platform), false);
+        assert_eq!(
+            paths,
+            vec![
+                home.join(".config").join("ccstats").join("config.toml"),
+                platform.join("ccstats").join("config.toml"),
+                home.join(".ccstats.toml"),
+            ]
+        );
     }
 
     // --- TOML deserialization tests ---

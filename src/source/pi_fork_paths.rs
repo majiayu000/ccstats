@@ -212,7 +212,7 @@ fn home_config_root(home: &Path, config: &Path) -> PathBuf {
 }
 
 fn platform_data_root(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
-    xdg_data_home.or_else(|| {
+    xdg_data_home.filter(|path| path.is_absolute()).or_else(|| {
         let home = home?;
         if cfg!(target_os = "macos") {
             Some(home.join("Library/Application Support"))
@@ -459,5 +459,26 @@ mod tests {
         };
 
         assert_eq!(platform_data_root(None, Some(home)), expected);
+    }
+
+    #[test]
+    fn platform_data_root_rejects_relative_xdg_override() {
+        let home = PathBuf::from("/home/tester");
+        let expected = if cfg!(target_os = "macos") {
+            Some(home.join("Library/Application Support"))
+        } else if cfg!(target_os = "linux") {
+            Some(home.join(".local/share"))
+        } else {
+            None
+        };
+
+        assert_eq!(
+            platform_data_root(Some(PathBuf::from("relative-xdg")), Some(home.clone())),
+            expected
+        );
+        assert_eq!(
+            platform_data_root(Some(PathBuf::from("/abs/xdg")), Some(home)),
+            Some(PathBuf::from("/abs/xdg"))
+        );
     }
 }

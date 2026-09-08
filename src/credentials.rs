@@ -1,8 +1,9 @@
 //! Local ccstats credentials (`credentials.toml`), separate from `config.toml`.
 //!
 //! Search order matches the config directory family but uses a different file:
-//! 1. `~/.config/ccstats/credentials.toml`
-//! 2. `dirs::config_dir()/ccstats/credentials.toml` when that path is distinct
+//! 1. When `XDG_CONFIG_HOME` is set: `dirs::config_dir()/ccstats/credentials.toml`
+//! 2. `~/.config/ccstats/credentials.toml`
+//! 3. Otherwise `dirs::config_dir()/ccstats/credentials.toml` when distinct
 //!
 //! Cursor HTTP clients read `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` first,
 //! then this file. Never log secret values.
@@ -202,19 +203,32 @@ fn existing_credentials_path() -> Option<PathBuf> {
 
 /// Config-directory family used by `config.rs`, with `credentials.toml` as the filename.
 pub(crate) fn credentials_paths() -> Vec<PathBuf> {
+    select_credentials_paths(
+        dirs::home_dir().as_deref(),
+        dirs::config_dir().as_deref(),
+        dirs::has_explicit_xdg_config(),
+    )
+}
+
+fn select_credentials_paths(
+    home: Option<&Path>,
+    config_dir: Option<&Path>,
+    prefer_platform_config: bool,
+) -> Vec<PathBuf> {
+    let home_path = home.map(|home| home.join(".config").join("ccstats").join(CREDENTIALS_FILE));
+    let platform_path = config_dir.map(|dir| dir.join("ccstats").join(CREDENTIALS_FILE));
+
     let mut paths = Vec::new();
-
-    if let Some(home) = dirs::home_dir() {
-        paths.push(home.join(".config").join("ccstats").join(CREDENTIALS_FILE));
-    }
-
-    if let Some(config_dir) = dirs::config_dir() {
-        let path = config_dir.join("ccstats").join(CREDENTIALS_FILE);
+    let ordered = if prefer_platform_config {
+        [platform_path, home_path]
+    } else {
+        [home_path, platform_path]
+    };
+    for path in ordered.into_iter().flatten() {
         if !paths.contains(&path) {
             paths.push(path);
         }
     }
-
     paths
 }
 
@@ -385,6 +399,59 @@ mod tests {
                     .join("credentials.toml"),
             )
         }));
+    }
+
+    #[test]
+    fn credentials_paths_prefer_platform_config_when_xdg_override_is_set() {
+        let home = Path::new("/tmp/home-override");
+        let xdg = Path::new("/tmp/xdg-config");
+        let paths = select_credentials_paths(Some(home), Some(xdg), true);
+        assert_eq!(
+            paths,
+            vec![
+                xdg.join("ccstats").join(CREDENTIALS_FILE),
+                home.join(".config").join("ccstats").join(CREDENTIALS_FILE),
+            ]
+        );
+    }
+
+    #[test]
+    fn credentials_paths_keep_home_ahead_without_xdg_override() {
+        let home = Path::new("/tmp/home-override");
+        let platform = Path::new("/tmp/AppData/Roaming");
+        let paths = select_credentials_paths(Some(home), Some(platform), false);
+        assert_eq!(
+            paths,
+            vec![
+                home.join(".config").join("ccstats").join(CREDENTIALS_FILE),
+                platform.join("ccstats").join(CREDENTIALS_FILE),
+            ]
+        );
+    }
+
+    #[test]
+    fn write_path_keeps_existing_platform_credentials_without_home_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        let platform = root.path().join("platform-config");
+        let platform_file = platform.join("ccstats").join(CREDENTIALS_FILE);
+        fs::create_dir_all(platform_file.parent().unwrap()).unwrap();
+        fs::write(&platform_file, "[cursor]\napi_key = \"platform-key\"\n").unwrap();
+
+        let paths = select_credentials_paths(Some(&home), Some(&platform), false);
+        let existing = paths.into_iter().find(|path| path.is_file());
+        assert_eq!(existing.as_deref(), Some(platform_file.as_path()));
+
+        write_credentials_file(
+            &platform_file,
+            &CredentialsFile {
+                cursor: CursorCredentials::from_auth(CursorAuth::ApiKey("updated-key".into())),
+            },
+        )
+        .unwrap();
+        let written = fs::read_to_string(&platform_file).unwrap();
+        assert!(written.contains("updated-key"));
+        assert!(!home.join(".config/ccstats").join(CREDENTIALS_FILE).exists());
     }
 
     #[test]
