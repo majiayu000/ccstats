@@ -60,11 +60,19 @@ impl Source for AmpSource {
     }
 }
 
+fn amp_data_home(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    xdg_data_home
+        .filter(|path| !path.as_os_str().is_empty() && path.is_absolute())
+        .or_else(|| home.map(|home| home.join(".local/share")))
+}
+
 fn amp_threads_dir() -> Option<PathBuf> {
-    let data_home = match env::var(XDG_DATA_HOME_ENV) {
-        Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
-        Ok(_) | Err(_) => dirs::home_dir()?.join(".local/share"),
-    };
+    let data_home = amp_data_home(
+        env::var_os(XDG_DATA_HOME_ENV)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
+        dirs::home_dir(),
+    )?;
     Some(data_home.join("amp/threads"))
 }
 
@@ -408,6 +416,29 @@ mod tests {
     use super::*;
 
     use tempfile::tempdir;
+
+    #[test]
+    fn amp_data_home_rejects_relative_xdg_override() {
+        let home = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\tester")
+        } else {
+            PathBuf::from("/home/tester")
+        };
+        let absolute_xdg = if cfg!(windows) {
+            PathBuf::from(r"C:\abs\xdg")
+        } else {
+            PathBuf::from("/abs/xdg")
+        };
+
+        assert_eq!(
+            amp_data_home(Some(PathBuf::from("relative-xdg")), Some(home.clone())),
+            Some(home.join(".local/share"))
+        );
+        assert_eq!(
+            amp_data_home(Some(absolute_xdg.clone()), Some(home)),
+            Some(absolute_xdg)
+        );
+    }
 
     #[test]
     fn ledger_and_message_usage_for_same_call_are_counted_once() {
