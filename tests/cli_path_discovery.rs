@@ -1,12 +1,10 @@
 mod common;
 
 #[cfg(windows)]
-use common::{RestoredFile, lock_appdata, run_ccstats_with_isolation};
+use common::run_ccstats_with_isolation;
 use common::{run_ccstats, unique_temp_dir, write_file};
 use serde_json::{Value, json};
 use std::path::Path;
-#[cfg(windows)]
-use std::path::PathBuf;
 
 fn write_claude_session(home: &Path) {
     write_file(
@@ -17,14 +15,6 @@ fn write_claude_session(home: &Path) {
         }})
         .to_string(),
     );
-}
-
-#[cfg(windows)]
-fn platform_config_file(name: &str) -> PathBuf {
-    dirs::config_dir()
-        .expect("platform config directory")
-        .join("ccstats")
-        .join(name)
 }
 
 fn assert_hidden_cost_row(stdout: &[u8], source: &str) {
@@ -82,26 +72,41 @@ fn home_override_discovers_logs_and_config_in_literal_unicode_directory() {
 #[cfg(windows)]
 #[test]
 fn home_without_xdg_loads_existing_appdata_config() {
-    let _lock = lock_appdata();
     let home = unique_temp_dir("appdata-config-home");
     write_claude_session(&home);
-    let appdata_config = platform_config_file("config.toml");
+    let platform = unique_temp_dir("appdata-config-platform");
+    write_file(
+        &platform.join("ccstats/config.toml"),
+        "no_cost = true\noffline = true\n",
+    );
     assert_ne!(
         home.join(".config"),
-        appdata_config.parent().unwrap().parent().unwrap(),
-        "isolated HOME must not be the native config root"
+        platform,
+        "isolated HOME must not be the platform config root"
     );
-    let _guard = RestoredFile::overwrite(&appdata_config, "no_cost = true\noffline = true\n");
+
+    // Absolute XDG_CONFIG_HOME stands in for the native config root without
+    // touching the developer's real AppData config file.
     let (ok, stdout, stderr) = run_ccstats_with_isolation(
         &["daily", "--source", "claude", "--json", "--timezone", "UTC"],
-        &[("HOME", home.as_path())],
+        &[
+            ("HOME", home.as_path()),
+            ("XDG_CONFIG_HOME", platform.as_path()),
+        ],
         false,
     );
     assert!(ok, "{}", String::from_utf8_lossy(&stderr));
     assert_hidden_cost_row(&stdout, "claude");
     assert!(
         !home.join(".config/ccstats/config.toml").exists(),
-        "AppData config must be used without copying into HOME"
+        "platform config must be used without copying into HOME"
+    );
+
+    // Relative XDG_CONFIG_HOME is rejected; load from HOME/.config instead of
+    // writing the developer's live AppData config.
+    write_file(
+        &home.join(".config/ccstats/config.toml"),
+        "no_cost = true\noffline = true\n",
     );
     let relative_xdg = Path::new(".relative-xdg");
     let (ok, stdout, stderr) = run_ccstats_with_isolation(
@@ -111,5 +116,10 @@ fn home_without_xdg_loads_existing_appdata_config() {
     );
     assert!(ok, "{}", String::from_utf8_lossy(&stderr));
     assert_hidden_cost_row(&stdout, "claude");
+    assert!(
+        !home.join(".relative-xdg").exists(),
+        "relative XDG_CONFIG_HOME must not become a config root"
+    );
     std::fs::remove_dir_all(home).unwrap();
+    std::fs::remove_dir_all(platform).unwrap();
 }

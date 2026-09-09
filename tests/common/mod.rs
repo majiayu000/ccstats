@@ -1,8 +1,6 @@
 use std::fs;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SOURCE_ENV_VARS: &[&str] = &[
@@ -141,52 +139,4 @@ pub(crate) fn run_ccstats_with_isolation(
     }
     let output = cmd.output().expect("run ccstats");
     (output.status.success(), output.stdout, output.stderr)
-}
-
-#[allow(dead_code)]
-pub(crate) fn lock_appdata() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-#[allow(dead_code)]
-pub(crate) struct RestoredFile {
-    #[allow(dead_code)]
-    path: PathBuf,
-    #[allow(dead_code)]
-    original: Option<Vec<u8>>,
-}
-
-impl RestoredFile {
-    #[allow(dead_code)]
-    pub(crate) fn overwrite(path: impl AsRef<Path>, contents: &str) -> Self {
-        let path = path.as_ref().to_path_buf();
-        let original = match fs::read(&path) {
-            Ok(bytes) => Some(bytes),
-            Err(error) if error.kind() == ErrorKind::NotFound => None,
-            Err(error) => panic!("read {}: {error}", path.display()),
-        };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("create parent dirs");
-        }
-        fs::write(&path, contents).expect("write restored file");
-        Self { path, original }
-    }
-}
-
-impl Drop for RestoredFile {
-    fn drop(&mut self) {
-        let result = match self.original.as_deref() {
-            Some(contents) => fs::write(&self.path, contents),
-            None => match fs::remove_file(&self.path) {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-                Err(error) => Err(error),
-            },
-        };
-        if let Err(error) = result {
-            eprintln!("failed to restore {}: {error}", self.path.display());
-        }
-    }
 }

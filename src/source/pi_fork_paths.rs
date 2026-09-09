@@ -463,7 +463,11 @@ mod tests {
 
     #[test]
     fn platform_data_root_rejects_relative_xdg_override() {
-        let home = PathBuf::from("/home/tester");
+        let home = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\tester")
+        } else {
+            PathBuf::from("/home/tester")
+        };
         let expected = if cfg!(target_os = "macos") {
             Some(home.join("Library/Application Support"))
         } else if cfg!(target_os = "linux") {
@@ -471,14 +475,19 @@ mod tests {
         } else {
             None
         };
+        let absolute_xdg = if cfg!(windows) {
+            PathBuf::from(r"C:\abs\xdg")
+        } else {
+            PathBuf::from("/abs/xdg")
+        };
 
         assert_eq!(
             platform_data_root(Some(PathBuf::from("relative-xdg")), Some(home.clone())),
             expected
         );
         assert_eq!(
-            platform_data_root(Some(PathBuf::from("/abs/xdg")), Some(home)),
-            Some(PathBuf::from("/abs/xdg"))
+            platform_data_root(Some(absolute_xdg.clone()), Some(home)),
+            Some(absolute_xdg)
         );
     }
 }
