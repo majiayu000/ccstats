@@ -1,5 +1,7 @@
 //! `OpenClaw` current transcript discovery and storage readers.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -41,11 +43,11 @@ fn transcript_store_discovery() -> (Vec<PathBuf>, Option<PathBuf>) {
     };
     let mut paths = Vec::new();
     for pattern in [
-        root.join("agents/*/sessions/*"),
-        root.join("agents/*/agent/openclaw-agent.sqlite"),
+        glob_pattern(&root, "agents/*/sessions/*"),
+        glob_pattern(&root, "agents/*/agent/openclaw-agent.sqlite"),
     ] {
         paths.extend(
-            glob::glob(&pattern.to_string_lossy())
+            glob::glob(&pattern)
                 .into_iter()
                 .flatten()
                 .flatten()
@@ -232,9 +234,9 @@ fn configured_session_store_paths(store: &Path) -> Vec<PathBuf> {
         target.parent(),
         target.file_stem().and_then(|stem| stem.to_str()),
     ) {
-        let pattern = parent.join(format!("{stem}.*.sqlite"));
+        let pattern = glob_pattern(parent, &format!("{}.*.sqlite", glob::Pattern::escape(stem)));
         paths.extend(
-            glob::glob(&pattern.to_string_lossy())
+            glob::glob(&pattern)
                 .into_iter()
                 .flatten()
                 .flatten()

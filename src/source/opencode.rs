@@ -1,5 +1,7 @@
 //! `OpenCode` local `SQLite` usage source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -142,11 +144,23 @@ impl Source for KiloCliSource {
     }
 }
 
+fn opencode_data_root(
+    xdg_data_home: Option<PathBuf>,
+    platform_data_dir: Option<PathBuf>,
+) -> Option<PathBuf> {
+    xdg_data_home
+        .filter(|path| !path.as_os_str().is_empty() && path.is_absolute())
+        .or(platform_data_dir)
+        .map(|root| root.join("opencode"))
+}
+
 fn opencode_data_dir() -> Option<PathBuf> {
-    match env::var_os(XDG_DATA_HOME_ENV) {
-        Some(value) if !value.is_empty() => Some(PathBuf::from(value).join("opencode")),
-        Some(_) | None => dirs::data_dir().map(|path| path.join("opencode")),
-    }
+    opencode_data_root(
+        env::var_os(XDG_DATA_HOME_ENV)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
+        dirs::data_dir(),
+    )
 }
 
 fn find_opencode_databases() -> Vec<PathBuf> {
@@ -165,8 +179,8 @@ fn find_opencode_databases() -> Vec<PathBuf> {
     let Some(data_dir) = opencode_data_dir() else {
         return Vec::new();
     };
-    let pattern = data_dir.join("opencode*.db");
-    let mut databases = glob::glob(&pattern.to_string_lossy())
+    let pattern = glob_pattern(&data_dir, "opencode*.db");
+    let mut databases = glob::glob(&pattern)
         .into_iter()
         .flatten()
         .flatten()
@@ -208,8 +222,8 @@ fn find_family_databases(
     };
     let mut databases = Vec::new();
     for pattern in patterns {
-        let pattern = data_dir.join(pattern);
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+        let pattern = glob_pattern(&data_dir, pattern);
+        if let Ok(matches) = glob::glob(&pattern) {
             databases.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }
@@ -700,6 +714,29 @@ fn parse_opencode_database(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opencode_data_root_rejects_relative_xdg_override() {
+        let platform = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\tester\AppData\Roaming")
+        } else {
+            PathBuf::from("/home/tester/.local/share")
+        };
+        let absolute_xdg = if cfg!(windows) {
+            PathBuf::from(r"C:\abs\xdg")
+        } else {
+            PathBuf::from("/abs/xdg")
+        };
+
+        assert_eq!(
+            opencode_data_root(Some(PathBuf::from("relative-xdg")), Some(platform.clone())),
+            Some(platform.join("opencode"))
+        );
+        assert_eq!(
+            opencode_data_root(Some(absolute_xdg.clone()), Some(platform)),
+            Some(absolute_xdg.join("opencode"))
+        );
+    }
 
     #[test]
     fn current_v2_message_preserves_independent_buckets_and_recorded_cost() {

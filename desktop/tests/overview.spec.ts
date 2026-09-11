@@ -977,12 +977,19 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
   await mkdir(configDir, { recursive: true });
   await writeFile(join(configDir, "config.toml"), "offline = true\n", "utf8");
   const binary = fileURLToPath(
-    new URL("../src-tauri/target/debug/ccstats-desktop", import.meta.url),
+    new URL(`../src-tauri/target/debug/ccstats-desktop${process.platform === "win32" ? ".exe" : ""}`, import.meta.url),
   );
   const nativeProcess = spawn(binary, [], {
     cwd: isolatedHome,
     env: {
+      SystemRoot: process.env.SystemRoot,
+      WINDIR: process.env.WINDIR,
+      TEMP: isolatedHome,
+      TMP: isolatedHome,
       HOME: isolatedHome,
+      XDG_CONFIG_HOME: join(isolatedHome, ".config"),
+      XDG_DATA_HOME: join(isolatedHome, ".local", "share"),
+      XDG_CACHE_HOME: join(isolatedHome, ".cache"),
       LANG: process.env.LANG,
       LC_ALL: process.env.LC_ALL,
       PATH: process.env.PATH,
@@ -1009,7 +1016,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       await webdriverRequest<string>(port, `/session/${sessionId}/element/${heading}/text`),
     );
 
-    const sourceSelect = await waitForElement(port, sessionId, "#source-select");
+    const sourceSelect = await waitForElement(port, sessionId, "#source-select:enabled");
     await expect
       .poll(
         async () =>
@@ -1045,7 +1052,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
         { timeout: 120_000 },
       )
       .toBe("dsh");
-    const overviewButton = await waitForElement(port, sessionId, "button[aria-label='Overview']");
+    const overviewButton = await waitForElement(port, sessionId, "button[aria-label='Overview']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${overviewButton}/click`,
@@ -1060,7 +1067,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       `DSH overview did not load through the native command: ${nativeStderr}`,
     ).toBe("DeepSeek Harness");
 
-    const trustButton = await waitForElement(port, sessionId, "button[aria-label='Cost evidence']");
+    const trustButton = await waitForElement(port, sessionId, "button[aria-label='Cost evidence']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${trustButton}/click`,
@@ -1075,7 +1082,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       `cost provenance did not cross IPC: ${nativeStderr}`,
     ).toBe("Cost evidence");
 
-    const activityButton = await waitForElement(port, sessionId, "button[aria-label='Turns & tools']");
+    const activityButton = await waitForElement(port, sessionId, "button[aria-label='Turns & tools']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${activityButton}/click`,
@@ -1097,7 +1104,7 @@ test("native Tauri app crosses IPC into the real Rust SDK", async () => {
       ),
     ).toBe("0");
 
-    const machinesButton = await waitForElement(port, sessionId, "button[aria-label='Machines']");
+    const machinesButton = await waitForElement(port, sessionId, "button[aria-label='Machines']:enabled");
     await webdriverRequest<null>(
       port,
       `/session/${sessionId}/element/${machinesButton}/click`,

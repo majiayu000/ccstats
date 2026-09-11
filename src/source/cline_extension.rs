@@ -1,5 +1,7 @@
 //! Shared parser for Cline-family VS Code extension task logs.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -132,8 +134,8 @@ fn extension_task_roots(extension_id: &str) -> Vec<PathBuf> {
 pub(super) fn find_extension_files(extension_id: &str) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for root in extension_task_roots(extension_id) {
-        let pattern = root.join("*").join("ui_messages.json");
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+        let pattern = glob_pattern(&root, "*/ui_messages.json");
+        if let Ok(matches) = glob::glob(&pattern) {
             files.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }

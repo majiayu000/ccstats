@@ -221,13 +221,15 @@ fn append_rewrite_and_delete_invalidate_cached_records() {
     let old_time = fs::metadata(&path).unwrap().modified().unwrap();
     let text = fs::read_to_string(&path).unwrap().replace("50", "60");
     fs::write(&path, text).unwrap();
-    // Equal-length overwrite is detected even with restored mtime on Unix.
-    #[cfg(unix)]
-    fs::File::open(&path)
+    // Equal-length overwrite is detected even with restored mtime.
+    #[cfg(any(unix, windows))]
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
         .unwrap()
         .set_times(fs::FileTimes::new().set_modified(old_time))
         .unwrap();
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     let _ = old_time;
     assert_eq!(
         parse(&cache, &path, &filter, utc())

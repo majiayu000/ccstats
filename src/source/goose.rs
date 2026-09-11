@@ -1,5 +1,6 @@
 //! Goose per-call usage ledger source.
 
+use crate::utils::paths as dirs;
 use std::env;
 use std::path::{Path, PathBuf};
 

@@ -75,7 +75,11 @@ fn sdk_session_titles_respect_source_roots_and_leave_accounting_unchanged() {
 #[test]
 fn sdk_loads_codex_weekly_quota_from_explicit_home() {
     let root = tempfile::tempdir().expect("temp dir");
-    let codex_home = root.path().join("isolated-[quota]*-home");
+    let codex_home = root.path().join(if cfg!(windows) {
+        "isolated-[quota]-home"
+    } else {
+        "isolated-[quota]*-home"
+    });
     let session_file = codex_home.join("sessions").join("quota.jsonl");
     let now = Utc::now();
     let observed_at = now - Duration::hours(1);

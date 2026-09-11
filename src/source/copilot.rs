@@ -1,5 +1,7 @@
 //! GitHub Copilot CLI OpenTelemetry JSONL usage source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -76,8 +78,8 @@ fn find_copilot_files() -> Vec<PathBuf> {
     }
 
     if let Some(home) = dirs::home_dir() {
-        let pattern = home.join(".copilot/otel/**/*.jsonl");
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+        let pattern = glob_pattern(&home, ".copilot/otel/**/*.jsonl");
+        if let Ok(matches) = glob::glob(&pattern) {
             files.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }

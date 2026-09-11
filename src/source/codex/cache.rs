@@ -1,11 +1,18 @@
 //! Reusable usage facts. Source JSONL files remain authoritative.
 
+use crate::utils::paths as dirs;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
+#[cfg(windows)]
+use std::{fs::File, os::windows::io::AsRawHandle};
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
+};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -117,10 +124,30 @@ fn fingerprint(path: &Path) -> CacheResult<String> {
             metadata.ctime_nsec()
         )?;
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         use std::fmt::Write;
         write!(stamp, ":{:?}", metadata.created()?)?;
+    }
+    #[cfg(windows)]
+    {
+        use std::fmt::Write;
+        let file = File::open(path)?;
+        let mut info = FILE_BASIC_INFO::default();
+        // SAFETY: file owns a live handle and info is the correctly sized, writable
+        // buffer for FileBasicInfo. The API does not retain either pointer.
+        let success = unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileBasicInfo,
+                std::ptr::from_mut(&mut info).cast(),
+                u32::try_from(std::mem::size_of::<FILE_BASIC_INFO>())?,
+            )
+        };
+        if success == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        write!(stamp, ":{}:{}", info.CreationTime, info.ChangeTime)?;
     }
     Ok(stamp)
 }

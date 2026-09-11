@@ -14,6 +14,8 @@
 //! Project paths come from `$KIMI_CODE_HOME/session_index.jsonl`
 //! (`sessionId` → `workDir`), falling back to the `<workDirKey>` slug.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -83,10 +85,7 @@ pub(super) fn find_kimi_files() -> Vec<PathBuf> {
         return Vec::new();
     };
 
-    let pattern = format!(
-        "{}/**/{AGENTS_SUBDIR}/*/{WIRE_FILE}",
-        sessions_dir.display()
-    );
+    let pattern = glob_pattern(&sessions_dir, &format!("**/{AGENTS_SUBDIR}/*/{WIRE_FILE}"));
     let mut files = Vec::new();
     if let Ok(entries) = glob::glob(&pattern) {
         files.extend(entries.flatten().filter(|path| path.is_file()));
@@ -368,10 +367,7 @@ mod tests {
         if with_index {
             fs::write(
                 root.join(SESSION_INDEX_FILE),
-                format!(
-                    r#"{{"sessionId":"{session_id}","sessionDir":"{}","workDir":"/tmp/kimi-project"}}"#,
-                    session_dir.display()
-                ),
+                serde_json::json!({"sessionId": session_id, "sessionDir": session_dir, "workDir": "/tmp/kimi-project"}).to_string(),
             )
             .expect("write session index");
         }

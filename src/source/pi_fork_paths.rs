@@ -1,5 +1,7 @@
 //! Official session-root selection for Gajae Code, Prime Agent, and Oh My Pi.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -57,8 +59,11 @@ fn resolved_path(path: PathBuf) -> PathBuf {
 
 fn find_jsonl(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for pattern in [root.join("*.jsonl"), root.join("**").join("*.jsonl")] {
-        if let Ok(matches) = glob::glob(&pattern.to_string_lossy()) {
+    for pattern in [
+        glob_pattern(root, "*.jsonl"),
+        glob_pattern(root, "**/*.jsonl"),
+    ] {
+        if let Ok(matches) = glob::glob(&pattern) {
             files.extend(matches.flatten().filter(|path| path.is_file()));
         }
     }
@@ -207,7 +212,7 @@ fn home_config_root(home: &Path, config: &Path) -> PathBuf {
 }
 
 fn platform_data_root(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
-    xdg_data_home.or_else(|| {
+    xdg_data_home.filter(|path| path.is_absolute()).or_else(|| {
         let home = home?;
         if cfg!(target_os = "macos") {
             Some(home.join("Library/Application Support"))
@@ -220,9 +225,6 @@ fn platform_data_root(xdg_data_home: Option<PathBuf>, home: Option<PathBuf>) -> 
 }
 
 fn xdg_app_root(app: &str, suffix: &[&str]) -> Option<PathBuf> {
-    if !cfg!(any(target_os = "linux", target_os = "macos")) {
-        return None;
-    }
     let mut root = platform_data_root(env_path("XDG_DATA_HOME"), dirs::home_dir())?.join(app);
     for part in suffix {
         root.push(part);
@@ -457,5 +459,35 @@ mod tests {
         };
 
         assert_eq!(platform_data_root(None, Some(home)), expected);
+    }
+
+    #[test]
+    fn platform_data_root_rejects_relative_xdg_override() {
+        let home = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\tester")
+        } else {
+            PathBuf::from("/home/tester")
+        };
+        let expected = if cfg!(target_os = "macos") {
+            Some(home.join("Library/Application Support"))
+        } else if cfg!(target_os = "linux") {
+            Some(home.join(".local/share"))
+        } else {
+            None
+        };
+        let absolute_xdg = if cfg!(windows) {
+            PathBuf::from(r"C:\abs\xdg")
+        } else {
+            PathBuf::from("/abs/xdg")
+        };
+
+        assert_eq!(
+            platform_data_root(Some(PathBuf::from("relative-xdg")), Some(home.clone())),
+            expected
+        );
+        assert_eq!(
+            platform_data_root(Some(absolute_xdg.clone()), Some(home)),
+            Some(absolute_xdg)
+        );
     }
 }

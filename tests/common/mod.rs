@@ -42,6 +42,7 @@ const SOURCE_ENV_VARS: &[&str] = &[
     "XUM_ROOT",
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
 ];
 
 pub(crate) fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -102,10 +103,32 @@ fn resolve_ccstats_binary() -> PathBuf {
 }
 
 pub(crate) fn run_ccstats(args: &[&str], envs: &[(&str, &Path)]) -> (bool, Vec<u8>, Vec<u8>) {
+    run_ccstats_with_isolation(args, envs, true)
+}
+
+#[allow(dead_code)]
+pub(crate) fn run_ccstats_with_isolation(
+    args: &[&str],
+    envs: &[(&str, &Path)],
+    isolate_unset_xdg: bool,
+) -> (bool, Vec<u8>, Vec<u8>) {
     let mut cmd = Command::new(resolve_ccstats_binary());
     cmd.args(args);
     for key in SOURCE_ENV_VARS {
         cmd.env_remove(key);
+    }
+    let isolation_root = isolate_unset_xdg.then(|| unique_temp_dir("test-xdg"));
+    if let Some(root) = isolation_root.as_ref() {
+        let has = |name: &str| envs.iter().any(|(key, _)| *key == name);
+        if !has("XDG_CONFIG_HOME") {
+            cmd.env("XDG_CONFIG_HOME", root.join("config"));
+        }
+        if !has("XDG_DATA_HOME") {
+            cmd.env("XDG_DATA_HOME", root.join("data"));
+        }
+        if !has("XDG_CACHE_HOME") {
+            cmd.env("XDG_CACHE_HOME", root.join("cache"));
+        }
     }
     for (k, v) in envs {
         if *k == "CCSTATS_TEST_CWD" {

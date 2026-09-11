@@ -1,5 +1,7 @@
 //! Qwen Code usage-ledger source.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -74,8 +76,8 @@ fn qwen_root() -> Option<PathBuf> {
 }
 
 fn find_qwen_files_in_root(root: &Path) -> Vec<PathBuf> {
-    let pattern = root.join("usage/token-usage-*.jsonl");
-    let mut files = glob::glob(&pattern.to_string_lossy())
+    let pattern = glob_pattern(root, "usage/token-usage-*.jsonl");
+    let mut files = glob::glob(&pattern)
         .into_iter()
         .flatten()
         .flatten()

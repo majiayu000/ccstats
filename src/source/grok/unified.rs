@@ -4,6 +4,8 @@
 //! merges every inference record into an atomic, source-root-scoped
 //! ledger under the platform application-data directory.
 
+use crate::utils::glob_pattern;
+use crate::utils::paths as dirs;
 use std::collections::{BTreeMap, HashMap, hash_map::DefaultHasher};
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -330,7 +332,7 @@ pub(super) fn read_inference_records(
 }
 
 fn load_session_metadata(sessions_root: &Path) -> HashMap<String, SessionMetadata> {
-    let pattern = format!("{}/**/summary.json", sessions_root.display());
+    let pattern = glob_pattern(sessions_root, "**/summary.json");
     let Ok(paths) = glob::glob(&pattern) else {
         return HashMap::new();
     };

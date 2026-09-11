@@ -1,5 +1,6 @@
 //! Unsloth Studio's durable inference receipts.
 
+use crate::utils::paths as dirs;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::Write as _;

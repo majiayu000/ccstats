@@ -154,6 +154,7 @@ dependencies = [
  "thiserror",
  "toml",
  "ureq",
+ "windows-sys 0.61.2",
  "zstd",
 ]
 

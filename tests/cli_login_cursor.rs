@@ -12,7 +12,8 @@ const FILE_TOKEN: &str = "file-token-must-not-leak-167";
 const ENV_TOKEN: &str = "env-token-must-not-leak-167";
 
 fn credentials_path(root: &Path) -> PathBuf {
-    root.join(".config/ccstats/credentials.toml")
+    // run_isolated sets absolute XDG_CONFIG_HOME under root/xdg-config.
+    root.join("xdg-config/ccstats/credentials.toml")
 }
 
 fn run_isolated(root: &Path, args: &[&str]) -> (bool, Vec<u8>, Vec<u8>) {
@@ -181,6 +182,67 @@ fn clear_removes_file_credentials_and_doctor_is_missing() {
     assert_eq!(cursor["status"], "missing");
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(windows)]
+#[test]
+fn home_without_xdg_still_searches_platform_credentials_path() {
+    use common::run_ccstats_with_isolation;
+
+    let home = unique_temp_dir("appdata-cred-home");
+    let platform = unique_temp_dir("appdata-cred-platform");
+    let platform_credentials = platform.join("ccstats").join("credentials.toml");
+    fs::create_dir_all(platform_credentials.parent().unwrap()).unwrap();
+    fs::write(
+        &platform_credentials,
+        "[cursor]\napi_key = \"platform-upgrade-key-179\"\n",
+    )
+    .unwrap();
+
+    // Absolute XDG_CONFIG_HOME stands in for the native config root without
+    // touching the developer's real AppData credentials file.
+    let (ok, stdout, stderr) = run_ccstats_with_isolation(
+        &["login", "cursor", "--check"],
+        &[
+            ("HOME", home.as_path()),
+            ("XDG_CONFIG_HOME", platform.as_path()),
+        ],
+        false,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let check = format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    );
+    assert!(
+        check.contains("file"),
+        "expected platform credentials: {check}"
+    );
+    assert_no_secret(&stdout, &stderr, "platform-upgrade-key-179");
+
+    let (ok, stdout, stderr) = run_ccstats_with_isolation(
+        &["login", "cursor", "--api-key", "platform-updated-key-179"],
+        &[
+            ("HOME", home.as_path()),
+            ("XDG_CONFIG_HOME", platform.as_path()),
+        ],
+        false,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    assert_no_secret(&stdout, &stderr, "platform-updated-key-179");
+    let written = fs::read_to_string(&platform_credentials).expect("updated platform credentials");
+    assert!(
+        written.contains("platform-updated-key-179"),
+        "update must keep the existing platform file: {written}"
+    );
+    assert!(
+        !home.join(".config/ccstats/credentials.toml").exists(),
+        "update must not create HOME/.config credentials"
+    );
+
+    let _ = fs::remove_dir_all(home);
+    let _ = fs::remove_dir_all(platform);
 }
 
 #[test]

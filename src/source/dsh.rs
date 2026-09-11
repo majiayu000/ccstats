@@ -1,5 +1,6 @@
 //! `DeepSeek` Harness durable session usage.
 
+use crate::utils::paths as dirs;
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
@@ -420,9 +421,7 @@ fn parse_log(bytes: &[u8], path: &Path, timezone: Timezone) -> ParseOutput {
         }
         match event.kind.as_str() {
             "request/header" => {
-                if !replace_route(event.data, &mut route) {
-                    output.errors += 1;
-                }
+                output.errors += usize::from(!replace_route(event.data, &mut route));
             }
             "assistant/chunk" => {
                 let Ok(data) = serde_json::from_value::<ChunkData>(event.data) else {
@@ -565,7 +564,7 @@ fn valid_header(header: &Header) -> bool {
         && header
             .cwd
             .as_deref()
-            .is_none_or(|cwd| Path::new(cwd).is_absolute())
+            .is_none_or(|cwd| cwd.starts_with('/') || Path::new(cwd).is_absolute())
 }
 
 fn replace_route(data: serde_json::Value, route: &mut Option<Route>) -> bool {
