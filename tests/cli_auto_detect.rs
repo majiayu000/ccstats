@@ -292,6 +292,82 @@ fn config_source_pins_codex_on_a_multi_source_machine() {
 }
 
 #[test]
+fn corrupt_cursor_credentials_do_not_abort_claude_auto_detect() {
+    let root = unique_temp_dir("auto-detect-corrupt-cursor-creds");
+    write_claude_session(&root, "2026-02-06T10:00:00Z");
+    write_file(
+        &root.join(".config/ccstats/credentials.toml"),
+        "[cursor]\napi_key = \"unterminated",
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(
+        ok,
+        "corrupt Cursor credentials must not abort auto-detect: {}",
+        String::from_utf8_lossy(&stderr)
+    );
+    assert_eq!(json_total_tokens(&stdout), 150);
+
+    let (doctor_ok, doctor_stdout, doctor_stderr) =
+        run_ccstats(&["doctor", "--json"], &[("HOME", &root)]);
+    assert!(
+        !doctor_ok,
+        "doctor must exit non-zero when Cursor reports Error"
+    );
+    let doctor: Value = serde_json::from_slice(&doctor_stdout).expect("doctor json");
+    let cursor = doctor
+        .as_array()
+        .expect("doctor array")
+        .iter()
+        .find(|row| row["name"] == "cursor")
+        .expect("cursor diagnostic");
+    assert_eq!(
+        cursor["status"].as_str(),
+        Some("error"),
+        "doctor must still surface Cursor credential Error: {cursor}"
+    );
+    let doctor_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&doctor_stdout),
+        String::from_utf8_lossy(&doctor_stderr)
+    );
+    assert!(
+        doctor_output.contains("failed to parse credentials"),
+        "expected parse failure detail, got: {doctor_output}"
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &["daily", "--source", "cursor", "-O", "--no-cost"],
+        &[("HOME", &root)],
+    );
+    let cursor_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    );
+    assert!(
+        cursor_output.contains("failed to parse credentials"),
+        "explicit --source cursor must still surface credential failure (ok={ok}): {cursor_output}"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn explicit_source_all_uses_all_path_with_one_ready_source() {
     let root = unique_temp_dir("auto-detect-explicit-all");
     let codex_home = root.join("codex-home");

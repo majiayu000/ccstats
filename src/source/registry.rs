@@ -20,20 +20,20 @@ pub(crate) fn all_sources() -> impl Iterator<Item = &'static dyn Source> {
 
 /// Ready sources: `diagnose()` is Detected or Configured, in registry order.
 ///
+/// Missing and Error statuses are skipped (not ready). A credential or I/O
+/// error on one source must not abort auto-detect for other healthy sources.
+///
 /// This inspects local files and credentials only. It does not parse logs or
 /// contact remote APIs.
-pub(crate) fn ready_source_names() -> Result<Vec<&'static str>, String> {
+pub(crate) fn ready_source_names() -> Vec<&'static str> {
     let mut ready = Vec::new();
     for source in all_sources() {
         let diagnostic = source.diagnose();
-        if diagnostic.status == super::DiagnosticStatus::Error {
-            return Err(format!("{}: {}", source.display_name(), diagnostic.detail));
-        }
         if diagnostic.status.is_ready() {
             ready.push(source.name());
         }
     }
-    Ok(ready)
+    ready
 }
 
 pub(crate) fn auto_detected_source_name(ready: &[&'static str]) -> Option<&'static str> {
@@ -356,5 +356,6 @@ mod tests {
         assert!(DiagnosticStatus::Detected.is_ready());
         assert!(DiagnosticStatus::Configured.is_ready());
         assert!(!DiagnosticStatus::Missing.is_ready());
+        assert!(!DiagnosticStatus::Error.is_ready());
     }
 }

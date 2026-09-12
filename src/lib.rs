@@ -227,10 +227,7 @@ fn resolve_source_name<'a>(
         }
         (Some(hint), None) => Some(hint),
         (None, Some(name)) => Some(name),
-        (None, None) => auto_detected_source_name(&ready_source_names().unwrap_or_else(|error| {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
-        })),
+        (None, None) => auto_detected_source_name(&ready_source_names()),
     }
 }
 
