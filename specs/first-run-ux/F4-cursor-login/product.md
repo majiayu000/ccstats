@@ -28,11 +28,12 @@ Cursor 用量来自官方 API，必须提供 `CURSOR_API_KEY` 或 `CURSOR_SESSIO
 ## Behavior Invariants
 
 1. 命令：`ccstats login cursor`。
-   - `--api-key <value>` 非交互写入 API key。
-   - `--session-token <value>` 非交互写入 session token。
-   - 两者同时提供：报错退出 1（一次只存一种）。
+   - `--api-key` 从环境变量 `CURSOR_API_KEY` 导入 API key（secret 不得出现在 argv）。
+   - `--session-token` 从环境变量 `CURSOR_SESSION_TOKEN` 导入 session token（secret 不得出现在 argv）。
+   - `--api-key-file <path>` / `--session-token-file <path>` 从文件读取对应 secret。
+   - 以上四种输入同时只能选一种：否则报错退出 1。
    - 皆无且 stdin 是 TTY：打印说明 + URL，提示选择 1/2，隐藏回显读入一行。
-   - 皆无且 stdin 非 TTY：报错，要求 flag（测试走这条）。
+   - 皆无且 stdin 非 TTY：报错，要求上述 flag / env / file（测试走这条）。
 2. 存储路径：与 config 搜索同根的 credentials 文件，例如 `~/.config/ccstats/credentials.toml`（若本次运行已有权威 config 目录，用同一目录）。不把 secret 写进 `config.toml`。
 3. 文件权限：Unix 0600；写时先写 temp 再 rename。
 4. 读取顺序：环境变量 `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN` > credentials 文件 > 无。`CURSOR_USAGE_FILE` 仍独立。
@@ -44,7 +45,7 @@ Cursor 用量来自官方 API，必须提供 `CURSOR_API_KEY` 或 `CURSOR_SESSIO
 
 ## 验收标准
 
-- [ ] 非交互 `--session-token` 写入后，去掉 env，`doctor --json` 中 cursor status 为 `configured`。
+- [ ] 非交互 `CURSOR_SESSION_TOKEN=… ccstats login cursor --session-token` 写入后，去掉 env，`doctor --json` 中 cursor status 为 `configured`。
 - [ ] 同一 doctor JSON 字符串不包含该 token。
 - [ ] env 已设置时覆盖文件，`--check` 报告 `env`。
 - [ ] `--api-key` 与 `--session-token` 同时给出 → exit 1。

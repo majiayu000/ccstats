@@ -568,7 +568,6 @@ mod tests {
             "login",
             "cursor",
             "--session-token",
-            "abc",
             "--no-browser",
         ]);
         match cli.command {
@@ -577,16 +576,52 @@ mod tests {
                     crate::cli::LoginTarget::Cursor {
                         api_key,
                         session_token,
+                        api_key_file,
+                        session_token_file,
                         check,
                         clear,
                         no_browser,
                     },
             }) => {
-                assert!(api_key.is_none());
-                assert_eq!(session_token.as_deref(), Some("abc"));
+                assert!(!api_key);
+                assert!(session_token);
+                assert!(api_key_file.is_none());
+                assert!(session_token_file.is_none());
                 assert!(!check);
                 assert!(!clear);
                 assert!(no_browser);
+            }
+            _ => panic!("expected login cursor"),
+        }
+    }
+
+    #[test]
+    fn login_cursor_parses_secret_file_flags() {
+        let cli = Cli::parse_from([
+            "ccstats",
+            "login",
+            "cursor",
+            "--api-key-file",
+            "/tmp/cursor.key",
+        ]);
+        match cli.command {
+            Some(crate::cli::Commands::Login {
+                target:
+                    crate::cli::LoginTarget::Cursor {
+                        api_key,
+                        session_token,
+                        api_key_file,
+                        session_token_file,
+                        ..
+                    },
+            }) => {
+                assert!(!api_key);
+                assert!(!session_token);
+                assert_eq!(
+                    api_key_file.as_deref(),
+                    Some(std::path::Path::new("/tmp/cursor.key"))
+                );
+                assert!(session_token_file.is_none());
             }
             _ => panic!("expected login cursor"),
         }
