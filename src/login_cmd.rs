@@ -1,11 +1,15 @@
 //! `ccstats login` — store local provider credentials without printing secrets.
 
+use std::env;
+use std::fs;
 use std::io::{self, IsTerminal, Write};
+use std::path::Path;
 use std::process::Command;
 
 use crate::cli::LoginTarget;
 use crate::credentials::{
-    CursorAuth, clear_cursor_credentials, resolve_cursor_credentials, save_cursor_auth,
+    API_KEY_ENV, SESSION_TOKEN_ENV, CursorAuth, clear_cursor_credentials,
+    resolve_cursor_credentials, save_cursor_auth,
 };
 
 const CURSOR_API_KEY_URL: &str = "https://cursor.com/dashboard/api";
@@ -16,12 +20,16 @@ pub(crate) fn handle_login(target: &LoginTarget) {
         LoginTarget::Cursor {
             api_key,
             session_token,
+            api_key_file,
+            session_token_file,
             check,
             clear,
             no_browser,
         } => handle_cursor_login(
-            api_key.as_deref(),
-            session_token.as_deref(),
+            *api_key,
+            *session_token,
+            api_key_file.as_deref(),
+            session_token_file.as_deref(),
             *check,
             *clear,
             *no_browser,
@@ -33,17 +41,34 @@ pub(crate) fn handle_login(target: &LoginTarget) {
 }
 
 fn handle_cursor_login(
-    api_key: Option<&str>,
-    session_token: Option<&str>,
+    api_key: bool,
+    session_token: bool,
+    api_key_file: Option<&Path>,
+    session_token_file: Option<&Path>,
     check: bool,
     clear: bool,
     no_browser: bool,
 ) -> Result<(), String> {
-    if api_key.is_some() && session_token.is_some() {
-        return Err("provide only one of --api-key or --session-token".to_string());
+    let selected = [
+        ("--api-key", api_key),
+        ("--session-token", session_token),
+        ("--api-key-file", api_key_file.is_some()),
+        ("--session-token-file", session_token_file.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, on)| on.then_some(name))
+    .collect::<Vec<_>>();
+
+    if selected.len() > 1 {
+        return Err(
+            "provide only one of --api-key, --session-token, --api-key-file, or --session-token-file"
+                .to_string(),
+        );
     }
-    if clear && (api_key.is_some() || session_token.is_some()) {
-        return Err("--clear cannot be combined with --api-key or --session-token".to_string());
+    if clear && !selected.is_empty() {
+        return Err(
+            "--clear cannot be combined with --api-key, --session-token, or --*-file".to_string(),
+        );
     }
 
     if clear {
@@ -53,8 +78,8 @@ fn handle_cursor_login(
         return Ok(());
     }
 
-    if let Some(api_key) = api_key {
-        save_cursor_auth(CursorAuth::ApiKey(parse_secret(api_key)?))
+    if api_key {
+        save_cursor_auth(CursorAuth::ApiKey(secret_from_env(API_KEY_ENV)?))
             .map_err(|error| error.to_string())?;
         println!("Saved Cursor credentials locally.");
         if check {
@@ -63,8 +88,28 @@ fn handle_cursor_login(
         return Ok(());
     }
 
-    if let Some(session_token) = session_token {
-        save_cursor_auth(CursorAuth::SessionToken(parse_secret(session_token)?))
+    if session_token {
+        save_cursor_auth(CursorAuth::SessionToken(secret_from_env(SESSION_TOKEN_ENV)?))
+            .map_err(|error| error.to_string())?;
+        println!("Saved Cursor credentials locally.");
+        if check {
+            print_cursor_check()?;
+        }
+        return Ok(());
+    }
+
+    if let Some(path) = api_key_file {
+        save_cursor_auth(CursorAuth::ApiKey(secret_from_file(path)?))
+            .map_err(|error| error.to_string())?;
+        println!("Saved Cursor credentials locally.");
+        if check {
+            print_cursor_check()?;
+        }
+        return Ok(());
+    }
+
+    if let Some(path) = session_token_file {
+        save_cursor_auth(CursorAuth::SessionToken(secret_from_file(path)?))
             .map_err(|error| error.to_string())?;
         println!("Saved Cursor credentials locally.");
         if check {
@@ -79,7 +124,9 @@ fn handle_cursor_login(
     }
 
     if !io::stdin().is_terminal() {
-        return Err("non-interactive login requires --api-key or --session-token".to_string());
+        return Err(format!(
+            "non-interactive login requires --api-key (from {API_KEY_ENV}), --session-token (from {SESSION_TOKEN_ENV}), --api-key-file, or --session-token-file"
+        ));
     }
 
     interactive_cursor_login(no_browser)
@@ -142,6 +189,20 @@ fn interactive_cursor_login(no_browser: bool) -> Result<(), String> {
     save_cursor_auth(auth).map_err(|error| error.to_string())?;
     println!("Saved Cursor credentials locally.");
     Ok(())
+}
+
+fn secret_from_env(var: &str) -> Result<String, String> {
+    match env::var(var) {
+        Ok(value) => parse_secret(&value),
+        Err(env::VarError::NotPresent) => Err(format!("{var} is not set")),
+        Err(env::VarError::NotUnicode(_)) => Err(format!("{var} must be valid UTF-8")),
+    }
+}
+
+fn secret_from_file(path: &Path) -> Result<String, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    parse_secret(&raw)
 }
 
 fn parse_secret(raw: &str) -> Result<String, String> {
