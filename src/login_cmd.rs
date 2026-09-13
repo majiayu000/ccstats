@@ -8,7 +8,7 @@ use std::process::Command;
 
 use crate::cli::LoginTarget;
 use crate::credentials::{
-    API_KEY_ENV, SESSION_TOKEN_ENV, CursorAuth, clear_cursor_credentials,
+    API_KEY_ENV, CursorAuth, SESSION_TOKEN_ENV, clear_cursor_credentials,
     resolve_cursor_credentials, save_cursor_auth,
 };
 
@@ -89,8 +89,10 @@ fn handle_cursor_login(
     }
 
     if session_token {
-        save_cursor_auth(CursorAuth::SessionToken(secret_from_env(SESSION_TOKEN_ENV)?))
-            .map_err(|error| error.to_string())?;
+        save_cursor_auth(CursorAuth::SessionToken(secret_from_env(
+            SESSION_TOKEN_ENV,
+        )?))
+        .map_err(|error| error.to_string())?;
         println!("Saved Cursor credentials locally.");
         if check {
             print_cursor_check()?;
