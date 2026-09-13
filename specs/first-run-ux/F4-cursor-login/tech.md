@@ -29,8 +29,12 @@ https://github.com/majiayu000/ccstats/issues/167
 4. CLI:
 
    ```text
-   ccstats login cursor [--api-key] [--session-token] [--check] [--clear] [--no-browser]
+   ccstats login cursor [--api-key | --session-token | --api-key-file PATH | --session-token-file PATH]
+                        [--check] [--clear] [--no-browser]
    ```
+
+   `--api-key` / `--session-token` are value-less flags that import from
+   `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN`. Secrets must never appear on argv.
 
    Nested: `Commands::Login { target: LoginTarget::Cursor, ... }` so we do not invent `ccstats cursor` 源子命令（与「不再为新源加子命令」一致）。
 5. Browser: `open` crate is extra dependency — prefer `std::process::Command` with `open` / `xdg-open` / `cmd /c start` and ignore failure. Or print URL only if adding a dep is undesirable; **prefer zero new deps**.
@@ -40,7 +44,7 @@ https://github.com/majiayu000/ccstats/issues/167
 
 | Invariant | Test |
 | --- | --- |
-| File write | temp HOME, login --session-token, file mode 0600 on unix |
+| File write | temp HOME, `CURSOR_SESSION_TOKEN=… login --session-token`, file mode 0600 on unix |
 | Doctor configured | after login, doctor json status configured, token not in stdout/stderr |
 | Env precedence | file + env, --check says env |
 | Mutual exclusion | both flags → exit 1 |

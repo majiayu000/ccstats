@@ -4,7 +4,7 @@ mod common;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use common::{run_ccstats, unique_temp_dir};
+use common::{run_ccstats, unique_temp_dir, write_file};
 use serde_json::Value;
 
 const SESSION_TOKEN: &str = "login-cursor-session-secret-167";
@@ -32,6 +32,14 @@ fn run_isolated_with(
     run_ccstats(args, &envs)
 }
 
+fn login_session_from_env(root: &Path, token: &str) -> (bool, Vec<u8>, Vec<u8>) {
+    run_isolated_with(
+        root,
+        &["login", "cursor", "--session-token"],
+        &[("CURSOR_SESSION_TOKEN", Path::new(token))],
+    )
+}
+
 fn cursor_row(stdout: &[u8]) -> Value {
     let rows: Value = serde_json::from_slice(stdout).expect("doctor json");
     rows.as_array()
@@ -52,10 +60,7 @@ fn assert_no_secret(stdout: &[u8], stderr: &[u8], secret: &str) {
 #[test]
 fn login_session_token_configures_doctor_without_leaking_secret() {
     let root = unique_temp_dir("login-cursor-session");
-    let (ok, stdout, stderr) = run_isolated(
-        &root,
-        &["login", "cursor", "--session-token", SESSION_TOKEN],
-    );
+    let (ok, stdout, stderr) = login_session_from_env(&root, SESSION_TOKEN);
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     assert_no_secret(&stdout, &stderr, SESSION_TOKEN);
 
@@ -75,10 +80,7 @@ fn login_session_token_configures_doctor_without_leaking_secret() {
 #[test]
 fn login_writes_unix_0600_credentials_file() {
     let root = unique_temp_dir("login-cursor-mode");
-    let (ok, stdout, stderr) = run_isolated(
-        &root,
-        &["login", "cursor", "--session-token", SESSION_TOKEN],
-    );
+    let (ok, stdout, stderr) = login_session_from_env(&root, SESSION_TOKEN);
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     assert_no_secret(&stdout, &stderr, SESSION_TOKEN);
 
@@ -97,9 +99,34 @@ fn login_writes_unix_0600_credentials_file() {
 }
 
 #[test]
+fn login_session_token_file_configures_without_argv_secret() {
+    let root = unique_temp_dir("login-cursor-file");
+    let secret_path = root.join("session.token");
+    write_file(&secret_path, &format!("{FILE_TOKEN}\n"));
+
+    let (ok, stdout, stderr) = run_isolated(
+        &root,
+        &[
+            "login",
+            "cursor",
+            "--session-token-file",
+            secret_path.to_str().expect("utf-8 path"),
+        ],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    assert_no_secret(&stdout, &stderr, FILE_TOKEN);
+
+    let written = fs::read_to_string(credentials_path(&root)).expect("credentials file");
+    assert!(written.contains(FILE_TOKEN));
+    assert!(written.contains("session_token"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn env_overrides_file_and_check_reports_env() {
     let root = unique_temp_dir("login-cursor-env");
-    let (ok, _, stderr) = run_isolated(&root, &["login", "cursor", "--session-token", FILE_TOKEN]);
+    let (ok, _, stderr) = login_session_from_env(&root, FILE_TOKEN);
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
 
     let (ok, stdout, stderr) = run_isolated(&root, &["login", "cursor", "--check"]);
@@ -138,15 +165,12 @@ fn env_overrides_file_and_check_reports_env() {
 #[test]
 fn both_credential_flags_exit_1() {
     let root = unique_temp_dir("login-cursor-both");
-    let (ok, stdout, stderr) = run_isolated(
+    let (ok, stdout, stderr) = run_isolated_with(
         &root,
+        &["login", "cursor", "--api-key", "--session-token"],
         &[
-            "login",
-            "cursor",
-            "--api-key",
-            "api-secret",
-            "--session-token",
-            "session-secret",
+            ("CURSOR_API_KEY", Path::new("api-secret")),
+            ("CURSOR_SESSION_TOKEN", Path::new("session-secret")),
         ],
     );
     assert!(!ok);
@@ -164,10 +188,7 @@ fn both_credential_flags_exit_1() {
 #[test]
 fn clear_removes_file_credentials_and_doctor_is_missing() {
     let root = unique_temp_dir("login-cursor-clear");
-    let (ok, _, stderr) = run_isolated(
-        &root,
-        &["login", "cursor", "--session-token", SESSION_TOKEN],
-    );
+    let (ok, _, stderr) = login_session_from_env(&root, SESSION_TOKEN);
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
 
     let (ok, stdout, stderr) = run_isolated(&root, &["login", "cursor", "--clear"]);
@@ -222,10 +243,11 @@ fn home_without_xdg_still_searches_platform_credentials_path() {
     assert_no_secret(&stdout, &stderr, "platform-upgrade-key-179");
 
     let (ok, stdout, stderr) = run_ccstats_with_isolation(
-        &["login", "cursor", "--api-key", "platform-updated-key-179"],
+        &["login", "cursor", "--api-key"],
         &[
             ("HOME", home.as_path()),
             ("XDG_CONFIG_HOME", platform.as_path()),
+            ("CURSOR_API_KEY", Path::new("platform-updated-key-179")),
         ],
         false,
     );
@@ -258,6 +280,10 @@ fn no_flags_non_tty_exit_1() {
     assert!(
         output.contains("--api-key") || output.contains("--session-token"),
         "expected flag guidance: {output}"
+    );
+    assert!(
+        output.contains("CURSOR_API_KEY") || output.contains("CURSOR_SESSION_TOKEN"),
+        "expected env guidance: {output}"
     );
     assert!(!credentials_path(&root).exists());
 

@@ -2,6 +2,8 @@
 //!
 //! Defines the available commands for each data source.
 
+use std::path::PathBuf;
+
 use clap::{Subcommand, ValueEnum};
 
 /// Dimension to rank in the `top` command
@@ -90,12 +92,18 @@ pub(crate) enum Commands {
 pub(crate) enum LoginTarget {
     /// Store a Cursor API key or dashboard session token
     Cursor {
-        /// Cursor Admin API key (enterprise)
-        #[arg(long, value_name = "KEY")]
-        api_key: Option<String>,
-        /// Dashboard `WorkosCursorSessionToken` cookie
-        #[arg(long, value_name = "TOKEN")]
-        session_token: Option<String>,
+        /// Import API key from `CURSOR_API_KEY` (never pass the secret on argv)
+        #[arg(long)]
+        api_key: bool,
+        /// Import session token from `CURSOR_SESSION_TOKEN` (never pass the secret on argv)
+        #[arg(long)]
+        session_token: bool,
+        /// Read API key from a file (contents trimmed; never pass the secret on argv)
+        #[arg(long, value_name = "PATH")]
+        api_key_file: Option<PathBuf>,
+        /// Read session token from a file (contents trimmed; never pass the secret on argv)
+        #[arg(long, value_name = "PATH")]
+        session_token_file: Option<PathBuf>,
         /// Report whether credentials are configured without printing secrets
         #[arg(long)]
         check: bool,
