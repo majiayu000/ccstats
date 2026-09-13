@@ -17,38 +17,30 @@ const CURSOR_SESSION_URL: &str = "https://cursor.com/dashboard/usage";
 
 pub(crate) fn handle_login(target: &LoginTarget) {
     if let Err(error) = match target {
-        LoginTarget::Cursor {
-            api_key,
-            session_token,
-            api_key_file,
-            session_token_file,
-            check,
-            clear,
-            no_browser,
-        } => handle_cursor_login(
-            *api_key,
-            *session_token,
-            api_key_file.as_deref(),
-            session_token_file.as_deref(),
-            *check,
-            *clear,
-            *no_browser,
-        ),
+        LoginTarget::Cursor { .. } => handle_cursor_login(target),
     } {
         eprintln!("Error: {error}");
         std::process::exit(1);
     }
 }
 
-fn handle_cursor_login(
-    api_key: bool,
-    session_token: bool,
-    api_key_file: Option<&Path>,
-    session_token_file: Option<&Path>,
-    check: bool,
-    clear: bool,
-    no_browser: bool,
-) -> Result<(), String> {
+fn handle_cursor_login(target: &LoginTarget) -> Result<(), String> {
+    let LoginTarget::Cursor {
+        api_key,
+        session_token,
+        api_key_file,
+        session_token_file,
+        check,
+        clear,
+        no_browser,
+    } = target;
+    let api_key = *api_key;
+    let session_token = *session_token;
+    let check = *check;
+    let clear = *clear;
+    let no_browser = *no_browser;
+    let api_key_file = api_key_file.as_deref();
+    let session_token_file = session_token_file.as_deref();
     let selected = [
         ("--api-key", api_key),
         ("--session-token", session_token),
