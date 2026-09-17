@@ -12,7 +12,7 @@ Code, Gemini CLI, Amp, Qwen Code, Cline, Roo Code, Kilo Code, OpenCode, MiMo
 Code, Kilo CLI, Pi, Senpi, Kimchi, Gajae Code, Prime Agent, Oh My Pi, GitHub
 Copilot CLI, Goose, OpenClaw, Xum, Hermes Agent, Reasonix, Vercel Fx, Unsloth
 Studio, and DeepSeek Harness. Their default locations and overrides are listed
-in the README's complete supported-source table.
+in [docs/sources.md](sources.md).
 
 `ccstats doctor` checks the registered sources' known locations and relevant
 environment-variable presence. It does not parse session contents or contact
@@ -45,12 +45,16 @@ ccstats writes only operational data needed to make repeated reports reliable:
 
 - pricing cache under the platform cache directory and exchange-rate cache
   under `~/.cache/ccstats/`;
-- a Codex usage cache at `<platform cache>/ccstats/codex-usage-v3.sqlite3`
-  (with SQLite WAL/SHM sidecars). It stores file identities, event timestamps,
-  model names, deduplication keys, session IDs, working directories, and token counts; it does not store conversation
-  text or fixed prices. Unchanged files reuse these facts across reports and
-  timezones. Changed files are reparsed, and removed source files stop contributing.
-  Deleting this cache and its sidecars while ccstats is stopped forces a rebuild;
+- a usage-facts cache at `<platform cache>/ccstats/usage-facts-v1.sqlite3`
+  (with SQLite WAL/SHM sidecars). It stores file identities, timestamps, model
+  names, session IDs, working directories, and token/cost facts. It does not
+  store prompt text, completions, or source code. Unchanged files reuse these
+  facts. `--no-cache` reparses. Deleting the file while ccstats is stopped
+  forces a rebuild. Parser semantic changes bump the `v1` version in the
+  filename;
+- Claude quota snapshots at `<platform data>/ccstats/quota/claude.jsonl`
+  (opt-in: written when `statusline` receives Claude Code hook JSON with
+  `rate_limits`). Percentages and reset times only;
 - a Grok inference ledger under the ccstats cache directory because Grok may
   trim its live log in place;
 - desktop machine snapshots under the app data directory. These snapshots

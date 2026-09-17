@@ -16,6 +16,7 @@ pub(super) struct PeriodTableFlags {
     pub(super) cost_mode: CostDisplayMode,
     pub(super) is_today: bool,
     pub(super) source_count: Option<usize>,
+    pub(super) largest_source: Option<&'static str>,
     pub(super) source_name: Option<&'static str>,
 }
 
@@ -85,6 +86,7 @@ pub(super) fn render(
             comparison_days: Some(&history),
             is_today: flags.is_today,
             source_count: flags.source_count,
+            largest_source: flags.largest_source,
         },
     );
     if ctx.cli.show_cost() {

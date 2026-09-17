@@ -4,6 +4,7 @@
 //! to provide a unified interface for loading and processing usage data.
 
 mod amp;
+mod cache;
 mod claude;
 mod cline;
 mod cline_extension;
@@ -600,31 +601,24 @@ pub(crate) trait Source: Send + Sync {
     fn find_files(&self) -> Vec<PathBuf>;
 
     /// Find data for a requested date range. Remote sources may use the range
-    /// to bound API requests; local sources keep the default file discovery.
-    fn find_files_for_filter(&self, _filter: &DateFilter, _timezone: Timezone) -> Vec<PathBuf> {
-        self.find_files()
+    /// to bound API requests; local sources prune by filename date and mtime.
+    fn find_files_for_filter(&self, filter: &DateFilter, timezone: Timezone) -> Vec<PathBuf> {
+        cache::prune_discovered_files(self.find_files(), filter, timezone)
     }
 
     /// Parse a single file into raw entries and diagnostics.
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
 
-    /// Sources with a usage cache can apply the range before expanding cached records.
-    fn parse_file_filtered(
-        &self,
-        path: &Path,
-        filter: &DateFilter,
-        timezone: Timezone,
-        debug: bool,
-    ) -> ParseOutput {
-        let parsed = self.parse_file(path, timezone, debug);
-        ParseOutput {
-            entries: loader::DataLoader::filter_entries(parsed.entries, filter, timezone),
-            errors: parsed.errors,
-        }
+    fn cache_policy(&self) -> cache::CachePolicy {
+        cache::CachePolicy::PerFile
+    }
+
+    fn cache_partition(&self) -> &'static str {
+        "default"
     }
 
     fn cached_file_count(&self) -> usize {
-        0
+        cache::hits()
     }
 
     fn finalize_entries(&self, entries: Vec<RawEntry>) -> Vec<RawEntry> {
@@ -654,6 +648,9 @@ pub(crate) use grok::{
 };
 
 pub use inventory::UsageSource;
+
+pub(crate) use cache::{CachePolicy, set_disabled};
+pub(crate) use cursor::{CursorPlanUsage, fetch_cursor_plan_usage};
 
 // Re-export registry functions
 pub(crate) use registry::{

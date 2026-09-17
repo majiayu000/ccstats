@@ -26,6 +26,7 @@ fn default_opts() -> TokenTableOptions<'static> {
         comparison_days: None,
         is_today: false,
         source_count: None,
+        largest_source: None,
     }
 }
 

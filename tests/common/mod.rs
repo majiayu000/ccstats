@@ -55,6 +55,7 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> PathBuf {
     dir
 }
 
+#[allow(dead_code)]
 pub(crate) fn write_file(path: &Path, content: &str) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create parent dirs");
@@ -138,5 +139,44 @@ pub(crate) fn run_ccstats_with_isolation(
         }
     }
     let output = cmd.output().expect("run ccstats");
+    (output.status.success(), output.stdout, output.stderr)
+}
+
+#[allow(dead_code)]
+pub(crate) fn run_ccstats_with_stdin(
+    args: &[&str],
+    envs: &[(&str, &Path)],
+    stdin: &str,
+) -> (bool, Vec<u8>, Vec<u8>) {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut cmd = Command::new(resolve_ccstats_binary());
+    cmd.args(args);
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    for key in SOURCE_ENV_VARS {
+        cmd.env_remove(key);
+    }
+    let isolation_root = unique_temp_dir("test-xdg");
+    let has = |name: &str| envs.iter().any(|(key, _)| *key == name);
+    if !has("XDG_CONFIG_HOME") {
+        cmd.env("XDG_CONFIG_HOME", isolation_root.join("config"));
+    }
+    if !has("XDG_DATA_HOME") {
+        cmd.env("XDG_DATA_HOME", isolation_root.join("data"));
+    }
+    if !has("XDG_CACHE_HOME") {
+        cmd.env("XDG_CACHE_HOME", isolation_root.join("cache"));
+    }
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().expect("spawn ccstats");
+    if let Some(mut pipe) = child.stdin.take() {
+        pipe.write_all(stdin.as_bytes()).expect("write stdin");
+    }
+    let output = child.wait_with_output().expect("wait ccstats");
     (output.status.success(), output.stdout, output.stderr)
 }

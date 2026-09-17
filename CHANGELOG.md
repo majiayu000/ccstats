@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Shared usage-facts cache (`usage-facts-v1.sqlite3`) so Claude, Codex, and other local sources skip unchanged files. `--no-cache` rebuilds; `--debug` prints hit/miss.
+- `ccstats statusline` reads Claude Code hook JSON on stdin (2.1.80+ Pro/Max `rate_limits`), with `--cost-source auto|ccstats|cc|both` and `confidence` / `captured_at` in JSON.
+- Opt-in Claude quota snapshots, unified `limits` windows for Claude / Codex / Cursor, and `ccstats watch` (refreshing one-screen view, `--once`, `--warn-pct`).
+- `ccstats verify` compares ccstats estimates to source-recorded costs; `ccstats serve` exposes the same JSON types on 127.0.0.1.
+- `--source all` period views default to per-source subtotals; `--no-source-breakdown` keeps a combined table.
+
+### Changed
+- README is a 30-second path plus seven core sources; the full 29-source env table lives in `docs/sources.md`.
+- Phase 4 presentation is CLI/`watch` first. Desktop installers may stay unsigned until signing secrets exist (issue #154).
+
 ### Security
 - Stop accepting Cursor secrets on `ccstats login cursor --api-key` / `--session-token` argv. Non-interactive login imports from `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN`, or from `--api-key-file` / `--session-token-file`.
 

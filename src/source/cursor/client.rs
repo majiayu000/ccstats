@@ -17,6 +17,131 @@ const DASHBOARD_EVENTS_URL: &str = "https://cursor.com/api/dashboard/get-filtere
 const DASHBOARD_SUMMARY_URL: &str = "https://cursor.com/api/usage-summary";
 const DASHBOARD_ORIGIN: &str = "https://cursor.com";
 
+/// Plan-level usage from Cursor's dashboard `usage-summary` endpoint.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CursorPlanUsage {
+    pub membership: Option<String>,
+    pub used_pct: Option<f64>,
+    pub billing_cycle_start: Option<String>,
+    pub billing_cycle_end: Option<String>,
+}
+
+pub(crate) fn fetch_plan_usage(debug: bool) -> Result<CursorPlanUsage, String> {
+    match resolve_cursor_credentials().map_err(|error| error.to_string())? {
+        Some(resolved) => match resolved.auth {
+            CursorAuth::SessionToken(token) => {
+                let payload = get_json(DASHBOARD_SUMMARY_URL, None, Some(&token))?;
+                let plan = parse_plan_usage(&payload);
+                if debug {
+                    eprintln!(
+                        "Cursor plan usage: membership={:?} used_pct={:?}",
+                        plan.membership, plan.used_pct
+                    );
+                }
+                Ok(plan)
+            }
+            CursorAuth::ApiKey(_) => Err(
+                "Cursor plan limits need a dashboard session token (`ccstats login cursor`)."
+                    .to_string(),
+            ),
+        },
+        None => Err(
+            "Cursor usage API credentials were not found. Run `ccstats login cursor` or set CURSOR_SESSION_TOKEN."
+                .to_string(),
+        ),
+    }
+}
+
+pub(crate) fn parse_plan_usage(payload: &Value) -> CursorPlanUsage {
+    let membership = first_string(
+        payload,
+        &[
+            "membershipType",
+            "membership_type",
+            "planName",
+            "plan",
+            "membership",
+        ],
+    );
+    let billing_cycle_start = first_string(
+        payload,
+        &["billingCycleStart", "billing_cycle_start", "cycleStart"],
+    );
+    let billing_cycle_end = first_string(
+        payload,
+        &["billingCycleEnd", "billing_cycle_end", "cycleEnd"],
+    );
+    let used_pct = percentage_field(payload)
+        .or_else(|| ratio_percentage(payload, "planUsed", "planLimit"))
+        .or_else(|| {
+            payload
+                .get("individualUsage")
+                .and_then(percentage_field)
+                .or_else(|| {
+                    payload.get("individualUsage").and_then(|usage| {
+                        ratio_percentage(usage, "used", "limit").or_else(|| {
+                            usage
+                                .get("plan")
+                                .and_then(|plan| ratio_percentage(plan, "used", "limit"))
+                        })
+                    })
+                })
+        });
+    CursorPlanUsage {
+        membership,
+        used_pct,
+        billing_cycle_start,
+        billing_cycle_end,
+    }
+}
+
+fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToString::to_string)
+    })
+}
+
+fn percentage_field(value: &Value) -> Option<f64> {
+    for key in [
+        "used_percentage",
+        "usedPercentage",
+        "percentUsed",
+        "usagePercentage",
+        "percent_used",
+    ] {
+        if let Some(pct) = value.get(key).and_then(json_f64)
+            && pct.is_finite()
+            && (0.0..=100.0).contains(&pct)
+        {
+            return Some(pct);
+        }
+    }
+    None
+}
+
+fn ratio_percentage(value: &Value, used_key: &str, limit_key: &str) -> Option<f64> {
+    let used = value.get(used_key).and_then(json_f64)?;
+    let limit = value.get(limit_key).and_then(json_f64)?;
+    if !used.is_finite() || !limit.is_finite() || limit <= 0.0 {
+        return None;
+    }
+    let pct = used / limit * 100.0;
+    pct.is_finite().then_some(pct.clamp(0.0, 100.0))
+}
+
+fn json_f64(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|n| n as f64))
+        .or_else(|| value.as_u64().map(|n| n as f64))
+        .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
+}
+
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 const PAGE_DELAY: Duration = Duration::from_millis(200);
 const DEFAULT_LOOKBACK_DAYS: i64 = 90;
@@ -356,5 +481,29 @@ mod tests {
             date_window(CursorApi::Admin, None, None, Some(100), Some(200), false),
             (100, 200)
         );
+    }
+
+    #[test]
+    fn parse_plan_usage_reads_percent_and_cycle() {
+        let plan = parse_plan_usage(&json!({
+            "membershipType": "pro",
+            "billingCycleStart": "2026-09-01T00:00:00.000Z",
+            "billingCycleEnd": "2026-10-01T00:00:00.000Z",
+            "planUsed": 25,
+            "planLimit": 100
+        }));
+        assert_eq!(plan.membership.as_deref(), Some("pro"));
+        assert_eq!(plan.used_pct, Some(25.0));
+        assert_eq!(
+            plan.billing_cycle_end.as_deref(),
+            Some("2026-10-01T00:00:00.000Z")
+        );
+    }
+
+    #[test]
+    fn parse_plan_usage_ignores_missing_limit() {
+        let plan = parse_plan_usage(&json!({"membershipType": "free"}));
+        assert_eq!(plan.membership.as_deref(), Some("free"));
+        assert_eq!(plan.used_pct, None);
     }
 }

@@ -281,6 +281,7 @@ fn table_options<'a>(
         is_today,
         comparison_days: None,
         source_count,
+        largest_source: None,
     }
 }
 
@@ -319,6 +320,7 @@ fn render_table(loaded: &AllSourceLoad, period: Period, is_today: bool, ctx: &Co
         );
     }
     println!("\n  All Sources");
+    let largest = largest_source_name(loaded, ctx);
     period_table::render(
         &loaded.combined,
         period,
@@ -330,7 +332,31 @@ fn render_table(loaded: &AllSourceLoad, period: Period, is_today: bool, ctx: &Co
             cost_mode: CostDisplayMode::Total,
             is_today,
             source_count: (loaded.contributing_sources > 1).then_some(loaded.contributing_sources),
+            largest_source: largest,
             source_name: None,
         },
     );
+}
+
+fn largest_source_name(loaded: &AllSourceLoad, ctx: &CommandContext<'_>) -> Option<&'static str> {
+    loaded
+        .sections
+        .iter()
+        .max_by(|left, right| {
+            section_cost(left, ctx)
+                .partial_cmp(&section_cost(right, ctx))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|section| section.display_name)
+}
+
+fn section_cost(section: &SourceSection, ctx: &CommandContext<'_>) -> f64 {
+    section.result.day_stats.values().fold(0.0, |total, day| {
+        let part = crate::pricing::sum_model_costs(&day.models, ctx.pricing_db);
+        if part.is_finite() {
+            total + part
+        } else {
+            total
+        }
+    })
 }

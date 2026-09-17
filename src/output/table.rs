@@ -37,6 +37,7 @@ pub(crate) struct TokenTableOptions<'a> {
     pub(crate) comparison_days: Option<&'a HashMap<String, DayStats>>,
     pub(crate) is_today: bool,
     pub(crate) source_count: Option<usize>,
+    pub(crate) largest_source: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -503,6 +504,7 @@ fn print_period_conclusion(
             displayed,
             is_today: options.is_today,
             source_count: options.source_count,
+            largest_source: options.largest_source,
             compact: options.compact,
             show_cost: options.show_cost,
             number_format: options.number_format,

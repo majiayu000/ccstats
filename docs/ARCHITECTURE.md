@@ -92,9 +92,11 @@ pub trait Source: Send + Sync {
         filter: &DateFilter,
         timezone: Timezone,
     ) -> Vec<PathBuf> {
-        self.find_files()
+        cache::prune_discovered_files(self.find_files(), filter, timezone)
     }
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
+    fn cache_policy(&self) -> CachePolicy { CachePolicy::PerFile }
+    fn cache_partition(&self) -> &'static str { "default" }
     fn finalize_entries(&self, entries: Vec<RawEntry>) -> Vec<RawEntry> { entries }
 
     fn find_tool_call_files(&self) -> Vec<PathBuf> { Vec::new() }
@@ -104,7 +106,9 @@ pub trait Source: Send + Sync {
 }
 ```
 
-Required for a new source: `name`, `capabilities`, `find_files`, `parse_file`. Put CLI aliases on `aliases()`. `finalize_entries` runs only on the **dedup path** (after `DedupAccumulator`), not on incremental daily/session aggregation. Grok uses it to **reclassify** overlapping `EstimatedProxy` snapshot rows to `CostKind::Real` with `recorded_cost_usd = Some(0.0)` when the same session already has API-equivalent priced rows — it does not drop those rows. Snapshot-only sessions stay `EstimatedProxy`. Tool-call hooks are Claude-only today. Cursor overrides `find_files_for_filter` so API requests can follow the date range.
+Required for a new source: `name`, `capabilities`, `find_files`, `parse_file`. Put CLI aliases on `aliases()`. `finalize_entries` runs only on the **dedup path** (after `DedupAccumulator`), not on incremental daily/session aggregation. Grok uses it to **reclassify** overlapping `EstimatedProxy` snapshot rows to `CostKind::Real` with `recorded_cost_usd = Some(0.0)` when the same session already has API-equivalent priced rows — it does not drop those rows. Snapshot-only sessions stay `EstimatedProxy`. Tool-call hooks are Claude-only today. Cursor overrides `find_files_for_filter` so API requests can follow the date range. Cursor and other remote APIs return `CachePolicy::None`. OpenCode-family SQLite sources declare `CachePolicy::Watermark` (currently stored per-file until rowid-safe incremental reads land).
+
+New sources must ship `tests/fixtures/<source>/` with a minimal log plus an upstream schema link in `CONTRIBUTING.md`.
 
 ## `Capabilities`
 
@@ -386,9 +390,18 @@ Preferred file: platform cache dir / `ccstats/pricing.json` (for example `~/Libr
 3. Fetch failure falls back to the existing cache (even if stale).
 4. No cache: built-in per-family fallback prices. Unknown models stay N/A under `--strict-pricing` (never a silent Sonnet guess).
 
+## Usage-facts cache
+
+Shared SQLite at `<platform cache>/ccstats/usage-facts-v1.sqlite3`. The `v1` in the filename is `CACHE_VERSION`; bump both when parser semantics or stored `RawEntry` fields change so a new algorithm cannot mix with old rows.
+
+Key = `(source, cache_partition, absolute path, fingerprint of mtime/size/inode)`. Payload is zstd JSON of token/cost facts plus `session_key`. Prompt text, message content, and source code are not stored (`docs/PRIVACY.md`). `--no-cache` skips the layer; `--debug` prints per-file hit/miss and the loader prints hit/miss counts.
+
+`DataLoader` discovers files through `find_files_for_filter` (filename date + mtime prune) then reads through this cache.
+
 ## Performance
 
 - Parallel file parse (rayon)
+- Date-range file prune, then usage-facts cache (`usage-facts-v1.sqlite3`)
 - Filter after parse (local date + timezone, optional timestamp bounds)
 - Lazy pricing load and 24h cache
 - Streaming JSONL reads

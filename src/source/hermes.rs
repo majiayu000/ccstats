@@ -10,7 +10,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::{CachePolicy, Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
 const HERMES_HOME_ENV: &str = "HERMES_HOME";
@@ -54,6 +54,10 @@ impl Source for HermesSource {
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_database(path, timezone, debug)
+    }
+
+    fn cache_policy(&self) -> CachePolicy {
+        CachePolicy::Watermark
     }
 }
 

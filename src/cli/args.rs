@@ -8,9 +8,10 @@ use clap::{Parser, ValueEnum};
 
 use crate::config::{Config, ConfigColorMode, ConfigCostMode, ConfigSortOrder};
 use crate::output::OutputFormat;
+use crate::quota::CostSource;
 use crate::source::CodexScope;
 
-use super::commands::Commands;
+use super::commands::{Commands, SourceCommand};
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
 pub(crate) enum SortOrder {
@@ -136,6 +137,18 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "SOURCE")]
     pub(crate) source: Option<String>,
 
+    /// Skip the usage-facts cache and reparse source files
+    #[arg(long, global = true)]
+    pub(crate) no_cache: bool,
+
+    /// Hide per-source subtotals (overrides the `--source all` default)
+    #[arg(long, global = true)]
+    pub(crate) no_source_breakdown: bool,
+
+    /// Cost figure for `statusline`: local estimate, Claude Code hook, or both
+    #[arg(long, global = true, value_enum, default_value_t = CostSource::Auto)]
+    pub(crate) cost_source: CostSource,
+
     /// Filter Codex sessions by origin
     #[arg(long, global = true, value_enum, default_value_t = CodexScope::All)]
     pub(crate) codex_scope: CodexScope,
@@ -252,6 +265,30 @@ impl Cli {
             return false;
         }
         self.cost_mode() == CostMode::Show
+    }
+
+    pub(crate) fn wants_source_breakdown(&self, source_name: &str, command: SourceCommand) -> bool {
+        if self.no_source_breakdown {
+            return false;
+        }
+        if !command.supports_source_breakdown() {
+            return false;
+        }
+        self.source_breakdown || source_name.eq_ignore_ascii_case(crate::source::ALL_SOURCES)
+    }
+
+    pub(crate) fn watch_warn_pct(&self) -> f64 {
+        match &self.command {
+            Some(Commands::Watch { warn_pct, .. }) => *warn_pct,
+            _ => 80.0,
+        }
+    }
+
+    pub(crate) fn serve_bind(&self) -> &str {
+        match &self.command {
+            Some(Commands::Serve { bind }) => bind.as_str(),
+            _ => "127.0.0.1:17890",
+        }
     }
 }
 

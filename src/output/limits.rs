@@ -16,27 +16,59 @@ use crate::utils::Timezone;
 pub(crate) const CLAUDE_WINDOW_DISCLAIMER: &str =
     "Estimated from local logs; not an official Anthropic billing reset.";
 
-pub(crate) const BOTH_MISSING_HINT: &str = "No Codex weekly quota or Claude estimated session window is available.\nRun `ccstats doctor` to check local source setup.";
+pub(crate) const BOTH_MISSING_HINT: &str = "No Codex weekly quota, Claude estimated session window, or Cursor plan usage is available.\nRun `ccstats doctor` to check local source setup.";
 
 pub(crate) const NO_ACTIVE_CLAUDE_WINDOW: &str = "No active estimated 5-hour window";
+
+/// One provider window in the unified `limits --json` `windows` array.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub(crate) struct LimitWindow {
+    pub provider: String,
+    pub window: String,
+    pub used_pct: Option<f64>,
+    pub resets_at: Option<String>,
+    pub source: String,
+    pub stale: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_estimate_usd: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub burn_pct_per_hour: Option<f64>,
+}
 
 pub(crate) struct ClaudeWindowView<'a> {
     pub block: &'a BlockStats,
     pub remaining_ms: i64,
 }
 
+pub(crate) struct CursorPlanView<'a> {
+    pub membership: Option<&'a str>,
+    pub used_pct: Option<f64>,
+    pub billing_cycle_start: Option<&'a str>,
+    pub billing_cycle_end: Option<&'a str>,
+}
+
 pub(crate) struct LimitsView<'a> {
     pub want_codex: bool,
     pub want_claude: bool,
+    pub want_cursor: bool,
     pub codex: Option<(&'a CodexWeeklyQuota, QuotaValueEstimate<'a>)>,
     pub codex_error: Option<&'a str>,
     pub claude: Option<ClaudeWindowView<'a>>,
+    pub cursor: Option<CursorPlanView<'a>>,
+    pub cursor_error: Option<&'a str>,
+    pub windows: &'a [LimitWindow],
     pub notes: &'a [String],
 }
 
 impl LimitsView<'_> {
     fn both_missing(&self) -> bool {
-        self.want_codex && self.want_claude && self.codex.is_none() && self.claude.is_none()
+        let missing_codex = !self.want_codex || self.codex.is_none();
+        let missing_claude = !self.want_claude || self.claude.is_none();
+        let missing_cursor = !self.want_cursor || self.cursor.is_none();
+        (self.want_codex || self.want_claude || self.want_cursor)
+            && missing_codex
+            && missing_claude
+            && missing_cursor
     }
 }
 
@@ -61,6 +93,16 @@ fn claude_cost(block: &BlockStats, pricing_db: &PricingDb) -> f64 {
 
 fn quota_json_value(report: &CodexWeeklyQuota, value_estimate: QuotaValueEstimate<'_>) -> Value {
     serde_json::from_str(&output_quota_json(report, value_estimate)).unwrap_or(Value::Null)
+}
+
+fn cursor_json_value(plan: &CursorPlanView<'_>) -> Value {
+    json!({
+        "membership": plan.membership,
+        "used_pct": plan.used_pct,
+        "billing_cycle_start": plan.billing_cycle_start,
+        "billing_cycle_end": plan.billing_cycle_end,
+        "source": "official",
+    })
 }
 
 fn claude_json_value(
@@ -98,9 +140,12 @@ pub(crate) fn output_limits_json(
     let claude_blocks = view.claude.as_ref().map_or(Value::Null, |window| {
         claude_json_value(window, pricing_db, show_cost, currency)
     });
+    let cursor = view.cursor.as_ref().map_or(Value::Null, cursor_json_value);
     json!({
         "codex": codex,
         "claude_blocks": claude_blocks,
+        "cursor": cursor,
+        "windows": view.windows,
         "notes": view.notes,
     })
     .to_string()
@@ -265,6 +310,32 @@ pub(crate) fn output_limits_csv(
             .write_to(&mut out);
         }
     }
+    if view.want_cursor {
+        if let Some(plan) = &view.cursor {
+            LimitsCsvRow {
+                section: "cursor",
+                source: "cursor",
+                window: "billing_cycle",
+                used_pct: plan.used_pct,
+                observed_at: plan.billing_cycle_start.unwrap_or_default(),
+                resets_at: plan.billing_cycle_end.unwrap_or_default(),
+                status: "official",
+                ..Default::default()
+            }
+            .write_to(&mut out);
+        } else {
+            LimitsCsvRow {
+                section: "cursor",
+                source: "cursor",
+                window: "billing_cycle",
+                error: view
+                    .cursor_error
+                    .unwrap_or("Cursor plan usage is not available"),
+                ..Default::default()
+            }
+            .write_to(&mut out);
+        }
+    }
     out
 }
 
@@ -303,7 +374,7 @@ pub(crate) fn print_limits_table(
                     .unwrap_or("Codex weekly quota is not available")
             );
         }
-        if view.want_claude {
+        if view.want_claude || view.want_cursor {
             println!();
         }
     }
@@ -316,7 +387,32 @@ pub(crate) fn print_limits_table(
             println!("{NO_ACTIVE_CLAUDE_WINDOW}");
         }
         println!("{CLAUDE_WINDOW_DISCLAIMER}");
+        if view.want_cursor {
+            println!();
+        }
     }
+
+    if view.want_cursor {
+        println!("Cursor plan");
+        if let Some(plan) = &view.cursor {
+            print_cursor_plan(plan);
+        } else {
+            println!(
+                "unavailable: {}",
+                view.cursor_error
+                    .unwrap_or("Cursor plan usage is not available")
+            );
+        }
+    }
+}
+
+fn print_cursor_plan(plan: &CursorPlanView<'_>) {
+    let membership = plan.membership.unwrap_or("unknown");
+    let used = plan
+        .used_pct
+        .map_or_else(|| "unknown".to_string(), |pct| format!("{pct:.1}%"));
+    let reset = plan.billing_cycle_end.unwrap_or("unknown");
+    println!("official  {membership}  used {used}  resets {reset}");
 }
 
 fn print_claude_window_table(
@@ -415,12 +511,16 @@ mod tests {
         let view = LimitsView {
             want_codex: true,
             want_claude: true,
+            want_cursor: false,
             codex: None,
             codex_error: Some("snapshot missing"),
             claude: Some(ClaudeWindowView {
                 block: &block,
                 remaining_ms: 90 * 60 * 1000,
             }),
+            cursor: None,
+            cursor_error: None,
+            windows: &[],
             notes: &notes,
         };
         let value: Value = serde_json::from_str(&output_limits_json(
@@ -454,9 +554,13 @@ mod tests {
         let view = LimitsView {
             want_codex: true,
             want_claude: true,
+            want_cursor: false,
             codex: None,
             codex_error: Some("snapshot missing"),
             claude: None,
+            cursor: None,
+            cursor_error: None,
+            windows: &[],
             notes: &notes,
         };
         let csv = output_limits_csv(&view, &PricingDb::default(), false, None);
@@ -484,9 +588,13 @@ mod tests {
         let view = LimitsView {
             want_codex: true,
             want_claude: false,
+            want_cursor: false,
             codex: Some((&report, Some(Ok(&estimate)))),
             codex_error: None,
             claude: None,
+            cursor: None,
+            cursor_error: None,
+            windows: &[],
             notes: &notes,
         };
         let value: Value = serde_json::from_str(&output_limits_json(

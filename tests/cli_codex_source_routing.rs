@@ -393,6 +393,7 @@ fn source_all_daily_json_merges_registered_sources() {
             "daily",
             "--source",
             "all",
+            "--no-source-breakdown",
             "-j",
             "-O",
             "--no-cost",
@@ -470,7 +471,7 @@ fn source_all_daily_json_source_breakdown_wraps_per_source_and_total() {
     let json: Value = serde_json::from_slice(&stdout).expect("json");
     assert!(
         json.is_object(),
-        "flag wraps JSON; default remains an array"
+        "`--source all` wraps JSON; `--no-source-breakdown` keeps a combined array"
     );
     let sources = json["sources"].as_array().expect("sources");
     let names: Vec<&str> = sources
@@ -505,6 +506,38 @@ fn source_all_daily_json_source_breakdown_wraps_per_source_and_total() {
     let total = json["total"].as_array().expect("total");
     assert_eq!(total[0]["date"].as_str(), Some("2026-02-06"));
     assert_eq!(total[0]["total_tokens"].as_i64(), Some(165));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn source_all_no_source_breakdown_keeps_combined_array() {
+    let root = unique_temp_dir("source-all-no-breakdown");
+    let codex_home = root.join("codex-home");
+    write_claude_and_codex_daily_fixture(&root, &codex_home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "all",
+            "--no-source-breakdown",
+            "-j",
+            "-O",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-02-06",
+            "--until",
+            "2026-02-06",
+        ],
+        &[("HOME", &root), ("CODEX_HOME", &codex_home)],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let json: Value = serde_json::from_slice(&stdout).expect("json");
+    let rows = json.as_array().expect("combined array");
+    assert_eq!(rows[0]["total_tokens"].as_i64(), Some(165));
 
     let _ = fs::remove_dir_all(root);
 }

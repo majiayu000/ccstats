@@ -1,0 +1,1 @@
+{"timestamp":"2026-02-01T12:00:00Z","message":{"id":"msg_fixture","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":10}}}

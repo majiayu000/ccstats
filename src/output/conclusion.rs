@@ -22,6 +22,7 @@ pub(super) struct PeriodConclusionInput<'a> {
     pub(super) displayed: &'a HashMap<String, DayStats>,
     pub(super) is_today: bool,
     pub(super) source_count: Option<usize>,
+    pub(super) largest_source: Option<&'a str>,
     pub(super) compact: bool,
     pub(super) show_cost: bool,
     pub(super) number_format: NumberFormat,
@@ -60,6 +61,9 @@ pub(super) fn period_conclusion_line(input: &PeriodConclusionInput<'_>) -> Optio
     let mut line = format!("{label}{sources}: {token_text} tokens");
     if let Some(cost_clause) = cost_clause(input) {
         line.push_str(&cost_clause);
+    }
+    if let Some(sources) = allocation_clause(input) {
+        line.push_str(&sources);
     }
     if !input.compact
         && let Some(pace) = pace_clause(input)
@@ -117,6 +121,11 @@ fn floor_amount(amount: &str) -> String {
     } else {
         format!("≥ {trimmed}")
     }
+}
+
+fn allocation_clause(input: &PeriodConclusionInput<'_>) -> Option<String> {
+    let name = input.largest_source?;
+    Some(format!(", {name} is the largest source"))
 }
 
 fn pace_clause(input: &PeriodConclusionInput<'_>) -> Option<String> {
@@ -292,6 +301,7 @@ mod tests {
             displayed,
             is_today,
             source_count,
+            largest_source: None,
             compact,
             show_cost,
             number_format: NumberFormat::default(),

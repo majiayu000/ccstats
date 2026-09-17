@@ -38,11 +38,15 @@ mod limits_cmd;
 mod login_cmd;
 mod output;
 mod pricing;
+mod quota;
 mod quota_cmd;
 mod sdk;
+mod serve_cmd;
 mod source;
 mod sources_cmd;
 mod utils;
+mod verify_cmd;
+mod watch_cmd;
 
 pub use activity::{
     ModelTurnUsage, ToolUsage, TurnToolBreakdown, turn_tool_breakdown,
@@ -217,7 +221,12 @@ fn resolve_source_name<'a>(
         return Some("claude");
     }
 
-    if source_cmd == SourceCommand::Limits {
+    if source_cmd == SourceCommand::Limits
+        || matches!(
+            source_cmd,
+            SourceCommand::Watch { .. } | SourceCommand::Verify | SourceCommand::Serve
+        )
+    {
         return Some(source_override.unwrap_or(ALL_SOURCES));
     }
 
@@ -367,6 +376,7 @@ pub fn run_cli() {
 
     let config = load_config(is_statusline);
     let cli = raw_cli.with_config(&config);
+    crate::source::set_disabled(cli.no_cache);
     validate_quota_currency(&cli, source_cmd, cli_currency_was_set);
     let timezone = resolve_timezone(cli.timezone.as_deref(), cli_timezone_was_set);
     let number_format = resolve_number_format(cli.locale.as_deref());

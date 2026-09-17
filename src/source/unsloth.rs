@@ -15,7 +15,7 @@ use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::utils::Timezone;
 
-use super::{Capabilities, ParseOutput, Source};
+use super::{CachePolicy, Capabilities, ParseOutput, Source};
 
 const MAX_TOKEN_COUNT: i64 = 1_i64 << 40;
 
@@ -59,6 +59,10 @@ impl Source for UnslothSource {
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_database(path, timezone, debug)
+    }
+
+    fn cache_policy(&self) -> CachePolicy {
+        CachePolicy::Watermark
     }
 }
 

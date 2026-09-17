@@ -42,8 +42,9 @@ pub(crate) use endpoints::{EndpointTableOptions, output_endpoint_json, print_end
 pub(crate) use format::{NumberFormat, csv_escape, format_cost};
 pub(crate) use json::output_period_json_with_quality;
 pub(crate) use limits::{
-    BOTH_MISSING_HINT, CLAUDE_WINDOW_DISCLAIMER, ClaudeWindowView, LimitsTableOptions, LimitsView,
-    NO_ACTIVE_CLAUDE_WINDOW, output_limits_csv, output_limits_json, print_limits_table,
+    BOTH_MISSING_HINT, CLAUDE_WINDOW_DISCLAIMER, ClaudeWindowView, CursorPlanView, LimitWindow,
+    LimitsTableOptions, LimitsView, NO_ACTIVE_CLAUDE_WINDOW, output_limits_csv, output_limits_json,
+    print_limits_table,
 };
 pub(crate) use period::{Period, aggregate_day_stats_by_period, period_key};
 pub(crate) use project::{ProjectTableOptions, output_project_json, print_project_table};
@@ -51,7 +52,7 @@ pub(crate) use quota::{
     QuotaValueEstimate, output_quota_csv, output_quota_json, print_quota_table,
 };
 pub(crate) use session::{SessionTableOptions, output_session_json, print_session_table};
-pub(crate) use statusline::{print_statusline, print_statusline_json_with_quality};
+pub(crate) use statusline::{StatuslineHook, print_statusline, print_statusline_json_with_quality};
 pub(crate) use table::{PeriodSummaryFooter, TokenTableOptions, print_period_table};
 pub(crate) use tools::{output_tools_csv, output_tools_json, print_tools_table};
 pub(crate) use top::{

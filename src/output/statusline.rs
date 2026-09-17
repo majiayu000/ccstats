@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
+
 use crate::core::{DataQuality, DayStats, Stats};
 use crate::output::format::{
     NumberFormat, cache_hit_rate_json_value, cost_json_value, format_cache_hit_rate,
@@ -10,6 +12,13 @@ use crate::pricing::{
     CostDisplayMode, CurrencyConverter, PricingDb, model_cost_kind, sum_display_model_costs,
     sum_estimated_proxy_model_costs,
 };
+use crate::quota::{ClaudeHook, Confidence, CostSource, format_reset_countdown};
+
+pub(crate) struct StatuslineHook {
+    pub hook: ClaudeHook,
+    pub cost_source: CostSource,
+    pub captured_at: DateTime<Utc>,
+}
 
 struct Totals {
     stats: Stats,
@@ -39,6 +48,7 @@ fn aggregate_totals(
 
 /// Output a single line suitable for statusline/tmux integration
 /// Format: "CC: $X.XX | In: XM Out: XK | Today"
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn print_statusline(
     day_stats: &HashMap<String, DayStats>,
     pricing_db: &PricingDb,
@@ -47,11 +57,16 @@ pub(crate) fn print_statusline(
     currency: Option<&CurrencyConverter>,
     supports_cache_read: bool,
     cost_mode: CostDisplayMode,
+    hook: Option<&StatuslineHook>,
 ) {
     let t = aggregate_totals(day_stats, pricing_db, cost_mode);
 
     let mut parts = vec![
-        format!("{}: {}", source_label, format_cost(t.cost, currency)),
+        format!(
+            "{}: {}",
+            source_label,
+            format_statusline_cost(t.cost, currency, hook)
+        ),
         format!(
             "In: {} Out: {}",
             format_compact(t.stats.input_tokens, number_format),
@@ -68,6 +83,7 @@ pub(crate) fn print_statusline(
         "Cache Hit: {}",
         format_cache_hit_rate(t.stats.cache_hit_rate(supports_cache_read))
     ));
+    parts.extend(quota_text_parts(hook));
     println!("{}", parts.join(" | "));
 }
 
@@ -89,6 +105,7 @@ pub(crate) fn print_statusline_json(
         true,
         None,
         CostDisplayMode::Total,
+        None,
     )
 }
 
@@ -102,8 +119,16 @@ pub(crate) fn print_statusline_json_with_quality(
     supports_cache_read: bool,
     data_quality: Option<DataQuality>,
     cost_mode: CostDisplayMode,
+    hook: Option<&StatuslineHook>,
 ) -> String {
     let t = aggregate_totals(day_stats, pricing_db, cost_mode);
+    let (display_cost, cc_cost) = resolve_costs(t.cost, hook);
+    let confidence = if hook.is_some_and(|h| h.hook.has_official_windows()) {
+        Confidence::Official
+    } else {
+        Confidence::Estimated
+    };
+    let captured_at = hook.map_or_else(Utc::now, |h| h.captured_at);
 
     let mut output = serde_json::json!({
         "source": source_label,
@@ -117,14 +142,37 @@ pub(crate) fn print_statusline_json_with_quality(
             t.stats.cache_hit_rate(supports_cache_read)
         ),
         "total_tokens": t.stats.total_tokens(),
-        "cost": cost_json_value(t.cost, currency),
+        "cost": cost_json_value(display_cost, currency),
+        "confidence": confidence.as_str(),
+        "captured_at": captured_at.to_rfc3339(),
         "formatted": {
-            "cost": format_cost(t.cost, currency),
+            "cost": format_statusline_cost(t.cost, currency, hook),
             "input": format_compact(t.stats.input_tokens, number_format),
             "output": format_compact(t.stats.output_tokens, number_format),
             "reasoning": format_compact(t.stats.reasoning_tokens, number_format),
         }
     });
+    if let Some(hook) = hook {
+        output["cost_source"] = serde_json::json!(hook.cost_source.as_str());
+        if let Some(cc_cost) = cc_cost {
+            output["cc_cost"] = cost_json_value(cc_cost, currency);
+        }
+        if let Some(pct) = hook.hook.context_used_pct() {
+            output["context_used_pct"] = serde_json::json!(pct);
+        }
+        if let Some(five) = hook.hook.five_hour() {
+            output["rate_limits"]["five_hour"] = serde_json::json!({
+                "used_pct": five.used_percentage,
+                "resets_at": five.resets_at,
+            });
+        }
+        if let Some(seven) = hook.hook.seven_day() {
+            output["rate_limits"]["seven_day"] = serde_json::json!({
+                "used_pct": seven.used_percentage,
+                "resets_at": seven.resets_at,
+            });
+        }
+    }
     if let Some(data_quality) = data_quality {
         output["data_quality"] = serde_json::json!({
             "valid_entries": data_quality.valid_entries,
@@ -152,6 +200,62 @@ pub(crate) fn print_statusline_json_with_quality(
         eprintln!("Failed to serialize JSON output: {e}");
         "{}".to_string()
     })
+}
+
+fn resolve_costs(ccstats: f64, hook: Option<&StatuslineHook>) -> (f64, Option<f64>) {
+    let cc = hook.and_then(|h| h.hook.cc_cost_usd());
+    let source = hook.map_or(CostSource::Ccstats, |h| h.cost_source);
+    match source {
+        CostSource::Cc => (cc.unwrap_or(f64::NAN), cc),
+        CostSource::Auto => (cc.unwrap_or(ccstats), cc),
+        CostSource::Ccstats | CostSource::Both => (ccstats, cc),
+    }
+}
+
+fn format_statusline_cost(
+    ccstats: f64,
+    currency: Option<&CurrencyConverter>,
+    hook: Option<&StatuslineHook>,
+) -> String {
+    let (display, cc) = resolve_costs(ccstats, hook);
+    let source = hook.map_or(CostSource::Ccstats, |h| h.cost_source);
+    match source {
+        CostSource::Both => {
+            let left = format_cost(display, currency);
+            match cc {
+                Some(cc) => format!("{left} ccstats / {} cc", format_cost(cc, currency)),
+                None => format!("{left} ccstats / unknown cc"),
+            }
+        }
+        CostSource::Cc if display.is_nan() => "unknown".to_string(),
+        _ => format_cost(display, currency),
+    }
+}
+
+fn quota_text_parts(hook: Option<&StatuslineHook>) -> Vec<String> {
+    let Some(hook) = hook else {
+        return Vec::new();
+    };
+    let mut parts = Vec::new();
+    if let Some(pct) = hook.hook.context_used_pct() {
+        parts.push(format!("ctx {pct:.0}%"));
+    }
+    if let Some(five) = hook.hook.five_hour()
+        && let Some(pct) = five.used_percentage
+    {
+        let mut text = format!("5h {pct:.0}%");
+        if let Some(reset) = five.resets_at {
+            text.push_str(" ↻");
+            text.push_str(&format_reset_countdown(reset, hook.captured_at));
+        }
+        parts.push(text);
+    }
+    if let Some(seven) = hook.hook.seven_day()
+        && let Some(pct) = seven.used_percentage
+    {
+        parts.push(format!("7d {pct:.0}%"));
+    }
+    parts
 }
 
 #[cfg(test)]
@@ -234,6 +338,47 @@ mod tests {
         assert_eq!(v["formatted"]["cost"].as_str(), Some("$0.00"));
         assert_eq!(v["formatted"]["input"].as_str(), Some("0"));
         assert_eq!(v["formatted"]["output"].as_str(), Some("0"));
+        assert_eq!(v["confidence"].as_str(), Some("estimated"));
+    }
+
+    #[test]
+    fn statusline_json_hook_marks_official_windows_and_cc_cost() {
+        let hook: crate::quota::ClaudeHook = serde_json::from_str(
+            r#"{
+                "cost": {"total_cost_usd": 1.5},
+                "context_window": {"used_percentage": 42.0},
+                "rate_limits": {
+                    "five_hour": {"used_percentage": 23.0, "resets_at": 4102444800}
+                }
+            }"#,
+        )
+        .unwrap();
+        let captured_at = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let json = print_statusline_json_with_quality(
+            &HashMap::new(),
+            &PricingDb::default(),
+            "Claude Code",
+            NumberFormat::default(),
+            None,
+            true,
+            None,
+            CostDisplayMode::Total,
+            Some(&StatuslineHook {
+                hook,
+                cost_source: CostSource::Auto,
+                captured_at,
+            }),
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let captured = captured_at.to_rfc3339();
+        assert_eq!(v["confidence"].as_str(), Some("official"));
+        assert_eq!(v["context_used_pct"].as_f64(), Some(42.0));
+        assert_eq!(v["cc_cost"].as_f64(), Some(1.5));
+        assert_eq!(v["captured_at"].as_str(), Some(captured.as_str()));
+        assert_eq!(
+            v["rate_limits"]["five_hour"]["used_pct"].as_f64(),
+            Some(23.0)
+        );
     }
 
     #[test]

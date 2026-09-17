@@ -29,12 +29,13 @@ pub(crate) enum Commands {
     Weekly,
     /// Estimate the current Codex weekly quota pace (Codex-only)
     Quota,
-    /// Combined Codex weekly quota and Claude estimated session window
+    /// Combined Codex weekly quota, Claude windows, and Cursor plan usage
     ///
-    /// Prints every honest local limit: Codex weekly quota snapshots and the
-    /// current Claude activity-driven 5-hour window. Omit `--source` or use
-    /// `--source all` for both; `--source codex` or `--source claude` for one
-    /// section. Other sources are not supported.
+    /// Prints every honest local limit: Codex weekly quota snapshots, Claude
+    /// official rate-limit snapshots when `statusline` has stored them,
+    /// estimated Claude 5-hour activity windows, and Cursor plan usage.
+    /// Omit `--source` or use `--source all` for every provider; `--source
+    /// claude`, `--source codex`, or `--source cursor` for one section.
     Limits,
     /// Show monthly usage
     Monthly,
@@ -53,6 +54,23 @@ pub(crate) enum Commands {
     Endpoints,
     /// Output single line for statusline/tmux integration
     Statusline,
+    /// One-screen remaining quota and today/week cost
+    Watch {
+        /// Print one frame and exit
+        #[arg(long)]
+        once: bool,
+        /// With `--once`, exit 1 when any official window is at least this percent used
+        #[arg(long, default_value_t = 80.0)]
+        warn_pct: f64,
+    },
+    /// Compare ccstats estimates with source-recorded costs
+    Verify,
+    /// Serve JSON on 127.0.0.1 (same types as CLI `--json`)
+    Serve {
+        /// Bind address (loopback only)
+        #[arg(long, default_value = "127.0.0.1:17890")]
+        bind: String,
+    },
     /// Show tool usage statistics (Read, Bash, Edit, etc.)
     Tools,
     /// Show top N consumers ranked by cost (or tokens when cost is unknown)
@@ -189,6 +207,9 @@ pub(crate) enum SourceCommand {
     Blocks,
     Endpoints,
     Statusline,
+    Watch { once: bool },
+    Verify,
+    Serve,
     Tools,
     Top { dim: TopDimension, limit: usize },
 }
@@ -220,6 +241,9 @@ impl SourceCommand {
             Self::Blocks => "blocks",
             Self::Endpoints => "endpoints",
             Self::Statusline => "statusline",
+            Self::Watch { .. } => "watch",
+            Self::Verify => "verify",
+            Self::Serve => "serve",
             Self::Tools => "tools",
             Self::Top { .. } => "top",
         }
@@ -250,6 +274,9 @@ impl From<&Commands> for SourceCommand {
             Commands::Blocks => SourceCommand::Blocks,
             Commands::Endpoints => SourceCommand::Endpoints,
             Commands::Statusline => SourceCommand::Statusline,
+            Commands::Watch { once, .. } => SourceCommand::Watch { once: *once },
+            Commands::Verify => SourceCommand::Verify,
+            Commands::Serve { .. } => SourceCommand::Serve,
             Commands::Tools => SourceCommand::Tools,
             Commands::Top { dim, limit } => SourceCommand::Top {
                 dim: *dim,

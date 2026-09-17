@@ -176,14 +176,30 @@ fn limits_claude_only_json_codex_is_null_and_table_has_disclaimer() {
 }
 
 #[test]
-fn limits_rejects_cursor_source() {
+fn limits_source_cursor_json_is_null_without_credentials() {
     let home = unique_temp_dir("limits-cursor-source");
-    let (ok, _stdout, stderr) = run_home(&home, &["limits", "--source", "cursor"]);
-    assert!(!ok);
-    let err = String::from_utf8_lossy(&stderr);
+    let (ok, stdout, stderr) = run_home(
+        &home,
+        &[
+            "limits",
+            "--source",
+            "cursor",
+            "--json",
+            "--offline",
+            "--no-cost",
+        ],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let value: Value = serde_json::from_slice(&stdout).unwrap();
+    assert!(value["cursor"].is_null(), "{value}");
+    assert!(value["windows"].as_array().unwrap().is_empty());
     assert!(
-        err.contains("limits does not support --source cursor"),
-        "{err}"
+        value["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|note| note.as_str().unwrap_or_default().contains("Cursor")),
+        "{value}"
     );
 
     let _ = fs::remove_dir_all(home);
@@ -314,6 +330,8 @@ fn limits_empty_home_keeps_its_schema_and_ignores_unrelated_credentials() {
         );
         assert!(value.get("codex").unwrap().is_null());
         assert!(value.get("claude_blocks").unwrap().is_null());
+        assert!(value.get("cursor").unwrap().is_null());
+        assert!(value.get("windows").unwrap().as_array().unwrap().is_empty());
     }
     fs::remove_dir_all(home).unwrap();
 }

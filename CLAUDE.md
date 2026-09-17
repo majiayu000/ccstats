@@ -6,17 +6,8 @@
 - **Keep it simple**: Avoid over-engineering. Only add what's needed now.
 - **Latest dependencies**: Always use the latest stable versions.
 - **Rust 2024 edition**: Use modern Rust idioms.
+- **Unknown cost is never 0**: Do not emit unknown costs as `0`. Estimates must carry a visible label (`est.`, `estimated`, `EstimatedProxy`, or equivalent). Official provider numbers stay labeled `official`.
 
 ## Architecture
 
-Fast CLI tool for analyzing Claude Code token usage from `~/.claude/` JSONL logs.
-
-### Key modules
-- `src/cli/` - Command line interface (clap)
-- `src/data/` - JSONL parsing and deduplication logic
-- `src/pricing/` - Cost calculation from LiteLLM pricing
-- `src/output/` - Table and JSON output formatting
-- `src/utils/` - Date parsing, jq filtering
-
-### Deduplication logic
-Streaming responses create multiple entries per message ID. We keep the entry with `stop_reason` set (completed message) to get accurate token counts.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The registered source list lives in `src/source/inventory.rs`. Product direction is in [docs/ROADMAP.md](docs/ROADMAP.md).
