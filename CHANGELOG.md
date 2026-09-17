@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 - Stop accepting Cursor secrets on `ccstats login cursor --api-key` / `--session-token` argv. Non-interactive login imports from `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN`, or from `--api-key-file` / `--session-token-file`.
+- Bump `rustls` to 0.23.45 (`RUSTSEC-2026-0285`).
 
 ## [0.7.1] - 2026-09-06
 
