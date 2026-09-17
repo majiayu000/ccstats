@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - README is a 30-second path plus seven core sources; the full 29-source env table lives in `docs/sources.md`.
-- Phase 4 presentation is CLI/`watch` first. Desktop installers may stay unsigned until signing secrets exist (issue #154).
+- Phase 4 presentation is CLI/`watch` first. macOS desktop GitHub Releases are fail-closed: Developer ID + App Store Connect API-key notarization required. Bundle id is `com.starlight.ccstats`.
 
 ### Security
 - Stop accepting Cursor secrets on `ccstats login cursor --api-key` / `--session-token` argv. Non-interactive login imports from `CURSOR_API_KEY` / `CURSOR_SESSION_TOKEN`, or from `--api-key-file` / `--session-token-file`.

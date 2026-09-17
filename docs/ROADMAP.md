@@ -8,13 +8,14 @@ Do not chase source count or leaderboards.
 
 ## Phase 4 decision (2026-09-17)
 
-**B first: TUI / `ccstats watch`, not a signed desktop tray.**
+**B first: TUI / `ccstats watch`, then a signed desktop tray.**
 
-Apple Developer ($99/year) plus Windows Authenticode is an operational cost, not a code problem. Issue [#154](https://github.com/majiayu000/ccstats/issues/154) stays open until a maintainer buys and configures signing secrets. Until then:
+Developer ID and App Store Connect notarization secrets are now configured.
+Desktop GitHub Releases fail closed without them:
 
-- CLI + `ccstats watch` is the real-time surface.
-- Desktop installers may keep shipping ad-hoc/unsigned; they are not the default path.
-- A tray/menu-bar app (option A) can follow after watch is solid and certificates exist.
+- CLI + `ccstats watch` remains the real-time surface.
+- macOS desktop installers on a `v*` tag are Developer ID signed and notarized.
+- A tray/menu-bar app (option A) can follow after watch is solid.
 
 ## Sequence
 

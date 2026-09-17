@@ -185,34 +185,24 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
         run: |
-          apple_signing_count=0
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -n "$(printenv "$name")" ]; then
-              apple_signing_count=$((apple_signing_count + 1))
-            fi
-          done
-
-          if [ "$apple_signing_count" -eq 0 ]; then
-            echo "::warning::Apple signing credentials are not configured; publishing an ad-hoc-signed macOS installer."
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
-            export APPLE_SIGNING_IDENTITY=-
-            npm run tauri -- build ${{ matrix.args }}
-            dmg_path="$(find src-tauri/target -type f -name '*.dmg' -print -quit)"
-            if [ -z "$dmg_path" ]; then
-              echo "::error::Ad-hoc-signed macOS build did not produce a DMG."
+          set -euo pipefail
+          for name in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_API_KEY \
+            APPLE_API_ISSUER \
+            APPLE_API_KEY_CONTENT
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required Apple signing secret: $name"
               exit 1
             fi
-            exit 0
-          fi
-
-          if [ "$apple_signing_count" -ne 6 ]; then
-            echo "::error::Configure all six Apple signing secrets or leave all of them unset."
-            exit 1
-          fi
+          done
 
           original_keychain="$(security default-keychain -d user | tr -d '"')"
           original_keychains=()
@@ -226,11 +216,12 @@ jobs:
           )
           keychain_path="$RUNNER_TEMP/ccstats-signing.keychain-db"
           certificate_path="$RUNNER_TEMP/ccstats-developer-id.p12"
+          api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
           keychain_password="$(openssl rand -hex 32)"
 
           cleanup_signing() {
             status=$?
-            rm -f "$certificate_path"
+            rm -f "$certificate_path" "$api_key_path"
             if ! security default-keychain -d user -s "$original_keychain"; then
               echo "::warning::Failed to restore the default macOS keychain"
             fi
@@ -245,6 +236,9 @@ jobs:
           trap cleanup_signing EXIT
 
           printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate_path"
+          printf '%s' "$APPLE_API_KEY_CONTENT" | base64 --decode > "$api_key_path"
+          chmod 600 "$certificate_path" "$api_key_path"
+
           security create-keychain -p "$keychain_password" "$keychain_path"
           security default-keychain -d user -s "$keychain_path"
           security list-keychains -d user -s "$keychain_path" "${original_keychains[@]}"
@@ -267,7 +261,8 @@ jobs:
           fi
 
           rm -f "$certificate_path"
-          unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD keychain_password
+          unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_CONTENT keychain_password
+          export APPLE_API_KEY_PATH="$api_key_path"
           npm run tauri -- build ${{ matrix.args }}
           dmg_path="$(find src-tauri/target -type f -name '*.dmg' -print -quit)"
           if [ -z "$dmg_path" ]; then

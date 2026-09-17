@@ -17,22 +17,21 @@ GitHub Release:
 - Linux: `ccstats-desktop-x86_64-unknown-linux-gnu.AppImage` and
   `ccstats-desktop-aarch64-unknown-linux-gnu.AppImage`
 
-Each installer has a matching `.sha256` sidecar. When a complete platform
-credential set is configured, macOS apps use a Developer ID certificate and
-notarization, while Windows MSIs use an Authenticode certificate and trusted
-timestamp. When all credentials for a platform are absent, the workflow emits
-a warning, publishes macOS with Tauri's ad-hoc identity `-`, and publishes
-Windows unsigned. A partial credential set fails the release instead of
-silently falling back.
+Each installer has a matching `.sha256` sidecar. macOS desktop releases are
+fail-closed: they require a Developer ID Application certificate and App Store
+Connect API-key notarization. Windows MSIs use an Authenticode certificate and
+trusted timestamp when both Windows secrets are present, and stay unsigned when
+both are absent. A partial credential set for either platform fails the release
+instead of silently falling back.
 
-Optionally configure these GitHub Actions secrets before pushing a release tag:
+Configure these GitHub Actions secrets before pushing a macOS release tag:
 
-- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12`
+- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12` from your own Apple Developer team
 - `APPLE_CERTIFICATE_PASSWORD`: password for that `.p12`
-- `APPLE_SIGNING_IDENTITY`: full Developer ID Application identity
-- `APPLE_ID`: Apple account used for notarization
-- `APPLE_PASSWORD`: app-specific password for that account
-- `APPLE_TEAM_ID`: Apple Developer team identifier
+- `APPLE_SIGNING_IDENTITY`: `Developer ID Application: Your Name (TEAMID)`
+- `APPLE_API_KEY`: App Store Connect API key ID
+- `APPLE_API_ISSUER`: App Store Connect API issuer ID
+- `APPLE_API_KEY_CONTENT`: base64-encoded App Store Connect `.p8` private key
 - `WINDOWS_CERTIFICATE`: base64-encoded Authenticode `.pfx`
 - `WINDOWS_CERTIFICATE_PASSWORD`: password for that `.pfx`
 
@@ -40,8 +39,6 @@ Rotate a certificate by replacing its certificate and password secrets before
 the old certificate expires, then verify the next release with `codesign` and
 `Get-AuthenticodeSignature`. Revoke the old certificate after verification.
 Certificate contents and passwords must never be committed or printed in logs.
-Ad-hoc-signed macOS and unsigned Windows installers do not provide
-publisher-identity verification and may trigger Gatekeeper or SmartScreen.
 Verify the matching `.sha256` file before choosing an operating-system
 override.
 
@@ -95,11 +92,11 @@ The existing `HOMEBREW_TAP_TOKEN` secret must retain permission to update
    ```
 
 4. Create and push the matching tag, for example `v0.5.1` for version `0.5.1`.
-5. Confirm every job in the Release workflow succeeds. For signed builds, the
-   workflow validates the macOS notarization staple and Gatekeeper assessment
-   and requires a valid Windows Authenticode signature. For certificate-free
-   builds, confirm the workflow emitted the expected ad-hoc macOS and unsigned
-   Windows warnings.
+5. Confirm every job in the Release workflow succeeds. The macOS job is
+   fail-closed: it requires Developer ID signing and notarization, then
+   validates the staple and Gatekeeper assessment. Windows remains unsigned
+   when both Authenticode secrets are absent, and fails if only one of them
+   is set.
 
 ## Public verification
 

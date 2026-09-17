@@ -61,8 +61,10 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh 
 ```
 
 Desktop installers on [GitHub Releases](https://github.com/majiayu000/ccstats/releases)
-are unsigned/ad-hoc. Gatekeeper or SmartScreen may warn. The supported
-real-time surface is the CLI (`ccstats watch`). Packaging notes:
+are Developer ID signed and notarized on macOS. Missing Apple secrets fail
+the release instead of shipping an ad-hoc DMG. Windows MSIs are
+Authenticode-signed when those secrets are set. The supported real-time
+surface is the CLI (`ccstats watch`). Packaging notes:
 [docs/RELEASING.md](docs/RELEASING.md), [desktop/README.md](desktop/README.md).
 
 ## Usage
