@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"pi-fixture","timestamp":"2026-02-01T12:00:00Z","cwd":"/tmp/pi-fixture"}
+{"type":"message","id":"assistant","timestamp":"2026-02-01T12:00:01Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4","usage":{"input":10,"output":2,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.125}},"stopReason":"stop"}}

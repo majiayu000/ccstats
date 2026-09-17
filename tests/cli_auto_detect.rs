@@ -29,9 +29,12 @@ fn write_claude_session(root: &Path, timestamp: &str) {
 
 fn json_total_tokens(stdout: &[u8]) -> i64 {
     let json: Value = serde_json::from_slice(stdout).expect("json");
-    json.as_array().expect("array output")[0]["total_tokens"]
-        .as_i64()
-        .expect("total_tokens")
+    let row = if json.is_array() {
+        &json.as_array().expect("array output")[0]
+    } else {
+        &json["total"].as_array().expect("array output")[0]
+    };
+    row["total_tokens"].as_i64().expect("total_tokens")
 }
 
 fn assert_doctor_diagnostics(stdout: &[u8]) {

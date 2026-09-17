@@ -126,6 +126,7 @@ fn all_sources_daily_json_clamps_negative_claude_and_cursor_tokens() {
             "daily",
             "--source",
             "all",
+            "--no-source-breakdown",
             "-j",
             "-O",
             "--no-cost",

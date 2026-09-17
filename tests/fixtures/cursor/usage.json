@@ -1,0 +1,16 @@
+{
+  "usageEventsDisplay": [
+    {
+      "timestamp": "2026-02-01T12:00:00Z",
+      "model": "claude-4-sonnet",
+      "conversationId": "fixture-1",
+      "tokenUsage": {
+        "inputTokens": 100,
+        "outputTokens": 40,
+        "cacheWriteTokens": 0,
+        "cacheReadTokens": 10
+      },
+      "chargedCents": 12.5
+    }
+  ]
+}

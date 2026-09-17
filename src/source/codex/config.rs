@@ -6,11 +6,9 @@ use std::path::{Path, PathBuf};
 
 use clap::ValueEnum;
 
-use crate::core::DateFilter;
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::cache::CodexCache;
 use super::parser::{find_codex_files, parse_codex_file_with_scope};
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
@@ -49,7 +47,6 @@ impl CodexScope {
 /// Codex data source
 pub(crate) struct CodexSource {
     scope: CodexScope,
-    cache: CodexCache,
 }
 
 impl CodexSource {
@@ -58,10 +55,7 @@ impl CodexSource {
     }
 
     pub(crate) fn with_scope(scope: CodexScope) -> Self {
-        Self {
-            scope,
-            cache: CodexCache::default(),
-        }
+        Self { scope }
     }
 }
 
@@ -109,17 +103,7 @@ impl Source for CodexSource {
         parse_codex_file_with_scope(path, timezone, debug, self.scope)
     }
 
-    fn parse_file_filtered(
-        &self,
-        path: &Path,
-        filter: &DateFilter,
-        timezone: Timezone,
-        debug: bool,
-    ) -> ParseOutput {
-        self.cache.parse(path, self.scope, filter, timezone, debug)
-    }
-
-    fn cached_file_count(&self) -> usize {
-        self.cache.hits()
+    fn cache_partition(&self) -> &'static str {
+        self.scope.as_str()
     }
 }

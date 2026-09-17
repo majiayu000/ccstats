@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::{CachePolicy, Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
 use super::opencode_fork::{read_session_creation_times, reconcile_fork_copies};
@@ -81,6 +81,10 @@ impl Source for OpenCodeSource {
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_opencode_database(path, timezone, debug, ParseProfile::opencode())
     }
+
+    fn cache_policy(&self) -> CachePolicy {
+        CachePolicy::Watermark
+    }
 }
 
 impl Source for MiMoCodeSource {
@@ -116,6 +120,10 @@ impl Source for MiMoCodeSource {
         }
         parse_opencode_database(path, timezone, debug, ParseProfile::mimocode())
     }
+
+    fn cache_policy(&self) -> CachePolicy {
+        CachePolicy::Watermark
+    }
 }
 
 impl Source for KiloCliSource {
@@ -141,6 +149,10 @@ impl Source for KiloCliSource {
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_opencode_database(path, timezone, debug, ParseProfile::kilo())
+    }
+
+    fn cache_policy(&self) -> CachePolicy {
+        CachePolicy::Watermark
     }
 }
 

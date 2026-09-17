@@ -188,7 +188,7 @@ impl<'a> DataLoader<'a> {
             return None;
         }
 
-        if !self.quiet {
+        if !self.quiet || self.debug {
             eprintln!(
                 "Scanning {} {} files... ({:.2}ms)",
                 files.len(),
@@ -206,9 +206,8 @@ impl<'a> DataLoader<'a> {
                 if self.cancelled.is_some_and(|cancelled| cancelled()) {
                     return (init(), 0);
                 }
-                let parsed = self
-                    .source
-                    .parse_file_filtered(path, filter, timezone, self.debug);
+                let parsed =
+                    super::cache::parse_cached(self.source, path, filter, timezone, self.debug);
                 (per_file(parsed.entries), parsed.errors)
             })
             .reduce(
@@ -219,13 +218,14 @@ impl<'a> DataLoader<'a> {
             );
         let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
 
-        if !self.quiet {
+        if !self.quiet || self.debug {
             let cached = self
                 .source
                 .cached_file_count()
                 .saturating_sub(cached_before);
+            let missed = file_count.saturating_sub(cached);
             eprintln!(
-                "Processed {file_count} files ({cached} cached), filtered and merged ({parse_ms:.2}ms)"
+                "Processed {file_count} files ({cached} cache hit, {missed} cache miss), filtered and merged ({parse_ms:.2}ms)"
             );
             if parse_errors > 0 {
                 eprintln!("Warning: ignored {parse_errors} malformed records");

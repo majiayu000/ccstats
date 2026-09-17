@@ -6,7 +6,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use crate::core::DateFilter;
-use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
+use crate::source::{CachePolicy, Capabilities, ParseOutput, Source, SourceDiagnostic};
 use crate::utils::Timezone;
 
 use super::client::has_api_credentials;
@@ -84,6 +84,10 @@ impl Source for CursorSource {
 
     fn find_files_for_filter(&self, filter: &DateFilter, timezone: Timezone) -> Vec<PathBuf> {
         find_cursor_files(filter, timezone)
+    }
+
+    fn cache_policy(&self) -> CachePolicy {
+        CachePolicy::None
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {

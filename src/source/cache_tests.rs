@@ -1,15 +1,20 @@
 use super::*;
 use crate::core::DedupAccumulator;
+use crate::source::Source;
+use crate::source::codex::{CodexScope, CodexSource};
 use chrono::NaiveDate;
 use std::io::Write;
 
-fn cache(root: &Path) -> CodexCache {
-    let cache = CodexCache::default();
-    cache
-        .connection
-        .set(Ok(Mutex::new(open_cache(&root.join(CACHE_FILE)).unwrap())))
-        .unwrap();
-    cache
+fn cache(root: &Path) -> UsageFactCache {
+    UsageFactCache::open_at(&root.join(CACHE_FILE))
+}
+
+fn source() -> CodexSource {
+    CodexSource::new()
+}
+
+fn scoped(scope: CodexScope) -> CodexSource {
+    CodexSource::with_scope(scope)
 }
 
 fn event(timestamp: &str, total: i64) -> String {
@@ -25,20 +30,25 @@ fn event(timestamp: &str, total: i64) -> String {
 }
 
 fn session(path: &Path) {
-    fs::write(path, format!("{}\n{}\n{}{}",
-        serde_json::json!({"type":"session_meta","payload":{"id":"shared-session","source":"cli","cwd":"/work/real-project"}}),
-        serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5"}}),
-        event("2026-09-01T23:30:00.123456Z", 10),
-        event("2026-09-02T00:30:00Z", 30),
-    )).unwrap();
+    fs::write(
+        path,
+        format!(
+            "{}\n{}\n{}{}",
+            serde_json::json!({"type":"session_meta","payload":{"id":"shared-session","source":"cli","cwd":"/work/real-project"}}),
+            serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5"}}),
+            event("2026-09-01T23:30:00.123456Z", 10),
+            event("2026-09-02T00:30:00Z", 30),
+        ),
+    )
+    .unwrap();
 }
 
 fn utc() -> Timezone {
     Timezone::Named(chrono_tz::UTC)
 }
 
-fn parse(cache: &CodexCache, path: &Path, filter: &DateFilter, tz: Timezone) -> ParseOutput {
-    cache.parse(path, CodexScope::All, filter, tz, false)
+fn parse(cache: &UsageFactCache, path: &Path, filter: &DateFilter, tz: Timezone) -> ParseOutput {
+    cache.parse(&source(), path, filter, tz, false)
 }
 
 fn assert_equal(actual: &ParseOutput, expected: &ParseOutput) {
@@ -111,7 +121,7 @@ fn cache_writes_and_long_context_classification_survive_reopening() {
             .join("\n"),
     )
     .unwrap();
-    let expected = parse_codex_file_with_scope(&path, utc(), false, CodexScope::All);
+    let expected = source().parse_file(&path, utc(), false);
     assert_eq!(expected.errors, 0);
     assert_eq!(expected.entries.len(), 3);
     assert_eq!(
@@ -164,7 +174,7 @@ fn cached_ranges_and_timezone_changes_match_uncached_filtering() {
         Timezone::Named(chrono_tz::America::Los_Angeles),
     ] {
         for filter in &filters {
-            let raw = parse_codex_file_with_scope(&path, timezone, false, CodexScope::All);
+            let raw = source().parse_file(&path, timezone, false);
             let expected = ParseOutput {
                 entries: DataLoader::filter_entries(raw.entries, filter, timezone),
                 errors: raw.errors,
@@ -221,7 +231,6 @@ fn append_rewrite_and_delete_invalidate_cached_records() {
     let old_time = fs::metadata(&path).unwrap().modified().unwrap();
     let text = fs::read_to_string(&path).unwrap().replace("50", "60");
     fs::write(&path, text).unwrap();
-    // Equal-length overwrite is detected even with restored mtime.
     #[cfg(any(unix, windows))]
     fs::OpenOptions::new()
         .write(true)
@@ -258,9 +267,10 @@ fn scope_cache_does_not_mix_origins() {
         CodexScope::Exec,
         CodexScope::Subagent,
     ] {
-        let expected = parse_codex_file_with_scope(&path, utc(), false, scope);
-        assert_equal(&cache.parse(&path, scope, &filter, utc(), false), &expected);
-        assert_equal(&cache.parse(&path, scope, &filter, utc(), false), &expected);
+        let expected = scoped(scope).parse_file(&path, utc(), false);
+        let src = scoped(scope);
+        assert_equal(&cache.parse(&src, &path, &filter, utc(), false), &expected);
+        assert_equal(&cache.parse(&src, &path, &filter, utc(), false), &expected);
     }
     assert_eq!(cache.hits(), 4);
 }
@@ -304,11 +314,7 @@ fn corrupt_cache_is_rebuilt_from_source_without_losing_usage() {
     let cache = cache(root.path());
     let filter = DateFilter::default();
     let expected = parse(&cache, &path, &filter, utc());
-    cache
-        .connection()
-        .unwrap()
-        .execute("UPDATE files SET payload = x'00'", [])
-        .unwrap();
+    cache.corrupt_payloads("codex");
     assert_equal(&parse(&cache, &path, &filter, utc()), &expected);
     assert!(cache.reported_error.load(Ordering::Relaxed));
     assert_eq!(cache.hits(), 0);
@@ -331,9 +337,47 @@ fn copied_and_archived_files_keep_cross_file_deduplication() {
             all.extend(parse(&cache, p, &filter, utc()).entries);
         }
         let (entries, skipped) = all.finalize();
-        // The initial event is file-scoped; subsequent events are source-wide.
         assert_eq!(skipped, 1);
         assert_eq!(entries.iter().map(|e| e.input_tokens).sum::<i64>(), 40);
     }
     assert_eq!(cache.hits(), 2);
+}
+
+#[test]
+fn cached_payload_has_no_prompt_text() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("session.jsonl");
+    session(&path);
+    let cache = cache(root.path());
+    parse(&cache, &path, &DateFilter::default(), utc());
+    let table = table_ident("codex");
+    let payload: Vec<u8> = cache
+        .connection()
+        .unwrap()
+        .query_row(&format!("SELECT payload FROM {table} LIMIT 1"), [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let bytes = zstd::stream::decode_all(payload.as_slice()).unwrap();
+    let text = String::from_utf8(bytes).unwrap();
+    for forbidden in ["\"prompt\"", "\"content\"", "\"firstPrompt\"", "\"text\""] {
+        assert!(
+            !text.contains(forbidden),
+            "cache stored {forbidden}: {text}"
+        );
+    }
+}
+
+#[test]
+fn prune_skips_files_older_than_since() {
+    let root = tempfile::tempdir().unwrap();
+    let old = root.path().join("old.jsonl");
+    let dated = root.path().join("2026-01-01.jsonl");
+    fs::write(&old, "").unwrap();
+    fs::write(&dated, "").unwrap();
+    let since = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+    let filter = DateFilter::new(Some(since), None);
+    let kept = prune_discovered_files(vec![old, dated], &filter, utc());
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].file_name().unwrap(), "old.jsonl");
 }

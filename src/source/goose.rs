@@ -9,7 +9,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry};
-use crate::source::{Capabilities, ParseOutput, Source};
+use crate::source::{CachePolicy, Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
 const GOOSE_PATH_ROOT_ENV: &str = "GOOSE_PATH_ROOT";
@@ -58,6 +58,10 @@ impl Source for GooseSource {
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_goose_database(path, timezone, debug)
+    }
+
+    fn cache_policy(&self) -> CachePolicy {
+        CachePolicy::Watermark
     }
 }
 

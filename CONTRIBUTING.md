@@ -22,8 +22,18 @@ cargo test
 
 1. Fork the repo and create your branch from `main`
 2. Make your changes
-3. Ensure `cargo check` and `cargo test` pass
+3. Ensure `cargo check` and `cargo test --locked` pass
 4. Submit a PR with a clear description
+
+## New sources
+
+A new `--source` is accepted only with:
+
+1. Evidence of an official or upstream log/schema (link the repo path or docs).
+2. A minimal fixture under `tests/fixtures/<source>/` that the parser can read.
+3. Tests covering token buckets and, when the source records a cost, `recorded_cost_usd`.
+
+Unknown costs must stay `null` / `N/A` / `unknown`, never a silent `0`. Estimates must be labeled.
 
 ## Reporting Issues
 

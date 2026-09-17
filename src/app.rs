@@ -12,7 +12,7 @@ use crate::core::{
 use crate::output::NumberFormat;
 use crate::output::{
     BlockTableOptions, MonthlyBudgetOptions, OutputFormat, Period, ProjectTableOptions,
-    SessionTableOptions, TopRow, TopTableOptions, add_monthly_budget_to_json,
+    SessionTableOptions, StatuslineHook, TopRow, TopTableOptions, add_monthly_budget_to_json,
     append_data_quality_csv_comment, monthly_budget_reports, output_block_csv, output_block_json,
     output_monthly_budget_csv, output_period_csv_with_quality, output_period_json_with_quality,
     output_project_csv, output_project_json, output_session_csv, output_session_json,
@@ -390,7 +390,16 @@ fn render_tools(summary: &ToolSummary, ctx: &CommandContext<'_>) {
 fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
     let scope = codex_scope_for_source(source, ctx);
     let label = source_label(source, ctx);
-    let result = load_daily(source, ctx.filter, ctx.timezone, true, false);
+    let result = load_daily(source, ctx.filter, ctx.timezone, true, ctx.cli.debug);
+    let captured_at = chrono::Utc::now();
+    let hook = crate::quota::read_claude_hook_from_stdin().map(|hook| {
+        crate::quota::append_claude_snapshot(&hook, captured_at);
+        StatuslineHook {
+            hook,
+            cost_source: ctx.cli.cost_source,
+            captured_at,
+        }
+    });
     if ctx.cli.json {
         let json = print_statusline_json_with_quality(
             &result.day_stats,
@@ -401,6 +410,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             source.capabilities().has_cache_read,
             Some(result.data_quality()),
             CostDisplayMode::Total,
+            hook.as_ref(),
         );
         let json = codex_scope::annotate_json(&json, scope);
         print_json(&json, ctx.jq_filter);
@@ -413,6 +423,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
             ctx.currency,
             source.capabilities().has_cache_read,
             CostDisplayMode::Total,
+            hook.as_ref(),
         );
     }
 }
@@ -558,6 +569,7 @@ fn handle_period(
                 .map_or(CostDisplayMode::Total, |_| CostDisplayMode::RealOnly),
             is_today: command == SourceCommand::Today,
             source_count: None,
+            largest_source: None,
             source_name: Some(source.name()),
         },
     );
@@ -599,6 +611,9 @@ pub(crate) fn handle_source_command(
         }
         SourceCommand::Endpoints => return crate::endpoints_cmd::handle_endpoints(source, ctx),
         SourceCommand::Statusline => return handle_statusline(source, ctx),
+        SourceCommand::Watch { once } => return crate::watch_cmd::handle(once, ctx),
+        SourceCommand::Verify => return crate::verify_cmd::handle(ctx),
+        SourceCommand::Serve => return crate::serve_cmd::handle(ctx),
         SourceCommand::Tools => {
             if !caps.has_tool_calls {
                 println!(
@@ -642,7 +657,10 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
     };
     let is_today = command == SourceCommand::Today;
 
-    if ctx.cli.source_breakdown {
+    if ctx
+        .cli
+        .wants_source_breakdown(crate::source::ALL_SOURCES, command)
+    {
         source_breakdown::render(period, is_today, ctx);
         return;
     }
@@ -663,6 +681,7 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
             cost_mode: CostDisplayMode::Total,
             is_today,
             source_count: (contributing_sources > 1).then_some(contributing_sources),
+            largest_source: None,
             source_name: None,
         },
     );
@@ -678,8 +697,20 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
             std::process::exit(1);
         }
         SourceCommand::Limits => return crate::limits_cmd::handle_limits(ctx),
+        SourceCommand::Watch { once } => return crate::watch_cmd::handle(once, ctx),
+        SourceCommand::Verify => return crate::verify_cmd::handle(ctx),
+        SourceCommand::Serve => return crate::serve_cmd::handle(ctx),
         SourceCommand::Statusline => {
             let (result, caps, _) = load_all_daily(ctx, true);
+            let captured_at = chrono::Utc::now();
+            let hook = crate::quota::read_claude_hook_from_stdin().map(|hook| {
+                crate::quota::append_claude_snapshot(&hook, captured_at);
+                StatuslineHook {
+                    hook,
+                    cost_source: ctx.cli.cost_source,
+                    captured_at,
+                }
+            });
             if ctx.cli.json {
                 let json = print_statusline_json_with_quality(
                     &result.day_stats,
@@ -690,6 +721,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     caps.has_cache_read,
                     Some(result.data_quality()),
                     CostDisplayMode::Total,
+                    hook.as_ref(),
                 );
                 print_json(&json, ctx.jq_filter);
             } else {
@@ -701,6 +733,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
                     ctx.currency,
                     caps.has_cache_read,
                     CostDisplayMode::Total,
+                    hook.as_ref(),
                 );
             }
             return;

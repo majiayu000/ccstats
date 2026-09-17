@@ -306,10 +306,12 @@ fn real_today_command_compares_history_without_adding_it_to_totals() {
         );
         assert!(ok, "{}", String::from_utf8_lossy(&stderr));
         let output = String::from_utf8(stdout).unwrap();
-        assert!(
-            output.contains("Today: 1,500 tokens. Faster than the last 3-day mean (150 tokens)."),
-            "{output}"
-        );
+        let expected = if source == "all" {
+            "Today: 1,500 tokens, Claude Code is the largest source. Faster than the last 3-day mean (150 tokens)."
+        } else {
+            "Today: 1,500 tokens. Faster than the last 3-day mean (150 tokens)."
+        };
+        assert!(output.contains(expected), "{output}");
         assert!(
             !output.contains("1,950"),
             "history leaked into totals: {output}"
@@ -329,7 +331,10 @@ fn real_today_command_compares_history_without_adding_it_to_totals() {
         );
         assert!(ok, "{}", String::from_utf8_lossy(&stderr));
         let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
-        let rows = json.as_array().unwrap();
+        let rows = json
+            .as_array()
+            .or_else(|| json["total"].as_array())
+            .expect("period rows");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["total_tokens"], 1_500);
     }
