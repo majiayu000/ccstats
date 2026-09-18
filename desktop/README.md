@@ -52,7 +52,7 @@ npm run tauri -- build
 ```
 
 macOS produces a DMG, Windows an MSI, and Linux an AppImage. Production
-installers are built from `desktop/` by the tag-triggered Release workflow. See
+macOS DMGs are signed and notarized; Windows MSIs ship unsigned. See
 [docs/RELEASING.md](../docs/RELEASING.md) for GitHub Release artifacts.
 
 ## Tests

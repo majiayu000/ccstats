@@ -21,10 +21,10 @@ Each installer has a matching `.sha256` sidecar. macOS desktop releases are
 fail-closed: they require a Developer ID Application certificate and App Store
 Connect API-key notarization. Tauri notarizes the `.app`; the workflow then
 submits the signed DMG to `notarytool`, staples the ticket, and checks
-Gatekeeper with `stapler validate` and `spctl --assess`. Windows MSIs use an Authenticode certificate and
-trusted timestamp when both Windows secrets are present, and stay unsigned when
-both are absent. A partial credential set for either platform fails the release
-instead of silently falling back.
+Gatekeeper with `stapler validate` and `spctl --assess`. Windows MSIs ship
+unsigned. SmartScreen may show “Windows protected your PC”; choose More info
+→ Run anyway. A partial Apple credential set fails the release instead of
+silently falling back to an ad-hoc DMG.
 
 Configure these GitHub Actions secrets before pushing a macOS release tag:
 
@@ -34,12 +34,10 @@ Configure these GitHub Actions secrets before pushing a macOS release tag:
 - `APPLE_API_KEY`: App Store Connect API key ID
 - `APPLE_API_ISSUER`: App Store Connect API issuer ID
 - `APPLE_API_KEY_CONTENT`: base64-encoded App Store Connect `.p8` private key
-- `WINDOWS_CERTIFICATE`: base64-encoded Authenticode `.pfx`
-- `WINDOWS_CERTIFICATE_PASSWORD`: password for that `.pfx`
 
-Rotate a certificate by replacing its certificate and password secrets before
-the old certificate expires, then verify the next release with `codesign` and
-`Get-AuthenticodeSignature`. Revoke the old certificate after verification.
+Rotate an Apple certificate by replacing its certificate and password secrets
+before the old certificate expires, then verify the next release with
+`codesign`. Revoke the old certificate after verification.
 Certificate contents and passwords must never be committed or printed in logs.
 Verify the matching `.sha256` file before choosing an operating-system
 override.
@@ -97,9 +95,7 @@ The existing `HOMEBREW_TAP_TOKEN` secret must retain permission to update
 5. Confirm every job in the Release workflow succeeds. The macOS job is
    fail-closed: it requires Developer ID signing, App Store Connect
    notarization of both the `.app` and the DMG, then `stapler validate` and
-   Gatekeeper assessment. Windows remains unsigned
-   when both Authenticode secrets are absent, and fails if only one of them
-   is set.
+   Gatekeeper assessment. Windows publishes an unsigned MSI.
 
 ## Public verification
 

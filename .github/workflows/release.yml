@@ -300,77 +300,14 @@ jobs:
         if: runner.os == 'Windows'
         working-directory: desktop
         shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)
-          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
-          if ($hasCertificate -xor $hasPassword) {
-            throw "Configure both Windows signing secrets or leave both of them unset."
+          npm run tauri -- build ${{ matrix.args }}
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tauri Windows build failed with exit code $LASTEXITCODE"
           }
-
-          if (-not $hasCertificate) {
-            Write-Output "::warning::Windows signing credentials are not configured; publishing an unsigned Windows installer."
-            Remove-Item Env:WINDOWS_CERTIFICATE, Env:WINDOWS_CERTIFICATE_PASSWORD
-            npm run tauri -- build ${{ matrix.args }}
-            if ($LASTEXITCODE -ne 0) {
-              throw "Tauri Windows build failed with exit code $LASTEXITCODE"
-            }
-            $installers = @(Get-ChildItem src-tauri/target -Recurse -Filter *.msi)
-            if ($installers.Count -ne 1) {
-              throw "Expected exactly one unsigned Windows MSI, found $($installers.Count)."
-            }
-            exit 0
-          }
-
-          $certificatePath = Join-Path $env:RUNNER_TEMP "ccstats-code-signing.pfx"
-          $configPath = Join-Path $env:RUNNER_TEMP "ccstats-windows-signing.json"
-          $importedCertificates = @()
-          $certificate = $null
-          try {
-            [IO.File]::WriteAllBytes(
-              $certificatePath,
-              [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-            )
-            $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-            $importedCertificates = @(Import-PfxCertificate `
-                -FilePath $certificatePath `
-                -CertStoreLocation Cert:\CurrentUser\My `
-                -Password $password)
-            $certificate = $importedCertificates |
-              Where-Object { $_.HasPrivateKey } |
-              Select-Object -First 1
-            if ($null -eq $certificate -or [string]::IsNullOrWhiteSpace($certificate.Thumbprint)) {
-              throw "The Windows code-signing certificate could not be imported."
-            }
-            @{
-              bundle = @{
-                windows = @{
-                  certificateThumbprint = $certificate.Thumbprint
-                  digestAlgorithm = "sha256"
-                  timestampUrl = "http://timestamp.digicert.com"
-                }
-              }
-            } | ConvertTo-Json -Depth 4 -Compress | Set-Content -Encoding utf8 $configPath
-            Remove-Item Env:WINDOWS_CERTIFICATE, Env:WINDOWS_CERTIFICATE_PASSWORD
-            npm run tauri -- build ${{ matrix.args }} --config $configPath
-            if ($LASTEXITCODE -ne 0) {
-              throw "Tauri Windows build failed with exit code $LASTEXITCODE"
-            }
-            $installers = @(Get-ChildItem src-tauri/target -Recurse -Filter *.msi)
-            if ($installers.Count -ne 1) {
-              throw "Expected exactly one Windows MSI, found $($installers.Count)."
-            }
-            $signature = Get-AuthenticodeSignature $installers[0].FullName
-            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-              throw "Windows MSI Authenticode verification failed: $($signature.StatusMessage)"
-            }
-          } finally {
-            Remove-Item $certificatePath, $configPath -Force -ErrorAction SilentlyContinue
-            foreach ($importedCertificate in $importedCertificates) {
-              Remove-Item "Cert:\CurrentUser\My\$($importedCertificate.Thumbprint)" -Force
-            }
+          $installers = @(Get-ChildItem src-tauri/target -Recurse -Filter *.msi)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one unsigned Windows MSI, found $($installers.Count)."
           }
 
       - name: Stage desktop artifacts

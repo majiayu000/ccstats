@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Windows desktop GitHub Releases ship an unsigned MSI. SmartScreen may prompt More info → Run anyway.
+
 ## [0.8.0] - 2026-09-18
 
 ### Added

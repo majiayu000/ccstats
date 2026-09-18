@@ -15,6 +15,7 @@ Desktop GitHub Releases fail closed without them:
 
 - CLI + `ccstats watch` remains the real-time surface.
 - macOS desktop installers on a `v*` tag are Developer ID signed and notarized.
+- Windows desktop GitHub Releases ship an unsigned MSI.
 - A tray/menu-bar app (option A) can follow after watch is solid.
 
 ## Sequence
