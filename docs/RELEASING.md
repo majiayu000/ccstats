@@ -19,7 +19,9 @@ GitHub Release:
 
 Each installer has a matching `.sha256` sidecar. macOS desktop releases are
 fail-closed: they require a Developer ID Application certificate and App Store
-Connect API-key notarization. Windows MSIs use an Authenticode certificate and
+Connect API-key notarization. Tauri notarizes the `.app`; the workflow then
+submits the signed DMG to `notarytool`, staples the ticket, and checks
+Gatekeeper with `stapler validate` and `spctl --assess`. Windows MSIs use an Authenticode certificate and
 trusted timestamp when both Windows secrets are present, and stay unsigned when
 both are absent. A partial credential set for either platform fails the release
 instead of silently falling back.
@@ -93,8 +95,9 @@ The existing `HOMEBREW_TAP_TOKEN` secret must retain permission to update
 
 4. Create and push the matching tag, for example `v0.5.1` for version `0.5.1`.
 5. Confirm every job in the Release workflow succeeds. The macOS job is
-   fail-closed: it requires Developer ID signing and notarization, then
-   validates the staple and Gatekeeper assessment. Windows remains unsigned
+   fail-closed: it requires Developer ID signing, App Store Connect
+   notarization of both the `.app` and the DMG, then `stapler validate` and
+   Gatekeeper assessment. Windows remains unsigned
    when both Authenticode secrets are absent, and fails if only one of them
    is set.
 
