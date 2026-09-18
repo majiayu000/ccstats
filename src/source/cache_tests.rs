@@ -229,7 +229,14 @@ fn append_rewrite_and_delete_invalidate_cached_records() {
     assert_eq!(appended.entries.len(), 3);
     assert_eq!(cache.hits(), 0);
     let old_time = fs::metadata(&path).unwrap().modified().unwrap();
-    let text = fs::read_to_string(&path).unwrap().replace("50", "60");
+    // Windows ChangeTime shares a ~16ms clock tick; without a gap the rewrite
+    // keeps the same fingerprint after mtime is restored.
+    #[cfg(windows)]
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let text = fs::read_to_string(&path)
+        .unwrap()
+        .replace("\"input_tokens\":50", "\"input_tokens\":60")
+        .replace("\"total_tokens\":50", "\"total_tokens\":60");
     fs::write(&path, text).unwrap();
     #[cfg(any(unix, windows))]
     fs::OpenOptions::new()
