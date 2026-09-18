@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-18
+
 ### Added
 - Shared usage-facts cache (`usage-facts-v1.sqlite3`) so Claude, Codex, and other local sources skip unchanged files. `--no-cache` rebuilds; `--debug` prints hit/miss.
 - `ccstats statusline` reads Claude Code hook JSON on stdin (2.1.80+ Pro/Max `rate_limits`), with `--cost-source auto|ccstats|cc|both` and `confidence` / `captured_at` in JSON.
