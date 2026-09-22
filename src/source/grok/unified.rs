@@ -90,7 +90,7 @@ pub(super) struct TokenRates {
 
 pub(super) fn api_rates(model: &str, is_long: bool) -> Option<TokenRates> {
     let model = model.to_ascii_lowercase();
-    if model.contains("grok-4.6") {
+    if model.contains("grok-4.7") || model.contains("grok-4.6") {
         Some(if is_long {
             TokenRates {
                 input: 4e-6,
@@ -651,6 +651,17 @@ mod tests {
 
         assert!((short - 0.096).abs() < 1e-12);
         assert!((long - 0.292).abs() < 1e-12);
+    }
+
+    #[test]
+    fn prices_grok_47_at_the_published_card() {
+        let short = api_cost_usd("grok-4.7", 150_000, 140_000, 1_000).expect("known model");
+        let long =
+            api_cost_usd("grok-4.7-build", 250_000, 240_000, 1_000).expect("known model alias");
+
+        assert!((short - 0.096).abs() < 1e-12);
+        assert!((long - 0.292).abs() < 1e-12);
+        assert!(api_cost_usd("grok-4", 1_000, 0, 100).is_none());
     }
 
     #[test]
