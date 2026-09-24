@@ -480,6 +480,25 @@ mod tests {
     }
 
     #[test]
+    fn opus_5_5_fallback_prices_all_token_buckets() {
+        let db = PricingDb::default();
+        let stats = Stats {
+            input_tokens: 2,
+            output_tokens: 1_594,
+            cache_creation: 771,
+            cache_read: 213_745,
+            count: 1,
+            ..Default::default()
+        };
+
+        assert!((calculate_cost(&stats, "opus-5-5", &db) - 0.078_492).abs() < 1e-9);
+        assert_eq!(
+            db.pricing_source_for_model("opus-5-5"),
+            Some(PricingSource::Fallback)
+        );
+    }
+
+    #[test]
     fn strict_mode_marks_unknown_model_as_nan_cost() {
         let db = PricingDb {
             strict_unknown: true,
