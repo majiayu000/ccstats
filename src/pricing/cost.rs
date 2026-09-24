@@ -384,6 +384,18 @@ mod tests {
     }
 
     #[test]
+    fn gpt_6_astra_fallback_prices_long_context() {
+        let db = PricingDb::default();
+        let long = context_entry(72_001).to_stats();
+
+        assert!((calculate_cost(&long, "gpt-6-astra", &db) - 2.14502).abs() < 1e-9);
+        assert_eq!(
+            db.pricing_source_for_model("gpt-6-astra"),
+            Some(PricingSource::Fallback)
+        );
+    }
+
+    #[test]
     fn long_context_preserves_recorded_cost_and_proxy_filtering() {
         let db = astra_pricing_db();
         let mut recorded = context_entry(72_001);
