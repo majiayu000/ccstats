@@ -399,12 +399,15 @@ mod tests {
                 estimate.astra_equivalent_weekly_tokens,
                 Some(estimate.estimated_weekly_tokens)
             );
-            let without_prices = estimate_codex_weekly_value_with_pricing(
+            // Upstream 0.8.1 now includes these models in the labeled offline fallback.
+            let fallback_estimate = estimate_codex_weekly_value_with_pricing(
                 &quota,
                 Some(home.path()),
                 &PricingDb::default(),
             );
-            assert!(without_prices.is_err());
+            let fallback_estimate = fallback_estimate.unwrap();
+            assert_eq!(fallback_estimate.observed_tokens, 202_000);
+            assert!(fallback_estimate.observed_cost_usd > 0.0);
         }
     }
 

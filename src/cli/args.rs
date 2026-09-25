@@ -73,6 +73,10 @@ pub(crate) struct Cli {
     #[arg(short, long, global = true)]
     pub(crate) json: bool,
 
+    /// Include versioned session metadata and per-model USD usage (Claude/Codex JSON only)
+    #[arg(long, global = true)]
+    pub(crate) details: bool,
+
     /// Output as CSV
     #[arg(long, global = true)]
     pub(crate) csv: bool,

@@ -42,6 +42,7 @@ mod quota;
 mod quota_cmd;
 mod sdk;
 mod serve_cmd;
+mod session_details;
 mod source;
 mod sources_cmd;
 mod utils;
@@ -399,6 +400,15 @@ pub fn run_cli() {
         cli.source.as_deref(),
         source_cmd,
     );
+    if cli.details
+        && (source_cmd != SourceCommand::Session
+            || !cli.json
+            || cli.csv
+            || !matches!(source_name, Some("claude" | "codex")))
+    {
+        eprintln!("Error: --details requires session --json with --source claude or codex");
+        std::process::exit(1);
+    }
     if source_name.is_none() && is_statusline {
         println!();
         return;
@@ -406,14 +416,16 @@ pub fn run_cli() {
 
     let metadata_only = matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources)
         || source_name.is_none();
-    let needs_pricing = !metadata_only && (is_statusline || show_cost);
+    let needs_pricing = !metadata_only && (is_statusline || show_cost || cli.details);
     let pricing_db = load_pricing_db(&cli, needs_pricing, is_statusline);
     if let Some(source_name) = source_name {
         validate_source_breakdown(&cli, source_name, source_cmd);
         validate_codex_scope(cli.codex_scope, source_name);
     }
-    let needs_currency =
-        source_name.is_some() && source_cmd != SourceCommand::Quota && needs_pricing;
+    let needs_currency = source_name.is_some()
+        && source_cmd != SourceCommand::Quota
+        && needs_pricing
+        && !cli.details;
     let currency_converter = load_currency_converter(&cli, needs_currency, is_statusline);
 
     let context = CommandContext {

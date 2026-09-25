@@ -20,6 +20,10 @@ ccstats
 With no arguments, `ccstats` uses sources detected on this machine. If none
 are ready, it shows `doctor` instead of an empty report.
 
+## Machine session details
+
+`ccstats session --json --details --source claude` (or `codex`) exports a versioned envelope with per-model USD usage, request counts, exact native working directory, subagent tag, and first user prompt. This is an opt-in export of local prompt text. Add `--strict-pricing` to keep unknown prices null. [Schema and accounting contract](docs/architecture/session-details-json.md).
+
 ## Core sources
 
 | Source | Usage input | Start here |

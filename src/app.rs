@@ -84,6 +84,16 @@ pub(super) fn should_render_empty_structured_result(
 }
 
 fn handle_session(source: &dyn Source, ctx: &CommandContext<'_>) {
+    if ctx.cli.details {
+        match crate::session_details::report(source, ctx) {
+            Ok(report) => print_json(&report.to_string(), ctx.jq_filter),
+            Err(error) => {
+                eprintln!("Session details: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     let sessions = load_sessions(source, ctx.filter, ctx.timezone, false);
     if sessions.is_empty() {
         print_no_data_hint(&source_label(source, ctx), "session");

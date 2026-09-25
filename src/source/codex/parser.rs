@@ -34,10 +34,25 @@ pub(super) fn parse_codex_file_with_scope(
     debug: bool,
     scope: CodexScope,
 ) -> ParseOutput {
-    parse_file(path, timezone, debug, scope, "gpt-5")
+    parse_file(path, timezone, debug, scope, "gpt-5", false)
 }
 pub(super) fn parse_codex_file_for_quota(path: &Path, timezone: Timezone) -> ParseOutput {
-    parse_file(path, timezone, false, CodexScope::All, "unknown-model")
+    parse_file(
+        path,
+        timezone,
+        false,
+        CodexScope::All,
+        "unknown-model",
+        false,
+    )
+}
+pub(super) fn parse_codex_file_with_diagnostics(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+    scope: CodexScope,
+) -> ParseOutput {
+    parse_file(path, timezone, debug, scope, "unknown-model", true)
 }
 fn parse_file(
     path: &Path,
@@ -45,6 +60,7 @@ fn parse_file(
     debug: bool,
     scope: CodexScope,
     missing_model: &str,
+    accounting_diagnostics: bool,
 ) -> ParseOutput {
     let (output, has_responses) = parse_mode(
         path,
@@ -53,6 +69,7 @@ fn parse_file(
         scope,
         missing_model,
         CodexUsageMode::TokenCount,
+        accounting_diagnostics,
     );
     if output.errors == 0 && output.entries.is_empty() && has_responses {
         parse_mode(
@@ -62,6 +79,7 @@ fn parse_file(
             scope,
             missing_model,
             CodexUsageMode::Response,
+            accounting_diagnostics,
         )
         .0
     } else {
@@ -187,6 +205,7 @@ fn parse_mode(
     scope: CodexScope,
     missing_model: &str,
     mode: CodexUsageMode,
+    accounting_diagnostics: bool,
 ) -> (ParseOutput, bool) {
     let mut out = ParseOutput {
         entries: Vec::new(),
@@ -241,6 +260,13 @@ fn parse_mode(
         }
     }
     let summary = reader.finish();
+    if accounting_diagnostics {
+        out.errors += summary
+            .ignored_types
+            .get(agent_sessions::CODEX_MISSING_TOTAL_USAGE)
+            .copied()
+            .unwrap_or(0) as usize;
+    }
     (
         out,
         summary
