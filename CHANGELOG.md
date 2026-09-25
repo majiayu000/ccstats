@@ -4,8 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-25
+
+### Fixed
+- Refresh Claude and GPT fallback API-equivalent rates when LiteLLM pricing is unavailable, including GPT-6 cache and long-context tiers.
+- Price Grok 4.7 API-equivalent usage and normalize its `grok-4.7-build` alias so recent sessions are not left unpriced.
+
 ### Changed
-- Windows desktop GitHub Releases ship an unsigned MSI. SmartScreen may prompt More info → Run anyway.
+- Clarify that Windows desktop GitHub Releases ship an unsigned MSI. SmartScreen may prompt More info → Run anyway.
 
 ## [0.8.0] - 2026-09-18
 
