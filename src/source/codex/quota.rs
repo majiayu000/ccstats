@@ -104,11 +104,11 @@ pub enum CodexQuotaError {
 }
 
 #[derive(Debug, Clone)]
-struct QuotaSnapshot {
-    observed_at: DateTime<Utc>,
-    resets_at: DateTime<Utc>,
-    window_minutes: i64,
-    used_pct: f64,
+pub(super) struct QuotaSnapshot {
+    pub(super) observed_at: DateTime<Utc>,
+    pub(super) resets_at: DateTime<Utc>,
+    pub(super) window_minutes: i64,
+    pub(super) used_pct: f64,
 }
 
 #[derive(Debug)]
@@ -146,6 +146,7 @@ struct EventPayload {
 
 #[derive(Debug, Deserialize)]
 struct RateLimits {
+    limit_id: Option<String>,
     primary: Option<RateLimitWindow>,
     secondary: Option<RateLimitWindow>,
 }
@@ -400,7 +401,7 @@ fn snapshot_from_bytes(line: &[u8]) -> Result<Option<QuotaSnapshot>, SnapshotLin
     })
 }
 
-fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaSnapshot>> {
+pub(super) fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaSnapshot>> {
     if line.trim().is_empty() {
         return Ok(None);
     }
@@ -417,6 +418,9 @@ fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaSnapshot>> {
     let Some(limits) = payload.rate_limits else {
         return Ok(None);
     };
+    if limits.limit_id.as_deref().is_some_and(|id| id != "codex") {
+        return Ok(None);
+    }
     let Some(window) = [limits.primary, limits.secondary]
         .into_iter()
         .flatten()

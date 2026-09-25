@@ -24,8 +24,21 @@ pub struct CodexWeeklyValueEstimate {
     pub estimated_weekly_value_usd: f64,
     pub observed_tokens: i64,
     pub estimated_weekly_tokens: f64,
+    /// API-price conversion using this device's input/cache/output mix.
+    /// Does not require a single-model quota span; None means Astra pricing is unavailable.
+    pub astra_equivalent_weekly_tokens: Option<f64>,
+    /// Single-model capacities calibrated from this window's local samples.
+    pub model_estimates: Vec<CodexModelTokenEstimate>,
     pub valid_entries: i64,
     pub dedup_skipped_entries: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexModelTokenEstimate {
+    pub model: String,
+    pub estimated_weekly_tokens: Option<f64>,
+    pub sample_tokens: i64,
+    pub sample_used_pct: f64,
 }
 
 /// Provider-authoritative window used to align a Codex weekly value estimate.
@@ -217,8 +230,12 @@ fn estimate_codex_weekly_value_for_window_with_pricing(
         .checked_sub_signed(duration)
         .ok_or(CodexWeeklyValueError::NonFiniteEstimate)?;
 
-    let usage =
-        load_weekly_window_usage_from_home(window.observed_at, window_started_at, codex_home)?;
+    let usage = load_weekly_window_usage_from_home(
+        window.observed_at,
+        window_started_at,
+        window.resets_at,
+        codex_home,
+    )?;
     let observed_tokens = usage.stats.total_tokens();
     if usage.valid_entries == 0 || observed_tokens <= 0 {
         return Err(CodexWeeklyValueError::NoUsageInWindow);
@@ -249,6 +266,38 @@ fn estimate_codex_weekly_value_for_window_with_pricing(
         return Err(CodexWeeklyValueError::NonFiniteEstimate);
     }
 
+    // Reprice the same observed token mix as Astra, including request-level
+    // long-context buckets. Recorded costs belong to the original models and
+    // must not bypass the target model's prices in this conversion.
+    let mut astra_usage = usage.stats.clone();
+    astra_usage.recorded_cost_entries = 0;
+    let astra_cost = calculate_cost(&astra_usage, "gpt-6-astra", pricing_db);
+    let astra_equivalent_weekly_tokens = if astra_cost.is_finite() && astra_cost > 0.0 {
+        let tokens = observed_tokens as f64 * (estimated_weekly_value_usd / astra_cost);
+        if !tokens.is_finite() {
+            return Err(CodexWeeklyValueError::NonFiniteEstimate);
+        }
+        Some(tokens)
+    } else {
+        None
+    };
+
+    let mut model_estimates: Vec<_> = usage
+        .models
+        .keys()
+        .map(|model| {
+            let sample = usage.model_samples.get(model);
+            CodexModelTokenEstimate {
+                model: model.clone(),
+                estimated_weekly_tokens: sample
+                    .map(|sample| sample.tokens as f64 * 100.0 / sample.used_pct),
+                sample_tokens: sample.map_or(0, |sample| sample.tokens),
+                sample_used_pct: sample.map_or(0.0, |sample| sample.used_pct),
+            }
+        })
+        .collect();
+    model_estimates.sort_by(|a, b| a.model.cmp(&b.model));
+
     Ok(CodexWeeklyValueEstimate {
         observed_at: window.observed_at,
         window_started_at,
@@ -258,6 +307,8 @@ fn estimate_codex_weekly_value_for_window_with_pricing(
         estimated_weekly_value_usd,
         observed_tokens,
         estimated_weekly_tokens,
+        astra_equivalent_weekly_tokens,
+        model_estimates,
         valid_entries: usage.valid_entries,
         dedup_skipped_entries: usage.dedup_skipped_entries,
     })

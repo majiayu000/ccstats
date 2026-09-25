@@ -62,8 +62,8 @@ pub use catalog::{
     usage_history_with_cli_config,
 };
 pub use sdk::{
-    ApiEquivalentCostCoverage, CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota,
-    CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
+    ApiEquivalentCostCoverage, CodexModelTokenEstimate, CodexQuotaError, CodexQuotaStatus,
+    CodexWeeklyQuota, CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
     CodexWeeklyValueWindowError, CostSummary, CurrentUsageWindow, GrokApiEquivalentCostSummary,
     ModelCostSummary, MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions,
     TokenBreakdown, UsageRange, UsageSource, current_usage_date_with_cli_config,
