@@ -122,7 +122,7 @@ impl Source for CodexSource {
         }
     }
 
-    fn cache_partition(&self) -> &'static str {
+    fn cache_partition(&self) -> &str {
         static DETAILS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
             ["all", "interactive", "exec", "subagent"]
                 .map(|scope| format!("{}:details-v1:{scope}", agent_sessions::VERSION))

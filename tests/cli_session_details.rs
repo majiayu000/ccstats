@@ -170,3 +170,150 @@ fn details_do_not_invent_a_model_when_codex_omits_it() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn details_count_claude_usage_without_timestamp_as_incomplete() {
+    let root = unique_temp_dir("session-details-no-timestamp");
+    write_file(
+        &root.join(".claude/projects/-work/one.jsonl"),
+        r#"{"type":"assistant","cwd":"/work","message":{"id":"one","model":"claude-opus-4-6","content":[],"usage":{"input_tokens":100,"output_tokens":10}}}
+"#,
+    );
+    let report = details(&root, "claude", "2026-09-24");
+    assert_eq!(report["parse_errors"], 1);
+    assert_eq!(report["sessions"], serde_json::json!([]));
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn scoped_details(root: &Path, source: &str, exclude: bool) -> Value {
+    let mut args = vec![
+        "session",
+        "--json",
+        "--details",
+        "--source",
+        source,
+        "--offline",
+        "--timezone",
+        "UTC",
+        "--since",
+        "2026-09-24",
+        "--until",
+        "2026-09-24",
+        "--details-workdir",
+        "/work",
+    ];
+    if exclude {
+        args.push("--details-exclude-subagents");
+    }
+    let (ok, out, err) = run_ccstats(
+        &args,
+        &[("HOME", root), ("XDG_CACHE_HOME", &root.join("cache"))],
+    );
+    assert!(ok, "{}", String::from_utf8_lossy(&err));
+    serde_json::from_slice(&out).unwrap()
+}
+
+#[test]
+fn claude_scope_excludes_unrelated_and_subagent_errors_but_keeps_selected_damage() {
+    let root = unique_temp_dir("session-details-scope-claude");
+    write_file(
+        &root.join(".claude/projects/-work/good.jsonl"),
+        r#"{"type":"user","timestamp":"2026-09-24T09:00:00Z","cwd":"/work","message":{"content":"task"}}
+{"type":"assistant","timestamp":"2026-09-24T10:00:00Z","message":{"id":"good","model":"claude-opus-4-6","content":[],"usage":{"input_tokens":100,"output_tokens":10}}}
+"#,
+    );
+    for file in [
+        ".claude/projects/-other/broken.jsonl",
+        ".claude/projects/-work/subagents/broken.jsonl",
+    ] {
+        write_file(&root.join(file), "not-json\n");
+    }
+    let selected = scoped_details(&root, "claude", true);
+    assert_eq!(selected["parse_errors"], 0);
+    assert_eq!(selected["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(selected["unattributed_files"], 0);
+    let including_subagents = scoped_details(&root, "claude", false);
+    assert_eq!(including_subagents["parse_errors"], 1);
+    assert_eq!(scoped_details(&root, "claude", true)["parse_errors"], 0);
+    write_file(
+        &root.join(".claude/projects/-work/broken.jsonl"),
+        "not-json\n",
+    );
+    assert_eq!(scoped_details(&root, "claude", true)["parse_errors"], 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn codex_scope_reports_unattributed_files_without_poisoning_known_workdirs() {
+    let root = unique_temp_dir("session-details-scope-codex");
+    write_file(
+        &root.join(".codex/sessions/good.jsonl"),
+        r#"{"type":"session_meta","timestamp":"2026-09-24T09:00:00Z","payload":{"id":"good","cwd":"/work","source":"exec","model":"gpt-5.4"}}
+{"type":"response_item","timestamp":"2026-09-24T09:00:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"task"}]}}
+{"type":"event_msg","timestamp":"2026-09-24T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":5}}}}
+"#,
+    );
+    write_file(
+        &root.join(".codex/sessions/other.jsonl"),
+        "{\"type\":\"session_meta\",\"timestamp\":\"2026-09-24T09:00:00Z\",\"payload\":{\"cwd\":\"/other\"}}\nnot-json\n",
+    );
+    write_file(
+        &root.join(".codex/sessions/unattributed.jsonl"),
+        "not-json\n",
+    );
+    write_file(
+        &root.join(".codex/archived_sessions/archived.jsonl"),
+        r#"{"type":"session_meta","timestamp":"2026-09-23T09:00:00Z","payload":{"id":"archived","cwd":"/work","source":"exec","model":"gpt-5.4"}}
+{"type":"response_item","timestamp":"2026-09-23T09:00:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"archived task"}]}}
+{"type":"event_msg","timestamp":"2026-09-24T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":5,"output_tokens":2}}}}
+{"type":"event_msg","timestamp":"2026-09-25T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":999,"cached_input_tokens":99,"output_tokens":50}}}}
+"#,
+    );
+    write_file(
+        &root.join(".codex/archived_sessions/other.jsonl"),
+        "{\"type\":\"session_meta\",\"timestamp\":\"2026-09-24T09:00:00Z\",\"payload\":{\"cwd\":\"/other\"}}\nnot-json\n",
+    );
+    let report = scoped_details(&root, "codex", false);
+    assert_eq!(report["parse_errors"], 0);
+    assert_eq!(report["unattributed_files"], 1);
+    let sessions = report["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 2);
+    let archived = sessions
+        .iter()
+        .find(|s| s["session_id"] == "archived")
+        .unwrap();
+    assert_eq!(archived["requests"], 1);
+    assert_eq!(archived["breakdown"][0]["input_tokens"], 45);
+    assert_eq!(archived["breakdown"][0]["cache_read_tokens"], 5);
+    assert_eq!(archived["breakdown"][0]["output_tokens"], 2);
+    write_file(
+        &root.join(".codex/sessions/selected-broken.jsonl"),
+        "{\"type\":\"session_meta\",\"timestamp\":\"2026-09-24T09:00:00Z\",\"payload\":{\"cwd\":\"/work\"}}\nnot-json\n",
+    );
+    assert_eq!(scoped_details(&root, "codex", false)["parse_errors"], 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn codex_scope_retains_subagent_origin_before_later_cwd_metadata() {
+    let root = unique_temp_dir("session-details-scope-codex-child");
+    write_file(
+        &root.join(".codex/sessions/child.jsonl"),
+        r#"{"type":"session_meta","timestamp":"2026-09-24T09:00:00Z","payload":{"id":"child","source":{"subagent":{}}}}
+{"type":"turn_context","timestamp":"2026-09-24T09:00:01Z","payload":{"cwd":"/work","model":"gpt-5.4"}}
+{"type":"response_item","timestamp":"2026-09-24T09:00:02Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"task"}]}}
+{"type":"event_msg","timestamp":"2026-09-24T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":5}}}}
+"#,
+    );
+    assert_eq!(
+        scoped_details(&root, "codex", false)["sessions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let excluded = scoped_details(&root, "codex", true);
+    assert_eq!(excluded["sessions"], serde_json::json!([]));
+    assert_eq!(excluded["parse_errors"], 0);
+    fs::remove_dir_all(root).unwrap();
+}

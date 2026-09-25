@@ -400,6 +400,10 @@ pub fn run_cli() {
         cli.source.as_deref(),
         source_cmd,
     );
+    if !cli.details && (!cli.details_workdir.is_empty() || cli.details_exclude_subagents) {
+        eprintln!("Error: --details-workdir and --details-exclude-subagents require --details");
+        std::process::exit(1);
+    }
     if cli.details
         && (source_cmd != SourceCommand::Session
             || !cli.json

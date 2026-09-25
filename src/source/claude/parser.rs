@@ -18,6 +18,23 @@ pub(super) fn parse_claude_file_with_debug(
     timezone: Timezone,
     debug: bool,
 ) -> ParseOutput {
+    parse_file(path, timezone, debug, false)
+}
+
+pub(super) fn parse_claude_file_with_diagnostics(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+) -> ParseOutput {
+    parse_file(path, timezone, debug, true)
+}
+
+fn parse_file(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+    accounting_diagnostics: bool,
+) -> ParseOutput {
     let mut out = ParseOutput {
         entries: Vec::new(),
         errors: 0,
@@ -54,10 +71,10 @@ pub(super) fn parse_claude_file_with_debug(
         let Event::Usage(usage) = event.value else {
             continue;
         };
-        let Some(timestamp) = event.timestamp_text else {
-            continue;
-        };
-        let Some(at) = event.at else {
+        let (Some(timestamp), Some(at)) = (event.timestamp_text, event.at) else {
+            if accounting_diagnostics {
+                out.errors += 1;
+            }
             continue;
         };
         let model = usage

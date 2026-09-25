@@ -1,4 +1,5 @@
 //! Opt-in machine contract. Plain session JSON deliberately stays unchanged.
+mod scope;
 use std::{fs::File, io::BufReader, path::Path};
 
 use agent_sessions::{
@@ -10,7 +11,7 @@ use crate::{
     app::CommandContext,
     core::{SessionStats, Stats, aggregate_sessions},
     pricing::{PricingDb, calculate_cost, pricing_source_for_model_stats},
-    source::{CodexSource, Source, load_entries},
+    source::{ClaudeSource, CodexSource, Source, load_entries},
 };
 
 #[derive(Default)]
@@ -123,14 +124,23 @@ pub(crate) fn report(source: &dyn Source, ctx: &CommandContext<'_>) -> Result<Va
         },
     );
     let diagnostic_source = CodexSource::with_accounting_diagnostics(ctx.cli.codex_scope);
+    let claude_diagnostics = ClaudeSource::with_accounting_diagnostics();
     let accounting_source: &dyn Source = if agent == Agent::Codex {
         &diagnostic_source
     } else {
-        source
+        &claude_diagnostics
     };
-    let (entries, dedup_skipped, errors) =
-        load_entries(accounting_source, ctx.filter, ctx.timezone);
-    let mut parse_errors = errors + discovery.errors.len();
+    let selection = scope::Selection::new(
+        accounting_source,
+        agent,
+        &roots,
+        discovery,
+        &ctx.cli.details_workdir,
+        ctx.cli.details_exclude_subagents,
+    );
+    let (entries, dedup_skipped, errors) = load_entries(&selection, ctx.filter, ctx.timezone);
+    let mut parse_errors = errors + selection.discovery_errors;
+    let unattributed_files = selection.unattributed_files;
     let mut sessions = aggregate_sessions(entries);
     sessions.sort_by(|a, b| a.session_key.cmp(&b.session_key));
     let sessions: Vec<_> = sessions
@@ -147,6 +157,7 @@ pub(crate) fn report(source: &dyn Source, ctx: &CommandContext<'_>) -> Result<Va
         "currency": "USD",
         "cost_kind": "api_equivalent_estimate",
         "parse_errors": parse_errors,
+        "unattributed_files": unattributed_files,
         "dedup_skipped_entries": dedup_skipped,
         "sessions": sessions,
     }))

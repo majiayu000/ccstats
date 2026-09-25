@@ -15,6 +15,7 @@ The schema has this structure:
   "currency": "USD",
   "cost_kind": "api_equivalent_estimate",
   "parse_errors": 0,
+  "unattributed_files": 0,
   "dedup_skipped_entries": 0,
   "sessions": [{
     "session_id": "full-native-id",
@@ -50,6 +51,12 @@ Usage comes from the same source reader, deduplication, date filter, model norma
 
 Metadata is projected through agent-sessions; ccstats does not add another native JSON parser. Scanning stops once a prompt and cwd are known. Metadata is not stored in the usage cache. Sessions remain file-scoped even when native IDs collide. Consumers should scope IDs with source/workdir when combining exports.
 
-Empty ranges return `sessions: []` in the same envelope. `parse_errors` includes usage parse, discovery, and metadata projection errors. It is a diagnostic count, not a count of unique physical bad lines (one line can affect more than one projection). Consumers requiring complete accounting must reject a nonzero count. Codex nonzero `last_token_usage` without a cumulative `total_token_usage` is counted as incomplete accounting in details mode. No speculative last-only ledger is added; ordinary ccstats reports keep their existing ignore behavior. The diagnostics mode has a separate usage-cache partition. Invalid root configuration fails the command. Unknown new record types remain subject to the shared reader's format-tracking policy.
+`--details-workdir PATH` is repeatable and limits files before usage parsing. `--details-exclude-subagents` excludes child sessions before their errors are collected. Both require `--details`. Claude directory slugs preserve selection of older logs without cwd; native cwd can also match. Codex selection uses the shared metadata reader. Unrelated project files and excluded subagents cannot contribute parsing failures to a scoped report. Damage in selected files still contributes errors. The cache partition includes canonical sorted/deduplicated workdirs and the exclusion policy.
+
+Codex discovery covers both live `sessions` and `archived_sessions`; both obey identical workdir and usage-date filters.
+
+When a scoped Codex file has no recoverable cwd, it cannot be assigned to the selected workdirs. It is excluded and counted in `unattributed_files`, across discovered files (not asserted to be inside the requested day). Consumers must display that incomplete-coverage warning rather than treating it as a proven zero or an in-scope error. This preserves the old workdir selection without hiding the uncertainty.
+
+Empty ranges return `sessions: []` in the same envelope. `parse_errors` includes usage parse, discovery, and metadata projection errors. It is a diagnostic count, not a count of unique physical bad lines (one line can affect more than one projection). Consumers requiring complete accounting must reject a nonzero count. Claude usage without a timestamp is counted as incomplete accounting in details mode; normal reports retain their existing skip policy. Codex nonzero `last_token_usage` without a cumulative `total_token_usage` is counted as incomplete accounting in details mode. No speculative last-only ledger is added; ordinary ccstats reports keep their existing ignore behavior. The diagnostics mode has a separate usage-cache partition. Invalid root configuration fails the command. Unknown new record types remain subject to the shared reader's format-tracking policy.
 
 Tests: `cargo test --test cli_session_details` covers default output isolation, first prompt outside the date range, native cwd with hyphens, deduplication, mixed known/unknown prices, Claude subagent tagging, Codex cumulative deltas/cache/reasoning, empty ranges, malformed input, and invalid invocation.

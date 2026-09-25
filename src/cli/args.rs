@@ -77,6 +77,14 @@ pub(crate) struct Cli {
     #[arg(long, global = true)]
     pub(crate) details: bool,
 
+    /// Restrict details to these working directories (repeatable)
+    #[arg(long, global = true, value_name = "PATH")]
+    pub(crate) details_workdir: Vec<String>,
+
+    /// Exclude subagent files from details before parsing
+    #[arg(long, global = true)]
+    pub(crate) details_exclude_subagents: bool,
+
     /// Output as CSV
     #[arg(long, global = true)]
     pub(crate) csv: bool,
