@@ -3,14 +3,8 @@ use crate::{
     source::{Capabilities, ParseOutput, Source},
     utils::Timezone,
 };
-use agent_sessions::{
-    AccountingPolicy, Agent, Discovery, Event, EventKinds, FileKind, Origin, ReadOptions, Roots,
-};
-use std::{
-    fs::File,
-    io::BufReader,
-    path::{Path, PathBuf},
-};
+use agent_sessions::{Agent, Discovery, FileKind, Origin, RawReadOptions, Roots};
+use std::path::{Path, PathBuf};
 
 pub(super) struct Selection<'a> {
     source: &'a dyn Source,
@@ -21,28 +15,25 @@ pub(super) struct Selection<'a> {
 }
 
 fn native_context(agent: Agent, path: &Path) -> (Option<String>, bool) {
-    let options = ReadOptions {
-        include: EventKinds::META,
-        accounting: AccountingPolicy::UsageStatistics,
-        max_file_bytes: None,
+    // Identity recovery must not depend on usage or timestamp validity. The
+    // selected source's accounting parser will report those errors afterwards.
+    let options = RawReadOptions {
         max_line_bytes: None,
+        max_read_bytes: None,
         ..Default::default()
     };
-    let reader = File::open(path)
-        .map_err(agent_sessions::ReadError::Io)
-        .and_then(|file| agent_sessions::read_from(agent, BufReader::new(file), &options));
-    let Ok(reader) = reader else {
+    let Ok(reader) = agent_sessions::read_raw_file(path, &options) else {
         return (None, false);
     };
     let mut subagent = false;
-    for item in reader {
-        if let Ok(item) = item
-            && let Event::Meta(meta) = item.value
-        {
-            subagent |= meta.origin == Some(Origin::Subagent);
-            if let Some(cwd) = meta.cwd.filter(|v| !v.is_empty()) {
-                return (Some(cwd), subagent);
-            }
+    for record in reader.flatten() {
+        let Ok(value) = serde_json::from_slice(&record.bytes) else {
+            continue;
+        };
+        let meta = agent_sessions::project_transcript(agent, &value).meta;
+        subagent |= meta.origin == Some(Origin::Subagent);
+        if let Some(cwd) = meta.cwd.filter(|v| !v.is_empty()) {
+            return (Some(cwd), subagent);
         }
     }
     (None, subagent)
@@ -103,13 +94,6 @@ impl<'a> Selection<'a> {
                 if workdirs.is_empty() && !exclude_subagents {
                     return Some(file.path);
                 }
-                // Preserve Claude's original directory scope even for malformed files
-                // or old records with no native cwd.
-                if agent == Agent::ClaudeCode
-                    && project_roots.iter().any(|root| file.path.starts_with(root))
-                {
-                    return Some(file.path);
-                }
                 let (cwd, subagent) = native_context(agent, &file.path);
                 if exclude_subagents && subagent {
                     return None;
@@ -117,13 +101,21 @@ impl<'a> Selection<'a> {
                 if workdirs.is_empty() {
                     return Some(file.path);
                 }
-                let Some(cwd) = cwd else {
+                if let Some(cwd) = cwd {
+                    return workdirs.binary_search(&cwd).is_ok().then_some(file.path);
+                }
+                // Directory encoding is lossy (/a/b and /a-b both become -a-b).
+                // Use it only when no native identity can be recovered.
+                if agent == Agent::ClaudeCode
+                    && project_roots.iter().any(|root| file.path.starts_with(root))
+                {
+                    Some(file.path)
+                } else {
                     if agent == Agent::Codex {
                         unattributed_files += 1;
                     }
-                    return None;
-                };
-                workdirs.binary_search(&cwd).is_ok().then_some(file.path)
+                    None
+                }
             })
             .collect();
         let partition = format!(

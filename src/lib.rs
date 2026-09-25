@@ -408,7 +408,10 @@ pub fn run_cli() {
         && (source_cmd != SourceCommand::Session
             || !cli.json
             || cli.csv
-            || !matches!(source_name, Some("claude" | "codex")))
+            || !matches!(
+                source_name.and_then(get_source).map(source::Source::name),
+                Some("claude" | "codex")
+            ))
     {
         eprintln!("Error: --details requires session --json with --source claude or codex");
         std::process::exit(1);

@@ -1,6 +1,6 @@
 # Session details JSON, schema 1
 
-`ccstats session --json --details --source claude|codex` is an opt-in machine export for consumers such as Looper. Regular session JSON retains its existing array shape. `--details` requires JSON, the session command, and a single Claude/Codex source. It exports the first user prompt and therefore should only be requested by consumers that need that local content.
+`ccstats session --json --details --source claude|codex` is an opt-in machine export for consumers such as Looper. Regular session JSON retains its existing array shape. `--details` requires JSON, the session command, and a single Claude/Codex source, including registered aliases (`cc`, `cx`) and case variants. It exports the first user prompt and therefore should only be requested by consumers that need that local content.
 
 ```sh
 ccstats session --json --details --source codex --since 2026-09-24 --until 2026-09-24 --timezone local --offline --strict-pricing
@@ -51,7 +51,7 @@ Usage comes from the same source reader, deduplication, date filter, model norma
 
 Metadata is projected through agent-sessions; ccstats does not add another native JSON parser. Scanning stops once a prompt and cwd are known. Metadata is not stored in the usage cache. Sessions remain file-scoped even when native IDs collide. Consumers should scope IDs with source/workdir when combining exports.
 
-`--details-workdir PATH` is repeatable and limits files before usage parsing. `--details-exclude-subagents` excludes child sessions before their errors are collected. Both require `--details`. Claude directory slugs preserve selection of older logs without cwd; native cwd can also match. Codex selection uses the shared metadata reader. Unrelated project files and excluded subagents cannot contribute parsing failures to a scoped report. Damage in selected files still contributes errors. The cache partition includes canonical sorted/deduplicated workdirs and the exclusion policy.
+`--details-workdir PATH` is repeatable and limits files before usage parsing. `--details-exclude-subagents` excludes child sessions before their errors are collected. Both require `--details`. Recoverable native cwd takes priority and must match exactly. Identity is recovered through the shared tolerant projection, independently of usage/timestamp validity. Only when no cwd can be recovered does Claude fall back to its original directory slug. That legacy encoding is lossy: `/a/b` and `/a-b` both map to `-a-b`, so exact project isolation cannot be guaranteed for records without cwd. Codex selection uses the shared metadata reader. Unrelated project files and excluded subagents cannot contribute parsing failures to a scoped report. Damage in selected files still contributes errors. The cache partition includes canonical sorted/deduplicated workdirs and the exclusion policy.
 
 Codex discovery covers both live `sessions` and `archived_sessions`; both obey identical workdir and usage-date filters.
 

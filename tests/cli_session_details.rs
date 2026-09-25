@@ -317,3 +317,88 @@ fn codex_scope_retains_subagent_origin_before_later_cwd_metadata() {
     assert_eq!(excluded["parse_errors"], 0);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn claude_native_cwd_prevents_colliding_slug_disclosure_even_with_bad_timestamps() {
+    let root = unique_temp_dir("session-details-colliding-slugs");
+    for (id, cwd, timestamp, prompt) in [
+        (
+            "selected",
+            "/a/b",
+            "2026-09-24T09:00:00Z",
+            "selected project",
+        ),
+        (
+            "other",
+            "/a-b",
+            "2026-09-24T09:00:00Z",
+            "PRIVATE_OTHER_PROMPT",
+        ),
+        (
+            "other-bad-time",
+            "/a-b",
+            "not-a-time",
+            "PRIVATE_BAD_TIME_PROMPT",
+        ),
+    ] {
+        write_file(
+            &root.join(format!(".claude/projects/-a-b/{id}.jsonl")),
+            &format!(
+                r#"{{"type":"user","cwd":"{cwd}","timestamp":"{timestamp}","message":{{"content":"{prompt}"}}}}
+{{"type":"assistant","timestamp":"2026-09-24T10:00:00Z","message":{{"id":"{id}","model":"claude-opus-4-6","content":[],"usage":{{"input_tokens":100,"output_tokens":10}}}}}}
+"#
+            ),
+        );
+    }
+    let (ok, out, err) = run_ccstats(
+        &[
+            "session",
+            "--json",
+            "--details",
+            "--source",
+            "claude",
+            "--offline",
+            "--timezone",
+            "UTC",
+            "--since",
+            "2026-09-24",
+            "--until",
+            "2026-09-24",
+            "--details-workdir",
+            "/a/b",
+        ],
+        &[("HOME", &root)],
+    );
+    assert!(ok, "{}", String::from_utf8_lossy(&err));
+    let text = String::from_utf8(out).unwrap();
+    assert!(!text.contains("PRIVATE_OTHER_PROMPT"));
+    assert!(!text.contains("PRIVATE_BAD_TIME_PROMPT"));
+    let report: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(report["parse_errors"], 0);
+    assert_eq!(report["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(report["sessions"][0]["session_id"], "selected");
+    assert_eq!(
+        report["sessions"][0]["first_user_prompt"],
+        "selected project"
+    );
+    assert_eq!(report["sessions"][0]["breakdown"][0]["input_tokens"], 100);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn details_accept_registered_aliases_and_case_variants() {
+    let root = unique_temp_dir("session-details-aliases");
+    for (input, canonical) in [
+        ("cc", "claude"),
+        ("CLAUDE", "claude"),
+        ("CC", "claude"),
+        ("cx", "codex"),
+        ("CODEX", "codex"),
+        ("CX", "codex"),
+    ] {
+        let report = details(&root, input, "2026-09-24");
+        assert_eq!(report["source"], canonical);
+        assert_eq!(report["sessions"], serde_json::json!([]));
+    }
+    fs::remove_dir_all(root).unwrap();
+}
