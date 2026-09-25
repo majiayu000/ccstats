@@ -1,698 +1,274 @@
-//! `OpenAI` Codex CLI JSONL parser
-//!
-//! Parses JSONL logs from active and archived directories under `~/.codex`.
-//! Codex log format uses cumulative token counts that need delta computation.
-
-use crate::utils::glob_pattern;
-use crate::utils::paths as dirs;
-use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use std::env;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+//! Codex native events projected into ccstats accounting and scope policy.
+use super::config::CodexScope;
+use crate::source::session_reader;
+use crate::{
+    consts::{DATE_FORMAT, UNKNOWN},
+    core::RawEntry,
+    source::ParseOutput,
+    utils::Timezone,
+};
+use agent_sessions::{Agent, CodexUsageMode, Event, EventKinds, Origin};
 use std::path::{Path, PathBuf};
 
-use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::RawEntry;
-use crate::source::ParseOutput;
-use crate::utils::Timezone;
-
-use super::config::CodexScope;
-
-const DEFAULT_CODEX_DIR: &str = ".codex";
-const CODEX_HOME_ENV: &str = "CODEX_HOME";
-const SESSION_SUBDIR: &str = "sessions";
-const ARCHIVED_SESSION_SUBDIR: &str = "archived_sessions";
-const CODEX_USAGE_MESSAGE_PREFIX: &str = "source-wide:codex-token-count";
-const SESSION_USAGE_MESSAGE_PREFIX: &str = "codex-token-count";
-
-// ============================================================================
-// Internal types for JSONL parsing
-// ============================================================================
-
-#[derive(Debug, Deserialize)]
-struct RawJsonEntry<'a> {
-    timestamp: Option<&'a str>,
-    #[serde(rename = "type")]
-    entry_type: Option<&'a str>,
-    payload: Option<Payload<'a>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(clippy::struct_field_names)] // field names match JSON schema
-struct Payload<'a> {
-    #[serde(rename = "type")]
-    payload_type: Option<&'a str>,
-    id: Option<&'a str>,
-    // Paths may contain JSON escapes (notably Windows backslashes), which
-    // cannot be deserialized into a borrowed string.
-    cwd: Option<String>,
-    info: Option<TokenInfo<'a>>,
-    model: Option<&'a str>,
-    source: Option<serde_json::Value>,
-    thread_source: Option<&'a str>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TokenInfo<'a> {
-    total_token_usage: Option<TokenUsage>,
-    last_token_usage: Option<TokenUsage>,
-    model: Option<&'a str>,
-    model_name: Option<&'a str>,
-    metadata: Option<Metadata<'a>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Metadata<'a> {
-    model: Option<&'a str>,
-}
-
-#[derive(Debug, Deserialize, Clone, Default)]
-#[allow(clippy::struct_field_names)] // field names match JSON schema
-struct TokenUsage {
-    input_tokens: Option<i64>,
-    cached_input_tokens: Option<i64>,
-    cache_write_input_tokens: Option<i64>,
-    #[serde(alias = "cache_read_input_tokens")]
-    alt_cache_read_input_tokens: Option<i64>,
-    output_tokens: Option<i64>,
-    reasoning_output_tokens: Option<i64>,
-    total_tokens: Option<i64>,
-}
-
-impl TokenUsage {
-    fn cached_input(&self) -> i64 {
-        self.cached_input_tokens
-            .or(self.alt_cache_read_input_tokens)
-            .unwrap_or(0)
-    }
-
-    #[cfg(test)]
-    fn subtract(&self, prev: &TokenUsage) -> TokenUsage {
-        TokenUsage {
-            input_tokens: Some(
-                (self.input_tokens.unwrap_or(0) - prev.input_tokens.unwrap_or(0)).max(0),
-            ),
-            cached_input_tokens: Some((self.cached_input() - prev.cached_input()).max(0)),
-            cache_write_input_tokens: Some(
-                (self.cache_write_input_tokens.unwrap_or(0)
-                    - prev.cache_write_input_tokens.unwrap_or(0))
-                .max(0),
-            ),
-            alt_cache_read_input_tokens: None,
-            output_tokens: Some(
-                (self.output_tokens.unwrap_or(0) - prev.output_tokens.unwrap_or(0)).max(0),
-            ),
-            reasoning_output_tokens: Some(
-                (self.reasoning_output_tokens.unwrap_or(0)
-                    - prev.reasoning_output_tokens.unwrap_or(0))
-                .max(0),
-            ),
-            total_tokens: Some(
-                (self.total_tokens.unwrap_or(0) - prev.total_tokens.unwrap_or(0)).max(0),
-            ),
-        }
-    }
-
-    #[cfg(test)]
-    fn is_empty(&self) -> bool {
-        self.input_tokens.unwrap_or(0) == 0
-            && self.cached_input() == 0
-            && self.cache_write_input_tokens.unwrap_or(0) == 0
-            && self.output_tokens.unwrap_or(0) == 0
-            && self.reasoning_output_tokens.unwrap_or(0) == 0
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
-#[allow(clippy::struct_field_names)] // field names mirror normalized token fields
-struct UsageTotals {
-    input_tokens: i64,
-    cached_input_tokens: i64,
-    cache_write_input_tokens: i64,
-    output_tokens: i64,
-    reasoning_output_tokens: i64,
-    total_tokens: i64,
-}
-
-impl UsageTotals {
-    fn from_usage(usage: &TokenUsage) -> Self {
-        Self {
-            input_tokens: usage.input_tokens.unwrap_or(0),
-            cached_input_tokens: usage.cached_input(),
-            cache_write_input_tokens: usage.cache_write_input_tokens.unwrap_or(0),
-            output_tokens: usage.output_tokens.unwrap_or(0),
-            reasoning_output_tokens: usage.reasoning_output_tokens.unwrap_or(0),
-            total_tokens: usage.total_tokens.unwrap_or(0),
-        }
-    }
-
-    fn subtract(self, prev: Self) -> Self {
-        Self {
-            input_tokens: (self.input_tokens - prev.input_tokens).max(0),
-            cached_input_tokens: (self.cached_input_tokens - prev.cached_input_tokens).max(0),
-            cache_write_input_tokens: (self.cache_write_input_tokens
-                - prev.cache_write_input_tokens)
-                .max(0),
-            output_tokens: (self.output_tokens - prev.output_tokens).max(0),
-            reasoning_output_tokens: (self.reasoning_output_tokens - prev.reasoning_output_tokens)
-                .max(0),
-            total_tokens: (self.total_tokens - prev.total_tokens).max(0),
-        }
-    }
-
-    fn is_duplicate_of(&self, prev: &Self) -> bool {
-        self == prev
-    }
-
-    fn is_empty(self) -> bool {
-        self.input_tokens == 0
-            && self.cached_input_tokens == 0
-            && self.cache_write_input_tokens == 0
-            && self.output_tokens == 0
-            && self.reasoning_output_tokens == 0
-    }
-}
-
-// ============================================================================
-// File discovery
-// ============================================================================
-
 pub(crate) fn codex_root_candidate() -> Option<PathBuf> {
-    if let Some(codex_home) = env::var_os(CODEX_HOME_ENV) {
-        return Some(PathBuf::from(codex_home));
-    }
-
-    dirs::home_dir().map(|home| home.join(DEFAULT_CODEX_DIR))
+    session_reader::roots(Agent::Codex).codex
 }
-
 pub(super) fn codex_sessions_dir_candidate() -> Option<PathBuf> {
-    codex_root_candidate().map(|root| root.join(SESSION_SUBDIR))
+    codex_root_candidate().map(|p| p.join("sessions"))
 }
-
 fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for subdir in [SESSION_SUBDIR, ARCHIVED_SESSION_SUBDIR] {
-        let sessions_dir = root.join(subdir);
-        if let Ok(entries) = glob::glob(&glob_pattern(&sessions_dir, "**/*.jsonl")) {
-            files.extend(entries.flatten().filter(|path| path.is_file()));
-        }
-    }
-    files.sort();
-    files.dedup();
-    files
-}
-
-pub(super) fn find_codex_files() -> Vec<PathBuf> {
-    codex_root_candidate()
-        .map(|root| find_codex_files_in_root(&root))
-        .unwrap_or_default()
-}
-
-// ============================================================================
-// Parsing
-// ============================================================================
-
-fn non_empty_model(model: Option<&str>) -> Option<&str> {
-    model.filter(|m| !m.trim().is_empty())
-}
-
-fn extract_model_ref<'a>(payload: &'a Payload<'a>) -> Option<&'a str> {
-    if let Some(info) = &payload.info
-        && let Some(model) = non_empty_model(info.model)
-            .or_else(|| non_empty_model(info.model_name))
-            .or_else(|| non_empty_model(info.metadata.as_ref().and_then(|metadata| metadata.model)))
-    {
-        return Some(model);
-    }
-
-    non_empty_model(payload.model)
-}
-
-fn usage_message_id(
-    model: &str,
-    logical_session_key: &str,
-    total: UsageTotals,
-    delta: UsageTotals,
-) -> String {
-    let prefix = if total == delta {
-        SESSION_USAGE_MESSAGE_PREFIX
-    } else {
-        CODEX_USAGE_MESSAGE_PREFIX
-    };
-    format!(
-        "{prefix}:{logical_session_key}:{model}:total={},{},{},{},{},{}:delta={},{},{},{},{},{}",
-        total.input_tokens,
-        total.cached_input_tokens,
-        total.cache_write_input_tokens,
-        total.output_tokens,
-        total.reasoning_output_tokens,
-        total.total_tokens,
-        delta.input_tokens,
-        delta.cached_input_tokens,
-        delta.cache_write_input_tokens,
-        delta.output_tokens,
-        delta.reasoning_output_tokens,
-        delta.total_tokens
+    session_reader::files(
+        &agent_sessions::Roots {
+            claude: None,
+            codex: Some(root.into()),
+        },
+        Agent::Codex,
     )
 }
-
-#[cfg(test)]
-fn extract_model(payload: &Payload<'_>) -> Option<String> {
-    extract_model_ref(payload).map(std::string::ToString::to_string)
+pub(super) fn find_codex_files() -> Vec<PathBuf> {
+    codex_root_candidate().map_or_else(Vec::new, |p| find_codex_files_in_root(&p))
 }
-
-struct CodexFileIdentity {
-    session_key: String,
-    session_id: String,
-}
-
-impl CodexFileIdentity {
-    fn from_path(path: &Path) -> Self {
-        Self {
-            session_key: path.display().to_string(),
-            session_id: path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or(UNKNOWN)
-                .to_string(),
-        }
-    }
-}
-
-struct CodexParseContext<'a> {
-    path: &'a Path,
-    timezone: Timezone,
-    debug: bool,
-    identity: CodexFileIdentity,
-    scope: CodexScope,
-    missing_model: &'static str,
-}
-
-struct CodexParseState {
-    entries: Vec<RawEntry>,
-    parse_errors: usize,
-    previous_totals: Option<UsageTotals>,
-    current_model: Option<String>,
-    logical_session_key: String,
-    session_id: Option<String>,
-    project_path: String,
-    session_origin: CodexSessionOrigin,
-}
-
-impl CodexParseState {
-    fn new(capacity: usize, session_key: String) -> Self {
-        Self {
-            entries: Vec::with_capacity(capacity),
-            parse_errors: 0,
-            previous_totals: None,
-            current_model: None,
-            logical_session_key: session_key,
-            session_id: None,
-            project_path: String::new(),
-            session_origin: CodexSessionOrigin::Unknown,
-        }
-    }
-
-    fn finish(self) -> ParseOutput {
-        ParseOutput {
-            entries: self.entries,
-            errors: self.parse_errors,
-        }
-    }
-}
-
 pub(super) fn parse_codex_file_with_scope(
     path: &Path,
     timezone: Timezone,
     debug: bool,
     scope: CodexScope,
 ) -> ParseOutput {
-    parse_codex_file(path, timezone, debug, scope, "gpt-5")
+    parse_file(path, timezone, debug, scope, "gpt-5")
 }
-
 pub(super) fn parse_codex_file_for_quota(path: &Path, timezone: Timezone) -> ParseOutput {
-    parse_codex_file(path, timezone, false, CodexScope::All, "unknown-model")
+    parse_file(path, timezone, false, CodexScope::All, "unknown-model")
 }
-
-fn parse_codex_file(
+fn parse_file(
     path: &Path,
     timezone: Timezone,
     debug: bool,
     scope: CodexScope,
-    missing_model: &'static str,
+    missing_model: &str,
 ) -> ParseOutput {
-    let identity = CodexFileIdentity::from_path(path);
-    let context = CodexParseContext {
+    let (output, has_responses) = parse_mode(
         path,
         timezone,
         debug,
-        identity,
         scope,
         missing_model,
-    };
-    let file = match open_codex_file(&context) {
-        Ok(file) => file,
-        Err(output) => return output,
-    };
-    let mut state = CodexParseState::new(0, context.identity.session_key.clone());
-
-    parse_codex_reader(BufReader::new(file), &context, &mut state);
-    state.finish()
-}
-
-fn open_codex_file(context: &CodexParseContext<'_>) -> Result<File, ParseOutput> {
-    File::open(context.path).map_err(|err| {
-        if context.debug {
-            eprintln!("Failed to open {}: {}", context.path.display(), err);
-        }
-        ParseOutput {
-            entries: Vec::new(),
-            errors: 1,
-        }
-    })
-}
-
-fn parse_codex_reader<R: BufRead>(
-    mut reader: R,
-    context: &CodexParseContext<'_>,
-    state: &mut CodexParseState,
-) {
-    let mut line = String::new();
-    let mut line_no = 0usize;
-    loop {
-        line.clear();
-        let bytes_read = match reader.read_line(&mut line) {
-            Ok(n) => n,
-            Err(err) => {
-                line_no += 1;
-                if context.debug {
-                    eprintln!(
-                        "Failed to read line {} in {}: {}",
-                        line_no,
-                        context.path.display(),
-                        err
-                    );
-                }
-                state.parse_errors += 1;
-                break;
-            }
-        };
-        if bytes_read == 0 {
-            break;
-        }
-        line_no += 1;
-
-        let line = line.trim_end_matches(['\n', '\r']);
-        if line.is_empty() {
-            continue;
-        }
-
-        process_codex_line(line, line_no, context, state);
+        CodexUsageMode::TokenCount,
+    );
+    if output.errors == 0 && output.entries.is_empty() && has_responses {
+        parse_mode(
+            path,
+            timezone,
+            debug,
+            scope,
+            missing_model,
+            CodexUsageMode::Response,
+        )
+        .0
+    } else {
+        output
     }
 }
-
-fn process_codex_line(
-    line: &str,
-    line_no: usize,
-    context: &CodexParseContext<'_>,
-    state: &mut CodexParseState,
-) {
-    let raw_entry: RawJsonEntry<'_> = match serde_json::from_str(line) {
-        Ok(entry) => entry,
-        Err(err) => {
-            if context.debug {
-                eprintln!(
-                    "Invalid JSON at {}:{}: {}",
-                    context.path.display(),
-                    line_no,
-                    err
-                );
-            }
-            state.parse_errors += 1;
-            return;
-        }
-    };
-
-    match raw_entry.entry_type {
-        Some("session_meta") => update_session_metadata(raw_entry.payload.as_ref(), state),
-        Some("turn_context") => update_current_model(raw_entry.payload.as_ref(), state),
-        Some("event_msg") => process_event_message(&raw_entry, line_no, context, state),
-        _ => {}
-    }
-}
-
-fn update_session_metadata(payload: Option<&Payload<'_>>, state: &mut CodexParseState) {
-    if let Some(payload) = payload
-        && let Some(id) = non_empty_model(payload.id)
-    {
-        state.logical_session_key = format!("codex-session:{id}");
-        state.session_id = Some(id.to_string());
-    }
-    if let Some(cwd) = payload
-        .and_then(|payload| payload.cwd.as_deref())
-        .filter(|cwd| !cwd.is_empty())
-    {
-        state.project_path = cwd.to_string();
-    }
-    state.session_origin = session_origin_from_payload(payload);
-}
-
-fn update_current_model(payload: Option<&Payload<'_>>, state: &mut CodexParseState) {
-    if let Some(payload) = payload
-        && let Some(model) = extract_model_ref(payload)
-    {
-        state.current_model = Some(model.to_string());
-    }
-}
-
-fn process_event_message(
-    raw_entry: &RawJsonEntry<'_>,
-    line_no: usize,
-    context: &CodexParseContext<'_>,
-    state: &mut CodexParseState,
-) {
-    let Some(payload) = &raw_entry.payload else {
-        return;
-    };
-    let Some("token_count") = payload.payload_type else {
-        return;
-    };
-    if !scope_includes_origin(context.scope, state.session_origin) {
-        return;
-    }
-    let Some(timestamp) = raw_entry.timestamp else {
-        if payload.info.is_some() {
-            state.parse_errors += 1;
-        }
-        return;
-    };
-    let Some(info) = &payload.info else { return };
-    let Some((total, delta)) = next_usage_delta(info, state) else {
-        return;
-    };
-    if delta.cache_write_input_tokens < 0
-        || delta.cached_input_tokens < 0
-        || delta
-            .cache_write_input_tokens
-            .saturating_add(delta.cached_input_tokens)
-            > delta.input_tokens
-    {
-        state.parse_errors += 1;
-        return;
-    }
-    let Some(utc_dt) = parse_entry_timestamp(timestamp, line_no, context, state) else {
-        return;
-    };
-
-    let model = resolve_entry_model(payload, state, context.missing_model);
-    push_codex_entry(timestamp, utc_dt, total, delta, model, context, state);
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum CodexSessionOrigin {
-    Interactive,
-    Exec,
-    Subagent,
-    #[default]
-    Unknown,
-}
-
-fn scope_includes_origin(scope: CodexScope, origin: CodexSessionOrigin) -> bool {
+fn included(scope: CodexScope, origin: Origin) -> bool {
     match scope {
         CodexScope::All => true,
-        CodexScope::Interactive => origin == CodexSessionOrigin::Interactive,
-        CodexScope::Exec => origin == CodexSessionOrigin::Exec,
-        CodexScope::Subagent => origin == CodexSessionOrigin::Subagent,
+        CodexScope::Interactive => matches!(origin, Origin::Interactive | Origin::Ide),
+        CodexScope::Exec => origin == Origin::Exec,
+        CodexScope::Subagent => origin == Origin::Subagent,
     }
 }
-
-fn session_origin_from_payload(payload: Option<&Payload<'_>>) -> CodexSessionOrigin {
-    let Some(payload) = payload else {
-        return CodexSessionOrigin::Unknown;
-    };
-
-    if payload
-        .thread_source
-        .is_some_and(|source| source.eq_ignore_ascii_case("subagent"))
-    {
-        return CodexSessionOrigin::Subagent;
-    }
-
-    session_origin_from_source(payload.source.as_ref())
+struct Projection<'a> {
+    session_key: String,
+    logical_key: String,
+    session_id: String,
+    project_path: String,
+    origin: Origin,
+    timezone: Timezone,
+    missing_model: &'a str,
 }
-
-fn session_origin_from_source(source: Option<&serde_json::Value>) -> CodexSessionOrigin {
-    match source {
-        Some(serde_json::Value::String(source)) => {
-            match source.trim().to_ascii_lowercase().as_str() {
-                "cli" | "interactive" => CodexSessionOrigin::Interactive,
-                "exec" => CodexSessionOrigin::Exec,
-                "subagent" => CodexSessionOrigin::Subagent,
-                _ => CodexSessionOrigin::Unknown,
-            }
+impl<'a> Projection<'a> {
+    fn new(path: &Path, timezone: Timezone, missing_model: &'a str) -> Self {
+        let key = path.display().to_string();
+        Self {
+            session_key: key.clone(),
+            logical_key: key,
+            session_id: path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(UNKNOWN)
+                .into(),
+            project_path: String::new(),
+            origin: Origin::Unknown,
+            timezone,
+            missing_model,
         }
-        Some(serde_json::Value::Object(source)) if source.contains_key("subagent") => {
-            CodexSessionOrigin::Subagent
+    }
+    fn metadata(&mut self, m: &agent_sessions::MetaUpdate) {
+        if let Some(id) = m.session_id.as_ref().filter(|s| !s.trim().is_empty()) {
+            self.logical_key = format!("codex-session:{id}");
+            self.session_id.clone_from(id);
         }
-        Some(serde_json::Value::Object(source)) if source.contains_key("exec") => {
-            CodexSessionOrigin::Exec
+        if let Some(cwd) = m.cwd.as_ref().filter(|s| !s.is_empty()) {
+            self.project_path.clone_from(cwd);
         }
-        Some(serde_json::Value::Object(source)) if source.contains_key("cli") => {
-            CodexSessionOrigin::Interactive
+        self.origin = m.origin.unwrap_or_default();
+    }
+    fn entry(&self, event: agent_sessions::Located<Event>) -> Result<Option<RawEntry>, ()> {
+        let Event::Usage(u) = event.value else {
+            return Ok(None);
+        };
+        let (Some(timestamp), Some(at)) = (event.timestamp_text, event.at) else {
+            return Err(());
+        };
+        let delta = session_reader::buckets(u.counts).ok_or(())?;
+        let [input, read, write, output, reasoning, _, _] = delta;
+        if [input, read, write, output, reasoning]
+            .iter()
+            .all(|n| *n == 0)
+        {
+            return Ok(None);
         }
-        _ => CodexSessionOrigin::Unknown,
+        if read.checked_add(write).is_none_or(|n| n > input) {
+            return Err(());
+        }
+        let model = u.model.unwrap_or_else(|| self.missing_model.into());
+        let message_id = if let Some(total) = u.cumulative {
+            usage_id(
+                &model,
+                &self.logical_key,
+                session_reader::buckets(total).ok_or(())?,
+                delta,
+            )
+        } else if let Some(id) = u.dedup_key {
+            crate::core::source_wide_message_id(
+                "codex-response",
+                &format!("{}:{id}", self.logical_key),
+            )
+        } else {
+            format!(
+                "codex-response:{}:{}",
+                self.logical_key, event.location.record_index
+            )
+        };
+        Ok(Some(RawEntry {
+            timestamp,
+            timestamp_ms: at.timestamp_millis(),
+            date_str: self
+                .timezone
+                .to_fixed_offset(at)
+                .date_naive()
+                .format(DATE_FORMAT)
+                .to_string(),
+            message_id: Some(message_id),
+            session_key: self.session_key.clone(),
+            session_id: self.session_id.clone(),
+            project_path: self.project_path.clone(),
+            model,
+            input_tokens: input - read - write,
+            output_tokens: output.saturating_sub(reasoning).max(0),
+            cache_creation: write,
+            cache_creation_1h: 0,
+            cache_read: read,
+            reasoning_tokens: reasoning,
+            stop_reason: Some("complete".into()),
+            cost_kind: crate::core::CostKind::Real,
+            endpoint: crate::core::Endpoint::Unknown,
+            call_count: 1,
+            reported_total_tokens: None,
+            recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
+        }))
     }
 }
-
-fn next_usage_delta(
-    info: &TokenInfo<'_>,
-    state: &mut CodexParseState,
-) -> Option<(UsageTotals, UsageTotals)> {
-    let total = UsageTotals::from_usage(info.total_token_usage.as_ref()?);
-
-    // Skip only when the complete normalized cumulative usage vector is unchanged.
-    if let Some(prev) = &state.previous_totals
-        && total.is_duplicate_of(prev)
-    {
-        return None;
-    }
-
-    // Use last_token_usage if available, otherwise compute delta.
-    let delta = if let Some(last) = &info.last_token_usage {
-        UsageTotals::from_usage(last)
-    } else {
-        state
-            .previous_totals
-            .map_or(total, |prev| total.subtract(prev))
-    };
-
-    state.previous_totals = Some(total);
-    if delta.is_empty() {
-        return None;
-    }
-
-    Some((total, delta))
-}
-
-fn parse_entry_timestamp(
-    timestamp: &str,
-    line_no: usize,
-    context: &CodexParseContext<'_>,
-    state: &mut CodexParseState,
-) -> Option<DateTime<Utc>> {
-    match timestamp.parse::<DateTime<Utc>>() {
-        Ok(dt) => Some(dt),
-        Err(err) => {
-            if context.debug {
-                eprintln!(
-                    "Invalid timestamp at {}:{}: {} ({})",
-                    context.path.display(),
-                    line_no,
-                    timestamp,
-                    err
-                );
-            }
-            state.parse_errors += 1;
-            None
-        }
-    }
-}
-
-fn resolve_entry_model(
-    payload: &Payload<'_>,
-    state: &mut CodexParseState,
+fn parse_mode(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+    scope: CodexScope,
     missing_model: &str,
-) -> String {
-    if let Some(parsed_model) = extract_model_ref(payload) {
-        let parsed_model = parsed_model.to_string();
-        state.current_model = Some(parsed_model.clone());
-        parsed_model
-    } else {
-        state
-            .current_model
-            .clone()
-            .unwrap_or_else(|| missing_model.to_string())
+    mode: CodexUsageMode,
+) -> (ParseOutput, bool) {
+    let mut out = ParseOutput {
+        entries: Vec::new(),
+        errors: 0,
+    };
+    let mut reader = match session_reader::reader(
+        path,
+        Agent::Codex,
+        EventKinds::USAGE.union(EventKinds::META),
+        mode,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            out.errors = 1;
+            if debug {
+                eprintln!("Cannot read {}: {e}", path.display());
+            }
+            return (out, false);
+        }
+    };
+    let mut projection = Projection::new(path, timezone, missing_model);
+    for result in reader.by_ref() {
+        let event = match result {
+            Ok(e) => e,
+            Err(e) => {
+                out.errors += 1;
+                if debug {
+                    eprintln!("{}: {e}", path.display());
+                }
+                if matches!(
+                    e,
+                    agent_sessions::StreamError::Line {
+                        kind: agent_sessions::LineErrorKind::InvalidUtf8,
+                        ..
+                    }
+                ) {
+                    break;
+                }
+                continue;
+            }
+        };
+        if let Event::Meta(m) = &event.value
+            && event.record_type.as_deref() == Some("session_meta")
+        {
+            projection.metadata(m);
+        } else if included(scope, projection.origin) {
+            match projection.entry(event) {
+                Ok(Some(entry)) => out.entries.push(entry),
+                Ok(None) => {}
+                Err(()) => out.errors += 1,
+            }
+        }
     }
-}
-
-fn push_codex_entry(
-    timestamp: &str,
-    utc_dt: DateTime<Utc>,
-    total: UsageTotals,
-    delta: UsageTotals,
-    model: String,
-    context: &CodexParseContext<'_>,
-    state: &mut CodexParseState,
-) {
-    let local_dt = context.timezone.to_fixed_offset(utc_dt);
-    let date = local_dt.date_naive();
-    let (input_tokens, output_tokens, cache_read, reasoning_tokens) = split_codex_usage(delta);
-    let message_id = usage_message_id(&model, &state.logical_session_key, total, delta);
-
-    state.entries.push(RawEntry {
-        timestamp: timestamp.to_string(),
-        timestamp_ms: utc_dt.timestamp_millis(),
-        date_str: date.format(DATE_FORMAT).to_string(),
-        message_id: Some(message_id),
-        session_key: context.identity.session_key.clone(),
-        session_id: state
-            .session_id
-            .clone()
-            .unwrap_or_else(|| context.identity.session_id.clone()),
-        project_path: state.project_path.clone(),
-        model,
-        input_tokens,
-        output_tokens,
-        cache_creation: delta.cache_write_input_tokens,
-        cache_creation_1h: 0,
-        cache_read,
-        reasoning_tokens,
-        stop_reason: Some("complete".to_string()), // Codex events are always complete
-        cost_kind: crate::core::CostKind::Real,
-        endpoint: crate::core::Endpoint::Unknown,
-        call_count: 1,
-        reported_total_tokens: None,
-        recorded_cost_usd: None,
-        api_equivalent_priced_tokens: 0,
-        api_equivalent_coverage_tokens: 0,
-    });
-}
-
-fn split_codex_usage(delta: UsageTotals) -> (i64, i64, i64, i64) {
-    // Codex's input_tokens includes cached_input_tokens.
-    let input_tokens =
-        (delta.input_tokens - delta.cached_input_tokens - delta.cache_write_input_tokens).max(0);
-
-    // OpenAI's output_tokens includes reasoning_output_tokens as a subset.
-    // Separate them so total_tokens() and calculate_cost() don't double-count.
-    let output_tokens = (delta.output_tokens - delta.reasoning_output_tokens).max(0);
-
+    let summary = reader.finish();
     (
-        input_tokens,
-        output_tokens,
-        delta.cached_input_tokens,
-        delta.reasoning_output_tokens,
+        out,
+        summary
+            .ignored_types
+            .get("token_usage_record")
+            .is_some_and(|n| *n > 0),
+    )
+}
+fn usage_id(model: &str, session: &str, total: [i64; 7], delta: [i64; 7]) -> String {
+    let prefix = if total[..6] == delta[..6] {
+        "codex-token-count"
+    } else {
+        "source-wide:codex-token-count"
+    };
+    format!(
+        "{prefix}:{session}:{model}:total={},{},{},{},{},{}:delta={},{},{},{},{},{}",
+        total[0],
+        total[1],
+        total[2],
+        total[3],
+        total[4],
+        total[5],
+        delta[0],
+        delta[1],
+        delta[2],
+        delta[3],
+        delta[4],
+        delta[5]
     )
 }
 

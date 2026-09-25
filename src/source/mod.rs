@@ -33,6 +33,7 @@ mod pi_forks;
 mod pi_paths;
 mod qwen;
 mod registry;
+mod session_reader;
 pub(crate) mod session_titles;
 mod tool_loader;
 mod unsloth;

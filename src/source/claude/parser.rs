@@ -1,109 +1,130 @@
-//! Claude Code JSONL parser
-//!
-//! Parses JSONL logs from the Claude config projects directory.
-
-use crate::utils::glob_pattern;
-use crate::utils::paths as dirs;
-use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use std::env;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+//! Claude usage mapped from the shared session event reader.
+use crate::source::session_reader;
+use crate::{
+    consts::{DATE_FORMAT, UNKNOWN},
+    core::{RawEntry, source_wide_message_id},
+    source::ParseOutput,
+    utils::Timezone,
+};
+use agent_sessions::{Agent, CodexUsageMode, Event, EventKinds};
 use std::path::{Path, PathBuf};
 
-use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{Endpoint, RawEntry, source_wide_message_id};
-use crate::source::ParseOutput;
-use crate::utils::Timezone;
-
-// ============================================================================
-// Internal types for JSONL parsing
-// ============================================================================
-
-#[derive(Debug, Deserialize)]
-struct UsageEntry {
-    timestamp: Option<String>,
-    message: Option<Message>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Message {
-    id: Option<String>,
-    model: Option<String>,
-    stop_reason: Option<String>,
-    usage: Option<Usage>,
-}
-
-#[derive(Debug, Deserialize, Clone, Default)]
-#[allow(clippy::struct_field_names)] // field names match JSON schema
-struct Usage {
-    input_tokens: Option<i64>,
-    output_tokens: Option<i64>,
-    cache_creation_input_tokens: Option<i64>,
-    cache_read_input_tokens: Option<i64>,
-    /// TTL breakdown of cache creation tokens (newer Claude Code versions).
-    cache_creation: Option<CacheCreation>,
-    /// Non-standard, undocumented field emitted by Claude Code. Empirically it
-    /// distinguishes the native Anthropic endpoint (`"not_available"`) from
-    /// third-party proxies/gateways (`""`). Used only to classify `Endpoint`;
-    /// values may change across versions/proxies.
-    inference_geo: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Clone, Default)]
-struct CacheCreation {
-    ephemeral_1h_input_tokens: Option<i64>,
-}
-
-// ============================================================================
-// File discovery
-// ============================================================================
-
-const CLAUDE_CONFIG_DIR_ENV: &str = "CLAUDE_CONFIG_DIR";
-const DEFAULT_CLAUDE_CONFIG_DIR: &str = ".claude";
-const PROJECTS_SUBDIR: &str = "projects";
-
-fn claude_config_root() -> Option<PathBuf> {
-    match env::var_os(CLAUDE_CONFIG_DIR_ENV) {
-        Some(path) if !path.is_empty() => Some(PathBuf::from(path)),
-        Some(_) => None,
-        None => dirs::home_dir().map(|home| home.join(DEFAULT_CLAUDE_CONFIG_DIR)),
-    }
-}
-
-pub(crate) fn claude_projects_dir() -> Option<PathBuf> {
-    claude_config_root().map(|root| root.join(PROJECTS_SUBDIR))
-}
-
 pub(super) fn find_claude_files() -> Vec<PathBuf> {
-    let Some(claude_path) = claude_projects_dir() else {
-        return Vec::new();
+    session_reader::files(&session_reader::roots(Agent::ClaudeCode), Agent::ClaudeCode)
+}
+
+pub(super) fn parse_claude_file_with_debug(
+    path: &Path,
+    timezone: Timezone,
+    debug: bool,
+) -> ParseOutput {
+    let mut out = ParseOutput {
+        entries: Vec::new(),
+        errors: 0,
     };
-
-    let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&glob_pattern(&claude_path, "**/*.jsonl")) {
-        for entry in entries.flatten() {
-            files.push(entry);
+    let mut reader = match session_reader::reader(
+        path,
+        Agent::ClaudeCode,
+        EventKinds::USAGE,
+        CodexUsageMode::TokenCount,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            if debug {
+                eprintln!("Cannot read {}: {e}", path.display());
+            }
+            out.errors = 1;
+            return out;
         }
+    };
+    let session_key = path.display().to_string();
+    let session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or(UNKNOWN);
+    let project_path = derive_project_path(path);
+    for result in reader.by_ref() {
+        let event = match result {
+            Ok(e) => e,
+            Err(e) => {
+                out.errors += 1;
+                if debug {
+                    eprintln!("{}: {e}", path.display());
+                }
+                continue;
+            }
+        };
+        let Event::Usage(usage) = event.value else {
+            continue;
+        };
+        let Some(timestamp) = event.timestamp_text else {
+            continue;
+        };
+        let Some(at) = event.at else {
+            continue;
+        };
+        let model = usage
+            .model
+            .as_deref()
+            .map_or_else(|| UNKNOWN.into(), normalize_model_name);
+        if model.is_empty() || model == "<synthetic>" {
+            continue;
+        }
+        let Some(
+            [
+                input,
+                cache_read,
+                cache_write,
+                output,
+                reasoning,
+                _,
+                cache_write_1h,
+            ],
+        ) = session_reader::buckets(usage.counts)
+        else {
+            out.errors += 1;
+            continue;
+        };
+        let endpoint = endpoint(usage.endpoint);
+        out.entries.push(RawEntry {
+            timestamp,
+            timestamp_ms: at.timestamp_millis(),
+            date_str: timezone
+                .to_fixed_offset(at)
+                .date_naive()
+                .format(DATE_FORMAT)
+                .to_string(),
+            message_id: event
+                .message_id
+                .map(|id| source_wide_message_id("claude", &id)),
+            session_key: session_key.clone(),
+            session_id: session_id.into(),
+            project_path: project_path.clone(),
+            model,
+            input_tokens: input,
+            output_tokens: output,
+            cache_creation: cache_write,
+            cache_creation_1h: cache_write_1h,
+            cache_read,
+            reasoning_tokens: reasoning,
+            stop_reason: usage.stop_reason,
+            cost_kind: crate::core::CostKind::Real,
+            endpoint,
+            call_count: 1,
+            reported_total_tokens: None,
+            recorded_cost_usd: None,
+            api_equivalent_priced_tokens: 0,
+            api_equivalent_coverage_tokens: 0,
+        });
     }
-    files
+    out
 }
 
-// ============================================================================
-// Parsing
-// ============================================================================
-
-fn estimate_entry_capacity(file: &File, approx_bytes_per_entry: u64) -> usize {
-    let estimate = file
-        .metadata()
-        .ok()
-        .map(|meta| meta.len() / approx_bytes_per_entry)
-        .and_then(|n| usize::try_from(n).ok())
-        .unwrap_or(0);
-    estimate.saturating_add(1)
+fn endpoint(value: agent_sessions::Endpoint) -> crate::core::Endpoint {
+    match value {
+        agent_sessions::Endpoint::Native => crate::core::Endpoint::Native,
+        agent_sessions::Endpoint::Proxy => crate::core::Endpoint::Proxy,
+        _ => crate::core::Endpoint::Unknown,
+    }
 }
 
-/// Normalize model name by removing prefixes and date suffixes
 fn normalize_model_name(model: &str) -> String {
     let mut name = model;
     if let Some(stripped) = name.strip_prefix("anthropic.") {
@@ -142,242 +163,9 @@ fn derive_project_path(path: &Path) -> String {
         .to_string()
 }
 
-fn non_negative_tokens(tokens: Option<i64>) -> i64 {
-    tokens.unwrap_or(0).max(0)
-}
-
-pub(super) fn parse_claude_file_with_debug(
-    path: &Path,
-    timezone: Timezone,
-    debug: bool,
-) -> ParseOutput {
-    let session_key = path.display().to_string();
-    let session_id = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(UNKNOWN)
-        .to_string();
-
-    let project_path = derive_project_path(path);
-
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(err) => {
-            if debug {
-                eprintln!("Failed to open {}: {}", path.display(), err);
-            }
-            return ParseOutput {
-                entries: Vec::new(),
-                errors: 1,
-            };
-        }
-    };
-    let estimated_capacity = estimate_entry_capacity(&file, 220);
-    let reader = BufReader::new(file);
-
-    let mut entries = Vec::with_capacity(estimated_capacity);
-    let mut parse_errors = 0usize;
-    let mut line = String::new();
-    let mut line_no = 0usize;
-    let mut reader = reader;
-    loop {
-        line.clear();
-        let bytes_read = match reader.read_line(&mut line) {
-            Ok(n) => n,
-            Err(err) => {
-                line_no += 1;
-                if debug {
-                    eprintln!(
-                        "Failed to read line {} in {}: {}",
-                        line_no,
-                        path.display(),
-                        err
-                    );
-                }
-                parse_errors += 1;
-                continue;
-            }
-        };
-        if bytes_read == 0 {
-            break;
-        }
-        line_no += 1;
-
-        let line = line.trim_end_matches(['\n', '\r']);
-        if line.is_empty() {
-            continue;
-        }
-
-        let entry: UsageEntry = match serde_json::from_str(line) {
-            Ok(entry) => entry,
-            Err(err) => {
-                if debug {
-                    eprintln!("Invalid JSON at {}:{}: {}", path.display(), line_no, err);
-                }
-                parse_errors += 1;
-                continue;
-            }
-        };
-
-        if let Some(entry) = parse_entry_with_debug(
-            entry,
-            path,
-            &session_key,
-            &session_id,
-            &project_path,
-            timezone,
-            line_no,
-            debug,
-            &mut parse_errors,
-        ) {
-            entries.push(entry);
-        }
-    }
-    ParseOutput {
-        entries,
-        errors: parse_errors,
-    }
-}
-
-#[cfg(test)]
-fn parse_entry(
-    entry: UsageEntry,
-    path: &Path,
-    session_key: &str,
-    session_id: &str,
-    project_path: &str,
-    timezone: Timezone,
-    line_no: usize,
-) -> Option<RawEntry> {
-    let mut parse_errors = 0usize;
-    parse_entry_with_debug(
-        entry,
-        path,
-        session_key,
-        session_id,
-        project_path,
-        timezone,
-        line_no,
-        false,
-        &mut parse_errors,
-    )
-}
-
-#[allow(clippy::too_many_arguments)] // Keeps call site explicit for parse context + diagnostics.
-fn parse_entry_with_debug(
-    entry: UsageEntry,
-    path: &Path,
-    session_key: &str,
-    session_id: &str,
-    project_path: &str,
-    timezone: Timezone,
-    line_no: usize,
-    debug: bool,
-    parse_errors: &mut usize,
-) -> Option<RawEntry> {
-    let ts = entry.timestamp?;
-    let msg = entry.message?;
-    let usage = msg.usage?;
-
-    let model = msg
-        .model
-        .as_deref()
-        .map_or_else(|| UNKNOWN.to_string(), normalize_model_name);
-
-    if model == "<synthetic>" || model.is_empty() {
-        return None;
-    }
-
-    // Parse timestamp
-    let utc_dt = match ts.parse::<DateTime<Utc>>() {
-        Ok(dt) => dt,
-        Err(err) => {
-            if debug {
-                eprintln!(
-                    "Invalid timestamp at {}:{}: {} ({})",
-                    path.display(),
-                    line_no,
-                    ts,
-                    err
-                );
-            }
-            *parse_errors += 1;
-            return None;
-        }
-    };
-    let local_dt = timezone.to_fixed_offset(utc_dt);
-    let date = local_dt.date_naive();
-
-    let endpoint = classify_endpoint(usage.inference_geo.as_deref());
-
-    let cache_creation = non_negative_tokens(usage.cache_creation_input_tokens);
-    let cache_creation_1h = non_negative_tokens(
-        usage
-            .cache_creation
-            .as_ref()
-            .and_then(|breakdown| breakdown.ephemeral_1h_input_tokens),
-    )
-    .min(cache_creation);
-
-    Some(RawEntry {
-        timestamp: ts,
-        timestamp_ms: utc_dt.timestamp_millis(),
-        date_str: date.format(DATE_FORMAT).to_string(),
-        message_id: msg.id.map(|id| source_wide_message_id("claude", &id)),
-        session_key: session_key.to_string(),
-        session_id: session_id.to_string(),
-        project_path: project_path.to_string(),
-        model,
-        input_tokens: non_negative_tokens(usage.input_tokens),
-        output_tokens: non_negative_tokens(usage.output_tokens),
-        cache_creation,
-        cache_creation_1h,
-        cache_read: non_negative_tokens(usage.cache_read_input_tokens),
-        reasoning_tokens: 0, // Claude doesn't have reasoning tokens
-        stop_reason: msg.stop_reason,
-        cost_kind: crate::core::CostKind::Real,
-        endpoint,
-        call_count: 1,
-        reported_total_tokens: None,
-        recorded_cost_usd: None,
-        api_equivalent_priced_tokens: 0,
-        api_equivalent_coverage_tokens: 0,
-    })
-}
-
-/// Classify the serving endpoint from the non-standard `inference_geo` field.
-/// See the `Usage.inference_geo` doc comment for the caveats.
-fn classify_endpoint(inference_geo: Option<&str>) -> Endpoint {
-    match inference_geo {
-        Some("not_available") => Endpoint::Native,
-        Some("") => Endpoint::Proxy,
-        _ => Endpoint::Unknown,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ========================================================================
-    // classify_endpoint
-    // ========================================================================
-
-    #[test]
-    fn classify_endpoint_maps_inference_geo() {
-        assert_eq!(classify_endpoint(Some("not_available")), Endpoint::Native);
-        assert_eq!(classify_endpoint(Some("")), Endpoint::Proxy);
-        assert_eq!(classify_endpoint(None), Endpoint::Unknown);
-        // Any other value (e.g. a real geo or a future sentinel) is Unknown,
-        // never silently misclassified as native/proxy.
-        assert_eq!(classify_endpoint(Some("us-east")), Endpoint::Unknown);
-        assert_eq!(classify_endpoint(Some("NOT_AVAILABLE")), Endpoint::Unknown);
-    }
-
-    // ========================================================================
-    // normalize_model_name
-    // ========================================================================
-
     #[test]
     fn test_normalize_strips_anthropic_and_claude_prefix_and_date() {
         assert_eq!(
@@ -443,274 +231,8 @@ mod tests {
     // ========================================================================
     // parse_entry
     // ========================================================================
-
-    fn make_timezone() -> Timezone {
-        Timezone::Local
-    }
-
-    fn make_usage_entry(
-        timestamp: &str,
-        model: Option<&str>,
-        stop_reason: Option<&str>,
-        input: i64,
-        output: i64,
-    ) -> UsageEntry {
-        UsageEntry {
-            timestamp: Some(timestamp.to_string()),
-            message: Some(Message {
-                id: Some("msg_001".to_string()),
-                model: model.map(ToString::to_string),
-                stop_reason: stop_reason.map(ToString::to_string),
-                usage: Some(Usage {
-                    input_tokens: Some(input),
-                    output_tokens: Some(output),
-                    cache_creation_input_tokens: None,
-                    cache_read_input_tokens: None,
-                    cache_creation: None,
-                    inference_geo: None,
-                }),
-            }),
-        }
-    }
-
-    #[test]
-    fn test_parse_entry_valid() {
-        let entry = make_usage_entry(
-            "2025-01-15T10:00:00Z",
-            Some("claude-3-5-sonnet-20241022"),
-            Some("end_turn"),
-            100,
-            50,
-        );
-        let tz = make_timezone();
-        let result = parse_entry(
-            entry,
-            Path::new("test.jsonl"),
-            "scope/test",
-            "sess1",
-            "proj1",
-            tz,
-            1,
-        );
-        let raw = result.unwrap();
-        assert_eq!(raw.input_tokens, 100);
-        assert_eq!(raw.output_tokens, 50);
-        assert_eq!(raw.model, "3-5-sonnet");
-        assert_eq!(raw.session_id, "sess1");
-        assert_eq!(raw.project_path, "proj1");
-    }
-
-    #[test]
-    fn test_parse_entry_no_timestamp_returns_none() {
-        let entry = UsageEntry {
-            timestamp: None,
-            message: Some(Message {
-                id: Some("msg_001".to_string()),
-                model: Some("claude-3-5-sonnet-20241022".to_string()),
-                stop_reason: None,
-                usage: Some(Usage::default()),
-            }),
-        };
-        let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).is_none());
-    }
-
-    #[test]
-    fn test_parse_entry_no_message_returns_none() {
-        let entry = UsageEntry {
-            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
-            message: None,
-        };
-        let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).is_none());
-    }
-
-    #[test]
-    fn test_parse_entry_no_usage_returns_none() {
-        let entry = UsageEntry {
-            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
-            message: Some(Message {
-                id: Some("msg_001".to_string()),
-                model: Some("claude-3-5-sonnet-20241022".to_string()),
-                stop_reason: None,
-                usage: None,
-            }),
-        };
-        let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).is_none());
-    }
-
-    #[test]
-    fn test_parse_entry_synthetic_model_filtered() {
-        let entry = make_usage_entry("2025-01-15T10:00:00Z", Some("<synthetic>"), None, 10, 5);
-        let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).is_none());
-    }
-
-    #[test]
-    fn test_parse_entry_empty_model_filtered() {
-        let entry = make_usage_entry("2025-01-15T10:00:00Z", Some(""), None, 10, 5);
-        let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).is_none());
-    }
-
-    #[test]
-    fn test_parse_entry_no_model_uses_unknown() {
-        let entry = make_usage_entry("2025-01-15T10:00:00Z", None, None, 10, 5);
-        let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
-        assert_eq!(raw.model, UNKNOWN);
-    }
-
-    #[test]
-    fn test_parse_entry_invalid_timestamp_returns_none() {
-        let entry = make_usage_entry(
-            "not-a-date",
-            Some("claude-3-5-sonnet-20241022"),
-            None,
-            10,
-            5,
-        );
-        let tz = make_timezone();
-        assert!(parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).is_none());
-    }
-
-    #[test]
-    fn test_parse_entry_cache_tokens() {
-        let entry = UsageEntry {
-            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
-            message: Some(Message {
-                id: Some("msg_002".to_string()),
-                model: Some("claude-3-5-sonnet-20241022".to_string()),
-                stop_reason: Some("end_turn".to_string()),
-                usage: Some(Usage {
-                    input_tokens: Some(100),
-                    output_tokens: Some(50),
-                    cache_creation_input_tokens: Some(30),
-                    cache_read_input_tokens: Some(20),
-                    cache_creation: None,
-                    inference_geo: None,
-                }),
-            }),
-        };
-        let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
-        assert_eq!(raw.cache_creation, 30);
-        assert_eq!(raw.cache_read, 20);
-    }
-
-    #[test]
-    fn test_parse_entry_none_tokens_default_to_zero() {
-        let entry = UsageEntry {
-            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
-            message: Some(Message {
-                id: Some("msg_003".to_string()),
-                model: Some("claude-3-5-sonnet-20241022".to_string()),
-                stop_reason: None,
-                usage: Some(Usage {
-                    input_tokens: None,
-                    output_tokens: None,
-                    cache_creation_input_tokens: None,
-                    cache_read_input_tokens: None,
-                    cache_creation: None,
-                    inference_geo: None,
-                }),
-            }),
-        };
-        let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
-        assert_eq!(raw.input_tokens, 0);
-        assert_eq!(raw.output_tokens, 0);
-        assert_eq!(raw.cache_creation, 0);
-        assert_eq!(raw.cache_read, 0);
-    }
-
-    #[test]
-    fn test_parse_entry_cache_creation_1h_breakdown() {
-        let entry = UsageEntry {
-            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
-            message: Some(Message {
-                id: Some("msg_1h".to_string()),
-                model: Some("claude-fable-5".to_string()),
-                stop_reason: Some("end_turn".to_string()),
-                usage: Some(Usage {
-                    input_tokens: Some(100),
-                    output_tokens: Some(50),
-                    cache_creation_input_tokens: Some(30),
-                    cache_read_input_tokens: Some(20),
-                    cache_creation: Some(CacheCreation {
-                        ephemeral_1h_input_tokens: Some(25),
-                    }),
-                    inference_geo: None,
-                }),
-            }),
-        };
-        let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
-        assert_eq!(raw.cache_creation, 30);
-        assert_eq!(raw.cache_creation_1h, 25);
-    }
-
-    #[test]
-    fn test_parse_entry_cache_creation_1h_clamped_to_total() {
-        // Defensive: a malformed breakdown larger than the scalar total is clamped
-        let entry = UsageEntry {
-            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
-            message: Some(Message {
-                id: Some("msg_1h_clamp".to_string()),
-                model: Some("claude-fable-5".to_string()),
-                stop_reason: Some("end_turn".to_string()),
-                usage: Some(Usage {
-                    input_tokens: Some(0),
-                    output_tokens: Some(0),
-                    cache_creation_input_tokens: Some(30),
-                    cache_read_input_tokens: Some(0),
-                    cache_creation: Some(CacheCreation {
-                        ephemeral_1h_input_tokens: Some(99),
-                    }),
-                    inference_geo: None,
-                }),
-            }),
-        };
-        let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
-        assert_eq!(raw.cache_creation_1h, 30);
-    }
-
-    #[test]
-    fn test_parse_sidechain_entry_included() {
-        // Subagent (sidechain) entries are real billed API usage and must be counted.
-        let json = r#"{"isSidechain":true,"timestamp":"2025-01-15T10:00:00Z","message":{"id":"msg_side","model":"claude-fable-5","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}}"#;
-        let entry: UsageEntry = serde_json::from_str(json).unwrap();
-        let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
-        assert_eq!(raw.input_tokens, 10);
-        assert_eq!(raw.output_tokens, 5);
-    }
-
-    #[test]
-    fn test_parse_entry_clamps_negative_tokens_to_zero() {
-        let entry = UsageEntry {
-            timestamp: Some("2025-01-15T10:00:00Z".to_string()),
-            message: Some(Message {
-                id: Some("msg_004".to_string()),
-                model: Some("claude-3-5-sonnet-20241022".to_string()),
-                stop_reason: Some("end_turn".to_string()),
-                usage: Some(Usage {
-                    input_tokens: Some(-100),
-                    output_tokens: Some(-50),
-                    cache_creation_input_tokens: Some(-30),
-                    cache_read_input_tokens: Some(-20),
-                    cache_creation: None,
-                    inference_geo: None,
-                }),
-            }),
-        };
-        let tz = make_timezone();
-        let raw = parse_entry(entry, Path::new("t.jsonl"), "scope/t", "s", "p", tz, 1).unwrap();
-        assert_eq!(raw.input_tokens, 0);
-        assert_eq!(raw.output_tokens, 0);
-        assert_eq!(raw.cache_creation, 0);
-        assert_eq!(raw.cache_read, 0);
-    }
 }
+
+#[cfg(test)]
+#[path = "parser_tests.rs"]
+mod native_tests;

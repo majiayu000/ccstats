@@ -55,6 +55,10 @@ impl Source for ClaudeSource {
         "Run Claude Code once or set CLAUDE_CONFIG_DIR to its config root"
     }
 
+    fn cache_partition(&self) -> &'static str {
+        agent_sessions::VERSION
+    }
+
     fn find_files(&self) -> Vec<PathBuf> {
         find_claude_files()
     }

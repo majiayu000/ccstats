@@ -106,6 +106,12 @@ keeps a single combined table/array.
 
 ## Rust SDK
 
+Claude Code and Codex native parsing is shared through `agent-sessions`.
+The SDK retains ccstats pricing, model normalization and deduplication policies.
+`ccstats::VERSION` exposes the resolved SDK version for dependent application caches.
+Codex interactive scope includes CLI and IDE sessions; response-only logs are
+supported without adding their usage to a coexisting legacy ledger.
+
 [docs.rs/ccstats](https://docs.rs/ccstats/latest/ccstats/). Same parsers and
 pricing as the CLI. Local HTTP (`ccstats serve`) and CLI `--json` share the
 types documented in [docs/api.md](docs/api.md).

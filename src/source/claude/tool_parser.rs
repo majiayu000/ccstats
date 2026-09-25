@@ -1,124 +1,51 @@
-//! Parser for `tool_use` blocks in Claude Code JSONL logs
-//!
-//! Extracts tool call names from assistant messages using partial
-//! `serde_json::Value` parsing to avoid full deserialization.
-
-use chrono::{DateTime, Utc};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+//! Client tool statistics projected from native session events.
+use crate::source::session_reader;
+use crate::{
+    consts::{DATE_FORMAT, UNKNOWN},
+    core::{ToolCall, ToolCallIdentity},
+    utils::Timezone,
+};
+use agent_sessions::{Agent, CodexUsageMode, Event, EventKinds, ToolCallKind};
 use std::path::Path;
-
-use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{ToolCall, ToolCallIdentity};
-use crate::utils::Timezone;
-
-/// Parse a single JSONL file and extract tool calls
 pub(crate) fn parse_tool_calls(path: &Path, timezone: Timezone) -> Vec<ToolCall> {
-    let Ok(file) = File::open(path) else {
+    let Ok(reader) = session_reader::reader(
+        path,
+        Agent::ClaudeCode,
+        EventKinds::TOOL_CALL,
+        CodexUsageMode::TokenCount,
+    ) else {
         return Vec::new();
     };
-    let reader = BufReader::new(file);
-    let session_key = path.display().to_string();
-
-    let mut calls = Vec::new();
-    for line in reader.lines() {
-        let Ok(line) = line else {
-            continue;
-        };
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        // Quick pre-filter: skip lines that can't contain tool_use
-        if !line.contains("\"tool_use\"") {
-            continue;
-        }
-
-        let val: serde_json::Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        // Extract timestamp for date filtering
-        let date_str = extract_date(&val, timezone);
-
-        // Handle direct assistant messages: {"type":"assistant","message":{"content":[...]}}
-        if let Some(content) = val
-            .pointer("/message/content")
-            .and_then(serde_json::Value::as_array)
-        {
-            let message_id = val
-                .pointer("/message/id")
-                .and_then(serde_json::Value::as_str);
-            for item in content {
-                if let Some(call) = extract_tool_call(item, &session_key, message_id, &date_str) {
-                    calls.push(call);
-                }
+    let key = path.display().to_string();
+    reader
+        .filter_map(Result::ok)
+        .filter_map(|event| {
+            let Event::ToolCall(call) = event.value else {
+                return None;
+            };
+            if call.kind != ToolCallKind::Function {
+                return None;
             }
-        }
-
-        // Handle progress messages (subagent): {"type":"progress","data":{"message":{"message":{"content":[...]}}}}
-        if let Some(content) = val
-            .pointer("/data/message/message/content")
-            .and_then(serde_json::Value::as_array)
-        {
-            let message_id = val
-                .pointer("/data/message/message/id")
-                .or_else(|| val.pointer("/data/message/id"))
-                .and_then(serde_json::Value::as_str);
-            for item in content {
-                if let Some(call) = extract_tool_call(item, &session_key, message_id, &date_str) {
-                    calls.push(call);
-                }
-            }
-        }
-    }
-
-    calls
-}
-
-fn extract_tool_call(
-    item: &serde_json::Value,
-    session_key: &str,
-    message_id: Option<&str>,
-    date_str: &str,
-) -> Option<ToolCall> {
-    if item.get("type")?.as_str()? == "tool_use" {
-        let name = item.get("name")?.as_str()?.to_string();
-        let identity = message_id.and_then(|msg_id| {
-            item.get("id")
-                .and_then(serde_json::Value::as_str)
-                .map(|tool_id| ToolCallIdentity::new(session_key, msg_id, tool_id))
-        });
-        Some(ToolCall {
-            name,
-            date_str: date_str.to_string(),
-            identity,
+            let identity = event
+                .message_id
+                .zip(call.id)
+                .map(|(message, id)| ToolCallIdentity::new(&key, &message, &id));
+            Some(ToolCall {
+                name: call.name,
+                identity,
+                date_str: event.at.map_or_else(
+                    || UNKNOWN.into(),
+                    |at| {
+                        timezone
+                            .to_fixed_offset(at)
+                            .date_naive()
+                            .format(DATE_FORMAT)
+                            .to_string()
+                    },
+                ),
+            })
         })
-    } else {
-        None
-    }
-}
-
-fn extract_date(val: &serde_json::Value, timezone: Timezone) -> String {
-    // Try direct timestamp field
-    let ts = val
-        .get("timestamp")
-        .and_then(serde_json::Value::as_str)
-        // Try nested in progress messages
-        .or_else(|| {
-            val.pointer("/data/message/timestamp")
-                .and_then(serde_json::Value::as_str)
-        });
-
-    if let Some(ts) = ts
-        && let Ok(utc_dt) = ts.parse::<DateTime<Utc>>()
-    {
-        let local_dt = timezone.to_fixed_offset(utc_dt);
-        return local_dt.date_naive().format(DATE_FORMAT).to_string();
-    }
-
-    UNKNOWN.to_string()
+        .collect()
 }
 
 #[cfg(test)]

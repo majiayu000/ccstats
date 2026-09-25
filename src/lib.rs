@@ -48,6 +48,9 @@ mod utils;
 mod verify_cmd;
 mod watch_cmd;
 
+/// Exact SDK package version for dependent application cache keys.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub use activity::{
     ModelTurnUsage, ToolUsage, TurnToolBreakdown, turn_tool_breakdown,
     turn_tool_breakdown_with_cli_config,

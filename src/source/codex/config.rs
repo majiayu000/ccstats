@@ -16,7 +16,7 @@ pub(crate) enum CodexScope {
     /// Include every Codex session origin.
     #[default]
     All,
-    /// Include interactive Codex CLI sessions only.
+    /// Include interactive CLI and IDE sessions.
     Interactive,
     /// Include `codex exec` sessions only.
     Exec,
@@ -37,7 +37,7 @@ impl CodexScope {
     pub(crate) fn label(self) -> &'static str {
         match self {
             CodexScope::All => "all sessions",
-            CodexScope::Interactive => "interactive CLI sessions",
+            CodexScope::Interactive => "interactive CLI and IDE sessions",
             CodexScope::Exec => "exec sessions",
             CodexScope::Subagent => "subagent sessions",
         }
@@ -104,6 +104,15 @@ impl Source for CodexSource {
     }
 
     fn cache_partition(&self) -> &'static str {
-        self.scope.as_str()
+        static PARTITIONS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
+            ["all", "interactive", "exec", "subagent"]
+                .map(|scope| format!("{}:{scope}", agent_sessions::VERSION))
+        });
+        match self.scope {
+            CodexScope::All => &PARTITIONS[0],
+            CodexScope::Interactive => &PARTITIONS[1],
+            CodexScope::Exec => &PARTITIONS[2],
+            CodexScope::Subagent => &PARTITIONS[3],
+        }
     }
 }

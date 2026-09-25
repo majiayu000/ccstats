@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Shared Claude/Codex parsing through agent-sessions, including response-only Codex usage logs.
+- SDK model capacity samples, reserve-pool filtering, Astra-equivalent estimates, and the exact SDK `VERSION` constant.
+
+### Fixed
+- Include IDE-origin Codex sessions in the existing interactive scope.
+- Version Claude/Codex usage-cache partitions with the shared parser version.
+
 ## [0.8.1] - 2026-09-25
 
 ### Fixed
