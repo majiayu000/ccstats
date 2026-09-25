@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0]
+
 ### Added
 - Opt-in `session --json --details` schema with native prompt/workdir context, per-model USD usage, request counts, and parse diagnostics for external consumers.
 - Shared Claude/Codex parsing through agent-sessions, including response-only Codex usage logs.
