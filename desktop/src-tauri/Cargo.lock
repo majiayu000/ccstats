@@ -420,7 +420,7 @@ dependencies = [
 
 [[package]]
 name = "ccstats"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "agent-sessions",
  "base64 0.23.1",
@@ -448,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "ccstats-desktop"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "ccstats",
  "chrono",
