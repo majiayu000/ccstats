@@ -10,6 +10,13 @@ Local-first token and cost analytics for 29 AI coding-agent data sources. One bi
 usage metadata you already have into terminal reports and JSON/CSV. Unknown
 cost is never printed as `$0`. Estimates are labeled. No ccstats account.
 
+ccstats provides the accounting engine, CLI, Rust SDK and machine interfaces.
+[agent-sessions](https://github.com/majiayu000/agent-sessions) supplies native
+Claude/Codex parsing and provenance. For the tray, alerts, and everyday desktop
+analysis, use [QuotaBar](https://github.com/majiayu000/quotabar), powered by this SDK.
+The existing ccstats desktop remains available while its investigation and
+device workflows are assessed for handover; see the [roadmap](docs/ROADMAP.md).
+
 ## 30-second start
 
 ```bash

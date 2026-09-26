@@ -1,5 +1,11 @@
 # ccstats desktop
 
+This existing application remains maintained during a staged handover to
+[QuotaBar](https://github.com/majiayu000/quotabar), the primary desktop/tray
+product. Do not add a separate tray here. Source diagnostics, investigation,
+device snapshots and user data must meet the [handover gate](../docs/ROADMAP.md#desktop-handover-gate)
+before this application or its checks can be retired.
+
 The desktop app is a local investigation surface over the same source registry
 and summary APIs as the CLI. It does not upload transcripts or substitute mock
 data when a source fails.
