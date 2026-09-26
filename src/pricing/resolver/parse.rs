@@ -7,8 +7,12 @@ pub(crate) fn parse_litellm_data(
     data: HashMap<String, serde_json::Value>,
 ) -> HashMap<String, ModelPricing> {
     let mut models = HashMap::new();
+    let mut entries: Vec<_> = data.into_iter().collect();
+    // Alias collisions must not depend on HashMap iteration order. A direct
+    // `claude-*` price follows an `anthropic.claude-*` variant in this order.
+    entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
 
-    for (name, value) in data {
+    for (name, value) in entries {
         let Some(family) = PricingFamily::from_litellm_name(&name) else {
             continue;
         };
@@ -289,6 +293,26 @@ mod tests {
         assert_eq!(pricing.output, 15e-6);
         assert_eq!(pricing.cache_read, 0.3e-6);
         assert_eq!(pricing.cache_create, 3.75e-6);
+    }
+
+    #[test]
+    fn test_parse_claude_alias_prefers_direct_model_over_anthropic_dot_variant() {
+        for _ in 0..64 {
+            let mut data = HashMap::new();
+            data.insert(
+                "anthropic.claude-mythos-preview".to_string(),
+                make_litellm_entry(27.5e-6, 137.5e-6),
+            );
+            data.insert(
+                "claude-mythos-preview".to_string(),
+                make_litellm_entry(10e-6, 50e-6),
+            );
+
+            let result = parse_litellm_data(data);
+            assert_eq!(result["mythos-preview"].input, 10e-6);
+            assert_eq!(result["mythos-preview"].output, 50e-6);
+            assert_eq!(result["anthropic.claude-mythos-preview"].input, 27.5e-6);
+        }
     }
 
     #[test]
