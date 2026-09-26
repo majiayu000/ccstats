@@ -338,6 +338,79 @@ mod tests {
         pricing_db_with("gpt-6-astra", models.remove("gpt-6-astra").unwrap())
     }
 
+    #[test]
+    fn weekly_astra_conversion_uses_mixed_local_tokens_without_single_model_spans() {
+        use crate::sdk::estimate_codex_weekly_value_with_pricing;
+        use crate::source::{CodexQuotaStatus, CodexWeeklyQuota};
+
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join("sessions")).unwrap();
+        let mut db = astra_pricing_db();
+        let mut sol = db.get_pricing("gpt-6-astra").unwrap();
+        sol.input /= 2.5;
+        sol.output /= 2.5;
+        sol.reasoning_output /= 2.5;
+        sol.cache_read /= 2.5;
+        db.insert_model_for_tests("gpt-5.6-sol".into(), sol);
+        let mut lines = Vec::new();
+        for (index, model) in ["gpt-6-astra", "gpt-5.6-sol", "gpt-reserve"]
+            .into_iter()
+            .enumerate()
+        {
+            let n = index + 1;
+            lines.push(serde_json::json!({
+                "timestamp": format!("2026-08-21T0{n}:00:00Z"),
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count", "model": model,
+                    "info": {
+                        "total_token_usage": {"input_tokens": 100_000 * n, "cached_input_tokens": 90_000 * n, "output_tokens": 1_000 * n, "reasoning_output_tokens": 0, "total_tokens": 101_000 * n},
+                        "last_token_usage": {"input_tokens": 100_000, "cached_input_tokens": 90_000, "output_tokens": 1_000, "reasoning_output_tokens": 0, "total_tokens": 101_000}
+                    }
+                }
+            }).to_string());
+        }
+        std::fs::write(home.path().join("sessions/mixed.jsonl"), lines.join("\n")).unwrap();
+        for used_pct in [25.0, 1.0] {
+            let quota = CodexWeeklyQuota {
+                observed_at: "2026-08-22T00:00:00Z".parse().unwrap(),
+                resets_at: "2026-08-27T00:00:00Z".parse().unwrap(),
+                estimated_depletion_at: None,
+                window_minutes: 10_080,
+                used_pct,
+                remaining_pct: 100.0 - used_pct,
+                projected_pct_at_reset: used_pct,
+                status: CodexQuotaStatus::OnTrack,
+            };
+            let estimate =
+                estimate_codex_weekly_value_with_pricing(&quota, Some(home.path()), &db).unwrap();
+            assert_eq!(estimate.observed_tokens, 202_000);
+            assert!((estimate.observed_cost_usd - 0.336).abs() < 1e-12);
+            assert!(
+                estimate
+                    .model_estimates
+                    .iter()
+                    .all(|model| model.estimated_weekly_tokens.is_none())
+            );
+            // $0.336 of mixed usage vs $0.48 repriced entirely as Astra.
+            let expected = 202_000.0 * (0.336 * 100.0 / used_pct) / 0.48;
+            assert!((estimate.astra_equivalent_weekly_tokens.unwrap() - expected).abs() < 1e-6);
+            assert_ne!(
+                estimate.astra_equivalent_weekly_tokens,
+                Some(estimate.estimated_weekly_tokens)
+            );
+            // Upstream 0.8.1 now includes these models in the labeled offline fallback.
+            let fallback_estimate = estimate_codex_weekly_value_with_pricing(
+                &quota,
+                Some(home.path()),
+                &PricingDb::default(),
+            );
+            let fallback_estimate = fallback_estimate.unwrap();
+            assert_eq!(fallback_estimate.observed_tokens, 202_000);
+            assert!(fallback_estimate.observed_cost_usd > 0.0);
+        }
+    }
+
     fn context_entry(input: i64) -> crate::core::RawEntry {
         crate::core::RawEntry {
             timestamp: String::new(),

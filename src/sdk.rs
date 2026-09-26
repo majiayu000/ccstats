@@ -31,8 +31,8 @@ pub use batch::{
 };
 pub(crate) use codex_weekly::estimate_codex_weekly_value_with_pricing;
 pub use codex_weekly::{
-    CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
-    CodexWeeklyValueWindowError, estimate_codex_weekly_value,
+    CodexModelTokenEstimate, CodexWeeklyValueError, CodexWeeklyValueEstimate,
+    CodexWeeklyValueWindow, CodexWeeklyValueWindowError, estimate_codex_weekly_value,
     estimate_codex_weekly_value_for_window, load_codex_weekly_quota,
 };
 

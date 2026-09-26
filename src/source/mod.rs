@@ -33,6 +33,7 @@ mod pi_forks;
 mod pi_paths;
 mod qwen;
 mod registry;
+mod session_reader;
 pub(crate) mod session_titles;
 mod tool_loader;
 mod unsloth;
@@ -613,7 +614,9 @@ pub(crate) trait Source: Send + Sync {
         cache::CachePolicy::PerFile
     }
 
-    fn cache_partition(&self) -> &'static str {
+    // Scoped sources return a partition stored on self, so the trait must permit a borrow.
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn cache_partition(&self) -> &str {
         "default"
     }
 
@@ -639,6 +642,7 @@ pub(crate) trait Source: Send + Sync {
 /// Box type for dynamic dispatch
 pub(crate) type BoxedSource = Box<dyn Source>;
 
+pub(crate) use claude::ClaudeSource;
 pub(crate) use codex::load_weekly_window_usage_from_home;
 pub use codex::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota};
 pub(crate) use codex::{CodexScope, CodexSource, load_weekly_quota, load_weekly_quota_from_home};

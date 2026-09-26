@@ -247,6 +247,8 @@ mod tests {
             estimated_weekly_value_usd: 200.0,
             observed_tokens: 1_000_000,
             estimated_weekly_tokens: 4_000_000.0,
+            astra_equivalent_weekly_tokens: Some(4_000_000.0),
+            model_estimates: vec![],
             valid_entries: 12,
             dedup_skipped_entries: 2,
         }

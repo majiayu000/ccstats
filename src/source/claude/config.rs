@@ -7,15 +7,27 @@ use std::path::{Path, PathBuf};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::parser::{find_claude_files, parse_claude_file_with_debug};
+use super::parser::{
+    find_claude_files, parse_claude_file_with_debug, parse_claude_file_with_diagnostics,
+};
 use super::tool_parser::parse_tool_calls;
 
 /// Claude data source
-pub(crate) struct ClaudeSource;
+pub(crate) struct ClaudeSource {
+    accounting_diagnostics: bool,
+}
 
 impl ClaudeSource {
     pub(crate) fn new() -> Self {
-        Self
+        Self {
+            accounting_diagnostics: false,
+        }
+    }
+
+    pub(crate) fn with_accounting_diagnostics() -> Self {
+        Self {
+            accounting_diagnostics: true,
+        }
     }
 }
 
@@ -55,12 +67,26 @@ impl Source for ClaudeSource {
         "Run Claude Code once or set CLAUDE_CONFIG_DIR to its config root"
     }
 
+    fn cache_partition(&self) -> &str {
+        static DETAILS: std::sync::LazyLock<String> =
+            std::sync::LazyLock::new(|| format!("{}:details-v1", agent_sessions::VERSION));
+        if self.accounting_diagnostics {
+            &DETAILS
+        } else {
+            agent_sessions::VERSION
+        }
+    }
+
     fn find_files(&self) -> Vec<PathBuf> {
         find_claude_files()
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
-        parse_claude_file_with_debug(path, timezone, debug)
+        if self.accounting_diagnostics {
+            parse_claude_file_with_diagnostics(path, timezone, debug)
+        } else {
+            parse_claude_file_with_debug(path, timezone, debug)
+        }
     }
 
     fn find_tool_call_files(&self) -> Vec<PathBuf> {

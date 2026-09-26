@@ -1,6 +1,6 @@
 [package]
 name = "ccstats"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Fast, local-first token and cost analytics for AI coding agents"
@@ -23,6 +23,7 @@ pkg-fmt = "zip"
 bin-dir = "ccstats.exe"
 
 [dependencies]
+agent-sessions = "0.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 glob = "0.3.3"

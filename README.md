@@ -20,6 +20,10 @@ ccstats
 With no arguments, `ccstats` uses sources detected on this machine. If none
 are ready, it shows `doctor` instead of an empty report.
 
+## Machine session details
+
+`ccstats session --json --details --source claude` (or `codex`) exports a versioned envelope with per-model USD usage, request counts, exact native working directory, subagent tag, and first user prompt. This is an opt-in export of local prompt text. Use repeatable `--details-workdir PATH` and `--details-exclude-subagents` to scope parsing before errors are counted. `unattributed_files` reports Codex files whose cwd cannot be recovered. Add `--strict-pricing` to disable pricing fallbacks. [Schema and accounting contract](docs/architecture/session-details-json.md).
+
 ## Core sources
 
 | Source | Usage input | Start here |
@@ -105,6 +109,12 @@ Common flags: `--json`, `--csv`, `--offline` / `-O`, `--strict-pricing`,
 keeps a single combined table/array.
 
 ## Rust SDK
+
+Claude Code and Codex native parsing is shared through `agent-sessions`.
+The SDK retains ccstats pricing, model normalization and deduplication policies.
+`ccstats::VERSION` exposes the resolved SDK version for dependent application caches.
+Codex interactive scope includes CLI and IDE sessions; response-only logs are
+supported without adding their usage to a coexisting legacy ledger.
 
 [docs.rs/ccstats](https://docs.rs/ccstats/latest/ccstats/). Same parsers and
 pricing as the CLI. Local HTTP (`ccstats serve`) and CLI `--json` share the
