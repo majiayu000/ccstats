@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-26
+
+### Fixed
+- Resolve conflicting LiteLLM model aliases in a stable order so the same Claude usage and price table produce the same cost on repeated runs.
+
 ## [0.9.0]
 
 ### Added
