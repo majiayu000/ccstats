@@ -29,13 +29,21 @@ fn calculate_token_cost(tokens: CostTokens, model: &str, pricing_db: &PricingDb)
             // long-context rates. Recorded provider costs still bypass pricing.
             let long = tokens.above_272k;
             let adjustment = pricing.above_272k.as_ref().map_or(0.0, |rate| {
+                let long_ttl_tokens = long.cache_creation_1h.min(long.cache_creation);
+                let short_ttl_tokens = long.cache_creation - long_ttl_tokens;
+                // Preserve the TTL premium when scaling cache writes. A zero
+                // base write rate has no ratio, so retain the published 1h rate.
+                let cache_create_1h = if pricing.cache_create > 0.0 {
+                    pricing.cache_create_1h * (rate.cache_create / pricing.cache_create)
+                } else {
+                    pricing.cache_create_1h
+                };
                 long.input_tokens as f64 * (rate.input - pricing.input)
                     + long.output_tokens as f64 * (rate.output - pricing.output)
                     + long.reasoning_tokens as f64 * (rate.output - pricing.reasoning_output)
                     + long.cache_read as f64 * (rate.cache_read - pricing.cache_read)
-                    + (long.cache_creation - long.cache_creation_1h) as f64
-                        * (rate.cache_create - pricing.cache_create)
-                    + long.cache_creation_1h as f64 * (rate.cache_create - pricing.cache_create_1h)
+                    + short_ttl_tokens as f64 * (rate.cache_create - pricing.cache_create)
+                    + long_ttl_tokens as f64 * (cache_create_1h - pricing.cache_create_1h)
             });
             base_cost + adjustment
         }
@@ -522,6 +530,75 @@ mod tests {
         let cost = calculate_cost(&stats, "fable-5", &db);
         // All 100K billed at the 1h rate: 100K * $20/M = $2
         assert!((cost - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn long_context_cache_creation_preserves_1h_premium() {
+        let mut pricing = fable_pricing();
+        pricing.above_272k = Some(super::super::types::LongContextPricing {
+            input: pricing.input * 2.0,
+            output: pricing.output * 1.5,
+            cache_read: pricing.cache_read * 2.0,
+            cache_create: pricing.cache_create * 2.0,
+        });
+        let db = pricing_db_with("fable-5", pricing);
+        let short = Stats {
+            cache_creation: 100_000,
+            cache_creation_1h: 60_000,
+            ..Default::default()
+        };
+        let mut long = short.clone();
+        long.above_272k.cache_creation = 100_000;
+        long.above_272k.cache_creation_1h = 60_000;
+        // 40K at $25/M plus 60K at $40/M, rather than all at $25/M.
+        assert!((calculate_cost(&long, "fable-5", &db) - 3.4).abs() < 1e-12);
+        let mut combined = short;
+        combined.add(&long);
+        assert!((calculate_cost(&combined, "fable-5", &db) - 5.1).abs() < 1e-12);
+        assert!((calculate_real_cost(&combined, "fable-5", &db) - 5.1).abs() < 1e-12);
+    }
+
+    #[test]
+    fn long_context_cache_creation_clamps_1h_to_total() {
+        let mut pricing = fable_pricing();
+        pricing.above_272k = Some(super::super::types::LongContextPricing {
+            input: pricing.input * 2.0,
+            output: pricing.output * 1.5,
+            cache_read: pricing.cache_read * 2.0,
+            cache_create: pricing.cache_create * 2.0,
+        });
+        let db = pricing_db_with("fable-5", pricing);
+        let mut stats = Stats {
+            cache_creation: 100_000,
+            cache_creation_1h: 500_000,
+            ..Default::default()
+        };
+        stats.above_272k.cache_creation = 100_000;
+        stats.above_272k.cache_creation_1h = 500_000;
+        // All 100K use the long-context 1h rate: 100K * $40/M = $4.
+        let cost = calculate_cost(&stats, "fable-5", &db);
+        assert!((cost - 4.0).abs() < 1e-12, "unexpected cost: {cost}");
+    }
+
+    #[test]
+    fn long_context_cache_creation_zero_base_rate_stays_finite() {
+        let mut pricing = fable_pricing();
+        pricing.cache_create = 0.0;
+        pricing.above_272k = Some(super::super::types::LongContextPricing {
+            input: pricing.input,
+            output: pricing.output,
+            cache_read: pricing.cache_read,
+            cache_create: 0.0,
+        });
+        let db = pricing_db_with("fable-5", pricing);
+        let mut stats = Stats {
+            cache_creation: 100_000,
+            cache_creation_1h: 60_000,
+            ..Default::default()
+        };
+        stats.above_272k.cache_creation = 100_000;
+        stats.above_272k.cache_creation_1h = 60_000;
+        assert!((calculate_cost(&stats, "fable-5", &db) - 1.2).abs() < 1e-12);
     }
 
     #[test]
