@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use chrono::{Duration, SecondsFormat, Timelike, Utc};
-use common::{run_ccstats, unique_temp_dir, write_file};
+use common::{run_ccstats, run_ccstats_with_stdin, unique_temp_dir, write_file};
 use serde_json::{Value, json};
 
 fn quota_event(
@@ -227,6 +227,91 @@ fn limits_source_claude_omits_codex_attempt_as_null() {
     assert_eq!(value["claude_blocks"]["total_tokens"], 150);
 
     let _ = fs::remove_dir_all(home);
+}
+
+#[test]
+fn limits_and_watch_do_not_scale_local_cost_into_official_claude_windows() {
+    let home = unique_temp_dir("limits-official-claude-cost");
+    let data = home.join("data");
+    let envs = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
+    write_active_claude_block(&home);
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &["limits", "--source", "claude", "--json", "--offline"],
+        &envs,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let local: Value = serde_json::from_slice(&stdout).unwrap();
+    let local_cost = local["claude_blocks"]["cost"].as_f64().unwrap();
+    assert!(local_cost > 0.0, "{local}");
+    assert!(
+        local["claude_blocks"]["remaining_minutes"]
+            .as_i64()
+            .unwrap()
+            > 60
+    );
+    assert_eq!(local["windows"][0]["source"], "estimated");
+    assert_eq!(local["windows"][0]["value_estimate_usd"], local_cost);
+
+    let now = Utc::now().with_nanosecond(0).unwrap();
+    let five_reset = now + Duration::hours(1);
+    let seven_reset = now + Duration::days(1);
+    let hook = json!({
+        "rate_limits": {
+            "five_hour": {"used_percentage": 80.0, "resets_at": five_reset.timestamp()},
+            "seven_day": {"used_percentage": 90.0, "resets_at": seven_reset.timestamp()},
+        }
+    });
+    let (ok, _, stderr) = run_ccstats_with_stdin(
+        &["statusline", "--source", "claude", "--json", "--offline"],
+        &envs,
+        &hook.to_string(),
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+
+    for command in [vec!["limits"], vec!["watch", "--once"]] {
+        for hide_cost in [false, true] {
+            let mut args = command.clone();
+            args.extend(["--source", "claude", "--json", "--offline"]);
+            if hide_cost {
+                args.push("--no-cost");
+            }
+            let (ok, stdout, stderr) = run_ccstats(&args, &envs);
+            assert_eq!(
+                ok,
+                command[0] == "limits",
+                "watch must retain its quota-warning exit: {}",
+                String::from_utf8_lossy(&stderr)
+            );
+            let value: Value = serde_json::from_slice(&stdout).unwrap();
+            if command[0] == "watch" {
+                assert_eq!(value["hot"], true);
+            }
+            let windows = value["windows"].as_array().unwrap();
+            assert_eq!(windows.len(), 2, "{value}");
+            for (name, used_pct, reset) in [
+                ("five_hour", 80.0, five_reset),
+                ("seven_day", 90.0, seven_reset),
+            ] {
+                let window = windows.iter().find(|row| row["window"] == name).unwrap();
+                assert_eq!(window["source"], "official");
+                assert_eq!(window["used_pct"], used_pct);
+                assert_eq!(
+                    window["resets_at"],
+                    reset.to_rfc3339_opts(SecondsFormat::Secs, true)
+                );
+                assert_eq!(window["stale"], false);
+                assert!(
+                    window.get("value_estimate_usd").is_none(),
+                    "local cost must not be scaled into an official window: {window}"
+                );
+            }
+            if command[0] == "limits" && !hide_cost {
+                assert_eq!(value["claude_blocks"]["cost"], local_cost);
+            }
+        }
+    }
+    fs::remove_dir_all(home).unwrap();
 }
 
 #[test]
