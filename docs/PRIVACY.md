@@ -2,8 +2,10 @@
 
 ccstats is local-first and does not require an account. It extracts token,
 model, timestamp, project/session identity, tool-call, and cost metadata needed
-for reports. It does not persist or upload prompt text, model responses, or
-source-code content.
+for reports. Ordinary reports and caches do not persist or upload prompt text, model responses,
+or source-code content. The opt-in `session --json --details` export includes the
+first user prompt on stdout; see its [schema and scoping flags](architecture/session-details-json.md)
+before sharing that output.
 
 ## Local data read
 
