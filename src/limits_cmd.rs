@@ -6,7 +6,7 @@ use crate::output::{
     output_limits_json, print_limits_table,
 };
 use crate::pricing::sum_model_costs;
-use crate::quota::{load_claude_quota_state, scale_observed_to_full_window};
+use crate::quota::load_claude_quota_state;
 use crate::quota_cmd::{LoadedQuota, load_quota};
 use crate::source::{
     ALL_SOURCES, CursorPlanUsage, fetch_cursor_plan_usage, get_source, load_blocks,
@@ -207,9 +207,6 @@ fn extend_claude_windows(
     let quota_state = load_claude_quota_state();
     let stale = quota_state.is_stale(now);
     let claude_active = select_active_block(claude_blocks, now);
-    let claude_cost = claude_active
-        .as_ref()
-        .map(|(block, _)| sum_model_costs(&block.models, ctx.pricing_db));
     if let Some(tte) = quota_state.time_to_exhaustion(true) {
         notes.push(format!(
             "Claude 5h time-to-exhaustion ~{}m at current burn",
@@ -226,9 +223,6 @@ fn extend_claude_windows(
                 "official",
                 stale,
             );
-            row.value_estimate_usd = five.used_percentage.and_then(|pct| {
-                claude_cost.and_then(|cost| scale_observed_to_full_window(cost, pct))
-            });
             row.burn_pct_per_hour = quota_state.burn_pct_per_hour(true);
             windows.push(row);
         }

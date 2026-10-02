@@ -519,7 +519,7 @@ mod tests {
         let db = PricingDb::default();
         let json_str = output_session_json(&[], &db, SortOrder::Asc, false, true, None);
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap();
-        assert!(parsed.is_empty());
+        assert_eq!(parsed, [] as [serde_json::Value; 0]);
     }
 
     #[test]
