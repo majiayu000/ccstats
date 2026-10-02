@@ -3,6 +3,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -16,6 +17,7 @@ pub(crate) const STALE_AFTER: Duration = Duration::from_secs(10 * 60);
 
 const LOCK_FILE: &str = "claude.lock";
 const SNAPSHOT_FILE: &str = "claude.jsonl";
+static SNAPSHOT_WRITE_WARNING: Once = Once::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct ClaudeQuotaSnapshot {
@@ -46,6 +48,12 @@ impl ClaudeQuotaState {
     }
 
     pub(crate) fn burn_pct_per_hour(&self, five_hour: bool) -> Option<f64> {
+        let latest = self.latest()?;
+        let current_window = if five_hour {
+            latest.five_hour.as_ref()
+        } else {
+            latest.seven_day.as_ref()
+        }?;
         let points: Vec<(DateTime<Utc>, f64)> = self
             .snapshots
             .iter()
@@ -55,6 +63,9 @@ impl ClaudeQuotaState {
                 } else {
                     snap.seven_day.as_ref()
                 }?;
+                if window.resets_at != current_window.resets_at {
+                    return None;
+                }
                 Some((snap.captured_at, window.used_percentage?))
             })
             .collect();
@@ -117,27 +128,37 @@ pub(crate) fn append_claude_snapshot(hook: &ClaudeHook, captured_at: DateTime<Ut
     if !hook.has_official_windows() {
         return;
     }
-    let Some(dir) = quota_dir() else {
-        return;
-    };
+    let result = quota_dir()
+        .ok_or_else(|| "cannot locate the platform data directory".to_string())
+        .and_then(|dir| append_claude_snapshot_to(&dir, hook, captured_at));
+    if let Err(error) = result {
+        SNAPSHOT_WRITE_WARNING.call_once(|| {
+            eprintln!("Warning: could not save Claude quota snapshot: {error}");
+        });
+    }
+}
+
+fn append_claude_snapshot_to(
+    dir: &Path,
+    hook: &ClaudeHook,
+    captured_at: DateTime<Utc>,
+) -> Result<(), String> {
     let path = dir.join(SNAPSHOT_FILE);
-    let Ok(_lock) = acquire_lock(&dir) else {
-        return;
-    };
+    let _lock = acquire_lock(dir)?;
     let snapshot = ClaudeQuotaSnapshot {
         captured_at,
         version: hook.version.clone(),
         five_hour: hook.five_hour().cloned(),
         seven_day: hook.seven_day().cloned(),
     };
-    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
-        return;
-    };
-    if serde_json::to_writer(&mut file, &snapshot).is_err() {
-        return;
-    }
-    let _ = file.write_all(b"\n");
-    let _ = file.flush();
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    serde_json::to_writer(&mut file, &snapshot).map_err(|error| error.to_string())?;
+    file.write_all(b"\n").map_err(|error| error.to_string())?;
+    file.flush().map_err(|error| error.to_string())
 }
 
 pub(crate) fn load_claude_quota_state() -> ClaudeQuotaState {
@@ -200,6 +221,49 @@ mod tests {
     }
 
     #[test]
+    fn burn_rate_and_exhaustion_use_each_current_reset_window() {
+        let t0 = DateTime::from_timestamp(1_000_000, 0).unwrap();
+        for reset_five_hour in [true, false] {
+            let snapshots = [80.0, 10.0, 20.0]
+                .into_iter()
+                .enumerate()
+                .map(|(index, used)| {
+                    let current = index > 0;
+                    let reset_window = RateWindow {
+                        used_percentage: Some(used),
+                        resets_at: Some(if current { 1_020_000 } else { 1_002_000 }),
+                    };
+                    let unchanged_window = RateWindow {
+                        used_percentage: Some(40.0 + index as f64 * 2.0),
+                        resets_at: Some(1_600_000),
+                    };
+                    let (five_hour, seven_day) = if reset_five_hour {
+                        (reset_window, unchanged_window)
+                    } else {
+                        (unchanged_window, reset_window)
+                    };
+                    ClaudeQuotaSnapshot {
+                        captured_at: t0 + chrono::Duration::hours(index as i64),
+                        version: None,
+                        five_hour: Some(five_hour),
+                        seven_day: Some(seven_day),
+                    }
+                })
+                .collect();
+            let mut state = ClaudeQuotaState { snapshots };
+            assert_eq!(state.burn_pct_per_hour(reset_five_hour), Some(10.0));
+            assert_eq!(state.burn_pct_per_hour(!reset_five_hour), Some(2.0));
+            assert_eq!(
+                state.time_to_exhaustion(reset_five_hour),
+                Some(Duration::from_secs(8 * 3600))
+            );
+            state.snapshots.pop();
+            assert_eq!(state.burn_pct_per_hour(reset_five_hour), None);
+            assert_eq!(state.time_to_exhaustion(reset_five_hour), None);
+        }
+    }
+
+    #[test]
     fn append_round_trip() {
         let hook = parse_claude_hook(
             r#"{"version":"2.1.80","rate_limits":{"five_hour":{"used_percentage":10.0,"resets_at":1}}}"#,
@@ -207,15 +271,7 @@ mod tests {
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(SNAPSHOT_FILE);
-        let snapshot = ClaudeQuotaSnapshot {
-            captured_at: Utc::now(),
-            version: hook.version.clone(),
-            five_hour: hook.five_hour().cloned(),
-            seven_day: hook.seven_day().cloned(),
-        };
-        let mut file = File::create(&path).unwrap();
-        serde_json::to_writer(&mut file, &snapshot).unwrap();
-        file.write_all(b"\n").unwrap();
+        append_claude_snapshot_to(dir.path(), &hook, Utc::now()).unwrap();
         let loaded = load_claude_quota_state_from(&path);
         assert_eq!(loaded.snapshots.len(), 1);
         assert_eq!(

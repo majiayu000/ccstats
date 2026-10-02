@@ -20,6 +20,8 @@ ccstats
 With no arguments, `ccstats` uses sources detected on this machine. If none
 are ready, it shows `doctor` instead of an empty report.
 
+[Choose a report by task](docs/USAGE.md) — date ranges, quota versus cost, and export privacy.
+
 ## Machine session details
 
 `ccstats session --json --details --source claude` (or `codex`) exports a versioned envelope with per-model USD usage, request counts, exact native working directory, subagent tag, and first user prompt. This is an opt-in export of local prompt text. Use repeatable `--details-workdir PATH` and `--details-exclude-subagents` to scope parsing before errors are counted. `unattributed_files` reports Codex files whose cwd cannot be recovered. Add `--strict-pricing` to disable pricing fallbacks. [Schema and accounting contract](docs/architecture/session-details-json.md).

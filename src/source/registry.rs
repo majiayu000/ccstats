@@ -191,7 +191,7 @@ mod tests {
         let source = get_source("claude").unwrap();
         assert_eq!(source.name(), "claude");
         assert_eq!(source.display_name(), "Claude Code");
-        assert!(!source.aliases().is_empty());
+        assert_ne!(source.aliases(), [] as [&str; 0]);
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod tests {
         let source = get_source("codex").unwrap();
         assert_eq!(source.name(), "codex");
         assert_eq!(source.display_name(), "OpenAI Codex");
-        assert!(!source.aliases().is_empty());
+        assert_ne!(source.aliases(), [] as [&str; 0]);
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
         let source = get_source("cursor").unwrap();
         assert_eq!(source.name(), "cursor");
         assert_eq!(source.display_name(), "Cursor");
-        assert!(!source.aliases().is_empty());
+        assert_ne!(source.aliases(), [] as [&str; 0]);
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
         let source = get_source("grok").unwrap();
         assert_eq!(source.name(), "grok");
         assert_eq!(source.display_name(), "Grok");
-        assert!(!source.aliases().is_empty());
+        assert_ne!(source.aliases(), [] as [&str; 0]);
     }
 
     #[test]
@@ -223,7 +223,7 @@ mod tests {
         let source = get_source("kimi").unwrap();
         assert_eq!(source.name(), "kimi");
         assert_eq!(source.display_name(), "Kimi Code");
-        assert!(!source.aliases().is_empty());
+        assert_ne!(source.aliases(), [] as [&str; 0]);
     }
 
     #[test]
