@@ -108,3 +108,35 @@ fn statusline_without_hook_is_estimated() {
 
     let _ = fs::remove_dir_all(home);
 }
+
+#[test]
+fn snapshot_write_failures_warn_without_failing_statusline() {
+    for blocked in ["quota", "claude.lock", "claude.jsonl"] {
+        let home = unique_temp_dir("statusline-snapshot-write-failure");
+        write_today_claude(&home);
+        let data = home.join("data");
+        let quota = data.join("ccstats/quota");
+        if blocked == "quota" {
+            write_file(&quota, "blocks directory creation");
+        } else {
+            fs::create_dir_all(quota.join(blocked)).unwrap();
+        }
+        let (ok, stdout, stderr) = run_ccstats_with_stdin(
+            &["statusline", "--source", "claude", "--json", "--offline"],
+            &[("HOME", &home), ("XDG_DATA_HOME", &data)],
+            r#"{"rate_limits":{"five_hour":{"used_percentage":10.0,"resets_at":4102444800}}}"#,
+        );
+        let warning = String::from_utf8_lossy(&stderr);
+        assert!(ok, "{blocked}: {warning}");
+        assert_eq!(
+            warning
+                .matches("could not save Claude quota snapshot")
+                .count(),
+            1,
+            "{blocked}: {warning}"
+        );
+        let value: Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["rate_limits"]["five_hour"]["used_pct"], 10.0);
+        fs::remove_dir_all(home).unwrap();
+    }
+}

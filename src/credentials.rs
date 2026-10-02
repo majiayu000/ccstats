@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn credentials_paths_use_credentials_filename() {
         let paths = credentials_paths();
-        assert!(!paths.is_empty());
+        assert_ne!(paths, [] as [std::path::PathBuf; 0]);
         assert!(
             paths
                 .iter()

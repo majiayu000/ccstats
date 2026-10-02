@@ -446,7 +446,7 @@ mod tests {
         // because it detects '\\', but file_name() returns the full string.
         let result = format_project_name("C:\\Users\\john\\projects\\app");
         // On Windows this would be "app", on Unix it's the full string
-        assert!(!result.is_empty());
+        assert_ne!(result, "");
     }
 
     #[test]
