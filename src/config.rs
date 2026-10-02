@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn test_config_paths_non_empty() {
         let paths = Config::get_config_paths();
-        assert!(!paths.is_empty());
+        assert_ne!(paths, [] as [std::path::PathBuf; 0]);
     }
 
     #[test]

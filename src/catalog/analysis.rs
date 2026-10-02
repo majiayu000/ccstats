@@ -417,7 +417,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.projects.projects[0].project_name, "未记录项目");
-        assert!(result.available_projects.is_empty());
+        assert_eq!(result.available_projects, [] as [String; 0]);
         assert_eq!(result.summary.metrics.cost_usd, None);
         assert_eq!(
             result.history.points[0].cost_status,

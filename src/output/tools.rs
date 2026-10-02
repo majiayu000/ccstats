@@ -159,6 +159,6 @@ mod tests {
         let json = output_tools_json(&summary);
         let val: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(val["total"], 0);
-        assert!(val["tools"].as_array().unwrap().is_empty());
+        assert_eq!(val["tools"], serde_json::json!([]));
     }
 }
