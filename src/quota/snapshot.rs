@@ -102,15 +102,6 @@ impl ClaudeQuotaState {
     }
 }
 
-/// Scale observed USD (or tokens) by the inverse of used percentage.
-pub(crate) fn scale_observed_to_full_window(observed: f64, used_pct: f64) -> Option<f64> {
-    if used_pct <= 0.0 || !observed.is_finite() || observed < 0.0 {
-        return None;
-    }
-    let value = observed * (100.0 / used_pct);
-    value.is_finite().then_some(value)
-}
-
 fn quota_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|root| root.join("ccstats").join("quota"))
 }
@@ -197,12 +188,6 @@ pub(crate) fn load_claude_quota_state_from(path: &Path) -> ClaudeQuotaState {
 mod tests {
     use super::*;
     use crate::quota::hook::parse_claude_hook;
-
-    #[test]
-    fn scale_rejects_zero_usage() {
-        assert_eq!(scale_observed_to_full_window(10.0, 0.0), None);
-        assert_eq!(scale_observed_to_full_window(10.0, 25.0), Some(40.0));
-    }
 
     #[test]
     fn burn_rate_and_stale() {
