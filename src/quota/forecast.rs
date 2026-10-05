@@ -224,7 +224,12 @@ pub fn forecast_limit(input: &ForecastInput<'_>) -> LimitForecast {
                 .map(|rate| (rate, ForecastBasis::WindowAverage, ForecastConfidence::Low))
         });
     let Some((rate, basis, confidence)) = estimate else {
-        return LimitForecast::unavailable(ForecastReason::InsufficientHistory, samples);
+        let mut forecast = LimitForecast::unavailable(ForecastReason::InsufficientHistory, samples);
+        if used >= 100.0 {
+            forecast.exhausts_before_reset = Some(true);
+            forecast.reason = Some(ForecastReason::AlreadyExhausted);
+        }
+        return forecast;
     };
 
     let mut forecast = LimitForecast {
@@ -539,9 +544,57 @@ mod tests {
         let reset = t(5.0);
         let history = samples(&[(0.0, 60.0), (1.0, 80.0)], reset);
         let forecast = run(100.0, 2.0, reset, None, &history);
+        assert_eq!(forecast.burn_pct_per_hour, Some(20.0));
+        assert_eq!(forecast.basis, Some(ForecastBasis::SnapshotHistory));
+        assert_eq!(forecast.confidence, Some(ForecastConfidence::Medium));
+        assert_eq!(forecast.samples, 3);
         assert_eq!(forecast.exhausts_before_reset, Some(true));
         assert_eq!(forecast.projected_exhaustion_at, None);
         assert_eq!(forecast.reason, Some(ForecastReason::AlreadyExhausted));
+    }
+
+    #[test]
+    fn exhausted_window_without_rate_reports_exhausted() {
+        let reset = t(5.0);
+        let short_history = samples(&[(0.0, 60.0), (0.05, 80.0)], reset);
+        for used in [100.0, 101.0] {
+            for (start, history, expected_samples) in [
+                (None, &[][..], 1),
+                (Some(t(0.0)), &[][..], 1),
+                (None, short_history.as_slice(), 3),
+            ] {
+                let forecast = run(used, 0.1, reset, start, history);
+                assert_eq!(forecast.reason, Some(ForecastReason::AlreadyExhausted));
+                assert_eq!(forecast.exhausts_before_reset, Some(true));
+                assert_eq!(forecast.projected_exhaustion_at, None);
+                assert_eq!(forecast.burn_pct_per_hour, None);
+                assert_eq!(forecast.basis, None);
+                assert_eq!(forecast.confidence, None);
+                assert_eq!(forecast.samples, expected_samples);
+                assert_eq!(forecast.source, "estimated");
+            }
+        }
+    }
+
+    #[test]
+    fn exhausted_observation_still_requires_active_reset() {
+        for (reset, reason) in [
+            (None, ForecastReason::MissingResetTime),
+            (Some(t(0.0)), ForecastReason::WindowReset),
+        ] {
+            let forecast = forecast_limit(&ForecastInput::new(
+                Some(100.0),
+                t(0.1),
+                reset,
+                None,
+                &[],
+                t(0.1),
+            ));
+            assert_eq!(forecast.reason, Some(reason));
+            assert_eq!(forecast.exhausts_before_reset, None);
+            assert_eq!(forecast.burn_pct_per_hour, None);
+            assert_eq!(forecast.samples, 0);
+        }
     }
 
     #[test]
