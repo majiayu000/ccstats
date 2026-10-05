@@ -10,6 +10,7 @@ use crate::output::format::{
 };
 use crate::output::{QuotaValueEstimate, output_quota_json, print_quota_table};
 use crate::pricing::{CurrencyConverter, PricingDb, sum_model_costs};
+use crate::quota::{ForecastReason, LimitForecast};
 use crate::source::CodexWeeklyQuota;
 use crate::utils::Timezone;
 
@@ -31,8 +32,7 @@ pub(crate) struct LimitWindow {
     pub stale: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value_estimate_usd: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub burn_pct_per_hour: Option<f64>,
+    pub forecast: LimitForecast,
 }
 
 pub(crate) struct ClaudeWindowView<'a> {
@@ -66,6 +66,7 @@ impl LimitsView<'_> {
         let missing_claude = !self.want_claude || self.claude.is_none();
         let missing_cursor = !self.want_cursor || self.cursor.is_none();
         (self.want_codex || self.want_claude || self.want_cursor)
+            && self.windows.is_empty()
             && missing_codex
             && missing_claude
             && missing_cursor
@@ -404,6 +405,97 @@ pub(crate) fn print_limits_table(
             );
         }
     }
+
+    if !view.windows.is_empty() {
+        println!();
+        print_forecast_table(view.windows, options);
+    }
+}
+
+pub(crate) const FORECAST_FOOTNOTE: &str = "Pace and run-out times are estimates from official used percentages; they are not provider guarantees.";
+
+/// Burn rate label, e.g. `12.5%/h est.`, or `unknown`.
+pub(crate) fn format_pace(forecast: &LimitForecast) -> String {
+    forecast.burn_pct_per_hour.map_or_else(
+        || "unknown".to_string(),
+        |rate| format!("{rate:.1}%/h est."),
+    )
+}
+
+/// Run-out label: an estimated time before reset, `after reset`, or why it is unknown.
+pub(crate) fn format_runs_out(forecast: &LimitForecast, timezone: Timezone) -> String {
+    match (
+        forecast.projected_exhaustion_at,
+        forecast.exhausts_before_reset,
+        forecast.reason,
+    ) {
+        (Some(at), Some(true), _) => format!(
+            "{} est.",
+            timezone.to_fixed_offset(at).format("%Y-%m-%d %H:%M %:z")
+        ),
+        (Some(_), _, _) => "after reset".to_string(),
+        (None, _, Some(ForecastReason::AlreadyExhausted)) => "exhausted".to_string(),
+        (None, _, Some(ForecastReason::NotIncreasing)) => "not on pace".to_string(),
+        (None, _, Some(reason)) => format!("unknown ({})", reason.as_str().replace('_', " ")),
+        (None, _, None) => "unknown".to_string(),
+    }
+}
+
+fn format_reset(resets_at: Option<&str>, timezone: Timezone) -> String {
+    let Some(raw) = resets_at else {
+        return "unknown".to_string();
+    };
+    chrono::DateTime::parse_from_rfc3339(raw).map_or_else(
+        |_| raw.to_string(),
+        |at| {
+            timezone
+                .to_fixed_offset(at.with_timezone(&chrono::Utc))
+                .format("%Y-%m-%d %H:%M %:z")
+                .to_string()
+        },
+    )
+}
+
+fn print_forecast_table(windows: &[LimitWindow], options: &LimitsTableOptions<'_>) {
+    println!("Limit forecast (est.)");
+    let mut table = create_styled_table();
+    table.set_header(vec![
+        header_cell("Provider", options.use_color),
+        header_cell("Window", options.use_color),
+        header_cell("Used", options.use_color),
+        header_cell("Resets", options.use_color),
+        header_cell("Pace", options.use_color),
+        header_cell("Runs out", options.use_color),
+        header_cell("Basis", options.use_color),
+    ]);
+    for window in windows {
+        let used = window.used_pct.map_or_else(
+            || "unknown".to_string(),
+            |pct| {
+                let label = if window.source == "official" {
+                    ""
+                } else {
+                    " est."
+                };
+                format!("{pct:.1}%{label}")
+            },
+        );
+        let basis = window
+            .forecast
+            .basis
+            .map_or("—", crate::quota::ForecastBasis::as_str);
+        table.add_row(vec![
+            Cell::new(&window.provider),
+            Cell::new(&window.window),
+            right_cell(&used, None, false),
+            Cell::new(format_reset(window.resets_at.as_deref(), options.timezone)),
+            right_cell(&format_pace(&window.forecast), None, false),
+            Cell::new(format_runs_out(&window.forecast, options.timezone)),
+            Cell::new(basis),
+        ]);
+    }
+    println!("{table}");
+    println!("{FORECAST_FOOTNOTE}");
 }
 
 fn print_cursor_plan(plan: &CursorPlanView<'_>) {

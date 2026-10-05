@@ -420,3 +420,164 @@ fn limits_empty_home_keeps_its_schema_and_ignores_unrelated_credentials() {
     }
     fs::remove_dir_all(home).unwrap();
 }
+
+#[test]
+fn limits_codex_forecast_uses_per_session_snapshot_history() {
+    let home = unique_temp_dir("limits-codex-forecast");
+    let now = Utc::now().with_nanosecond(0).unwrap();
+    let resets_at = now + Duration::days(2);
+    for (name, hours_ago, used) in [("a", 2, 10.0), ("b", 1, 20.0), ("c", 0, 30.0)] {
+        write_file(
+            &home.join(format!(".codex/sessions/{name}.jsonl")),
+            &quota_event(now - Duration::hours(hours_ago), used, resets_at, true),
+        );
+    }
+
+    let (ok, stdout, stderr) = run_home(
+        &home,
+        &[
+            "limits",
+            "--source",
+            "codex",
+            "--json",
+            "--offline",
+            "--no-cost",
+        ],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let value: Value = serde_json::from_slice(&stdout).unwrap();
+    let forecast = &value["windows"][0]["forecast"];
+    assert_eq!(forecast["basis"], "snapshot_history", "{value}");
+    assert_eq!(forecast["confidence"], "medium");
+    assert_eq!(forecast["samples"], 3);
+    assert_eq!(forecast["burn_pct_per_hour"], 10.0);
+    assert_eq!(forecast["exhausts_before_reset"], true);
+    assert_eq!(forecast["source"], "estimated");
+    assert!(forecast["reason"].is_null());
+    let projected = forecast["projected_exhaustion_at"].as_str().unwrap();
+    let projected: chrono::DateTime<Utc> = projected.parse().unwrap();
+    assert_eq!(projected, now + Duration::hours(7));
+
+    let (ok, stdout, stderr) = run_home(
+        &home,
+        &[
+            "limits",
+            "--source",
+            "codex",
+            "--offline",
+            "--no-color",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+        ],
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let text = String::from_utf8_lossy(&stdout);
+    assert!(text.contains("Limit forecast (est.)"), "{text}");
+    assert!(text.contains("10.0%/h est."), "{text}");
+    assert!(text.contains("snapshot_history"), "{text}");
+
+    let (ok, stdout, _) = run_home(
+        &home,
+        &[
+            "watch",
+            "--once",
+            "--source",
+            "codex",
+            "--offline",
+            "--no-color",
+            "--no-cost",
+            "--warn-pct",
+            "0",
+        ],
+    );
+    assert!(ok);
+    let text = String::from_utf8_lossy(&stdout);
+    assert!(text.contains("pace 10.0%/h est."), "{text}");
+    assert!(
+        text.contains("warning: codex weekly projected to run out before reset"),
+        "{text}"
+    );
+    let (ok, stdout, _) = run_home(
+        &home,
+        &[
+            "watch",
+            "--once",
+            "--json",
+            "--source",
+            "codex",
+            "--offline",
+            "--no-cost",
+            "--warn-pct",
+            "0",
+        ],
+    );
+    assert!(ok);
+    let value: Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(value["exhaustion_warning"], true);
+
+    fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn limits_claude_forecast_is_null_with_reason_when_history_is_too_short() {
+    let home = unique_temp_dir("limits-claude-forecast-null");
+    let data = home.join("data");
+    let envs = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
+    let now = Utc::now().with_nanosecond(0).unwrap();
+    let five_reset = now + Duration::hours(5) - Duration::minutes(5);
+    let snapshot = json!({
+        "captured_at": now.to_rfc3339_opts(SecondsFormat::Secs, true),
+        "version": null,
+        "five_hour": {"used_percentage": 3.0, "resets_at": five_reset.timestamp()},
+        "seven_day": null,
+    });
+    write_file(
+        &data.join("ccstats/quota/claude.jsonl"),
+        &format!("{snapshot}\n"),
+    );
+
+    let (ok, stdout, stderr) = run_ccstats(
+        &[
+            "limits",
+            "--source",
+            "claude",
+            "--json",
+            "--offline",
+            "--no-cost",
+        ],
+        &envs,
+    );
+    assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
+    let value: Value = serde_json::from_slice(&stdout).unwrap();
+    let window = value["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["window"] == "five_hour")
+        .unwrap();
+    let forecast = &window["forecast"];
+    assert_eq!(forecast["reason"], "insufficient_history", "{value}");
+    assert!(forecast["burn_pct_per_hour"].is_null());
+    assert!(forecast["projected_exhaustion_at"].is_null());
+    assert!(forecast["exhausts_before_reset"].is_null());
+
+    let (ok, stdout, _) = run_ccstats(
+        &[
+            "limits",
+            "--source",
+            "claude",
+            "--offline",
+            "--no-color",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+        ],
+        &envs,
+    );
+    assert!(ok);
+    let text = String::from_utf8_lossy(&stdout);
+    assert!(text.contains("unknown (insufficient history)"), "{text}");
+
+    fs::remove_dir_all(home).unwrap();
+}

@@ -71,12 +71,14 @@ pub use catalog::{
 pub use sdk::{
     ApiEquivalentCostCoverage, CodexModelTokenEstimate, CodexQuotaError, CodexQuotaStatus,
     CodexWeeklyQuota, CodexWeeklyValueError, CodexWeeklyValueEstimate, CodexWeeklyValueWindow,
-    CodexWeeklyValueWindowError, CostSummary, CurrentUsageWindow, GrokApiEquivalentCostSummary,
-    ModelCostSummary, MultiCostSummary, MultiSummaryOptions, SdkError, SummaryOptions,
+    CodexWeeklyValueWindowError, CostSummary, CurrentUsageWindow, ForecastBasis,
+    ForecastConfidence, ForecastInput, ForecastReason, GrokApiEquivalentCostSummary, LimitForecast,
+    ModelCostSummary, MultiCostSummary, MultiSummaryOptions, QuotaSample, SdkError, SummaryOptions,
     TokenBreakdown, UsageRange, UsageSource, current_usage_date_with_cli_config,
     current_usage_windows_with_cli_config, estimate_codex_weekly_value,
-    estimate_codex_weekly_value_for_window, load_codex_weekly_quota, summarize_cost,
-    summarize_cost_ranges, summarize_cost_ranges_with_cli_config, summarize_cost_with_cli_config,
+    estimate_codex_weekly_value_for_window, forecast_limit, load_codex_weekly_quota,
+    summarize_cost, summarize_cost_ranges, summarize_cost_ranges_with_cli_config,
+    summarize_cost_with_cli_config,
 };
 pub use source::session_titles::{SessionTitle, SessionTitleOrigin, load_session_titles};
 

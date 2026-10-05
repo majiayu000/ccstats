@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 
+use super::forecast::QuotaSample;
 use super::hook::{ClaudeHook, RateWindow};
 use crate::utils::paths as dirs;
 
@@ -47,15 +48,10 @@ impl ClaudeQuotaState {
             > STALE_AFTER
     }
 
-    pub(crate) fn burn_pct_per_hour(&self, five_hour: bool) -> Option<f64> {
-        let latest = self.latest()?;
-        let current_window = if five_hour {
-            latest.five_hour.as_ref()
-        } else {
-            latest.seven_day.as_ref()
-        }?;
-        let points: Vec<(DateTime<Utc>, f64)> = self
-            .snapshots
+    /// Recorded official observations of one window, each tagged with the
+    /// reset time it reported, for burn-rate forecasting.
+    pub(crate) fn samples(&self, five_hour: bool) -> Vec<QuotaSample> {
+        self.snapshots
             .iter()
             .filter_map(|snap| {
                 let window = if five_hour {
@@ -63,42 +59,15 @@ impl ClaudeQuotaState {
                 } else {
                     snap.seven_day.as_ref()
                 }?;
-                if window.resets_at != current_window.resets_at {
-                    return None;
-                }
-                Some((snap.captured_at, window.used_percentage?))
+                Some(QuotaSample::new(
+                    snap.captured_at,
+                    window.used_percentage?,
+                    window
+                        .resets_at
+                        .and_then(|reset| DateTime::from_timestamp(reset, 0)),
+                ))
             })
-            .collect();
-        if points.len() < 2 {
-            return None;
-        }
-        let (t0, p0) = points[0];
-        let (t1, p1) = points[points.len() - 1];
-        let hours = t1.signed_duration_since(t0).num_seconds() as f64 / 3600.0;
-        if hours <= 0.0 {
-            return None;
-        }
-        let rate = (p1 - p0) / hours;
-        rate.is_finite().then_some(rate)
-    }
-
-    pub(crate) fn time_to_exhaustion(&self, five_hour: bool) -> Option<Duration> {
-        let latest = self.latest()?;
-        let window = if five_hour {
-            latest.five_hour.as_ref()
-        } else {
-            latest.seven_day.as_ref()
-        }?;
-        let used = window.used_percentage?;
-        let burn = self.burn_pct_per_hour(five_hour)?;
-        if burn <= 0.0 || used >= 100.0 {
-            return None;
-        }
-        let hours = (100.0 - used) / burn;
-        if !hours.is_finite() || hours < 0.0 {
-            return None;
-        }
-        Some(Duration::from_secs_f64(hours * 3600.0))
+            .collect()
     }
 }
 
@@ -189,78 +158,50 @@ mod tests {
     use super::*;
     use crate::quota::hook::parse_claude_hook;
 
+    fn snapshot(at: DateTime<Utc>, five: Option<RateWindow>) -> ClaudeQuotaSnapshot {
+        ClaudeQuotaSnapshot {
+            captured_at: at,
+            version: None,
+            five_hour: five,
+            seven_day: None,
+        }
+    }
+
     #[test]
-    fn burn_rate_and_stale() {
+    fn samples_and_stale() {
         let t0 = DateTime::from_timestamp(1_000_000, 0).unwrap();
         let t1 = t0 + chrono::Duration::hours(2);
         let state = ClaudeQuotaState {
             snapshots: vec![
-                ClaudeQuotaSnapshot {
-                    captured_at: t0,
-                    version: None,
-                    five_hour: Some(RateWindow {
+                snapshot(
+                    t0,
+                    Some(RateWindow {
                         used_percentage: Some(10.0),
-                        resets_at: None,
+                        resets_at: Some(1_020_000),
                     }),
-                    seven_day: None,
-                },
-                ClaudeQuotaSnapshot {
-                    captured_at: t1,
-                    version: None,
-                    five_hour: Some(RateWindow {
-                        used_percentage: Some(20.0),
-                        resets_at: None,
+                ),
+                snapshot(
+                    t1,
+                    Some(RateWindow {
+                        used_percentage: None,
+                        resets_at: Some(1_020_000),
                     }),
-                    seven_day: None,
-                },
+                ),
+                snapshot(t1, None),
             ],
         };
-        assert_eq!(state.burn_pct_per_hour(true), Some(5.0));
+        let samples = state.samples(true);
+        assert_eq!(
+            samples,
+            vec![QuotaSample::new(
+                t0,
+                10.0,
+                DateTime::from_timestamp(1_020_000, 0)
+            )]
+        );
+        assert!(state.samples(false).is_empty());
         assert!(!state.is_stale(t1 + chrono::Duration::minutes(1)));
         assert!(state.is_stale(t1 + chrono::Duration::minutes(11)));
-    }
-
-    #[test]
-    fn burn_rate_and_exhaustion_use_each_current_reset_window() {
-        let t0 = DateTime::from_timestamp(1_000_000, 0).unwrap();
-        for reset_five_hour in [true, false] {
-            let snapshots = [80.0, 10.0, 20.0]
-                .into_iter()
-                .enumerate()
-                .map(|(index, used)| {
-                    let current = index > 0;
-                    let reset_window = RateWindow {
-                        used_percentage: Some(used),
-                        resets_at: Some(if current { 1_020_000 } else { 1_002_000 }),
-                    };
-                    let unchanged_window = RateWindow {
-                        used_percentage: Some(40.0 + index as f64 * 2.0),
-                        resets_at: Some(1_600_000),
-                    };
-                    let (five_hour, seven_day) = if reset_five_hour {
-                        (reset_window, unchanged_window)
-                    } else {
-                        (unchanged_window, reset_window)
-                    };
-                    ClaudeQuotaSnapshot {
-                        captured_at: t0 + chrono::Duration::hours(index as i64),
-                        version: None,
-                        five_hour: Some(five_hour),
-                        seven_day: Some(seven_day),
-                    }
-                })
-                .collect();
-            let mut state = ClaudeQuotaState { snapshots };
-            assert_eq!(state.burn_pct_per_hour(reset_five_hour), Some(10.0));
-            assert_eq!(state.burn_pct_per_hour(!reset_five_hour), Some(2.0));
-            assert_eq!(
-                state.time_to_exhaustion(reset_five_hour),
-                Some(Duration::from_secs(8 * 3600))
-            );
-            state.snapshots.pop();
-            assert_eq!(state.burn_pct_per_hour(reset_five_hour), None);
-            assert_eq!(state.time_to_exhaustion(reset_five_hour), None);
-        }
     }
 
     #[test]

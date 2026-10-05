@@ -2,13 +2,17 @@ use crate::app::{CommandContext, print_json};
 use crate::output::{
     OutputFormat, QuotaValueEstimate, output_quota_csv, output_quota_json, print_quota_table,
 };
+use crate::quota::QuotaSample;
 use crate::sdk::{
     CodexWeeklyValueError, CodexWeeklyValueEstimate, estimate_codex_weekly_value_with_pricing,
 };
-use crate::source::{CodexQuotaError, CodexWeeklyQuota, load_weekly_quota};
+use crate::source::{
+    CodexQuotaError, CodexQuotaObservation, CodexWeeklyQuota, load_weekly_quota_observation,
+};
 
 pub(crate) struct LoadedQuota {
     pub report: CodexWeeklyQuota,
+    pub history: Vec<QuotaSample>,
     pub value_estimate: Option<Result<CodexWeeklyValueEstimate, CodexWeeklyValueError>>,
 }
 
@@ -19,13 +23,14 @@ impl LoadedQuota {
 }
 
 pub(crate) fn load_quota(ctx: &CommandContext<'_>) -> Result<LoadedQuota, CodexQuotaError> {
-    let report = load_weekly_quota()?;
+    let CodexQuotaObservation { report, history } = load_weekly_quota_observation()?;
     let value_estimate = ctx
         .cli
         .show_cost()
         .then(|| estimate_codex_weekly_value_with_pricing(&report, None, ctx.pricing_db));
     Ok(LoadedQuota {
         report,
+        history,
         value_estimate,
     })
 }

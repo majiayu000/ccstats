@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::parser::codex_sessions_dir_candidate;
+use crate::quota::QuotaSample;
 
 const WEEKLY_WINDOW_MINUTES: i64 = 7 * 24 * 60;
 const DISCOVERY_MARGIN_MINUTES: i64 = 24 * 60;
@@ -158,13 +159,27 @@ struct RateLimitWindow {
     resets_at: i64,
 }
 
-pub(crate) fn load_weekly_quota() -> Result<CodexWeeklyQuota, CodexQuotaError> {
-    load_weekly_quota_from_home(None)
+/// The current weekly quota plus the newest snapshot of each recent session
+/// file in the same reset window, for burn-rate forecasting.
+#[derive(Debug, Clone)]
+pub(crate) struct CodexQuotaObservation {
+    pub report: CodexWeeklyQuota,
+    pub history: Vec<QuotaSample>,
+}
+
+pub(crate) fn load_weekly_quota_observation() -> Result<CodexQuotaObservation, CodexQuotaError> {
+    load_weekly_quota_observation_from_home(None)
 }
 
 pub(crate) fn load_weekly_quota_from_home(
     codex_home: Option<&Path>,
 ) -> Result<CodexWeeklyQuota, CodexQuotaError> {
+    load_weekly_quota_observation_from_home(codex_home).map(|observation| observation.report)
+}
+
+fn load_weekly_quota_observation_from_home(
+    codex_home: Option<&Path>,
+) -> Result<CodexQuotaObservation, CodexQuotaError> {
     let explicit_home = codex_home.is_some();
     let sessions_dir = if let Some(codex_home) = codex_home {
         codex_home.join("sessions")
@@ -245,10 +260,22 @@ pub(super) fn discover_quota_files(sessions_dir: &Path) -> Result<Vec<PathBuf>, 
 fn load_weekly_quota_from_files_at(
     files: Vec<PathBuf>,
     now: DateTime<Utc>,
-) -> Result<CodexWeeklyQuota, CodexQuotaError> {
+) -> Result<CodexQuotaObservation, CodexQuotaError> {
     let files = recent_codex_files(files, now)?;
-    let latest = latest_snapshot_in_files(files)?.ok_or(CodexQuotaError::SnapshotNotFound)?;
-    build_report(&latest, now)
+    let snapshots = file_snapshots(files)?;
+    let latest = newest_snapshot(&snapshots).ok_or(CodexQuotaError::SnapshotNotFound)?;
+    let report = build_report(latest, now)?;
+    let history = snapshots
+        .iter()
+        .map(|snapshot| {
+            QuotaSample::new(
+                snapshot.observed_at,
+                snapshot.used_pct,
+                Some(snapshot.resets_at),
+            )
+        })
+        .collect();
+    Ok(CodexQuotaObservation { report, history })
 }
 
 pub(super) fn recent_codex_files(
@@ -303,18 +330,25 @@ fn session_path_date(path: &Path) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
 }
 
-fn latest_snapshot_in_files(files: Vec<PathBuf>) -> Result<Option<QuotaSnapshot>, CodexQuotaError> {
-    let mut latest: Option<QuotaSnapshot> = None;
+/// The newest weekly snapshot of each file that has one.
+fn file_snapshots(files: Vec<PathBuf>) -> Result<Vec<QuotaSnapshot>, CodexQuotaError> {
+    let mut snapshots = Vec::new();
     for path in files {
-        if let Some(snapshot) = latest_snapshot_in_file(&path)?
-            && latest
-                .as_ref()
-                .is_none_or(|current| snapshot.observed_at > current.observed_at)
-        {
-            latest = Some(snapshot);
+        if let Some(snapshot) = latest_snapshot_in_file(&path)? {
+            snapshots.push(snapshot);
         }
     }
-    Ok(latest)
+    Ok(snapshots)
+}
+
+fn newest_snapshot(snapshots: &[QuotaSnapshot]) -> Option<&QuotaSnapshot> {
+    snapshots.iter().reduce(|newest, item| {
+        if item.observed_at > newest.observed_at {
+            item
+        } else {
+            newest
+        }
+    })
 }
 
 fn latest_snapshot_in_file(path: &Path) -> Result<Option<QuotaSnapshot>, CodexQuotaError> {
@@ -595,7 +629,8 @@ mod tests {
             utc("2026-08-22T00:00:00Z"),
         )
         .unwrap();
-        let snapshot = latest_snapshot_in_files(files).unwrap().unwrap();
+        let snapshots = file_snapshots(files).unwrap();
+        let snapshot = newest_snapshot(&snapshots).unwrap();
 
         assert_eq!(snapshot.observed_at, utc("2026-08-21T10:00:00Z"));
         assert_close(snapshot.used_pct, 40.0);

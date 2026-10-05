@@ -3,7 +3,7 @@
 North star: **the most accurate local AI coding ledger, and one that can tell you how much is left.**
 
 Keep: provenance (`Real` / `EstimatedProxy` / unknown is never a silent zero).
-Fill: official quotas, burn rate, incremental parse performance, a reusable parse layer.
+Fill: official quotas, burn rate (done: per-window `forecast` in `limits` / `watch` / `serve`), incremental parse performance, a reusable parse layer.
 Do not chase source count or leaderboards.
 
 ## Phase 4 decision (2026-09-17)
