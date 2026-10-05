@@ -36,6 +36,7 @@ mod endpoints_cmd;
 mod error;
 mod limits_cmd;
 mod login_cmd;
+mod mcp_cmd;
 mod output;
 mod pricing;
 mod quota;
@@ -228,7 +229,10 @@ fn resolve_source_name<'a>(
     if source_cmd == SourceCommand::Limits
         || matches!(
             source_cmd,
-            SourceCommand::Watch { .. } | SourceCommand::Verify | SourceCommand::Serve
+            SourceCommand::Watch { .. }
+                | SourceCommand::Verify
+                | SourceCommand::Serve
+                | SourceCommand::Mcp
         )
     {
         return Some(source_override.unwrap_or(ALL_SOURCES));
