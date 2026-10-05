@@ -1,13 +1,16 @@
 # ccstats desktop
 
+> **Deprecated.** This app is no longer built in CI or attached to releases.
+> The GUI/tray surface for ccstats is
+> [QuotaBar](https://github.com/majiayu000/quotabar), which consumes the
+> published ccstats SDK. The code below is kept for reference only.
+
 The desktop app is a local investigation surface over the same source registry
 and summary APIs as the CLI. It does not upload transcripts or substitute mock
 data when a source fails.
 
-Production installers (DMG, MSI, AppImage) are attached to
-[GitHub Releases](https://github.com/majiayu000/ccstats/releases). Download
-those if you only want to run the app. This file is for from-source development
-and local packaging.
+No production installers are published. This file is for from-source
+development and local packaging.
 
 ## Prerequisites
 
@@ -51,9 +54,8 @@ npm ci
 npm run tauri -- build
 ```
 
-macOS produces a DMG, Windows an MSI, and Linux an AppImage. Production
-macOS DMGs are signed and notarized; Windows MSIs ship unsigned. See
-[docs/RELEASING.md](../docs/RELEASING.md) for GitHub Release artifacts.
+macOS produces a DMG, Windows an MSI, and Linux an AppImage. Local builds are
+unsigned.
 
 ## Tests
 

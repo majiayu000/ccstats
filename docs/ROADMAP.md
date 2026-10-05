@@ -8,15 +8,14 @@ Do not chase source count or leaderboards.
 
 ## Phase 4 decision (2026-09-17)
 
-**B first: TUI / `ccstats watch`, then a signed desktop tray.**
+**B first: TUI / `ccstats watch`. The GUI/tray surface is
+[QuotaBar](https://github.com/majiayu000/quotabar).**
 
-Developer ID and App Store Connect notarization secrets are now configured.
-Desktop GitHub Releases fail closed without them:
-
-- CLI + `ccstats watch` remains the real-time surface.
-- macOS desktop installers on a `v*` tag are Developer ID signed and notarized.
-- Windows desktop GitHub Releases ship an unsigned MSI.
-- A tray/menu-bar app (option A) can follow after watch is solid.
+- ccstats stays CLI + `ccstats watch` + SDK + `ccstats serve`.
+- QuotaBar is the only GUI. It is a separate menu-bar app that consumes the
+  published ccstats SDK.
+- The ccstats desktop app under `desktop/` is deprecated. Its code stays in the
+  repository, but it is no longer built in CI or attached to releases.
 
 ## Sequence
 

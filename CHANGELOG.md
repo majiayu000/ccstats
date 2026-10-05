@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Deprecate the ccstats desktop app: the release workflow no longer builds, signs, notarizes, or attaches desktop installers, and CI no longer builds or tests `desktop/`. QuotaBar (https://github.com/majiayu000/quotabar) is the GUI/tray surface; ccstats stays CLI + `watch` + SDK + `serve`. The `desktop/` code stays in the repository.
+
 ## [0.9.1] - 2026-09-26
 
 ### Fixed
