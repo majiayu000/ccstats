@@ -66,12 +66,11 @@ cargo install ccstats
 curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh | sh
 ```
 
-Desktop installers on [GitHub Releases](https://github.com/majiayu000/ccstats/releases)
-are Developer ID signed and notarized on macOS. Missing Apple secrets fail
-the release instead of shipping an ad-hoc DMG. Windows MSIs ship unsigned
-(SmartScreen: More info → Run anyway). The supported real-time
-surface is the CLI (`ccstats watch`). Packaging notes:
-[docs/RELEASING.md](docs/RELEASING.md), [desktop/README.md](desktop/README.md).
+The supported real-time surface is the CLI (`ccstats watch`). For a
+menu-bar GUI, use [QuotaBar](https://github.com/majiayu000/quotabar), a
+separate app built on the ccstats SDK. The old ccstats desktop app under
+`desktop/` is deprecated and no longer released. Packaging notes:
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## Usage
 

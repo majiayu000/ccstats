@@ -1,57 +1,15 @@
 # Releasing ccstats
 
-Releases are tag-driven. A successful release builds CLI binaries and desktop
-installers in parallel, publishes the crate, then creates the GitHub Release
-and updates the Homebrew formula. Crate publish waits for both CLI and desktop
-artifacts so a failed installer build cannot ship a crate without matching
-GitHub assets. Homebrew still waits for the crates.io `.crate` to exist.
+Releases are tag-driven. A successful release builds CLI binaries,
+publishes the crate, then creates the GitHub Release and updates the Homebrew
+formula. Crate publish waits for every CLI build so a failed platform build
+cannot ship a crate without matching GitHub assets. Homebrew still waits for
+the crates.io `.crate` to exist.
 
-## Desktop installers
-
-The same `v*` tag also builds desktop installers and attaches them to the
-GitHub Release:
-
-- macOS: `ccstats-desktop-aarch64-apple-darwin.dmg` and
-  `ccstats-desktop-x86_64-apple-darwin.dmg`
-- Windows: `ccstats-desktop-x86_64-pc-windows-msvc.msi`
-- Linux: `ccstats-desktop-x86_64-unknown-linux-gnu.AppImage` and
-  `ccstats-desktop-aarch64-unknown-linux-gnu.AppImage`
-
-Each installer has a matching `.sha256` sidecar. macOS desktop releases are
-fail-closed: they require a Developer ID Application certificate and App Store
-Connect API-key notarization. Tauri notarizes the `.app`; the workflow then
-submits the signed DMG to `notarytool`, staples the ticket, and checks
-Gatekeeper with `stapler validate` and `spctl --assess`. Windows MSIs ship
-unsigned. SmartScreen may show “Windows protected your PC”; choose More info
-→ Run anyway. A partial Apple credential set fails the release instead of
-silently falling back to an ad-hoc DMG.
-
-Configure these GitHub Actions secrets before pushing a macOS release tag:
-
-- `APPLE_CERTIFICATE`: base64-encoded Developer ID Application `.p12` from your own Apple Developer team
-- `APPLE_CERTIFICATE_PASSWORD`: password for that `.p12`
-- `APPLE_SIGNING_IDENTITY`: `Developer ID Application: Your Name (TEAMID)`
-- `APPLE_API_KEY`: App Store Connect API key ID
-- `APPLE_API_ISSUER`: App Store Connect API issuer ID
-- `APPLE_API_KEY_CONTENT`: base64-encoded App Store Connect `.p8` private key
-
-Rotate an Apple certificate by replacing its certificate and password secrets
-before the old certificate expires, then verify the next release with
-`codesign`. Revoke the old certificate after verification.
-Certificate contents and passwords must never be committed or printed in logs.
-Verify the matching `.sha256` file before choosing an operating-system
-override.
-
-Contributors can build unsigned packages locally without release credentials:
-
-```bash
-cd desktop
-npm ci
-npm run tauri -- build
-```
-
-Do not enable app sandboxing. The desktop app reads local agent logs under the
-user home directory.
+The ccstats desktop app under `desktop/` is deprecated and is not built or
+attached to releases. The GUI surface is
+[QuotaBar](https://github.com/majiayu000/quotabar), released from its own
+repository.
 
 ## One-time crates.io setup
 
@@ -73,10 +31,8 @@ The existing `HOMEBREW_TAP_TOKEN` secret must retain permission to update
 
 ## Release checklist
 
-1. Update the version in `Cargo.toml`, `Cargo.lock`, `desktop/package.json`,
-   `desktop/package-lock.json`, `desktop/src-tauri/Cargo.toml`,
-   `desktop/src-tauri/Cargo.lock`, and `desktop/src-tauri/tauri.conf.json`.
-   `scripts/check-release.sh` rejects a tag if any of these drift.
+1. Update the version in `Cargo.toml` and `Cargo.lock`.
+   `scripts/check-release.sh` rejects a tag if they drift.
 2. Move the relevant entries from `Unreleased` into a dated version section in
    `CHANGELOG.md`.
 3. Run the same preflight checks used by CI:
@@ -88,14 +44,10 @@ The existing `HOMEBREW_TAP_TOKEN` secret must retain permission to update
    cargo deny check
    cargo publish --dry-run --locked
    scripts/check-release.sh
-   python3 scripts/stage-desktop-artifacts.py --self-test
    ```
 
 4. Create and push the matching tag, for example `v0.5.1` for version `0.5.1`.
-5. Confirm every job in the Release workflow succeeds. The macOS job is
-   fail-closed: it requires Developer ID signing, App Store Connect
-   notarization of both the `.app` and the DMG, then `stapler validate` and
-   Gatekeeper assessment. Windows publishes an unsigned MSI.
+5. Confirm every job in the Release workflow succeeds.
 
 ## Public verification
 
@@ -112,8 +64,7 @@ cargo binstall ccstats --no-confirm
 ccstats --version
 ```
 
-Confirm the GitHub Release includes both CLI archives and the five desktop
-installers plus checksums.
+Confirm the GitHub Release includes every CLI archive plus checksums.
 
 crates.io indexing and Homebrew tap updates can lag briefly. The published
 version, release assets, and formula must all agree before announcing a
