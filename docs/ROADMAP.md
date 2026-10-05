@@ -29,9 +29,17 @@ Phase 0 (repo hygiene) ──▶ Phase 1 (usage-facts cache)
 
 Phase 2a (statusline stdin) does not depend on the cache.
 
+## Device sync (2026-10)
+
+**Done:** `ccstats sync push|status` and `--devices all|this|<label>` combine
+devices through a user-chosen sync directory. No cloud service, no network:
+aggregate `date × source × model` files only. Sessions, projects, and blocks
+stay per device.
+
 ## Explicitly out of scope
 
 - 50+ sources or public rankings
 - LLM summaries inside the CLI
 - Reading Cursor local SQLite credentials
 - Writing estimates as if they were billed cost
+- A hosted sync service or account for multi-device rollups

@@ -120,6 +120,25 @@ Common flags: `--json`, `--csv`, `--offline` / `-O`, `--strict-pricing`,
 `--source all` includes per-source subtotals; `--no-source-breakdown`
 keeps a single combined table/array.
 
+## Multiple devices
+
+Combine laptop and desktop usage through a folder you already sync (iCloud
+Drive, Dropbox, Syncthing, a NAS). ccstats only reads and writes plain files
+there; it never contacts a sync service.
+
+```bash
+# on each device (or set sync_dir / device_label in config.toml)
+ccstats sync push --sync-dir ~/Dropbox/ccstats-sync
+ccstats sync status --sync-dir ~/Dropbox/ccstats-sync
+ccstats daily --devices all --sync-dir ~/Dropbox/ccstats-sync
+```
+
+`push` is explicit: reports never write to the sync folder, so rerun it (or
+schedule it) to refresh a device's file. `--devices` accepts `this` (default),
+`all`, or a device label and applies to `daily`, `weekly`, `monthly`, and
+`today`. Each file holds only per-day × source × model token facts; see
+[docs/PRIVACY.md](docs/PRIVACY.md#device-sync).
+
 ## Rust SDK
 
 Claude Code and Codex native parsing is shared through `agent-sessions`.

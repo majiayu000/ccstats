@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - `ccstats mcp`: a read-only Model Context Protocol server on stdio with `get_limits`, `get_usage_summary`, and `doctor` tools, so coding agents can check remaining quota before heavy work. See `docs/mcp.md`.
+- `ccstats sync push|status` and `--devices all|this|<label>` combine usage from several machines through a user-chosen sync directory (`--sync-dir`, `CCSTATS_SYNC_DIR`, or config `sync_dir`). Files hold only per-day source/model token facts; ccstats makes no network request for sync.
 
 ## [0.9.1] - 2026-09-26
 

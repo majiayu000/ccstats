@@ -104,6 +104,23 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         target: LoginTarget,
     },
+    /// Share aggregate usage with your other devices through a sync directory
+    ///
+    /// ccstats only reads and writes plain files under `--sync-dir`; a folder
+    /// synced by iCloud Drive, Dropbox, Syncthing, or a NAS moves them.
+    Sync {
+        #[command(subcommand)]
+        command: SyncCommands,
+    },
+}
+
+/// Device sync actions.
+#[derive(Subcommand)]
+pub(crate) enum SyncCommands {
+    /// Write this device's aggregate usage file into the sync directory
+    Push,
+    /// List device files found in the sync directory
+    Status,
 }
 
 /// Credential wizard targets. Nested under `login` so sources do not grow a
@@ -290,7 +307,8 @@ impl From<&Commands> for SourceCommand {
             Commands::Codex { .. }
             | Commands::Grok { .. }
             | Commands::Kimi { .. }
-            | Commands::Login { .. } => SourceCommand::Daily, // Default, handled separately
+            | Commands::Login { .. }
+            | Commands::Sync { .. } => SourceCommand::Daily, // Default, handled separately
         }
     }
 }

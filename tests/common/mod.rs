@@ -4,6 +4,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SOURCE_ENV_VARS: &[&str] = &[
+    "CCSTATS_SYNC_DIR",
     "CLAUDE_CONFIG_DIR",
     "CODEX_HOME",
     "CURSOR_HOME",
