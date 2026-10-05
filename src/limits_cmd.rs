@@ -6,12 +6,14 @@ use crate::output::{
     output_limits_json, print_limits_table,
 };
 use crate::pricing::sum_model_costs;
-use crate::quota::load_claude_quota_state;
+use crate::quota::{
+    ForecastInput, LimitForecast, QuotaSample, forecast_limit, load_claude_quota_state,
+};
 use crate::quota_cmd::{LoadedQuota, load_quota};
 use crate::source::{
     ALL_SOURCES, CursorPlanUsage, fetch_cursor_plan_usage, get_source, load_blocks,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LimitsScope {
@@ -78,8 +80,37 @@ fn window(
         source: source.to_string(),
         stale,
         value_estimate_usd: None,
-        burn_pct_per_hour: None,
+        forecast: LimitForecast::missing_used_pct(),
     }
+}
+
+/// Window inputs for [`forecast_limit`] beyond the latest used percentage.
+struct ForecastContext<'a> {
+    observed_at: DateTime<Utc>,
+    resets_at: Option<DateTime<Utc>>,
+    window_start: Option<DateTime<Utc>>,
+    history: &'a [QuotaSample],
+}
+
+fn forecast(
+    used_pct: Option<f64>,
+    context: &ForecastContext<'_>,
+    now: DateTime<Utc>,
+) -> LimitForecast {
+    forecast_limit(&ForecastInput::new(
+        used_pct,
+        context.observed_at,
+        context.resets_at,
+        context.window_start,
+        context.history,
+        now,
+    ))
+}
+
+fn parse_rfc3339(value: Option<&str>) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value?)
+        .ok()
+        .map(|at| at.with_timezone(&Utc))
 }
 
 pub(crate) fn collect_limits(
@@ -143,16 +174,9 @@ pub(crate) fn collect_limits(
     }
 
     let mut windows = Vec::new();
-    extend_codex_windows(&mut windows, loaded_quota.as_ref());
-    extend_claude_windows(
-        &mut windows,
-        &mut notes,
-        want_claude,
-        &claude_blocks,
-        ctx,
-        now,
-    );
-    extend_cursor_windows(&mut windows, cursor.as_ref());
+    extend_codex_windows(&mut windows, loaded_quota.as_ref(), now);
+    extend_claude_windows(&mut windows, want_claude, &claude_blocks, ctx, now);
+    extend_cursor_windows(&mut windows, cursor.as_ref(), now);
 
     Ok(LimitsSnapshot {
         want_codex,
@@ -168,10 +192,15 @@ pub(crate) fn collect_limits(
     })
 }
 
-fn extend_codex_windows(windows: &mut Vec<LimitWindow>, loaded: Option<&LoadedQuota>) {
+fn extend_codex_windows(
+    windows: &mut Vec<LimitWindow>,
+    loaded: Option<&LoadedQuota>,
+    now: DateTime<Utc>,
+) {
     let Some(loaded) = loaded else {
         return;
     };
+    let report = &loaded.report;
     let mut row = window(
         "codex",
         "weekly",
@@ -190,12 +219,21 @@ fn extend_codex_windows(windows: &mut Vec<LimitWindow>, loaded: Option<&LoadedQu
         .as_ref()
         .and_then(|result| result.as_ref().ok())
         .map(|estimate| estimate.estimated_weekly_value_usd);
+    row.forecast = forecast(
+        Some(report.used_pct),
+        &ForecastContext {
+            observed_at: report.observed_at,
+            resets_at: Some(report.resets_at),
+            window_start: Some(report.resets_at - Duration::minutes(report.window_minutes)),
+            history: &loaded.history,
+        },
+        now,
+    );
     windows.push(row);
 }
 
 fn extend_claude_windows(
     windows: &mut Vec<LimitWindow>,
-    notes: &mut Vec<String>,
     want_claude: bool,
     claude_blocks: &[BlockStats],
     ctx: &CommandContext<'_>,
@@ -207,35 +245,41 @@ fn extend_claude_windows(
     let quota_state = load_claude_quota_state();
     let stale = quota_state.is_stale(now);
     let claude_active = select_active_block(claude_blocks, now);
-    if let Some(tte) = quota_state.time_to_exhaustion(true) {
-        notes.push(format!(
-            "Claude 5h time-to-exhaustion ~{}m at current burn",
-            tte.as_secs() / 60
-        ));
-    }
     if let Some(latest) = quota_state.latest() {
-        if let Some(five) = &latest.five_hour {
+        for (name, five_hour, length) in [
+            ("five_hour", true, Duration::hours(5)),
+            ("seven_day", false, Duration::days(7)),
+        ] {
+            let current = if five_hour {
+                latest.five_hour.as_ref()
+            } else {
+                latest.seven_day.as_ref()
+            };
+            let Some(current) = current else {
+                continue;
+            };
+            let resets_at = current
+                .resets_at
+                .and_then(|reset| DateTime::from_timestamp(reset, 0));
             let mut row = window(
                 "claude",
-                "five_hour",
-                five.used_percentage,
-                five.resets_at.and_then(timestamp_secs),
+                name,
+                current.used_percentage,
+                current.resets_at.and_then(timestamp_secs),
                 "official",
                 stale,
             );
-            row.burn_pct_per_hour = quota_state.burn_pct_per_hour(true);
-            windows.push(row);
-        }
-        if let Some(seven) = &latest.seven_day {
-            let mut row = window(
-                "claude",
-                "seven_day",
-                seven.used_percentage,
-                seven.resets_at.and_then(timestamp_secs),
-                "official",
-                stale,
+            let history = quota_state.samples(five_hour);
+            row.forecast = forecast(
+                current.used_percentage,
+                &ForecastContext {
+                    observed_at: latest.captured_at,
+                    resets_at,
+                    window_start: resets_at.map(|reset| reset - length),
+                    history: &history,
+                },
+                now,
             );
-            row.burn_pct_per_hour = quota_state.burn_pct_per_hour(false);
             windows.push(row);
         }
     }
@@ -262,18 +306,35 @@ fn extend_claude_windows(
     }
 }
 
-fn extend_cursor_windows(windows: &mut Vec<LimitWindow>, plan: Option<&CursorPlanUsage>) {
+fn extend_cursor_windows(
+    windows: &mut Vec<LimitWindow>,
+    plan: Option<&CursorPlanUsage>,
+    now: DateTime<Utc>,
+) {
     let Some(plan) = plan else {
         return;
     };
-    windows.push(window(
+    let mut row = window(
         "cursor",
         "billing_cycle",
         plan.used_pct,
         plan.billing_cycle_end.clone(),
         "official",
         false,
-    ));
+    );
+    // Cursor plan usage is fetched live and not persisted, so only the
+    // billing-cycle average is available.
+    row.forecast = forecast(
+        plan.used_pct,
+        &ForecastContext {
+            observed_at: now,
+            resets_at: parse_rfc3339(plan.billing_cycle_end.as_deref()),
+            window_start: parse_rfc3339(plan.billing_cycle_start.as_deref()),
+            history: &[],
+        },
+        now,
+    );
+    windows.push(row);
 }
 
 impl LimitsSnapshot {
@@ -323,6 +384,13 @@ impl LimitsSnapshot {
                 && window
                     .used_pct
                     .is_some_and(|pct| pct.is_finite() && pct >= warn_pct)
+        })
+    }
+
+    /// Official windows projected to reach 100% before they reset.
+    pub(crate) fn exhausting_before_reset(&self) -> impl Iterator<Item = &LimitWindow> {
+        self.windows.iter().filter(|window| {
+            window.source == "official" && window.forecast.exhausts_before_reset == Some(true)
         })
     }
 

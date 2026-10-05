@@ -54,6 +54,11 @@ lists aliases. Grok and Kimi cost semantics:
 - **Live remaining** — `statusline` reads Claude Code hook JSON on stdin
   (Pro/Max `rate_limits` from 2.1.80+). `limits` and `watch` show official
   windows when present and mark estimates otherwise.
+- **Burn rate** — each official window gets an `est.` pace (%/hour) and
+  run-out time. Claude uses saved statusline snapshots, Codex uses the newest
+  snapshot of each recent session, and Cursor uses the billing-cycle average.
+  If there is too little history, the run-out time stays `unknown` with a
+  reason. ccstats does not make one up.
 - **Local-first** — no telemetry. Network is pricing refresh, FX, and
   Cursor API. See [docs/PRIVACY.md](docs/PRIVACY.md).
 

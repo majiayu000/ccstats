@@ -9,9 +9,10 @@ use serde_json::json;
 use crate::app::{CommandContext, print_json};
 use crate::core::DateFilter;
 use crate::limits_cmd::collect_limits;
-use crate::output::{LimitWindow, format_cost};
+use crate::output::{LimitWindow, format_cost, format_pace, format_runs_out};
 use crate::pricing::sum_model_costs;
 use crate::source::{ALL_SOURCES, Source, all_sources, get_source, load_daily};
+use crate::utils::Timezone;
 
 const REFRESH: Duration = Duration::from_secs(5);
 
@@ -61,6 +62,10 @@ fn render_frame(once: bool, ctx: &CommandContext<'_>) -> Frame {
     let hot = snapshot
         .as_ref()
         .is_some_and(|snap| snap.hot_official(ctx.cli.watch_warn_pct()));
+    let exhausting: Vec<&LimitWindow> = snapshot
+        .as_ref()
+        .map(|snap| snap.exhausting_before_reset().collect())
+        .unwrap_or_default();
 
     let mut text = String::new();
     let _ = writeln!(
@@ -75,8 +80,17 @@ fn render_frame(once: bool, ctx: &CommandContext<'_>) -> Frame {
         text.push_str("No provider windows. Run `ccstats limits` or `ccstats doctor`.\n");
     } else {
         for window in &windows {
-            text.push_str(&format_window_line(window));
+            text.push_str(&format_window_line(window, ctx.timezone));
             text.push('\n');
+        }
+        for window in &exhausting {
+            let _ = writeln!(
+                text,
+                "warning: {} {} projected to run out before reset ({})",
+                window.provider,
+                window.window,
+                format_runs_out(&window.forecast, ctx.timezone)
+            );
         }
     }
     if !once {
@@ -88,6 +102,7 @@ fn render_frame(once: bool, ctx: &CommandContext<'_>) -> Frame {
         "week": cost_json(&week_cost),
         "windows": windows,
         "hot": hot,
+        "exhaustion_warning": !exhausting.is_empty(),
     })
     .to_string();
 
@@ -160,7 +175,7 @@ fn format_period_line(period: &PeriodCost, ctx: &CommandContext<'_>) -> String {
     line
 }
 
-fn format_window_line(window: &LimitWindow) -> String {
+fn format_window_line(window: &LimitWindow, timezone: Timezone) -> String {
     let pct = window.used_pct.unwrap_or(f64::NAN);
     let bar = progress_bar(pct);
     let pct_text = if pct.is_finite() {
@@ -175,12 +190,17 @@ fn format_window_line(window: &LimitWindow) -> String {
     };
     let reset = window.resets_at.as_deref().unwrap_or("");
     let stale = if window.stale { " stale" } else { "" };
-    let burn = window
-        .burn_pct_per_hour
-        .map(|rate| format!("  burn {rate:.1}%/h"))
-        .unwrap_or_default();
+    let forecast = if window.used_pct.is_some() {
+        format!(
+            "  pace {}  runs out {}",
+            format_pace(&window.forecast),
+            format_runs_out(&window.forecast, timezone)
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "{:<7} {:<12} {bar} {pct_text}  {reset}{stale}{burn}",
+        "{:<7} {:<12} {bar} {pct_text}  {reset}{stale}{forecast}",
         window.provider, window.window
     )
 }

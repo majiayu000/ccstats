@@ -43,8 +43,8 @@ pub(crate) use format::{NumberFormat, csv_escape, format_cost};
 pub(crate) use json::output_period_json_with_quality;
 pub(crate) use limits::{
     BOTH_MISSING_HINT, CLAUDE_WINDOW_DISCLAIMER, ClaudeWindowView, CursorPlanView, LimitWindow,
-    LimitsTableOptions, LimitsView, NO_ACTIVE_CLAUDE_WINDOW, output_limits_csv, output_limits_json,
-    print_limits_table,
+    LimitsTableOptions, LimitsView, NO_ACTIVE_CLAUDE_WINDOW, format_pace, format_runs_out,
+    output_limits_csv, output_limits_json, print_limits_table,
 };
 pub(crate) use period::{Period, aggregate_day_stats_by_period, period_key};
 pub(crate) use project::{ProjectTableOptions, output_project_json, print_project_table};

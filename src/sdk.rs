@@ -23,6 +23,10 @@ use crate::source::{
 };
 use crate::utils::Timezone;
 
+pub use crate::quota::{
+    ForecastBasis, ForecastConfidence, ForecastInput, ForecastReason, LimitForecast, QuotaSample,
+    forecast_limit,
+};
 pub use crate::source::{CodexQuotaError, CodexQuotaStatus, CodexWeeklyQuota, UsageSource};
 
 pub use batch::{

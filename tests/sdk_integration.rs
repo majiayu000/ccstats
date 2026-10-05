@@ -4,8 +4,9 @@ use std::sync::Mutex;
 
 use ccstats::{
     CodexQuotaError, CodexQuotaStatus, CodexWeeklyValueError, CodexWeeklyValueWindow,
-    CodexWeeklyValueWindowError, CostSummary, MultiSummaryOptions, SummaryOptions, UsageRange,
-    UsageSource, estimate_codex_weekly_value, estimate_codex_weekly_value_for_window,
+    CodexWeeklyValueWindowError, CostSummary, ForecastBasis, ForecastInput, ForecastReason,
+    MultiSummaryOptions, QuotaSample, SummaryOptions, UsageRange, UsageSource,
+    estimate_codex_weekly_value, estimate_codex_weekly_value_for_window, forecast_limit,
     load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
 };
 use chrono::{Datelike, Days, Duration, NaiveDate, Timelike, Utc};
@@ -957,4 +958,42 @@ fn sdk_exposes_grok_partial_cost_estimate_for_exact_window() {
         batch.summaries[0].grok_api_equivalent_cost,
         summary.grok_api_equivalent_cost
     );
+}
+
+#[test]
+fn sdk_forecasts_limit_exhaustion_from_samples() {
+    let now = Utc::now().with_nanosecond(0).unwrap();
+    let resets_at = now + Duration::hours(3);
+    let history: Vec<QuotaSample> = [(2, 20.0), (1, 40.0)]
+        .into_iter()
+        .map(|(hours_ago, pct)| {
+            QuotaSample::new(now - Duration::hours(hours_ago), pct, Some(resets_at))
+        })
+        .collect();
+    let forecast = forecast_limit(&ForecastInput::new(
+        Some(60.0),
+        now,
+        Some(resets_at),
+        None,
+        &history,
+        now,
+    ));
+    assert_eq!(forecast.basis, Some(ForecastBasis::SnapshotHistory));
+    assert_eq!(forecast.burn_pct_per_hour, Some(20.0));
+    assert_eq!(
+        forecast.projected_exhaustion_at,
+        Some(now + Duration::hours(2))
+    );
+    assert_eq!(forecast.exhausts_before_reset, Some(true));
+
+    let sparse = forecast_limit(&ForecastInput::new(
+        Some(60.0),
+        now,
+        Some(resets_at),
+        None,
+        &[],
+        now,
+    ));
+    assert_eq!(sparse.reason, Some(ForecastReason::InsufficientHistory));
+    assert_eq!(sparse.burn_pct_per_hour, None);
 }
