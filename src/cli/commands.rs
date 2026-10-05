@@ -71,6 +71,8 @@ pub(crate) enum Commands {
         #[arg(long, default_value = "127.0.0.1:17890")]
         bind: String,
     },
+    /// Model Context Protocol server on stdio (read-only limits, usage, doctor)
+    Mcp,
     /// Show tool usage statistics (Read, Bash, Edit, etc.)
     Tools,
     /// Show top N consumers ranked by cost (or tokens when cost is unknown)
@@ -210,6 +212,7 @@ pub(crate) enum SourceCommand {
     Watch { once: bool },
     Verify,
     Serve,
+    Mcp,
     Tools,
     Top { dim: TopDimension, limit: usize },
 }
@@ -244,6 +247,7 @@ impl SourceCommand {
             Self::Watch { .. } => "watch",
             Self::Verify => "verify",
             Self::Serve => "serve",
+            Self::Mcp => "mcp",
             Self::Tools => "tools",
             Self::Top { .. } => "top",
         }
@@ -277,6 +281,7 @@ impl From<&Commands> for SourceCommand {
             Commands::Watch { once, .. } => SourceCommand::Watch { once: *once },
             Commands::Verify => SourceCommand::Verify,
             Commands::Serve { .. } => SourceCommand::Serve,
+            Commands::Mcp => SourceCommand::Mcp,
             Commands::Tools => SourceCommand::Tools,
             Commands::Top { dim, limit } => SourceCommand::Top {
                 dim: *dim,

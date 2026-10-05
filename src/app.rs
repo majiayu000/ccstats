@@ -624,6 +624,7 @@ pub(crate) fn handle_source_command(
         SourceCommand::Watch { once } => return crate::watch_cmd::handle(once, ctx),
         SourceCommand::Verify => return crate::verify_cmd::handle(ctx),
         SourceCommand::Serve => return crate::serve_cmd::handle(ctx),
+        SourceCommand::Mcp => return crate::mcp_cmd::handle(ctx),
         SourceCommand::Tools => {
             if !caps.has_tool_calls {
                 println!(
@@ -710,6 +711,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
         SourceCommand::Watch { once } => return crate::watch_cmd::handle(once, ctx),
         SourceCommand::Verify => return crate::verify_cmd::handle(ctx),
         SourceCommand::Serve => return crate::serve_cmd::handle(ctx),
+        SourceCommand::Mcp => return crate::mcp_cmd::handle(ctx),
         SourceCommand::Statusline => {
             let (result, caps, _) = load_all_daily(ctx, true);
             let captured_at = chrono::Utc::now();

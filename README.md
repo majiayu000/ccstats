@@ -84,6 +84,7 @@ ccstats limits                     # Codex + Claude (+ Cursor when available)
 ccstats watch --once               # one frame; non-zero if a window is hot
 ccstats verify                     # ccstats estimate vs source-recorded cost
 ccstats serve                      # 127.0.0.1 JSON for the same types as --json
+ccstats mcp                        # MCP server on stdio for coding agents
 ccstats doctor
 ccstats login cursor               # never pass secrets on argv
 ```
@@ -96,6 +97,16 @@ Claude Code status line (hook JSON on stdin, Claude Code 2.1.80+):
 
 `--cost-source auto|ccstats|cc|both` chooses local vs Claude Code session
 cost. Official percentages have no suffix; estimates use `est.`.
+
+Agents can query their own limits and usage over MCP (stdio, read-only):
+
+```bash
+claude mcp add ccstats -- ccstats mcp
+codex mcp add ccstats -- ccstats mcp
+```
+
+Tools: `get_limits`, `get_usage_summary`, `doctor`. Setup, tool schemas, and a
+Claude Code hook that warns when a window is hot: [docs/mcp.md](docs/mcp.md).
 
 `weekly` / `monthly` group already-filtered history. They do not default to
 "this week". Bound dates with `--since` / `--until`.

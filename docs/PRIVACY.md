@@ -37,6 +37,10 @@ usage totals; absent indices simply have no source title.
 | Cursor Admin usage | `api.cursor.com` | User-supplied API key and requested date range |
 | Cursor dashboard usage | `cursor.com` | User-supplied session token and requested date range |
 
+`ccstats mcp` talks to its MCP client over stdin/stdout only; it opens no
+listening socket. Its tools make the same requests as the matching CLI
+commands (`limits`, SDK summaries, `doctor`) and nothing else.
+
 `--offline` disables pricing and exchange-rate downloads and uses cached data.
 It does not make Cursor local because Cursor is an API-backed source; use
 `CURSOR_USAGE_FILE` for an explicit offline replay.
