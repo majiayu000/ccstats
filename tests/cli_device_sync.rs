@@ -19,10 +19,11 @@ fn device(prefix: &str, msg_id: &str, input: i64) -> Device {
     write_file(
         &home.join(".claude/projects/-Users-alice-secret-client/session.jsonl"),
         &format!(
-            r#"{{"timestamp":"2026-02-06T10:00:00Z","cwd":"{}","message":{{"id":"{msg_id}","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","role":"assistant","content":[{{"type":"text","text":"{SECRET_PROMPT}"}}],"usage":{{"input_tokens":{input},"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}}
+            r#"{{"timestamp":"2026-02-06T10:00:00Z","cwd":{},"message":{{"id":"{msg_id}","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","role":"assistant","content":[{{"type":"text","text":"{SECRET_PROMPT}"}}],"usage":{{"input_tokens":{input},"output_tokens":50,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}}
 {{"timestamp":"2026-02-06T09:59:00Z","type":"user","message":{{"role":"user","content":"{SECRET_PROMPT}"}}}}
 "#,
-            home.join("work/secret-client").display()
+            // Serialize so Windows backslashes stay valid JSON escapes.
+            serde_json::to_string(&home.join("work/secret-client")).unwrap()
         ),
     );
     Device {
