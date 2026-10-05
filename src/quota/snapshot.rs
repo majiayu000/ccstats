@@ -199,7 +199,7 @@ mod tests {
                 DateTime::from_timestamp(1_020_000, 0)
             )]
         );
-        assert!(state.samples(false).is_empty());
+        assert_eq!(state.samples(false), [] as [QuotaSample; 0]);
         assert!(!state.is_stale(t1 + chrono::Duration::minutes(1)));
         assert!(state.is_stale(t1 + chrono::Duration::minutes(11)));
     }
