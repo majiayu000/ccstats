@@ -28,6 +28,7 @@ src/
 │   └── <name>/            # per-source parsers (see table below)
 ├── pricing/               # LiteLLM ingest, families (Google included), cache
 ├── output/                # table / JSON / CSV / statusline
+├── device_sync.rs         # cross-device sync files (--devices, sync push/status)
 ├── sdk.rs                 # public summarize_cost* + re-export UsageSource
 └── utils/                 # timezone, date parsing, jq
 ```
@@ -291,6 +292,8 @@ Config keys do not set source roots:
 | `color` | string | `auto` / `always` / `never` |
 | `cost` | string | `show` / `hide` |
 | `timezone`, `locale`, `currency`, `source` | string | same strings as the CLI flags |
+| `sync_dir` | string | directory shared by your devices (`--sync-dir` and `CCSTATS_SYNC_DIR` win) |
+| `device_label` | string | label written to this device's sync file |
 
 ```toml
 source = "codex"
@@ -415,6 +418,19 @@ Key = `(source, cache_partition, absolute path, fingerprint of mtime/size/inode)
 3. Close the window and start a new one (again floor-to-UTC-hour) when an entry is more than 5 hours after the window start **or** more than 5 hours after the previous entry.
 
 `block_start` / `block_end` labels use the selected local timezone. This is inferred from local logs, **not** an official Anthropic billing reset. Gap placeholder rows, `--active`, and burn-rate projection are not emitted.
+
+## Device sync
+
+`src/device_sync.rs` owns the file format, atomic write (hidden temp file +
+rename), scan, and `--devices` selection; `src/sync_cmd.rs` is the CLI. `push`
+loads every registered source like `--source all` and writes model-level
+`Stats` per `date × source × model` to
+`<sync_dir>/ccstats/devices/<device_id>.json` (`schema_version` 1). Reports with
+`--devices` merge other devices' rows into each source's `LoadResult` right after
+`load_daily`, before the `--source all` real-token transform, so provenance and
+pricing go through the same path as local rows. The device's own file is always
+skipped. Grok-only reports and `--codex-scope` reject `--devices` because synced
+rows do not carry Grok provider reports or Codex origin scope.
 
 ## CLI period grain vs SDK current period
 

@@ -117,7 +117,7 @@ fn prior_days(source_name: Option<&str>, ctx: &CommandContext<'_>) -> HashMap<St
         today.checked_sub_signed(chrono::Duration::days(7)),
         today.pred_opt(),
     );
-    let result = match source_name {
+    let mut result = match source_name {
         Some("codex") => load_daily(
             &CodexSource::with_scope(ctx.cli.codex_scope),
             &filter,
@@ -139,6 +139,9 @@ fn prior_days(source_name: Option<&str>, ctx: &CommandContext<'_>) -> HashMap<St
             super::source_breakdown::load_all_sources(&prior_ctx, true, false).combined
         }
     };
+    if let Some(name) = source_name {
+        super::apply_devices(ctx.devices, name, &filter, &mut result);
+    }
     if result.parse_errors > 0 {
         HashMap::new()
     } else {

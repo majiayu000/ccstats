@@ -71,6 +71,12 @@ pub(crate) struct Config {
     pub(crate) currency: Option<String>,
     #[serde(default)]
     pub(crate) source: Option<String>,
+    /// Directory shared by the user's devices (iCloud Drive, Dropbox, Syncthing, NAS).
+    #[serde(default)]
+    pub(crate) sync_dir: Option<String>,
+    /// Human label written to this device's sync file.
+    #[serde(default)]
+    pub(crate) device_label: Option<String>,
 }
 
 impl Config {
@@ -303,6 +309,14 @@ strict_pricing = true
         assert_eq!(config.timezone.as_deref(), Some("Asia/Tokyo"));
         assert_eq!(config.locale.as_deref(), Some("ja-JP"));
         assert_eq!(config.source.as_deref(), Some("codex"));
+    }
+
+    #[test]
+    fn test_deserialize_sync_fields() {
+        let config: Config =
+            toml::from_str("sync_dir = \"/sync\"\ndevice_label = \"laptop\"").unwrap();
+        assert_eq!(config.sync_dir.as_deref(), Some("/sync"));
+        assert_eq!(config.device_label.as_deref(), Some("laptop"));
     }
 
     #[test]

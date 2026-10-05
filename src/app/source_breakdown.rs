@@ -44,6 +44,7 @@ pub(super) fn load_all_sources(
 
     for source in all_sources() {
         let mut result = load_daily(source, ctx.filter, ctx.timezone, quiet, ctx.cli.debug);
+        super::apply_devices(ctx.devices, source.name(), ctx.filter, &mut result);
         if !result.day_stats.is_empty() {
             contributing_sources += 1;
         }

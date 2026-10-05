@@ -78,6 +78,44 @@ The source's indices and original transcripts are never modified.
 The desktop app does not send machine snapshots itself. Cross-device rollups
 require an explicit JSON export on one device and an explicit import on another.
 
+## Device sync
+
+`ccstats sync push` writes one file per device to
+`<sync_dir>/ccstats/devices/<device_id>.json`. `sync_dir` comes from
+`--sync-dir`, `CCSTATS_SYNC_DIR`, or config `sync_dir`. ccstats has no sync
+service and makes no network request for sync; whatever already syncs that
+folder (iCloud Drive, Dropbox, Syncthing, a NAS share) decides where the file
+travels, so choose a folder you trust with usage metadata. `push` loads the same
+sources as `--source all`, so Cursor's API is still contacted when Cursor
+credentials are configured (see Network access).
+
+The file contains, and only contains:
+
+- `schema_version`, `ccstats_version`, `generated_at`, and the exporting
+  device's UTC offset;
+- `device_id`, a random 128-bit id stored at
+  `<platform data>/ccstats/device-id` (not derived from hardware, user, or
+  hostname), and `device_label`, from config `device_label` or the first eight
+  characters of the id;
+- rows of `date × source × model` with the same token buckets, record counts,
+  source-recorded USD costs, and estimated-proxy subtotals that local daily
+  reports aggregate.
+
+It does not contain prompts, responses, tool calls, source code, session or
+message ids, project names or paths, working directories, file paths,
+hostnames, or credentials. Model names that are absolute file paths (for
+example a local `.gguf`) are reduced to their file name. Because projects and
+sessions are not exported, `--devices` only applies to `daily`, `weekly`,
+`monthly`, and `today`.
+
+Reports never write to the sync folder. With `--devices all` or a label,
+ccstats reads the other devices' files, skips its own (live local data is
+used instead), and prices their tokens with this device's pricing table, so
+unknown prices stay unknown and estimates stay labeled. Files that are
+unparseable, partially synced, or from another schema version are skipped
+with a warning on stderr. Deleting a device's file removes it from every
+combined report.
+
 The optional TOML config is user-created. ccstats reads the first configured
 path documented in the README and fails clearly if that file is malformed.
 

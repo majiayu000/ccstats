@@ -161,6 +161,14 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_enum, default_value_t = CostSource::Auto)]
     pub(crate) cost_source: CostSource,
 
+    /// Devices for daily/weekly/monthly/today: `this` (default), `all`, or a device label
+    #[arg(long, global = true, value_name = "DEVICES")]
+    pub(crate) devices: Option<String>,
+
+    /// Sync directory shared by your devices (overrides `CCSTATS_SYNC_DIR` and config `sync_dir`)
+    #[arg(long, global = true, value_name = "PATH")]
+    pub(crate) sync_dir: Option<std::path::PathBuf>,
+
     /// Filter Codex sessions by origin
     #[arg(long, global = true, value_enum, default_value_t = CodexScope::All)]
     pub(crate) codex_scope: CodexScope,

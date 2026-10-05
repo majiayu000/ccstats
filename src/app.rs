@@ -51,6 +51,27 @@ pub(crate) struct CommandContext<'a> {
     pub(crate) jq_filter: Option<&'a str>,
     pub(crate) currency: Option<&'a crate::pricing::CurrencyConverter>,
     pub(crate) budget_as_of: chrono::NaiveDate,
+    /// Other devices' synced rows; `None` keeps reports to this device.
+    pub(crate) devices: Option<&'a crate::device_sync::DeviceMerge>,
+}
+
+/// Merge other devices' rows for one source; drop local rows when `--devices` names another device.
+pub(crate) fn apply_devices(
+    devices: Option<&crate::device_sync::DeviceMerge>,
+    source_name: &str,
+    filter: &DateFilter,
+    result: &mut LoadResult,
+) {
+    let Some(devices) = devices else {
+        return;
+    };
+    if !devices.include_local {
+        *result = LoadResult::default();
+    }
+    crate::core::merge_day_stats(
+        &mut result.day_stats,
+        devices.day_stats_for(source_name, filter),
+    );
 }
 
 pub(crate) fn print_no_data_hint(source_name: &str, category: &str) {
@@ -556,10 +577,9 @@ fn handle_period(
             load_grok_daily_with_cost(ctx.filter, ctx.timezone, false, ctx.cli.debug);
         (result, Some(reports))
     } else {
-        (
-            load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug),
-            None,
-        )
+        let mut result = load_daily(source, ctx.filter, ctx.timezone, false, ctx.cli.debug);
+        apply_devices(ctx.devices, source.name(), ctx.filter, &mut result);
+        (result, None)
     };
     if result.day_stats.is_empty() && !should_render_empty_structured_result(&result, ctx) {
         print_no_data_hint(&source_label(source, ctx), "usage");

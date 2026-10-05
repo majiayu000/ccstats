@@ -31,6 +31,7 @@ mod config;
 mod consts;
 mod core;
 mod credentials;
+mod device_sync;
 mod doctor_cmd;
 mod endpoints_cmd;
 mod error;
@@ -46,6 +47,7 @@ mod serve_cmd;
 mod session_details;
 mod source;
 mod sources_cmd;
+mod sync_cmd;
 mod utils;
 mod verify_cmd;
 mod watch_cmd;
@@ -387,6 +389,10 @@ pub fn run_cli() {
     crate::source::set_disabled(cli.no_cache);
     validate_quota_currency(&cli, source_cmd, cli_currency_was_set);
     let timezone = resolve_timezone(cli.timezone.as_deref(), cli_timezone_was_set);
+    if let Some(Commands::Sync { command }) = &cli.command {
+        crate::sync_cmd::handle(command, &cli, &config, timezone);
+        return;
+    }
     let number_format = resolve_number_format(cli.locale.as_deref());
 
     let jq_filter = cli.jq.as_deref();
@@ -438,6 +444,8 @@ pub fn run_cli() {
         && needs_pricing
         && !cli.details;
     let currency_converter = load_currency_converter(&cli, needs_currency, is_statusline);
+    let devices =
+        crate::sync_cmd::resolve_report_devices(&cli, &config, source_cmd, source_name, timezone);
 
     let context = CommandContext {
         filter: &filter,
@@ -448,6 +456,7 @@ pub fn run_cli() {
         jq_filter,
         currency: currency_converter.as_ref(),
         budget_as_of,
+        devices: devices.as_ref(),
     };
     match source_name {
         Some(source_name) => dispatch_command(source_name, source_cmd, &context),
