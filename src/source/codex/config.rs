@@ -125,11 +125,11 @@ impl Source for CodexSource {
     fn cache_partition(&self) -> &str {
         static DETAILS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
             ["all", "interactive", "exec", "subagent"]
-                .map(|scope| format!("{}:details-v1:{scope}", agent_sessions::VERSION))
+                .map(|scope| format!("{}:projection-v2:details:{scope}", agent_sessions::VERSION))
         });
         static PARTITIONS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
             ["all", "interactive", "exec", "subagent"]
-                .map(|scope| format!("{}:{scope}", agent_sessions::VERSION))
+                .map(|scope| format!("{}:projection-v2:{scope}", agent_sessions::VERSION))
         });
         let partitions = if self.accounting_diagnostics {
             &DETAILS

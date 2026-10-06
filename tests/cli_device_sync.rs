@@ -245,3 +245,35 @@ fn exported_file_holds_no_paths_or_message_text() {
     assert_eq!(json["rows"][0]["source"].as_str(), Some("claude"));
     assert_eq!(json["rows"][0]["date"].as_str(), Some("2026-02-06"));
 }
+
+#[test]
+fn parse_failure_keeps_the_last_complete_snapshot_until_repaired() {
+    let sync = unique_temp_dir("sync-parse-failure");
+    let laptop = device("sync-parse-failure-laptop", "msg_a", 100);
+    let second = laptop.home.join(".claude/projects/project/second.jsonl");
+    let valid = r#"{"timestamp":"2026-02-06T11:00:00Z","message":{"id":"msg_b","model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":200,"output_tokens":50}}}
+"#;
+    write_file(&second, valid);
+    let (ok, _, stderr) = run(&laptop, &sync, &["sync", "push", "--timezone", "UTC"]);
+    assert!(ok, "{stderr}");
+    let path = device_files(&sync).pop().unwrap();
+    let complete = fs::read(&path).unwrap();
+
+    // The other sources are absent, which is valid. A discovered damaged
+    // source must not replace this complete 400-token snapshot with a subset.
+    write_file(&second, "{\"timestamp\":");
+    let (ok, stdout, stderr) = run(&laptop, &sync, &["sync", "push", "--timezone", "UTC"]);
+    assert!(!ok);
+    assert!(!stdout.contains("Wrote"), "{stdout}");
+    assert!(stderr.contains("claude: 1 parse error(s)"), "{stderr}");
+    assert!(stderr.contains("snapshot was not updated"), "{stderr}");
+    assert_eq!(fs::read(&path).unwrap(), complete);
+
+    write_file(&second, &valid.replace("200", "300"));
+    let (ok, stdout, stderr) = run(&laptop, &sync, &["sync", "push", "--timezone", "UTC"]);
+    assert!(ok, "{stderr}");
+    assert!(stdout.contains("Wrote"), "{stdout}");
+    let repaired: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(repaired["rows"][0]["stats"]["input_tokens"], 400);
+    assert_eq!(repaired["rows"][0]["stats"]["output_tokens"], 100);
+}

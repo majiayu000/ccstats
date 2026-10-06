@@ -93,7 +93,12 @@ pub trait Source: Send + Sync {
         filter: &DateFilter,
         timezone: Timezone,
     ) -> Vec<PathBuf> {
-        cache::prune_discovered_files(self.find_files(), filter, timezone)
+        let files = self.find_files();
+        if self.cache_policy() == CachePolicy::Watermark {
+            files
+        } else {
+            cache::prune_discovered_files(files, filter, timezone)
+        }
     }
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
     fn cache_policy(&self) -> CachePolicy { CachePolicy::PerFile }
@@ -107,7 +112,7 @@ pub trait Source: Send + Sync {
 }
 ```
 
-Required for a new source: `name`, `capabilities`, `find_files`, `parse_file`. Put CLI aliases on `aliases()`. `finalize_entries` runs only on the **dedup path** (after `DedupAccumulator`), not on incremental daily/session aggregation. Grok uses it to **reclassify** overlapping `EstimatedProxy` snapshot rows to `CostKind::Real` with `recorded_cost_usd = Some(0.0)` when the same session already has API-equivalent priced rows — it does not drop those rows. Snapshot-only sessions stay `EstimatedProxy`. Tool-call hooks are Claude-only today. Cursor overrides `find_files_for_filter` so API requests can follow the date range. Cursor and other remote APIs return `CachePolicy::None`. OpenCode-family SQLite sources declare `CachePolicy::Watermark` (currently stored per-file until rowid-safe incremental reads land).
+Required for a new source: `name`, `capabilities`, `find_files`, `parse_file`. Put CLI aliases on `aliases()`. `finalize_entries` runs only on the **dedup path** (after `DedupAccumulator`), not on incremental daily/session aggregation. Grok uses it to **reclassify** overlapping `EstimatedProxy` snapshot rows to `CostKind::Real` with `recorded_cost_usd = Some(0.0)` when the same session already has API-equivalent priced rows — it does not drop those rows. Snapshot-only sessions stay `EstimatedProxy`. Tool-call hooks are Claude-only today. Cursor overrides `find_files_for_filter` so API requests can follow the date range. Cursor and other remote APIs return `CachePolicy::None`. OpenCode-family SQLite sources declare `CachePolicy::Watermark`: they skip filename/mtime date pruning and bypass the per-file cache whenever a WAL exists, including an empty WAL. Databases without a WAL can reuse the main-file stamp, rechecked before returning a cache hit and after parsing. ccstats never checkpoints a source database.
 
 New sources must ship `tests/fixtures/<source>/` with a minimal log plus an upstream schema link in `CONTRIBUTING.md`.
 

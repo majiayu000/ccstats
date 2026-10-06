@@ -57,15 +57,28 @@ fn push(sync_dir: &std::path::Path, cli: &Cli, config: &Config, timezone: Timezo
     let loaded: Vec<_> = all_sources()
         .map(|source| {
             let result = load_daily(source, &filter, timezone, true, cli.debug);
-            (source.name(), result.day_stats)
+            (source.name(), result)
         })
         .collect();
+    let failures: Vec<_> = loaded
+        .iter()
+        .filter(|(_, result)| result.parse_errors > 0)
+        .map(|(name, result)| format!("{name}: {} parse error(s)", result.parse_errors))
+        .collect();
+    if !failures.is_empty() {
+        fail(&format!(
+            "sync push aborted; snapshot was not updated ({}). Fix the source data and retry; use --debug for details",
+            failures.join(", ")
+        ));
+    }
     let file = build_device_file(
         &device_id,
         &label,
         &utc_offset(timezone),
         Utc::now(),
-        loaded.iter().map(|(name, days)| (*name, days)),
+        loaded
+            .iter()
+            .map(|(name, result)| (*name, &result.day_stats)),
     );
     let path = write_device_file(sync_dir, &file).unwrap_or_else(|error| fail(&error));
     println!(

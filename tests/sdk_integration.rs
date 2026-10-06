@@ -511,6 +511,51 @@ fn sdk_summarizes_codex_cost_without_running_cli() {
 }
 
 #[test]
+fn sdk_preserves_unknown_codex_model_and_real_token_provenance() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let root = tempfile::tempdir().expect("temp dir");
+    let codex_home = root.path().join("codex-home");
+    write_file(
+        &codex_home.join("sessions/unknown.jsonl"),
+        r#"{"timestamp":"2026-02-06T10:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":20}}}}
+"#,
+    );
+    let previous = std::env::var_os("CODEX_HOME");
+    unsafe { std::env::set_var("CODEX_HOME", &codex_home) };
+    let results: Vec<_> = [false, true]
+        .into_iter()
+        .map(|strict_pricing| {
+            summarize_cost(SummaryOptions {
+                source: UsageSource::Codex,
+                range: UsageRange::DateRange {
+                    since: NaiveDate::from_ymd_opt(2026, 2, 6),
+                    until: NaiveDate::from_ymd_opt(2026, 2, 6),
+                },
+                timezone: Some("UTC".to_string()),
+                offline: true,
+                strict_pricing,
+                ..SummaryOptions::default()
+            })
+        })
+        .collect();
+    match previous {
+        Some(value) => unsafe { std::env::set_var("CODEX_HOME", value) },
+        None => unsafe { std::env::remove_var("CODEX_HOME") },
+    }
+    for result in results {
+        let summary = result.expect("unknown model summary");
+        assert_eq!(summary.tokens.total_tokens, 120);
+        assert_eq!(summary.cost_kind, "real");
+        assert_eq!(summary.cost_usd, None);
+        assert_eq!(summary.estimated_cost_usd, None);
+        assert_eq!(summary.models.len(), 1);
+        assert_eq!(summary.models[0].model, "unknown-model");
+        assert_eq!(summary.models[0].cost_usd, None);
+        assert_eq!(summary.models[0].cost_kind, "real");
+    }
+}
+
+#[test]
 fn sdk_batch_summarizes_codex_ranges_like_repeated_single_calls() {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let root = tempfile::tempdir().expect("temp dir");
