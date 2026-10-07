@@ -249,8 +249,8 @@ impl CostKind {
 pub(crate) enum Endpoint {
     /// Native Anthropic endpoint (`inference_geo == "not_available"`).
     Native,
-    /// Third-party proxy / gateway (`inference_geo == ""`): does not report
-    /// cache creation and bills full context as raw input.
+    /// Proxy / gateway heuristic (`inference_geo == ""`). Cache-field presence
+    /// is measured separately; this classification does not establish billing.
     Proxy,
     /// Field absent, other value, or non-Claude source.
     #[default]
@@ -410,10 +410,28 @@ pub(crate) struct EndpointStats {
     pub(crate) models: HashMap<String, Stats>,
 }
 
+/// Claude-only evidence retained for local quota diagnostics.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct ClaudeDiagnostics {
+    pub(crate) turn: Option<u64>,
+    pub(crate) turn_start_ms: Option<i64>,
+    pub(crate) is_subagent: bool,
+    pub(crate) parent_session_id: Option<String>,
+    /// Explicit native boundaries preceding this usage record (UTC milliseconds).
+    pub(crate) compactions: Vec<i64>,
+    pub(crate) cache_write_reported: bool,
+    /// Full model ID: analytics display normalization is too broad for comparisons.
+    pub(crate) model_id: String,
+}
+
 /// Raw entry parsed from source files
 /// All sources convert their native format to this unified structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RawEntry {
+    #[serde(default)]
+    pub(crate) agent_version: Option<String>,
+    #[serde(default)]
+    pub(crate) claude_diagnostics: Option<ClaudeDiagnostics>,
     /// UTC timestamp string
     pub(crate) timestamp: String,
     /// Timestamp in milliseconds for ordering

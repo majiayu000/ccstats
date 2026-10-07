@@ -44,6 +44,8 @@ impl Source for TestSource {
 
 fn entry(id: &str, input_tokens: i64) -> RawEntry {
     RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: "2026-02-06T12:00:00Z".to_string(),
         timestamp_ms: 1_770_379_200_000,
         date_str: "2026-02-06".to_string(),

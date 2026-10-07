@@ -32,6 +32,7 @@ mod consts;
 mod core;
 mod credentials;
 mod device_sync;
+mod diagnose_cmd;
 mod doctor_cmd;
 mod endpoints_cmd;
 mod error;
@@ -433,8 +434,10 @@ pub fn run_cli() {
         return;
     }
 
-    let metadata_only = matches!(source_cmd, SourceCommand::Doctor | SourceCommand::Sources)
-        || source_name.is_none();
+    let metadata_only = matches!(
+        source_cmd,
+        SourceCommand::Doctor | SourceCommand::Sources | SourceCommand::Diagnose
+    ) || source_name.is_none();
     let needs_pricing = !metadata_only && (is_statusline || show_cost || cli.details);
     let pricing_db = load_pricing_db(&cli, needs_pricing, is_statusline);
     if let Some(source_name) = source_name {

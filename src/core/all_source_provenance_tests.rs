@@ -12,6 +12,8 @@ use crate::core::{
 
 fn entry(date: &str, model: &str, input: i64, cost_kind: CostKind) -> RawEntry {
     RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: "2025-01-15T12:00:00Z".to_string(),
         timestamp_ms: 1_737_000_000_000,
         date_str: date.to_string(),

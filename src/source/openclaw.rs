@@ -195,6 +195,8 @@ fn build_entry(
     let is_copied_history = session_started_ms.is_some_and(|started| timestamp_ms < started);
 
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms,
         date_str: timezone

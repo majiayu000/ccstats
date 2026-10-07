@@ -157,6 +157,8 @@ mod tests {
     fn turn_preserves_source_authoritative_total() {
         let turn = turn_usage(
             RawEntry {
+                agent_version: None,
+                claude_diagnostics: None,
                 timestamp: "2026-09-02T08:00:00Z".to_string(),
                 timestamp_ms: 1,
                 date_str: "2026-09-02".to_string(),

@@ -7,6 +7,8 @@ use crate::core::types::{CostKind, Endpoint, RawEntry};
 
 fn entry(model: &str, endpoint: Endpoint, input: i64) -> RawEntry {
     RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: "2025-01-01T00:00:00Z".to_string(),
         timestamp_ms: 0,
         date_str: "2025-01-01".to_string(),

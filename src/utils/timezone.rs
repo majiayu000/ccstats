@@ -46,7 +46,10 @@ impl Timezone {
     }
 
     pub(crate) fn date_start_utc_millis(self, date: NaiveDate) -> Option<i64> {
-        let midnight = date.and_hms_opt(0, 0, 0)?;
+        self.local_datetime_utc_millis(date.and_hms_opt(0, 0, 0)?)
+    }
+
+    pub(crate) fn local_datetime_utc_millis(self, midnight: chrono::NaiveDateTime) -> Option<i64> {
         let utc = match self {
             Timezone::Local => Local
                 .from_local_datetime(&midnight)

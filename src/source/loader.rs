@@ -560,6 +560,8 @@ mod tests {
 
     fn make_entry(date_str: &str, model: &str, input: i64) -> RawEntry {
         RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: format!("{date_str}T12:00:00Z"),
             timestamp_ms: 0,
             date_str: date_str.to_string(),

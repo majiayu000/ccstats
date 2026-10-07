@@ -329,6 +329,7 @@ pub(super) fn parse_grok_session_file_for_provider(
     parse_grok_session_file(path, timezone, debug, true)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_grok_session_file(
     path: &Path,
     timezone: Timezone,
@@ -419,6 +420,8 @@ fn parse_grok_session_file(
 
     ParseOutput {
         entries: vec![RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: utc_dt.to_rfc3339(),
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),

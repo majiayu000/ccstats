@@ -184,6 +184,8 @@ fn entry_from_row(row: &HermesRow, timezone: Timezone) -> Result<Option<RawEntry
     );
 
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: timestamp.timestamp_millis(),
         date_str: timezone

@@ -215,6 +215,8 @@ fn entry(fact: &Fact, timezone: Timezone) -> Result<RawEntry, &'static str> {
     let timestamp = DateTime::<Utc>::from_timestamp_millis(fact.created_at_ms)
         .ok_or("timestamp outside supported range")?;
     Ok(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: fact.created_at_ms,
         date_str: timezone

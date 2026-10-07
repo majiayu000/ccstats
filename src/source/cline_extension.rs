@@ -323,6 +323,8 @@ pub(super) fn parse_extension_file(
                 }
             };
         output.entries.push(RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: utc.to_rfc3339(),
             timestamp_ms,
             date_str: timezone

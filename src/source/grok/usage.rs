@@ -212,6 +212,7 @@ fn coverage_tokens(usage: &NormalizedUsage) -> i64 {
         .saturating_add(usage.cache_read)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_turn_line(
     line: &str,
     timezone: Timezone,
@@ -294,6 +295,8 @@ fn parse_turn_line(
         let message_id = Some(format!("{base_message_id}:{model}"));
         let model = super::canonical_model_name(&model);
         entries.push(RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: utc_dt.to_rfc3339(),
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: date_str.clone(),

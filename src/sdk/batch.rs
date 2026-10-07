@@ -389,6 +389,8 @@ mod tests {
             .expect("valid timestamp")
             .timestamp_millis();
         RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: timestamp.to_string(),
             timestamp_ms,
             date_str: "2026-08-21".to_string(),
@@ -448,6 +450,8 @@ mod tests {
             self.parse_calls.fetch_add(1, Ordering::SeqCst);
             ParseOutput {
                 entries: vec![RawEntry {
+                    agent_version: None,
+                    claude_diagnostics: None,
                     timestamp: "2026-05-09T12:00:00Z".to_string(),
                     timestamp_ms: 1_778_326_400_000,
                     date_str: "2026-05-09".to_string(),
