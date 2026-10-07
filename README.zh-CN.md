@@ -18,7 +18,7 @@ ccstats
 
 ## Claude Code 额度为什么用得这么快？
 
-诊断功能已准备在 **v0.10.0** 发布，目前尚未发布；可使用审查分支验证。
+诊断功能已在 **[v0.10.0](https://github.com/majiayu000/ccstats/releases/tag/v0.10.0)** 发布。
 
 ```sh
 ccstats diagnose

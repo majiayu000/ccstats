@@ -38,7 +38,7 @@ and endpoint. Missing cache fields and samples below 100 turns stay explicit.
 Official percentages appear separately when `statusline` has saved them; token
 volume does **not** explain Anthropic's subscription billing formula.
 
-This command is **prepared for v0.10.0 and not yet published**. [Window definitions, limitations,
+This command is available in **[v0.10.0](https://github.com/majiayu000/ccstats/releases/tag/v0.10.0)**. [Window definitions, limitations,
 JSON and demonstration](docs/diagnose.md).
 
 **额度为什么用得这么快？** `ccstats diagnose` 把本地记录中的 token 构成、
