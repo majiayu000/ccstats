@@ -80,21 +80,8 @@ impl Source for ClaudeSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        find_claude_files()
-    }
-
-    fn find_files_for_filter(
-        &self,
-        filter: &crate::core::DateFilter,
-        timezone: Timezone,
-    ) -> (Vec<PathBuf>, usize) {
-        let (files, errors) =
-            crate::source::session_reader::discover(agent_sessions::Agent::ClaudeCode);
-        (
-            crate::source::cache::prune_discovered_files(files, filter, timezone),
-            errors,
-        )
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        crate::source::session_reader::discover(agent_sessions::Agent::ClaudeCode)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {

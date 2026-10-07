@@ -42,7 +42,8 @@ fn discovery_reuses_one_root_encoding_snapshot_for_all_parses() {
     .expect("write plain session");
 
     let source = DshSource::new();
-    let files = source.discover_root(&sessions);
+    let (files, errors) = source.discover_root(&sessions);
+    assert_eq!(errors, 0);
     assert_eq!(files.len(), 1);
 
     let late_zstd = sessions.join("--workspace-other--/session-b/session.jsonl.zstd");

@@ -447,9 +447,9 @@ mod tests {
             Capabilities::default()
         }
 
-        fn find_files(&self) -> Vec<PathBuf> {
+        fn find_files(&self) -> (Vec<PathBuf>, usize) {
             self.find_calls.fetch_add(1, Ordering::SeqCst);
-            self.files.clone()
+            (self.files.clone(), 0)
         }
 
         fn parse_file(&self, _path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {
@@ -513,9 +513,9 @@ mod tests {
             Capabilities::default()
         }
 
-        fn find_files(&self) -> Vec<PathBuf> {
+        fn find_files(&self) -> (Vec<PathBuf>, usize) {
             self.unfiltered_calls.fetch_add(1, Ordering::SeqCst);
-            Vec::new()
+            (Vec::new(), 0)
         }
 
         fn find_files_for_filter(

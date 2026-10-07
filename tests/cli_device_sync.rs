@@ -376,3 +376,67 @@ fn partial_discovery_keeps_the_complete_snapshot_and_cache_until_repaired() {
     assert!(ok, "{}", String::from_utf8_lossy(&err));
     assert_eq!(snapshot_input(&fs::read(&snapshot).unwrap()), 140);
 }
+
+#[cfg(unix)]
+#[test]
+fn gemini_discovery_failure_preserves_snapshot_and_cache() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let data = root.path().join("data");
+    let cache = root.path().join("cache");
+    let sync = root.path().join("sync");
+    fs::create_dir_all(&sync).unwrap();
+    let transcript = |id: &str, input| {
+        serde_json::json!({ "sessionId": id, "messages": [{ "id": id, "model": "gemini-2.5-pro", "timestamp": "2026-09-05T12:00:00Z", "tokens": { "input": input, "output": 0 } }] }).to_string()
+    };
+    let active = home.join(".gemini/tmp/active/chats/active.json");
+    let archive = home.join(".gemini/tmp/archive/chats/archive.json");
+    write_file(&active, &transcript("active", 100));
+    write_file(&archive, &transcript("archive", 20));
+    let envs = [
+        ("HOME", home.as_path()),
+        ("XDG_DATA_HOME", data.as_path()),
+        ("XDG_CACHE_HOME", cache.as_path()),
+    ];
+    let push = || {
+        run_ccstats(
+            &[
+                "sync",
+                "push",
+                "--timezone",
+                "UTC",
+                "--sync-dir",
+                sync.to_str().unwrap(),
+            ],
+            &envs,
+        )
+    };
+    let (ok, _, err) = push();
+    assert!(ok, "{}", String::from_utf8_lossy(&err));
+    let snapshot = device_files(&sync).pop().unwrap();
+    let complete = fs::read(&snapshot).unwrap();
+    let total = |bytes: &[u8]| {
+        serde_json::from_slice::<Value>(bytes).unwrap()["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["source"] == "gemini")
+            .map(|row| row["stats"]["input_tokens"].as_i64().unwrap())
+            .sum::<i64>()
+    };
+    assert_eq!(total(&complete), 120);
+    let cache_file = cache.join("ccstats/usage-facts-v2.sqlite3");
+    let complete_cache = fs::read(&cache_file).unwrap();
+    let hidden = archive.parent().unwrap();
+    fs::set_permissions(hidden, fs::Permissions::from_mode(0)).unwrap();
+    let result = push();
+    fs::set_permissions(hidden, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!result.0, "{}", String::from_utf8_lossy(&result.1));
+    assert!(String::from_utf8_lossy(&result.2).contains("snapshot was not updated"));
+    assert_eq!(fs::read(&snapshot).unwrap(), complete);
+    assert_eq!(fs::read(&cache_file).unwrap(), complete_cache);
+    let (ok, _, err) = push();
+    assert!(ok, "{}", String::from_utf8_lossy(&err));
+    assert_eq!(total(&fs::read(&snapshot).unwrap()), 120);
+}

@@ -47,7 +47,10 @@ fn nearest_senpi_config_dir(require_agent: bool) -> Option<PathBuf> {
         let config = current.join(".senpi");
         let agent = config.join("agent");
         let is_real_directory = |path: &Path| {
-            fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_dir())
+            fs::symlink_metadata(path).map_or_else(
+                |error| error.kind() != std::io::ErrorKind::NotFound,
+                |metadata| metadata.file_type().is_dir(),
+            )
         };
         if is_real_directory(&config) && (!require_agent || is_real_directory(&agent)) {
             return Some(config);
@@ -61,11 +64,19 @@ fn nearest_senpi_config_dir(require_agent: bool) -> Option<PathBuf> {
 
 fn settings_source(directory: &Path) -> Option<PathBuf> {
     let jsonc = directory.join("settings.jsonc");
-    if jsonc.is_file() {
+    if fs::metadata(&jsonc).map_or_else(
+        |error| error.kind() != std::io::ErrorKind::NotFound,
+        |meta| meta.is_file(),
+    ) {
         return Some(jsonc);
     }
     let json = directory.join("settings.json");
-    json.is_file().then_some(json)
+    fs::metadata(&json)
+        .map_or_else(
+            |error| error.kind() != std::io::ErrorKind::NotFound,
+            |meta| meta.is_file(),
+        )
+        .then_some(json)
 }
 
 fn read_session_dir_setting(directory: &Path) -> SessionDirSetting {
@@ -124,43 +135,52 @@ fn senpi_sessions_dir() -> Result<PathBuf, PathBuf> {
     }
 }
 
-fn find_family_files(root: &Path) -> Vec<PathBuf> {
+fn find_family_files(root: &Path) -> (Vec<PathBuf>, usize) {
     let patterns = [
         glob_pattern(root, "*.jsonl"),
         glob_pattern(root, "**/*.jsonl"),
     ];
     let mut files = Vec::new();
+    let mut errors = 0;
     for pattern in patterns {
-        if let Ok(matches) = glob::glob(&pattern) {
-            files.extend(matches.flatten().filter(|path| path.is_file()));
-        }
+        let (found, failed) = dirs::glob_files(root, &pattern);
+        files.extend(found);
+        errors += failed;
     }
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
-pub(super) fn find_pi_files() -> Vec<PathBuf> {
+pub(super) fn find_pi_files() -> (Vec<PathBuf>, usize) {
     let root = non_empty_env(PI_SESSION_DIR_ENV)
         .or_else(|| non_empty_env(PI_AGENT_DIR_ENV).map(|root| root.join("sessions")))
         .or_else(|| dirs::home_dir().map(|home| home.join(".pi/agent/sessions")));
     root.as_deref().map(find_family_files).unwrap_or_default()
 }
 
-pub(super) fn find_senpi_files() -> Vec<PathBuf> {
+pub(super) fn find_senpi_files() -> (Vec<PathBuf>, usize) {
     match senpi_sessions_dir() {
         Ok(root) => find_family_files(&root),
-        Err(settings_path) => vec![settings_path],
+        Err(settings_path) => (vec![settings_path], 0),
     }
 }
 
 pub(super) fn diagnose_senpi_files() -> Result<usize, ()> {
     senpi_sessions_dir()
-        .map(|root| find_family_files(&root).len())
+        .map_err(|_| ())
+        .and_then(|root| {
+            let (files, errors) = find_family_files(&root);
+            if errors == 0 {
+                Ok(files.len())
+            } else {
+                Err(())
+            }
+        })
         .map_err(|_| ())
 }
 
-pub(super) fn find_kimchi_files() -> Vec<PathBuf> {
+pub(super) fn find_kimchi_files() -> (Vec<PathBuf>, usize) {
     dirs::home_dir()
         .map(|home| find_family_files(&home.join(".config/kimchi/harness/sessions")))
         .unwrap_or_default()

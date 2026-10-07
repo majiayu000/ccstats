@@ -16,6 +16,7 @@ pub(crate) fn codex_root_candidate() -> Option<PathBuf> {
 pub(super) fn codex_sessions_dir_candidate() -> Option<PathBuf> {
     codex_root_candidate().map(|p| p.join("sessions"))
 }
+#[cfg(test)]
 fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
     session_reader::files(
         &agent_sessions::Roots {
@@ -25,9 +26,6 @@ fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
         Agent::Codex,
     )
     .0
-}
-pub(super) fn find_codex_files() -> Vec<PathBuf> {
-    codex_root_candidate().map_or_else(Vec::new, |p| find_codex_files_in_root(&p))
 }
 pub(super) fn parse_codex_file_with_scope(
     path: &Path,

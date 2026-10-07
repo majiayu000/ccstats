@@ -24,8 +24,8 @@ impl Source for TestToolSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        Vec::new()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        (Vec::new(), 0)
     }
 
     fn parse_file(&self, _path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {

@@ -9,9 +9,7 @@ use clap::ValueEnum;
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::parser::{
-    find_codex_files, parse_codex_file_with_diagnostics, parse_codex_file_with_scope,
-};
+use super::parser::{parse_codex_file_with_diagnostics, parse_codex_file_with_scope};
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
 pub(crate) enum CodexScope {
@@ -110,20 +108,8 @@ impl Source for CodexSource {
         "Run OpenAI Codex once or set CODEX_HOME to its data root"
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        find_codex_files()
-    }
-
-    fn find_files_for_filter(
-        &self,
-        filter: &crate::core::DateFilter,
-        timezone: Timezone,
-    ) -> (Vec<PathBuf>, usize) {
-        let (files, errors) = crate::source::session_reader::discover(agent_sessions::Agent::Codex);
-        (
-            crate::source::cache::prune_discovered_files(files, filter, timezone),
-            errors,
-        )
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        crate::source::session_reader::discover(agent_sessions::Agent::Codex)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {

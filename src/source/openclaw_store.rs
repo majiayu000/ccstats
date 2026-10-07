@@ -15,56 +15,57 @@ const OPENCLAW_CONFIG_PATH_ENV: &str = "OPENCLAW_CONFIG_PATH";
 const OPENCLAW_HOME_ENV: &str = "OPENCLAW_HOME";
 const OPENCLAW_STATE_DIR_ENV: &str = "OPENCLAW_STATE_DIR";
 
-pub(super) fn find_transcript_stores() -> Vec<PathBuf> {
-    let (mut paths, config_error) = transcript_store_discovery();
+pub(super) fn find_transcript_stores() -> (Vec<PathBuf>, usize) {
+    let (mut paths, errors, config_error) = transcript_store_discovery();
     if let Some(config_path) = config_error {
         paths.push(config_path);
     }
     paths.sort();
     paths.dedup();
-    paths
+    (paths, errors)
 }
 
 pub(super) fn diagnose_transcript_stores() -> Result<usize, ()> {
-    let (paths, config_error) = transcript_store_discovery();
-    if config_error.is_some() {
+    let (paths, errors, config_error) = transcript_store_discovery();
+    if config_error.is_some() || errors > 0 {
         Err(())
     } else {
         Ok(paths.len())
     }
 }
 
-fn transcript_store_discovery() -> (Vec<PathBuf>, Option<PathBuf>) {
+fn transcript_store_discovery() -> (Vec<PathBuf>, usize, Option<PathBuf>) {
     let Some(root) = state_dir() else {
-        return (Vec::new(), None);
+        return (Vec::new(), 0, None);
     };
     let Some(home) = effective_home() else {
-        return (Vec::new(), None);
+        return (Vec::new(), 0, None);
     };
     let mut paths = Vec::new();
+    let mut errors = 0;
     for pattern in [
         glob_pattern(&root, "agents/*/sessions/*"),
         glob_pattern(&root, "agents/*/agent/openclaw-agent.sqlite"),
     ] {
+        let (found, failed) = dirs::glob_files(&root.join("agents"), &pattern);
         paths.extend(
-            glob::glob(&pattern)
+            found
                 .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|path| path.is_file())
                 .filter(|path| is_counted_transcript(path) || is_sqlite_store(path)),
         );
+        errors += failed;
     }
     let config_error = match configured_stores(&root, &home) {
-        Ok(configured) => {
+        Ok((configured, failed)) => {
             paths.extend(configured);
+            errors += failed;
             None
         }
         Err(config_path) => Some(config_path),
     };
     paths.sort();
     paths.dedup();
-    (paths, config_error)
+    (paths, errors, config_error)
 }
 
 pub(super) struct TranscriptLoad {
@@ -141,7 +142,7 @@ struct AgentConfig {
     agent_dir: Option<String>,
 }
 
-fn configured_stores(root: &Path, home: &Path) -> Result<Vec<PathBuf>, PathBuf> {
+fn configured_stores(root: &Path, home: &Path) -> Result<(Vec<PathBuf>, usize), PathBuf> {
     let explicit_config = env::var_os(OPENCLAW_CONFIG_PATH_ENV)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
@@ -151,7 +152,9 @@ fn configured_stores(root: &Path, home: &Path) -> Result<Vec<PathBuf>, PathBuf> 
     );
     let content = match fs::read_to_string(&config_path) {
         Ok(content) => content,
-        Err(_) if explicit_config.is_none() && !config_path.exists() => return Ok(Vec::new()),
+        Err(error) if explicit_config.is_none() && error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((Vec::new(), 0));
+        }
         Err(_) => return Err(config_path),
     };
     let config = json5::from_str::<OpenClawConfig>(&content).map_err(|_| config_path.clone())?;
@@ -167,6 +170,7 @@ fn configured_stores(root: &Path, home: &Path) -> Result<Vec<PathBuf>, PathBuf> 
     agent_ids.sort_unstable();
     agent_ids.dedup();
     let mut paths = Vec::new();
+    let mut errors = 0;
     if let Some(store) = config.session.store {
         let expanded = if store.contains("{agentId}") {
             agent_ids
@@ -177,21 +181,24 @@ fn configured_stores(root: &Path, home: &Path) -> Result<Vec<PathBuf>, PathBuf> 
             vec![store]
         };
         for store in expanded {
-            paths.extend(configured_session_store_paths(&resolve_path(
-                Path::new(&store),
-                home,
-            )));
+            let (found, failed) =
+                configured_session_store_paths(&resolve_path(Path::new(&store), home));
+            paths.extend(found);
+            errors += failed;
         }
     }
-    paths.extend(config.agents.list.into_iter().filter_map(|agent| {
-        let agent_dir = agent.agent_dir?;
-        let path = resolve_path(Path::new(&agent_dir), home).join("openclaw-agent.sqlite");
-        path.is_file().then_some(path)
-    }));
-    Ok(paths)
+    for agent in config.agents.list {
+        if let Some(agent_dir) = agent.agent_dir {
+            let path = resolve_path(Path::new(&agent_dir), home).join("openclaw-agent.sqlite");
+            let (found, failed) = dirs::existing_file(path);
+            paths.extend(found);
+            errors += failed;
+        }
+    }
+    Ok((paths, errors))
 }
 
-fn configured_session_store_paths(store: &Path) -> Vec<PathBuf> {
+fn configured_session_store_paths(store: &Path) -> (Vec<PathBuf>, usize) {
     let exact_sqlite = is_sqlite_store(store);
     let target = if exact_sqlite {
         store.to_path_buf()
@@ -222,28 +229,20 @@ fn configured_session_store_paths(store: &Path) -> Vec<PathBuf> {
             parent.join(format!("{stem}.sqlite"))
         }
     };
-    let mut paths = target
-        .is_file()
-        .then_some(target.clone())
-        .into_iter()
-        .collect::<Vec<_>>();
+    let (mut paths, mut errors) = dirs::existing_file(target.clone());
     if exact_sqlite {
-        return paths;
+        return (paths, errors);
     }
     if let (Some(parent), Some(stem)) = (
         target.parent(),
         target.file_stem().and_then(|stem| stem.to_str()),
     ) {
         let pattern = glob_pattern(parent, &format!("{}.*.sqlite", glob::Pattern::escape(stem)));
-        paths.extend(
-            glob::glob(&pattern)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|path| path.is_file()),
-        );
+        let (found, failed) = dirs::glob_files(parent, &pattern);
+        paths.extend(found);
+        errors += failed;
     }
-    paths
+    (paths, errors)
 }
 
 fn resolve_path(path: &Path, home: &Path) -> PathBuf {

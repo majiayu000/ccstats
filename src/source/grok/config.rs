@@ -69,7 +69,11 @@ impl Source for GrokSource {
         if !sessions_dir.is_dir() {
             return SourceDiagnostic::missing("No Grok unified log or sessions directory found");
         }
-        let files = super::parser::find_grok_files().len();
+        let (files, errors) = super::parser::find_grok_files();
+        if errors > 0 {
+            return SourceDiagnostic::error("Failed to discover Grok session files");
+        }
+        let files = files.len();
         if files == 0 {
             SourceDiagnostic::missing("The Grok sessions directory contains no usage records")
         } else {
@@ -77,7 +81,7 @@ impl Source for GrokSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_grok_files()
     }
 

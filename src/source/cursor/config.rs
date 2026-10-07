@@ -78,8 +78,11 @@ impl Source for CursorSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        find_cursor_files(&DateFilter::default(), Timezone::Local)
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        (
+            find_cursor_files(&DateFilter::default(), Timezone::Local),
+            0,
+        )
     }
 
     fn find_files_for_filter(

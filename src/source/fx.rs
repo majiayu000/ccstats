@@ -44,14 +44,17 @@ impl Source for FxSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        dirs::home_dir()
-            .map(|home| home.join(".fx"))
-            .filter(|root| {
-                root.join("usage.jsonl").exists() || root.join("usage-recovery").exists()
-            })
-            .into_iter()
-            .collect()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        let Some(root) = dirs::home_dir().map(|home| home.join(".fx")) else {
+            return (Vec::new(), 0);
+        };
+        // Parsing owns validation of both ledger and recovery registry.
+        match fs::metadata(&root) {
+            Ok(meta) if meta.is_dir() => (vec![root], 0),
+            Ok(_) => (Vec::new(), 1),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Vec::new(), 0),
+            Err(_) => (Vec::new(), 1),
+        }
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
@@ -263,10 +266,10 @@ pub(super) fn deserialize_fact(value: Value) -> Result<Fact, &'static str> {
 fn parse_root(root: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
     let mut ledger = Ledger::default();
     let profile = root.join("usage.jsonl");
-    if profile.is_file() {
-        parse_profile(&profile, timezone, debug, &mut ledger);
-    } else if profile.exists() {
-        ledger.output.errors += 1;
+    match fs::metadata(&profile) {
+        Ok(meta) if meta.is_file() => parse_profile(&profile, timezone, debug, &mut ledger),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) | Err(_) => ledger.output.errors += 1,
     }
     fx_recovery::parse_recovery_dir(root, timezone, debug, &mut ledger);
     ledger.finish()

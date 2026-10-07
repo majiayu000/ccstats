@@ -199,7 +199,7 @@ pub(crate) fn load_daily_ranges_with_cost_reports(
     debug: bool,
 ) -> Vec<(LoadResult, HashMap<String, GrokCostReport>)> {
     load_daily_ranges_with_cost_reports_from_files_and_options(
-        &find_grok_files(),
+        &find_grok_files().0,
         discovery_filter,
         filters,
         timezone,

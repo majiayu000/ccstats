@@ -54,7 +54,7 @@ impl Source for QwenSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_qwen_files()
     }
 
@@ -75,20 +75,15 @@ fn qwen_root() -> Option<PathBuf> {
         .or_else(|| dirs::home_dir().map(|home| home.join(DEFAULT_QWEN_DIR)))
 }
 
-fn find_qwen_files_in_root(root: &Path) -> Vec<PathBuf> {
+fn find_qwen_files_in_root(root: &Path) -> (Vec<PathBuf>, usize) {
     let pattern = glob_pattern(root, "usage/token-usage-*.jsonl");
-    let mut files = glob::glob(&pattern)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
+    let (mut files, errors) = dirs::glob_files(&root.join("usage"), &pattern);
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
-fn find_qwen_files() -> Vec<PathBuf> {
+fn find_qwen_files() -> (Vec<PathBuf>, usize) {
     qwen_root()
         .map(|root| find_qwen_files_in_root(&root))
         .unwrap_or_default()
@@ -295,7 +290,7 @@ mod tests {
         fs::write(&ledger, "").unwrap();
         fs::write(chats_dir.join("session.jsonl"), "").unwrap();
 
-        assert_eq!(find_qwen_files_in_root(temp.path()), vec![ledger]);
+        assert_eq!(find_qwen_files_in_root(temp.path()), (vec![ledger], 0));
     }
 
     #[test]

@@ -56,7 +56,7 @@ impl Source for OpenClawSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_transcript_stores()
     }
 

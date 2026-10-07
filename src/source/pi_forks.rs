@@ -130,7 +130,7 @@ macro_rules! source_impl {
                 }
             }
 
-            fn find_files(&self) -> Vec<PathBuf> {
+            fn find_files(&self) -> (Vec<PathBuf>, usize) {
                 $find()
             }
 
@@ -148,7 +148,14 @@ source_impl!(
     &["gajae-code"],
     ForkProfile::gjc(),
     find_gjc_files,
-    || Ok(find_gjc_files().len()),
+    || {
+        let (files, errors) = find_gjc_files();
+        if errors == 0 {
+            Ok(files.len())
+        } else {
+            Err(())
+        }
+    },
     "Gajae Code configuration could not be read or parsed"
 );
 source_impl!(

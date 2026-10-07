@@ -54,7 +54,7 @@ impl Source for KimiSource {
         "Run Kimi Code once or set KIMI_CODE_HOME to its data root"
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_kimi_files()
     }
 
