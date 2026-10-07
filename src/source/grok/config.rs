@@ -113,6 +113,8 @@ mod tests {
 
     fn entry(session_id: &str, cost_kind: CostKind, priced_tokens: i64) -> RawEntry {
         RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: "2026-08-21T05:42:00Z".to_string(),
             timestamp_ms: 0,
             date_str: "2026-08-21".to_string(),

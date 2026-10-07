@@ -232,6 +232,8 @@ fn build_entry(
         session_id
     };
     Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: utc.to_rfc3339(),
         timestamp_ms,
         date_str: timezone

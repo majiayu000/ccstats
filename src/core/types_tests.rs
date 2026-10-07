@@ -180,6 +180,8 @@ fn day_stats_add_multiple_models() {
 #[test]
 fn raw_entry_to_stats() {
     let entry = RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: String::new(),
         timestamp_ms: 0,
         date_str: String::new(),
@@ -219,6 +221,8 @@ fn raw_entry_to_stats() {
 #[test]
 fn raw_entry_to_stats_uses_call_count_and_recorded_cost() {
     let entry = RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: String::new(),
         timestamp_ms: 0,
         date_str: String::new(),
@@ -253,6 +257,8 @@ fn raw_entry_to_stats_uses_call_count_and_recorded_cost() {
 #[test]
 fn raw_entry_preserves_independent_reported_total_without_repricing_the_delta() {
     let entry = RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: String::new(),
         timestamp_ms: 0,
         date_str: String::new(),

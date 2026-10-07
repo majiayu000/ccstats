@@ -421,6 +421,8 @@ mod tests {
 
     fn context_entry(input: i64) -> crate::core::RawEntry {
         crate::core::RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: String::new(),
             timestamp_ms: 0,
             date_str: String::new(),

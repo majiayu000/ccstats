@@ -4,11 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-07
+
 ### Changed
 - Move the window `burn_pct_per_hour` field into `forecast`, and remove the Claude time-to-exhaustion note from `limits` notes.
 - Deprecate the ccstats desktop app: the release workflow no longer builds, signs, notarizes, or attaches desktop installers, and CI no longer builds or tests `desktop/`. QuotaBar (https://github.com/majiayu000/quotabar) is the GUI/tray surface; ccstats stays CLI + `watch` + SDK + `serve`. The `desktop/` code stays in the repository.
 
 ### Added
+- `ccstats diagnose` and the read-only MCP `diagnose` tool explain locally observed Claude tokens with 14-day window baselines, exact model/endpoint version comparisons, completed-turn sample counts, subagent files, compaction times, and missing-cache-field evidence. Subscription quota weighting remains unknown. Usage-facts cache advances to v2.
 - Add a burn-rate and run-out forecast to each limit window. `limits` prints a `Limit forecast (est.)` table, `watch` shows the pace and warns when a window is projected to run out before reset, and JSON and `serve` add a `forecast` object. Claude uses quota snapshots, Codex uses session snapshots, and Cursor uses the billing-cycle average. When there is too little history, the forecast is `null` with a `reason`. The SDK exports `LimitForecast` and `forecast_limit`.
 - `ccstats mcp`: a read-only Model Context Protocol server on stdio with `get_limits`, `get_usage_summary`, and `doctor` tools, so coding agents can check remaining quota before heavy work. See `docs/mcp.md`.
 - `ccstats sync push|status` and `--devices all|this|<label>` combine usage from several machines through a user-chosen sync directory (`--sync-dir`, `CCSTATS_SYNC_DIR`, or config `sync_dir`). Files hold only per-day source/model token facts; ccstats makes no network request for sync.

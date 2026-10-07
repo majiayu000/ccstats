@@ -296,6 +296,8 @@ fn usage_entry(
     recorded_cost_usd: Option<f64>,
 ) -> RawEntry {
     RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: timestamp.timestamp_millis(),
         date_str: date_str.to_string(),

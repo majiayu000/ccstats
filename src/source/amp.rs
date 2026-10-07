@@ -330,6 +330,8 @@ fn into_raw_entry(
 ) -> Option<RawEntry> {
     let utc = DateTime::<Utc>::from_timestamp_millis(record.timestamp_ms)?;
     Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: utc.to_rfc3339(),
         timestamp_ms: record.timestamp_ms,
         date_str: timezone

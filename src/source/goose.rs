@@ -156,6 +156,8 @@ fn goose_entry(row: GooseUsageRow, timezone: Timezone) -> Result<Option<RawEntry
         .to_string();
 
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms,
         date_str: timezone

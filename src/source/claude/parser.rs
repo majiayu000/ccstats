@@ -6,8 +6,109 @@ use crate::{
     source::ParseOutput,
     utils::Timezone,
 };
-use agent_sessions::{Agent, CodexUsageMode, Event, EventKinds};
+use agent_sessions::{AccountingPolicy, Agent, Event, EventKinds, ReadOptions};
+use std::cell::RefCell;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+// Stream native fields the shared reader does not yet project. Each line is
+// read once, and the shared reader remains authoritative for usage/errors.
+#[derive(Default)]
+struct NativeContext {
+    turn: Option<u64>,
+    turn_start_ms: Option<i64>,
+    compactions: Vec<i64>,
+}
+
+#[derive(serde::Deserialize)]
+struct NativeHeader {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    subtype: Option<String>,
+    timestamp: Option<String>,
+}
+
+impl NativeContext {
+    fn observe(&mut self, bytes: &[u8]) {
+        let Ok(header) = serde_json::from_slice::<NativeHeader>(bytes) else {
+            return;
+        };
+        if header.kind.as_deref() == Some("system")
+            && header.subtype.as_deref() == Some("compact_boundary")
+        {
+            if let Some(at) = header
+                .timestamp
+                .as_deref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            {
+                self.compactions.push(at.timestamp_millis());
+            }
+            return;
+        }
+        if header.kind.as_deref() != Some("user") {
+            return;
+        }
+        let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            return;
+        };
+        if v["type"] == "user"
+            && v["isMeta"] != true
+            && v["is_meta"] != true
+            && v["isCompactSummary"] != true
+            && v.pointer("/message/isMeta") != Some(&serde_json::Value::Bool(true))
+            && v.pointer("/message/is_meta") != Some(&serde_json::Value::Bool(true))
+        {
+            let content = &v["message"]["content"];
+            let has_prompt = content.is_string()
+                || content.as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|block| {
+                        matches!(block["type"].as_str(), Some("text" | "image" | "document"))
+                    })
+                });
+            if has_prompt {
+                self.turn = Some(self.turn.unwrap_or(0) + 1);
+                self.turn_start_ms = header
+                    .timestamp
+                    .as_deref()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|at| at.timestamp_millis());
+            }
+        }
+    }
+}
+
+struct NativeLines {
+    source: BufReader<File>,
+    line: Vec<u8>,
+    position: usize,
+    context: Rc<RefCell<NativeContext>>,
+}
+
+impl Read for NativeLines {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        let n = self.fill_buf()?.read(bytes)?;
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl BufRead for NativeLines {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        if self.position == self.line.len() {
+            self.line.clear();
+            self.position = 0;
+            self.source.read_until(b'\n', &mut self.line)?;
+            self.context.borrow_mut().observe(&self.line);
+        }
+        Ok(&self.line[self.position..])
+    }
+
+    fn consume(&mut self, n: usize) {
+        self.position = (self.position + n).min(self.line.len());
+    }
+}
 
 pub(super) fn find_claude_files() -> Vec<PathBuf> {
     session_reader::files(&session_reader::roots(Agent::ClaudeCode), Agent::ClaudeCode)
@@ -29,6 +130,7 @@ pub(super) fn parse_claude_file_with_diagnostics(
     parse_file(path, timezone, debug, true)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_file(
     path: &Path,
     timezone: Timezone,
@@ -39,11 +141,32 @@ fn parse_file(
         entries: Vec::new(),
         errors: 0,
     };
-    let mut reader = match session_reader::reader(
-        path,
+    let context = Rc::new(RefCell::new(NativeContext::default()));
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(e) => {
+            if debug {
+                eprintln!("Cannot read {}: {e}", path.display());
+            }
+            out.errors = 1;
+            return out;
+        }
+    };
+    let mut reader = match agent_sessions::read_from(
         Agent::ClaudeCode,
-        EventKinds::USAGE,
-        CodexUsageMode::TokenCount,
+        NativeLines {
+            source: BufReader::new(file),
+            line: Vec::new(),
+            position: 0,
+            context: Rc::clone(&context),
+        },
+        &ReadOptions {
+            include: EventKinds::USAGE.union(EventKinds::META),
+            accounting: AccountingPolicy::UsageStatistics,
+            max_file_bytes: None,
+            max_line_bytes: None,
+            ..Default::default()
+        },
     ) {
         Ok(r) => r,
         Err(e) => {
@@ -57,6 +180,18 @@ fn parse_file(
     let session_key = path.display().to_string();
     let session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or(UNKNOWN);
     let project_path = derive_project_path(path);
+    let is_subagent = path.components().any(|c| c.as_os_str() == "subagents");
+    let parent_session_id = is_subagent
+        .then(|| {
+            let parent = path.parent()?.parent()?;
+            // Older flat project/subagents layouts do not encode a parent session.
+            if parent.parent()?.file_name()? == "projects" {
+                return None;
+            }
+            parent.file_name()?.to_str().map(str::to_owned)
+        })
+        .flatten();
+    let mut agent_version = None;
     for result in reader.by_ref() {
         let event = match result {
             Ok(e) => e,
@@ -68,8 +203,16 @@ fn parse_file(
                 continue;
             }
         };
-        let Event::Usage(usage) = event.value else {
-            continue;
+        let usage = match event.value {
+            Event::Meta(meta) => {
+                // Version continuity comes from the shared metadata API.
+                if meta.agent_version.is_some() {
+                    agent_version = meta.agent_version;
+                }
+                continue;
+            }
+            Event::Usage(usage) => usage,
+            _ => continue,
         };
         let (Some(timestamp), Some(at)) = (event.timestamp_text, event.at) else {
             if accounting_diagnostics {
@@ -100,7 +243,25 @@ fn parse_file(
             continue;
         };
         let endpoint = endpoint(usage.endpoint);
+        let mut native = context.borrow_mut();
+        if native.turn.is_some() {
+            // Retain the whole-file prefix before the loader applies date cuts.
+            native.turn_start_ms =
+                Some(native.turn_start_ms.map_or(at.timestamp_millis(), |start| {
+                    start.min(at.timestamp_millis())
+                }));
+        }
         out.entries.push(RawEntry {
+            agent_version: agent_version.clone(),
+            claude_diagnostics: Some(crate::core::ClaudeDiagnostics {
+                turn: native.turn,
+                turn_start_ms: native.turn_start_ms,
+                is_subagent,
+                parent_session_id: parent_session_id.clone(),
+                compactions: native.compactions.clone(),
+                cache_write_reported: usage.counts.cache_write.is_some(),
+                model_id: usage.model.clone().unwrap_or_default(),
+            }),
             timestamp,
             timestamp_ms: at.timestamp_millis(),
             date_str: timezone

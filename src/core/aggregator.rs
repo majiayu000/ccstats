@@ -320,6 +320,8 @@ mod tests {
         ts_ms: i64,
     ) -> RawEntry {
         RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: format!("2025-01-01T{:02}:00:00Z", ts_ms / 3_600_000 % 24),
             timestamp_ms: ts_ms,
             date_str: date.to_string(),
@@ -553,6 +555,8 @@ mod tests {
     fn aggregate_sessions_tracks_min_max_timestamps() {
         let entries = vec![
             RawEntry {
+                agent_version: None,
+                claude_diagnostics: None,
                 timestamp: "2025-01-01T12:00:00Z".to_string(),
                 timestamp_ms: 5000,
                 date_str: "2025-01-01".to_string(),
@@ -577,6 +581,8 @@ mod tests {
                 api_equivalent_coverage_tokens: 0,
             },
             RawEntry {
+                agent_version: None,
+                claude_diagnostics: None,
                 timestamp: "2025-01-01T08:00:00Z".to_string(),
                 timestamp_ms: 1000,
                 date_str: "2025-01-01".to_string(),
@@ -601,6 +607,8 @@ mod tests {
                 api_equivalent_coverage_tokens: 0,
             },
             RawEntry {
+                agent_version: None,
+                claude_diagnostics: None,
                 timestamp: "2025-01-01T20:00:00Z".to_string(),
                 timestamp_ms: 9000,
                 date_str: "2025-01-01".to_string(),

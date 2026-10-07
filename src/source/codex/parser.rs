@@ -168,6 +168,8 @@ impl<'a> Projection<'a> {
             )
         };
         Ok(Some(RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp,
             timestamp_ms: at.timestamp_millis(),
             date_str: self

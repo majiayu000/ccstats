@@ -614,6 +614,8 @@ fn entry_from_database_message(
         .filter(|finish| !finish.trim().is_empty())
         .or_else(|| completed.then_some("completed".to_string()));
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms,
         date_str: timezone

@@ -1,5 +1,7 @@
 # ccstats
 
+[中文](README.zh-CN.md)
+
 [![CI](https://github.com/majiayu000/ccstats/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/ccstats/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/ccstats.svg)](https://crates.io/crates/ccstats)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/majiayu000/ccstats/blob/main/LICENSE)
@@ -21,6 +23,27 @@ With no arguments, `ccstats` uses sources detected on this machine. If none
 are ready, it shows `doctor` instead of an empty report.
 
 [Choose a report by task](docs/USAGE.md) — date ranges, quota versus cost, and export privacy.
+
+## Why is my Claude Code quota going so fast?
+
+```bash
+ccstats diagnose
+ccstats diagnose --window 7d --json
+```
+
+See where the **locally recorded tokens** went: cache writes and reads, model/endpoint
+cohorts, largest sessions, subagent files, and explicit compaction times. Compare
+completed turns between Claude Code versions only within the same exact model
+and endpoint. Missing cache fields and samples below 100 turns stay explicit.
+Official percentages appear separately when `statusline` has saved them; token
+volume does **not** explain Anthropic's subscription billing formula.
+
+This command is **prepared for v0.10.0 and not yet published**. [Window definitions, limitations,
+JSON and demonstration](docs/diagnose.md).
+
+**额度为什么用得这么快？** `ccstats diagnose` 把本地记录中的 token 构成、
+子 agent、压缩时间和版本变化放在一起。版本比较限定同一完整模型 ID、同一端点；
+缺字段不当成零，样本不足不下判断。它看不到 Anthropic 的订阅计费规则。
 
 ## Machine session details
 
@@ -110,7 +133,7 @@ claude mcp add ccstats -- ccstats mcp
 codex mcp add ccstats -- ccstats mcp
 ```
 
-Tools: `get_limits`, `get_usage_summary`, `doctor`. Setup, tool schemas, and a
+Tools: `get_limits`, `get_usage_summary`, `diagnose`, `doctor`. Setup, tool schemas, and a
 Claude Code hook that warns when a window is hot: [docs/mcp.md](docs/mcp.md).
 
 `weekly` / `monthly` group already-filtered history. They do not default to
