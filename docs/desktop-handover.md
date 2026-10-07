@@ -54,9 +54,9 @@ key and working SSH account are required to continue native device acceptance.
 No Windows 10 or physical display result is inferred from geometry fixtures.
 
 GitHub CLI GraphQL returned HTTP 401; REST subsequently hit its anonymous rate limit.
-Repository fetch and public CI listings succeeded before that limit. The connected
-GitHub API subsequently read PR #194 and #206 successfully; CLI failures do not
-establish that connector writes are unavailable.
+Git push could not obtain HTTPS credentials. The connected GitHub API read PR #194
+and #206 and created the tested Git trees successfully. Delivery uses that API,
+comparing remote tree hashes with the local commits before creating branch refs.
 
 ## Verification
 
@@ -71,12 +71,26 @@ Completed on this task branch:
 - `cargo publish --dry-run --allow-dirty --locked`: package verification passed; upload explicitly aborted by dry-run. The version is already published, so a new version is required for actual publication.
 - Desktop `npm run build`: passed.
 - Desktop `npm run test:e2e`: 36 passed using the explicit synthetic renderer bridge, including diagnostics and machine snapshot exchange.
-- QuotaBar `npm test`: 674 passed; `npm run build` and `npm run release:check` passed.
+- Desktop `cargo test --manifest-path desktop/src-tauri/Cargo.toml`: 15 passed.
+- Desktop `cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings`: passed.
+- QuotaBar `npm test`: 675 passed; `npm run build` and `npm run release:check` passed.
 - QuotaBar native Rust: 166 passed, 10 pre-existing manual/ignored tests skipped.
+- Final QuotaBar Rust regression: 166 passed, 10 skipped, including existing SDK alias selection.
 - QuotaBar installation lifecycle: 15 passed. Full initial runs hit the fixture's 10-second process watchdog; the test harness now allows 30 seconds. Production stop/rollback behavior is unchanged.
 
-Desktop native Rust / native IPC, local-SDK integration and installed-data observations
-are recorded separately when finished. Logs and original snapshots are retained under
+QuotaBar's full Rust suite also passed with this local ccstats SDK override: 166
+passed, 10 pre-existing manual/ignored tests skipped. The published dependency
+lockfile was restored after verification. Source selection uses the SDK's parsed
+source identity, retaining its existing aliases. Source diagnostic failures retain
+any readable portion and mark the result incomplete.
+The final targeted SDK integration also passed after the alias/readable-portion
+review (`real_sdk_report_retains_session_identity_titles_and_usage`); the
+published lockfile was restored and checked afterward.
+
+The native IPC script was stopped during compilation before app launch after
+review showed it drives the desktop UI through WebDriver. The task explicitly
+does not authorize desktop UI operation; no native UI result is claimed. Native
+Rust tests are separate and passed. Logs and original snapshots are retained under
 `/tmp/quotabar-ccstats-20261007/`; they are task evidence, not published artifacts.
 
 ### Installed data observation
