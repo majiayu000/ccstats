@@ -74,7 +74,7 @@ impl Source for OpenCodeSource {
         opencode_capabilities()
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_opencode_databases()
     }
 
@@ -104,7 +104,7 @@ impl Source for MiMoCodeSource {
         opencode_capabilities()
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_mimocode_databases()
     }
 
@@ -143,7 +143,7 @@ impl Source for KiloCliSource {
         opencode_capabilities()
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_kilo_databases()
     }
 
@@ -175,7 +175,7 @@ fn opencode_data_dir() -> Option<PathBuf> {
     )
 }
 
-fn find_opencode_databases() -> Vec<PathBuf> {
+fn find_opencode_databases() -> (Vec<PathBuf>, usize) {
     if let Some(configured) = env::var_os(OPENCODE_DB_ENV).filter(|value| !value.is_empty()) {
         let configured = PathBuf::from(configured);
         let path = if configured.is_absolute() {
@@ -183,24 +183,19 @@ fn find_opencode_databases() -> Vec<PathBuf> {
         } else if let Some(data_dir) = opencode_data_dir() {
             data_dir.join(configured)
         } else {
-            return Vec::new();
+            return (Vec::new(), 0);
         };
-        return path.is_file().then_some(path).into_iter().collect();
+        return dirs::existing_file(path);
     }
 
     let Some(data_dir) = opencode_data_dir() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let pattern = glob_pattern(&data_dir, "opencode*.db");
-    let mut databases = glob::glob(&pattern)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
+    let (mut databases, errors) = dirs::glob_files(&data_dir, &pattern);
     databases.sort();
     databases.dedup();
-    databases
+    (databases, errors)
 }
 
 fn xdg_data_dir(application: &str) -> Option<PathBuf> {
@@ -216,7 +211,7 @@ fn find_family_databases(
     db_env: &str,
     data_dir: Option<PathBuf>,
     patterns: &[&str],
-) -> Vec<PathBuf> {
+) -> (Vec<PathBuf>, usize) {
     if let Some(configured) = env::var_os(db_env).filter(|value| !value.is_empty()) {
         let configured = PathBuf::from(configured);
         let path = if configured.is_absolute() {
@@ -224,27 +219,28 @@ fn find_family_databases(
         } else if let Some(data_dir) = data_dir {
             data_dir.join(configured)
         } else {
-            return Vec::new();
+            return (Vec::new(), 0);
         };
-        return path.is_file().then_some(path).into_iter().collect();
+        return dirs::existing_file(path);
     }
 
     let Some(data_dir) = data_dir else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let mut databases = Vec::new();
+    let mut errors = 0;
     for pattern in patterns {
         let pattern = glob_pattern(&data_dir, pattern);
-        if let Ok(matches) = glob::glob(&pattern) {
-            databases.extend(matches.flatten().filter(|path| path.is_file()));
-        }
+        let (found, failed) = dirs::glob_files(&data_dir, &pattern);
+        databases.extend(found);
+        errors += failed;
     }
     databases.sort();
     databases.dedup();
-    databases
+    (databases, errors)
 }
 
-fn find_mimocode_databases() -> Vec<PathBuf> {
+fn find_mimocode_databases() -> (Vec<PathBuf>, usize) {
     if env::var_os(MIMOCODE_DB_ENV)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -259,7 +255,7 @@ fn find_mimocode_databases() -> Vec<PathBuf> {
         Some(root) if root.is_absolute() => Some(root.join("data")),
         // Return a path that the parser will reject instead of silently reading
         // an unrelated XDG database after an invalid explicit override.
-        Some(root) => return vec![root.join("data/mimocode.db")],
+        Some(root) => return (vec![root.join("data/mimocode.db")], 0),
         None => xdg_data_dir("mimocode"),
     };
     find_family_databases(MIMOCODE_DB_ENV, data_dir, &["mimocode*.db"])
@@ -277,7 +273,7 @@ fn mimocode_home_is_invalid() -> bool {
             .is_some_and(|path| !path.is_absolute())
 }
 
-fn find_kilo_databases() -> Vec<PathBuf> {
+fn find_kilo_databases() -> (Vec<PathBuf>, usize) {
     find_family_databases(
         KILO_DB_ENV,
         xdg_data_dir("kilo"),

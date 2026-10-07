@@ -56,10 +56,12 @@ impl Source for ClineSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        select_cline_files(
-            find_cline_cli_files(),
-            find_extension_files(CLINE_EXTENSION_ID),
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        let (cli, cli_errors) = find_cline_cli_files();
+        let (extension, extension_errors) = find_extension_files(CLINE_EXTENSION_ID);
+        (
+            select_cline_files(cli, extension),
+            cli_errors + extension_errors,
         )
     }
 
@@ -93,20 +95,15 @@ fn cline_cli_sessions_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".cline/data/sessions"))
 }
 
-fn find_cline_cli_files() -> Vec<PathBuf> {
+fn find_cline_cli_files() -> (Vec<PathBuf>, usize) {
     let Some(root) = cline_cli_sessions_dir() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let pattern = glob_pattern(&root, "**/*.messages.json");
-    let mut files = glob::glob(&pattern)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
+    let (mut files, errors) = dirs::glob_files(&root, &pattern);
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 fn canonical_session_ids(path: &Path) -> impl Iterator<Item = String> {

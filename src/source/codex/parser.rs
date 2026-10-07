@@ -16,6 +16,7 @@ pub(crate) fn codex_root_candidate() -> Option<PathBuf> {
 pub(super) fn codex_sessions_dir_candidate() -> Option<PathBuf> {
     codex_root_candidate().map(|p| p.join("sessions"))
 }
+#[cfg(test)]
 fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
     session_reader::files(
         &agent_sessions::Roots {
@@ -24,9 +25,7 @@ fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
         },
         Agent::Codex,
     )
-}
-pub(super) fn find_codex_files() -> Vec<PathBuf> {
-    codex_root_candidate().map_or_else(Vec::new, |p| find_codex_files_in_root(&p))
+    .0
 }
 pub(super) fn parse_codex_file_with_scope(
     path: &Path,
@@ -34,17 +33,10 @@ pub(super) fn parse_codex_file_with_scope(
     debug: bool,
     scope: CodexScope,
 ) -> ParseOutput {
-    parse_file(path, timezone, debug, scope, "gpt-5", false)
+    parse_file(path, timezone, debug, scope, false)
 }
 pub(super) fn parse_codex_file_for_quota(path: &Path, timezone: Timezone) -> ParseOutput {
-    parse_file(
-        path,
-        timezone,
-        false,
-        CodexScope::All,
-        "unknown-model",
-        false,
-    )
+    parse_file(path, timezone, false, CodexScope::All, false)
 }
 pub(super) fn parse_codex_file_with_diagnostics(
     path: &Path,
@@ -52,14 +44,13 @@ pub(super) fn parse_codex_file_with_diagnostics(
     debug: bool,
     scope: CodexScope,
 ) -> ParseOutput {
-    parse_file(path, timezone, debug, scope, "unknown-model", true)
+    parse_file(path, timezone, debug, scope, true)
 }
 fn parse_file(
     path: &Path,
     timezone: Timezone,
     debug: bool,
     scope: CodexScope,
-    missing_model: &str,
     accounting_diagnostics: bool,
 ) -> ParseOutput {
     let (output, has_responses) = parse_mode(
@@ -67,7 +58,6 @@ fn parse_file(
         timezone,
         debug,
         scope,
-        missing_model,
         CodexUsageMode::TokenCount,
         accounting_diagnostics,
     );
@@ -77,7 +67,6 @@ fn parse_file(
             timezone,
             debug,
             scope,
-            missing_model,
             CodexUsageMode::Response,
             accounting_diagnostics,
         )
@@ -94,17 +83,18 @@ fn included(scope: CodexScope, origin: Origin) -> bool {
         CodexScope::Subagent => origin == Origin::Subagent,
     }
 }
-struct Projection<'a> {
+struct Projection {
     session_key: String,
     logical_key: String,
     session_id: String,
     project_path: String,
     origin: Origin,
     timezone: Timezone,
-    missing_model: &'a str,
+    previous_cumulative: Option<[i64; 7]>,
+    cumulative_epoch: u64,
 }
-impl<'a> Projection<'a> {
-    fn new(path: &Path, timezone: Timezone, missing_model: &'a str) -> Self {
+impl Projection {
+    fn new(path: &Path, timezone: Timezone) -> Self {
         let key = path.display().to_string();
         Self {
             session_key: key.clone(),
@@ -117,7 +107,8 @@ impl<'a> Projection<'a> {
             project_path: String::new(),
             origin: Origin::Unknown,
             timezone,
-            missing_model,
+            previous_cumulative: None,
+            cumulative_epoch: 0,
         }
     }
     fn metadata(&mut self, m: &agent_sessions::MetaUpdate) {
@@ -130,10 +121,26 @@ impl<'a> Projection<'a> {
         }
         self.origin = m.origin.unwrap_or_default();
     }
-    fn entry(&self, event: agent_sessions::Located<Event>) -> Result<Option<RawEntry>, ()> {
+    fn entry(&mut self, event: agent_sessions::Located<Event>) -> Result<Option<RawEntry>, ()> {
         let Event::Usage(u) = event.value else {
             return Ok(None);
         };
+        // Observe even zero-delta reset records before filtering them out.
+        // The reset sequence is stable across copies of the same log, unlike
+        // file paths or record indexes, and distinguishes reused total/delta IDs.
+        let cumulative = u
+            .cumulative
+            .map(|total| session_reader::buckets(total).ok_or(()))
+            .transpose()?;
+        if let Some(total) = cumulative {
+            if self
+                .previous_cumulative
+                .is_some_and(|previous| total.iter().zip(previous).any(|(next, prev)| *next < prev))
+            {
+                self.cumulative_epoch += 1;
+            }
+            self.previous_cumulative = Some(total);
+        }
         let (Some(timestamp), Some(at)) = (event.timestamp_text, event.at) else {
             return Err(());
         };
@@ -148,13 +155,14 @@ impl<'a> Projection<'a> {
         if read.checked_add(write).is_none_or(|n| n > input) {
             return Err(());
         }
-        let model = u.model.unwrap_or_else(|| self.missing_model.into());
-        let message_id = if let Some(total) = u.cumulative {
+        let model = u.model.unwrap_or_else(|| "unknown-model".into());
+        let message_id = if let Some(total) = cumulative {
             usage_id(
                 &model,
                 &self.logical_key,
-                session_reader::buckets(total).ok_or(())?,
+                total,
                 delta,
+                self.cumulative_epoch,
             )
         } else if let Some(id) = u.dedup_key {
             crate::core::source_wide_message_id(
@@ -205,7 +213,6 @@ fn parse_mode(
     timezone: Timezone,
     debug: bool,
     scope: CodexScope,
-    missing_model: &str,
     mode: CodexUsageMode,
     accounting_diagnostics: bool,
 ) -> (ParseOutput, bool) {
@@ -228,7 +235,7 @@ fn parse_mode(
             return (out, false);
         }
     };
-    let mut projection = Projection::new(path, timezone, missing_model);
+    let mut projection = Projection::new(path, timezone);
     for result in reader.by_ref() {
         let event = match result {
             Ok(e) => e,
@@ -277,14 +284,14 @@ fn parse_mode(
             .is_some_and(|n| *n > 0),
     )
 }
-fn usage_id(model: &str, session: &str, total: [i64; 7], delta: [i64; 7]) -> String {
-    let prefix = if total[..6] == delta[..6] {
+fn usage_id(model: &str, session: &str, total: [i64; 7], delta: [i64; 7], epoch: u64) -> String {
+    let prefix = if epoch == 0 && total[..6] == delta[..6] {
         "codex-token-count"
     } else {
         "source-wide:codex-token-count"
     };
     format!(
-        "{prefix}:{session}:{model}:total={},{},{},{},{},{}:delta={},{},{},{},{},{}",
+        "{prefix}:{session}:{model}:epoch={epoch}:total={},{},{},{},{},{}:delta={},{},{},{},{},{}",
         total[0],
         total[1],
         total[2],

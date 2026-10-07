@@ -211,7 +211,8 @@ pub(super) fn parse_recovery_dir(
 ) {
     let recovery_dir = root.join("usage-recovery");
     if !private_directory(root) || !private_directory(&recovery_dir) {
-        if recovery_dir.exists() {
+        if !matches!(fs::metadata(&recovery_dir), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+        {
             ledger.add_error();
         }
         return;

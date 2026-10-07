@@ -57,19 +57,20 @@ fn resolved_path(path: PathBuf) -> PathBuf {
     fs::canonicalize(&normalized).unwrap_or(normalized)
 }
 
-fn find_jsonl(root: &Path) -> Vec<PathBuf> {
+fn find_jsonl(root: &Path) -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
+    let mut errors = 0;
     for pattern in [
         glob_pattern(root, "*.jsonl"),
         glob_pattern(root, "**/*.jsonl"),
     ] {
-        if let Ok(matches) = glob::glob(&pattern) {
-            files.extend(matches.flatten().filter(|path| path.is_file()));
-        }
+        let (found, failed) = dirs::glob_files(root, &pattern);
+        files.extend(found);
+        errors += failed;
     }
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 fn session_header(path: &Path) -> Option<serde_json::Value> {
@@ -121,7 +122,7 @@ fn parent_session_file(owner: &Path, parent_session: &str) -> Option<PathBuf> {
     }
 
     let sessions_root = owner.parent()?.parent()?;
-    find_jsonl(sessions_root).into_iter().find(|path| {
+    find_jsonl(sessions_root).0.into_iter().find(|path| {
         session_header(path)
             .and_then(|header| header["id"].as_str().map(str::to_owned))
             .is_some_and(|id| id == parent_session)
@@ -229,7 +230,12 @@ fn xdg_app_root(app: &str, suffix: &[&str]) -> Option<PathBuf> {
     for part in suffix {
         root.push(part);
     }
-    root.is_dir().then_some(root)
+    fs::metadata(&root)
+        .map_or_else(
+            |error| error.kind() != std::io::ErrorKind::NotFound,
+            |meta| meta.is_dir(),
+        )
+        .then_some(root)
 }
 
 enum SessionDirSetting {
@@ -242,7 +248,9 @@ enum SessionDirSetting {
 fn prime_session_setting(path: &Path) -> SessionDirSetting {
     let content = match fs::read_to_string(path) {
         Ok(content) => content,
-        Err(_) if !path.exists() => return SessionDirSetting::Missing,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return SessionDirSetting::Missing;
+        }
         Err(_) => return SessionDirSetting::Invalid(path.to_path_buf()),
     };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
@@ -260,9 +268,9 @@ fn prime_session_setting(path: &Path) -> SessionDirSetting {
     }
 }
 
-pub(super) fn find_gjc_files() -> Vec<PathBuf> {
+pub(super) fn find_gjc_files() -> (Vec<PathBuf>, usize) {
     let Some(home) = dirs::home_dir() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let config = env::var("GJC_CONFIG_DIR").ok().map_or_else(
         || PathBuf::from(".gjc"),
@@ -279,7 +287,7 @@ pub(super) fn find_gjc_files() -> Vec<PathBuf> {
     find_jsonl(&root)
 }
 
-fn discover_prime_files() -> (Vec<PathBuf>, bool) {
+fn discover_prime_files() -> (Vec<PathBuf>, usize, bool) {
     let mut invalid_settings = Vec::new();
     let agent = env_path("PRIME_AGENT_CODING_AGENT_DIR")
         .or_else(|| dirs::home_dir().map(|home| home.join(".prime/agent")));
@@ -318,26 +326,31 @@ fn discover_prime_files() -> (Vec<PathBuf>, bool) {
         }
     });
     let Some(root) = root else {
-        return (Vec::new(), false);
+        return (Vec::new(), 0, false);
     };
-    let mut files = find_jsonl(&root);
+    let (mut files, mut errors) = find_jsonl(&root);
     if let Some(parent) = root.parent() {
-        files.extend(find_jsonl(&parent.join("session-artifacts")));
+        let (found, failed) = find_jsonl(&parent.join("session-artifacts"));
+        files.extend(found);
+        errors += failed;
     }
     let has_invalid_settings = !invalid_settings.is_empty();
     files.extend(invalid_settings);
     files.sort();
     files.dedup();
-    (files, has_invalid_settings)
+    (files, errors, has_invalid_settings)
 }
 
-pub(super) fn find_prime_files() -> Vec<PathBuf> {
-    discover_prime_files().0
+pub(super) fn find_prime_files() -> (Vec<PathBuf>, usize) {
+    let (files, errors, _) = discover_prime_files();
+    (files, errors)
 }
 
 pub(super) fn diagnose_prime_files() -> Result<usize, ()> {
-    let (files, has_invalid_settings) = discover_prime_files();
-    (!has_invalid_settings).then_some(files.len()).ok_or(())
+    let (files, errors, has_invalid_settings) = discover_prime_files();
+    (!has_invalid_settings && errors == 0)
+        .then_some(files.len())
+        .ok_or(())
 }
 
 fn valid_omp_profile(profile: &str) -> bool {
@@ -394,7 +407,7 @@ fn profile_derived_agent(config: &Path, agent: &Path) -> bool {
     resolved_path(agent.to_path_buf()) == resolved_path(derived)
 }
 
-fn discover_omp_files() -> Result<Vec<PathBuf>, ()> {
+fn discover_omp_files() -> Result<(Vec<PathBuf>, usize), ()> {
     let profile = omp_profile()?;
     let config = env::var("PI_CONFIG_DIR")
         .ok()
@@ -435,12 +448,18 @@ fn discover_omp_files() -> Result<Vec<PathBuf>, ()> {
     Ok(root.as_deref().map(find_jsonl).unwrap_or_default())
 }
 
-pub(super) fn find_omp_files() -> Vec<PathBuf> {
-    discover_omp_files().unwrap_or_else(|()| vec![PathBuf::from("invalid-omp-profile.jsonl")])
+pub(super) fn find_omp_files() -> (Vec<PathBuf>, usize) {
+    discover_omp_files().unwrap_or_else(|()| (vec![PathBuf::from("invalid-omp-profile.jsonl")], 0))
 }
 
 pub(super) fn diagnose_omp_files() -> Result<usize, ()> {
-    discover_omp_files().map(|files| files.len())
+    discover_omp_files().and_then(|(files, errors)| {
+        if errors == 0 {
+            Ok(files.len())
+        } else {
+            Err(())
+        }
+    })
 }
 
 #[cfg(test)]

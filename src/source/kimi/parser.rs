@@ -72,27 +72,24 @@ fn get_kimi_sessions_dir() -> Option<PathBuf> {
         // An explicit override never falls back to the default root: reporting
         // home data after the user selected another root would be wrong data.
         let path = PathBuf::from(kimi_home).join(SESSIONS_SUBDIR);
-        return path.is_dir().then_some(path);
+        return Some(path);
     }
 
     let home = dirs::home_dir()?;
     let path = home.join(DEFAULT_KIMI_DIR).join(SESSIONS_SUBDIR);
-    path.is_dir().then_some(path)
+    Some(path)
 }
 
-pub(super) fn find_kimi_files() -> Vec<PathBuf> {
+pub(super) fn find_kimi_files() -> (Vec<PathBuf>, usize) {
     let Some(sessions_dir) = get_kimi_sessions_dir() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
 
     let pattern = glob_pattern(&sessions_dir, &format!("**/{AGENTS_SUBDIR}/*/{WIRE_FILE}"));
-    let mut files = Vec::new();
-    if let Ok(entries) = glob::glob(&pattern) {
-        files.extend(entries.flatten().filter(|path| path.is_file()));
-    }
+    let (mut files, errors) = crate::utils::paths::glob_files(&sessions_dir, &pattern);
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 /// `<sessions>/<workDirKey>/<sessionId>/agents/<agent>/wire.jsonl`

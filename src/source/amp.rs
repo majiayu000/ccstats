@@ -51,7 +51,7 @@ impl Source for AmpSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_amp_files()
     }
 
@@ -76,20 +76,15 @@ fn amp_threads_dir() -> Option<PathBuf> {
     Some(data_home.join("amp/threads"))
 }
 
-fn find_amp_files() -> Vec<PathBuf> {
+fn find_amp_files() -> (Vec<PathBuf>, usize) {
     let Some(root) = amp_threads_dir() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let pattern = glob_pattern(&root, "**/T-*.json");
-    let mut files = glob::glob(&pattern)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
+    let (mut files, errors) = dirs::glob_files(&root, &pattern);
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 fn file_modified_ms(path: &Path) -> Option<i64> {

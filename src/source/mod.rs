@@ -85,7 +85,7 @@ mod reasonix {
             }
         }
 
-        fn find_files(&self) -> Vec<PathBuf> {
+        fn find_files(&self) -> (Vec<PathBuf>, usize) {
             state_root()
                 .map(|root| find_files_in_root(&root))
                 .unwrap_or_default()
@@ -161,23 +161,16 @@ mod reasonix {
             })
     }
 
-    fn find_files_in_root(root: &Path) -> Vec<PathBuf> {
-        let Ok(entries) = fs::read_dir(root.join("stats")) else {
-            return Vec::new();
-        };
-        let mut files = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .and_then(|name| name.strip_suffix(".jsonl"))
-                    .is_some_and(|day| NaiveDate::parse_from_str(day, DATE_FORMAT).is_ok())
-            })
-            .collect::<Vec<_>>();
+    fn find_files_in_root(root: &Path) -> (Vec<PathBuf>, usize) {
+        let pattern = crate::utils::glob_pattern(&root.join("stats"), "*.jsonl");
+        let (mut files, errors) = dirs::glob_files(&root.join("stats"), &pattern);
+        files.retain(|path| {
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .is_some_and(|day| NaiveDate::parse_from_str(day, DATE_FORMAT).is_ok())
+        });
         files.sort();
-        files
+        (files, errors)
     }
 
     #[derive(Deserialize)]
@@ -592,7 +585,13 @@ pub(crate) trait Source: Send + Sync {
     /// Inspect whether this source can provide data without parsing logs or
     /// contacting remote services.
     fn diagnose(&self) -> SourceDiagnostic {
-        let files = self.find_files().len();
+        let (files, errors) = self.find_files();
+        if errors > 0 {
+            return SourceDiagnostic::error(format!(
+                "Failed to discover local usage files ({errors} error(s))"
+            ));
+        }
+        let files = files.len();
         if files == 0 {
             SourceDiagnostic::missing("No local usage files found")
         } else {
@@ -601,12 +600,23 @@ pub(crate) trait Source: Send + Sync {
     }
 
     /// Find all data files for this source
-    fn find_files(&self) -> Vec<PathBuf>;
+    fn find_files(&self) -> (Vec<PathBuf>, usize);
 
-    /// Find data for a requested date range. Remote sources may use the range
-    /// to bound API requests; local sources prune by filename date and mtime.
-    fn find_files_for_filter(&self, filter: &DateFilter, timezone: Timezone) -> Vec<PathBuf> {
-        cache::prune_discovered_files(self.find_files(), filter, timezone)
+    /// Find files and count discovery failures for a requested date range.
+    /// Remote sources may bound API requests; local logs prune by filename date and mtime.
+    /// `SQLite` main files may be old while recent records are still in a WAL.
+    fn find_files_for_filter(
+        &self,
+        filter: &DateFilter,
+        timezone: Timezone,
+    ) -> (Vec<PathBuf>, usize) {
+        let (files, errors) = self.find_files();
+        let files = if self.cache_policy() == cache::CachePolicy::Watermark {
+            files
+        } else {
+            cache::prune_discovered_files(files, filter, timezone)
+        };
+        (files, errors)
     }
 
     /// Parse a single file into raw entries and diagnostics.

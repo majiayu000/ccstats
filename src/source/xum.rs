@@ -48,7 +48,7 @@ impl Source for XumSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_usage_files()
     }
 
@@ -64,20 +64,15 @@ fn xum_root() -> Option<PathBuf> {
         .or_else(|| dirs::home_dir().map(|home| home.join(".xum")))
 }
 
-fn find_usage_files() -> Vec<PathBuf> {
+fn find_usage_files() -> (Vec<PathBuf>, usize) {
     let Some(root) = xum_root() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let pattern = glob_pattern(&root, "sessions/*/session-usage.json");
-    let mut files = glob::glob(&pattern)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
+    let (mut files, errors) = dirs::glob_files(&root.join("sessions"), &pattern);
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 #[derive(Deserialize)]

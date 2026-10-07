@@ -56,7 +56,12 @@ impl Source for OpenClawSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    // SQLite WAL commits need not modify the main file's metadata.
+    fn cache_policy(&self) -> super::cache::CachePolicy {
+        super::cache::CachePolicy::Watermark
+    }
+
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_transcript_stores()
     }
 

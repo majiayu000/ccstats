@@ -165,30 +165,32 @@ fn ledger_path(grok_home: &Path) -> Option<PathBuf> {
     })
 }
 
-pub(super) fn find_grok_files() -> Vec<PathBuf> {
+pub(super) fn find_grok_files() -> (Vec<PathBuf>, usize) {
     let Some(grok_home) = grok_home() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
     let source_path = grok_home.join("logs").join(UNIFIED_LOG);
     let sessions_dir = grok_home.join("sessions");
     let ledger_path = ledger_path(&grok_home);
-    let mut files = super::parser::find_grok_files();
+    let (mut files, mut errors) = super::parser::find_grok_files();
 
-    if source_path.is_file() {
+    let (source_files, source_errors) = crate::utils::paths::existing_file(source_path.clone());
+    errors += source_errors;
+    if !source_files.is_empty() {
         files.push(if let Some(path) = ledger_path.as_deref() {
             sync_or_select_grok_file(&source_path, path, &sessions_dir)
         } else {
             source_path
         });
-    } else if let Some(path) = ledger_path
-        && path.is_file()
-    {
-        files.push(path);
+    } else if let Some(path) = ledger_path {
+        let (found, failed) = crate::utils::paths::existing_file(path);
+        files.extend(found);
+        errors += failed;
     }
 
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 fn sync_or_select_grok_file(

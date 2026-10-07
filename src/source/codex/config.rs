@@ -9,9 +9,7 @@ use clap::ValueEnum;
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
-use super::parser::{
-    find_codex_files, parse_codex_file_with_diagnostics, parse_codex_file_with_scope,
-};
+use super::parser::{parse_codex_file_with_diagnostics, parse_codex_file_with_scope};
 
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
 pub(crate) enum CodexScope {
@@ -110,8 +108,8 @@ impl Source for CodexSource {
         "Run OpenAI Codex once or set CODEX_HOME to its data root"
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        find_codex_files()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        crate::source::session_reader::discover(agent_sessions::Agent::Codex)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
@@ -125,11 +123,11 @@ impl Source for CodexSource {
     fn cache_partition(&self) -> &str {
         static DETAILS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
             ["all", "interactive", "exec", "subagent"]
-                .map(|scope| format!("{}:details-v1:{scope}", agent_sessions::VERSION))
+                .map(|scope| format!("{}:projection-v3:details:{scope}", agent_sessions::VERSION))
         });
         static PARTITIONS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
             ["all", "interactive", "exec", "subagent"]
-                .map(|scope| format!("{}:{scope}", agent_sessions::VERSION))
+                .map(|scope| format!("{}:projection-v3:{scope}", agent_sessions::VERSION))
         });
         let partitions = if self.accounting_diagnostics {
             &DETAILS

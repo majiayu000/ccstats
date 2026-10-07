@@ -44,18 +44,56 @@ impl Source for FxSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        dirs::home_dir()
-            .map(|home| home.join(".fx"))
-            .filter(|root| {
-                root.join("usage.jsonl").exists() || root.join("usage-recovery").exists()
-            })
-            .into_iter()
-            .collect()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        let Some(root) = dirs::home_dir().map(|home| home.join(".fx")) else {
+            return (Vec::new(), 0);
+        };
+        find_root(&root)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_root(path, timezone, debug)
+    }
+}
+
+// Parsing owns validation of ledger/recovery contents, discovery needs an artifact.
+fn find_root(root: &Path) -> (Vec<PathBuf>, usize) {
+    match fs::metadata(root) {
+        Ok(meta) if meta.is_dir() => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), 0),
+        Ok(_) | Err(_) => return (Vec::new(), 1),
+    }
+    let mut present = false;
+    let mut errors = 0;
+    for name in ["usage.jsonl", "usage-recovery"] {
+        match fs::metadata(root.join(name)) {
+            Ok(_) => present = true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => errors += 1,
+        }
+    }
+    (
+        present.then(|| root.to_path_buf()).into_iter().collect(),
+        errors,
+    )
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    #[test]
+    fn fx_needs_a_usage_artifact() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(".fx");
+        assert_eq!(find_root(&root), (Vec::new(), 0));
+        fs::create_dir(&root).unwrap();
+        assert_eq!(find_root(&root), (Vec::new(), 0));
+        fs::write(root.join("usage.jsonl"), "").unwrap();
+        assert_eq!(find_root(&root), (vec![root.clone()], 0));
+        fs::remove_file(root.join("usage.jsonl")).unwrap();
+        fs::create_dir(root.join("usage-recovery")).unwrap();
+        assert_eq!(find_root(&root), (vec![root], 0));
     }
 }
 
@@ -263,10 +301,10 @@ pub(super) fn deserialize_fact(value: Value) -> Result<Fact, &'static str> {
 fn parse_root(root: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
     let mut ledger = Ledger::default();
     let profile = root.join("usage.jsonl");
-    if profile.is_file() {
-        parse_profile(&profile, timezone, debug, &mut ledger);
-    } else if profile.exists() {
-        ledger.output.errors += 1;
+    match fs::metadata(&profile) {
+        Ok(meta) if meta.is_file() => parse_profile(&profile, timezone, debug, &mut ledger),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) | Err(_) => ledger.output.errors += 1,
     }
     fx_recovery::parse_recovery_dir(root, timezone, debug, &mut ledger);
     ledger.finish()

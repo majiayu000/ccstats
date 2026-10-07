@@ -29,6 +29,43 @@ pub(crate) fn glob_pattern(root: &Path, suffix: &str) -> String {
     format!("{}/{suffix}", glob::Pattern::escape(&text))
 }
 
+/// Missing optional data is empty; other filesystem failures make discovery incomplete.
+pub(crate) fn existing_file(path: PathBuf) -> (Vec<PathBuf>, usize) {
+    match std::fs::metadata(&path) {
+        Ok(meta) => (meta.is_file().then_some(path).into_iter().collect(), 0),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Vec::new(), 0),
+        Err(_) => (Vec::new(), 1),
+    }
+}
+
+pub(crate) fn glob_files(root: &Path, pattern: &str) -> (Vec<PathBuf>, usize) {
+    // glob may silently yield nothing when a literal prefix cannot be inspected.
+    match std::fs::metadata(root) {
+        Ok(meta) if meta.is_dir() => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), 0),
+        Ok(_) | Err(_) => return (Vec::new(), 1),
+    }
+    let Ok(matches) = glob::glob(pattern) else {
+        return (Vec::new(), 1);
+    };
+    let mut files = Vec::new();
+    let mut errors = 0;
+    for item in matches {
+        match item {
+            Ok(path) => {
+                // A yielded match is no longer an optional missing root.
+                match std::fs::metadata(&path) {
+                    Ok(meta) if meta.is_file() => files.push(path),
+                    Ok(_) => {}
+                    Err(_) => errors += 1,
+                }
+            }
+            Err(_) => errors += 1,
+        }
+    }
+    (files, errors)
+}
+
 fn nonempty_env_path(variable: &str) -> Option<PathBuf> {
     Some(PathBuf::from(
         std::env::var_os(variable).filter(|value| !value.is_empty())?,
@@ -77,4 +114,38 @@ pub(crate) fn cache_dir() -> Option<PathBuf> {
         return Some(path);
     }
     dirs::cache_dir()
+}
+
+#[cfg(all(test, unix))]
+mod discovery_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn matched_dangling_symlink_is_a_discovery_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("usage.jsonl");
+        std::os::unix::fs::symlink(temp.path().join("missing"), &path).unwrap();
+        let pattern = glob_pattern(temp.path(), "*.jsonl");
+        assert_eq!(glob_files(temp.path(), &pattern), (Vec::new(), 1));
+        assert_eq!(existing_file(temp.path().join("optional")), (Vec::new(), 0));
+    }
+
+    #[test]
+    fn literal_prefix_failure_is_not_a_missing_optional_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("source/logs");
+        let pattern = glob_pattern(&root, "*.jsonl");
+        assert_eq!(glob_files(&root, &pattern), (Vec::new(), 0));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("usage.jsonl");
+        std::fs::write(&file, "").unwrap();
+        assert_eq!(glob_files(&root, &pattern), (vec![file.clone()], 0));
+        let parent = root.parent().unwrap();
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let failed = glob_files(&root, &pattern);
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(failed, (Vec::new(), 1));
+        assert_eq!(glob_files(&root, &pattern), (vec![file], 0));
+    }
 }

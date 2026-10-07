@@ -140,6 +140,51 @@ fn native_deltas_duplicate_vectors_and_resets_preserve_statistics() {
         vec![100, 10]
     );
 }
+
+#[test]
+fn reset_epochs_survive_final_dedup_even_when_timestamps_repeat() {
+    for with_last_sample in [false, true] {
+        let output = native_rows(&[
+            native_count(100, None),
+            native_count(120, None),
+            native_count(20, with_last_sample.then_some(0)),
+            native_count(100, None),
+            native_count(120, None),
+            native_count(120, None),
+        ]);
+        assert_eq!(output.errors, 0);
+        let mut dedup = crate::core::DedupAccumulator::new();
+        dedup.extend(output.entries);
+        let (entries, skipped) = dedup.finalize();
+        assert_eq!(entries.len(), 4);
+        assert_eq!(skipped, 0);
+        assert_eq!(
+            entries.iter().map(|entry| entry.input_tokens).sum::<i64>(),
+            220
+        );
+    }
+}
+
+#[test]
+fn missing_model_keeps_recorded_tokens_without_inventing_a_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("unknown.jsonl");
+    std::fs::write(&path, native_count(100, None).to_string()).unwrap();
+    let timezone = Timezone::Named(chrono_tz::UTC);
+    for output in [
+        parse_codex_file_with_scope(&path, timezone, false, CodexScope::All),
+        parse_codex_file_for_quota(&path, timezone),
+        parse_codex_file_with_diagnostics(&path, timezone, false, CodexScope::All),
+    ] {
+        assert_eq!(output.errors, 0);
+        assert_eq!(output.entries.len(), 1);
+        let entry = &output.entries[0];
+        assert_eq!(entry.model, "unknown-model");
+        assert_eq!(entry.input_tokens, 100);
+        assert_eq!(entry.cost_kind, crate::core::CostKind::Real);
+        assert_eq!(entry.recorded_cost_usd, None);
+    }
+}
 #[test]
 fn last_sample_wins_over_cumulative_difference() {
     let output = native_rows(&[native_count(100, None), native_count(200, Some(7))]);

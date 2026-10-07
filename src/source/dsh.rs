@@ -33,13 +33,13 @@ impl DshSource {
         }
     }
 
-    fn discover_root(&self, root: &Path) -> Vec<PathBuf> {
-        let (files, mixed) = find_session_files(root);
+    fn discover_root(&self, root: &Path) -> (Vec<PathBuf>, usize) {
+        let (files, errors, mixed) = find_session_files(root);
         self.mixed_roots
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(root.to_path_buf(), mixed);
-        files
+        (files, errors)
     }
 
     fn discovered_root_is_mixed(&self, path: &Path) -> Option<bool> {
@@ -74,7 +74,7 @@ impl Source for DshSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         dsh_home()
             .map(|home| self.discover_root(&home.join("sessions")))
             .unwrap_or_default()
@@ -118,15 +118,21 @@ fn dsh_home() -> Option<PathBuf> {
     configured_home().or_else(|| dirs::home_dir().map(|home| home.join(".dsh")))
 }
 
-fn find_session_files(root: &Path) -> (Vec<PathBuf>, bool) {
+fn find_session_files(root: &Path) -> (Vec<PathBuf>, usize, bool) {
     let mut by_directory = BTreeMap::<PathBuf, Vec<PathBuf>>::new();
-    for project in child_directories(root) {
-        for session in child_directories(&project) {
+    let (projects, mut errors) = child_directories(root);
+    for project in projects {
+        let (sessions, failed) = child_directories(&project);
+        errors += failed;
+        for session in sessions {
             for filename in ["session.jsonl", "session.jsonl.zstd"] {
                 let path = session.join(filename);
-                if path.is_file() {
-                    by_directory.entry(session.clone()).or_default().push(path);
-                }
+                let (found, failed) = dirs::existing_file(path);
+                errors += failed;
+                by_directory
+                    .entry(session.clone())
+                    .or_default()
+                    .extend(found);
             }
         }
     }
@@ -151,24 +157,26 @@ fn find_session_files(root: &Path) -> (Vec<PathBuf>, bool) {
     } else {
         files
     };
-    (files, mixed)
+    (files, errors, mixed)
 }
 
-fn child_directories(root: &Path) -> Vec<PathBuf> {
-    let mut directories = fs::read_dir(root)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            entry
-                .file_type()
-                .ok()
-                .filter(std::fs::FileType::is_dir)
-                .map(|_| entry.path())
-        })
-        .collect::<Vec<_>>();
+fn child_directories(root: &Path) -> (Vec<PathBuf>, usize) {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), 0),
+        Err(_) => return (Vec::new(), 1),
+    };
+    let mut directories = Vec::new();
+    let mut errors = 0;
+    for entry in entries {
+        match entry.and_then(|entry| entry.file_type().map(|kind| (entry.path(), kind))) {
+            Ok((path, kind)) if kind.is_dir() => directories.push(path),
+            Ok(_) => {}
+            Err(_) => errors += 1,
+        }
+    }
     directories.sort();
-    directories
+    (directories, errors)
 }
 
 fn is_plain(path: &Path) -> bool {

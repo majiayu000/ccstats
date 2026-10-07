@@ -80,8 +80,8 @@ impl Source for ClaudeSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        find_claude_files()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        crate::source::session_reader::discover(agent_sessions::Agent::ClaudeCode)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {

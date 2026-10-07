@@ -36,7 +36,17 @@ pub(super) fn roots(agent: Agent) -> Roots {
     }
 }
 
-pub(super) fn files(roots: &Roots, agent: Agent) -> Vec<std::path::PathBuf> {
+pub(super) fn discover(agent: Agent) -> (Vec<std::path::PathBuf>, usize) {
+    match Roots::from_env_for(agent) {
+        Ok(roots) => files(&roots, agent),
+        Err(error) => {
+            eprintln!("Session root configuration: {error}");
+            (Vec::new(), 1)
+        }
+    }
+}
+
+pub(super) fn files(roots: &Roots, agent: Agent) -> (Vec<std::path::PathBuf>, usize) {
     let discovery = agent_sessions::discover(
         roots,
         &agent_sessions::DiscoverFilter {
@@ -45,6 +55,7 @@ pub(super) fn files(roots: &Roots, agent: Agent) -> Vec<std::path::PathBuf> {
             ..Default::default()
         },
     );
+    let errors = discovery.errors.len();
     for error in discovery.errors {
         eprintln!(
             "Cannot discover session files at {}: {}",
@@ -52,7 +63,10 @@ pub(super) fn files(roots: &Roots, agent: Agent) -> Vec<std::path::PathBuf> {
             error.source
         );
     }
-    discovery.files.into_iter().map(|f| f.path).collect()
+    (
+        discovery.files.into_iter().map(|f| f.path).collect(),
+        errors,
+    )
 }
 
 /// Explicit application aggregation: absent buckets historically count as zero.

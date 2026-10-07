@@ -25,8 +25,11 @@ impl Source for TestSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        self.files.iter().map(|(path, _, _)| path.clone()).collect()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        (
+            self.files.iter().map(|(path, _, _)| path.clone()).collect(),
+            0,
+        )
     }
 
     fn parse_file(&self, path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {

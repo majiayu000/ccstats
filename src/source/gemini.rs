@@ -54,7 +54,7 @@ impl Source for GeminiSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_gemini_files()
     }
 
@@ -70,27 +70,25 @@ fn gemini_home() -> Option<PathBuf> {
     }
 }
 
-fn find_gemini_files() -> Vec<PathBuf> {
+fn find_gemini_files() -> (Vec<PathBuf>, usize) {
     let Some(tmp) = gemini_home().map(|root| root.join("tmp")) else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
-    if !tmp.is_dir() {
-        return Vec::new();
-    }
 
     let patterns = [
         glob_pattern(&tmp, "*/chats/*.json"),
         glob_pattern(&tmp, "**/*.jsonl"),
     ];
     let mut files = Vec::new();
+    let mut errors = 0;
     for pattern in patterns {
-        if let Ok(matches) = glob::glob(&pattern) {
-            files.extend(matches.flatten().filter(|path| path.is_file()));
-        }
+        let (found, failed) = dirs::glob_files(&tmp, &pattern);
+        files.extend(found);
+        errors += failed;
     }
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 fn file_modified_ms(path: &Path) -> Option<i64> {
