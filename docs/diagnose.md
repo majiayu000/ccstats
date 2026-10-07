@@ -5,15 +5,14 @@ composition, session contributors, child-agent files, compaction times, and
 version comparisons in one report. It cannot reproduce Anthropic's subscription
 quota formula or prove that a Claude Code version caused a billing change.
 
-This feature is **prepared for v0.10.0, not yet published**. The normal two-line installation flow below
-applies after the release containing `diagnose` reaches Homebrew:
+This feature is available in **[v0.10.0](https://github.com/majiayu000/ccstats/releases/tag/v0.10.0)**:
 
 ```sh
 brew install majiayu000/tap/ccstats
 ccstats diagnose
 ```
 
-Before release, install the reviewed branch into a separate prefix:
+To test source changes, install into a separate prefix:
 
 ```sh
 cargo install --path . --locked --root /tmp/ccstats-diagnose-install
@@ -191,7 +190,7 @@ usable real dataset before making that marketing claim.
 
 These are drafts. No issue replies or social posts were sent. Verify the tagged
 release, clean installation, Homebrew version, and `ccstats diagnose --help`
-before replacing the not-yet-published label and publishing. Space releases at least
+before publishing the outreach drafts. Space releases at least
 a week apart, following the Q4 launch playbook. Recheck the issue status and
 whether the author has already replied before using a draft.
 
@@ -279,17 +278,19 @@ Title: I added a local Claude Code usage diagnosis report; it keeps unknown quot
 - Do not announce full-log speed or calibrated thresholds until those are measured
   on a usable real dataset. The current synthetic stress run is labeled separately.
 
-### Prepared v0.10.0 release
+### v0.10.0 release
 
 The public registry index and Git tags were checked on 2026-10-07: the latest
 version was v0.9.1 and 0.10.0 was absent. The current release workflow publishes
 CLI archives, crates.io and the Homebrew formula; it no longer publishes the
 deprecated desktop app. Only the root Cargo version and lockfile are release
-metadata for this workflow. No v0.10.0 tag was pushed and no release was published.
+metadata for this workflow. On 2026-10-08, `v0.10.0` was tagged at
+`3a9d38d3238954430ca7c44c3b959372366d53b9` and published through the existing
+[Release workflow](https://github.com/majiayu000/ccstats/actions/runs/37654657909).
 
-Proposed release title: `v0.10.0 — local Claude quota diagnosis`
+Release title: `v0.10.0 — local Claude quota diagnosis`
 
-Proposed release summary:
+Release summary:
 
 - `ccstats diagnose` and the read-only MCP tool combine local token buckets,
   cache-write availability, child files, compaction times and same-cohort version
@@ -306,7 +307,9 @@ Proposed release summary:
   logs did not reproduce the planning corpus. Synthetic performance results are
   explicitly labeled in the validation section above.
 
-After approval and merge, follow `docs/RELEASING.md` to push `v0.10.0`. Verify
-CLI archives and checksums, the crates.io index, Homebrew version, and a clean
-installation independently. The draft replies above should only be posted by
-the author after these checks.
+All five CLI archives and checksums, the public crates.io index and crate
+checksum, and the public Homebrew formula were independently verified.
+Fresh isolated installations from crates.io and the official macOS ARM64
+installer reported `0.10.0` and passed the diagnosis help/JSON checks. The
+outreach replies above remain drafts for the author to post. Follow
+`docs/RELEASING.md` for future releases.
