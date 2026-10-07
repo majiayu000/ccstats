@@ -277,3 +277,102 @@ fn parse_failure_keeps_the_last_complete_snapshot_until_repaired() {
     assert_eq!(repaired["rows"][0]["stats"]["input_tokens"], 400);
     assert_eq!(repaired["rows"][0]["stats"]["output_tokens"], 100);
 }
+
+#[test]
+fn partial_discovery_keeps_the_complete_snapshot_and_cache_until_repaired() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let codex = root.path().join("codex");
+    let data = root.path().join("data");
+    let cache = root.path().join("cache");
+    let sync = root.path().join("sync");
+    fs::create_dir_all(&sync).unwrap();
+    let transcript = |id: &str, total: i64| {
+        format!(
+            "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"source\":\"cli\",\"model\":\"gpt-5\"}}}}\n{{\"type\":\"event_msg\",\"timestamp\":\"2026-09-05T12:00:00Z\",\"payload\":{{\"type\":\"token_count\",\"info\":{{\"total_token_usage\":{{\"input_tokens\":{total},\"output_tokens\":0}}}}}}}}\n"
+        )
+    };
+    write_file(
+        &codex.join("sessions/active.jsonl"),
+        &transcript("active", 100),
+    );
+    let archived = codex.join("archived_sessions/archive.jsonl");
+    write_file(&archived, &transcript("archive", 20));
+    let envs = [
+        ("HOME", home.as_path()),
+        ("CODEX_HOME", codex.as_path()),
+        ("XDG_DATA_HOME", data.as_path()),
+        ("XDG_CACHE_HOME", cache.as_path()),
+    ];
+    let push = || {
+        run_ccstats(
+            &[
+                "sync",
+                "push",
+                "--timezone",
+                "UTC",
+                "--sync-dir",
+                sync.to_str().unwrap(),
+            ],
+            &envs,
+        )
+    };
+    let (ok, _, err) = push();
+    assert!(ok, "{}", String::from_utf8_lossy(&err));
+    let snapshot = device_files(&sync).pop().unwrap();
+    let complete = fs::read(&snapshot).unwrap();
+    let snapshot_input = |bytes: &[u8]| {
+        let doc: Value = serde_json::from_slice(bytes).unwrap();
+        doc["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["source"] == "codex")
+            .map(|r| r["stats"]["input_tokens"].as_i64().unwrap())
+            .sum::<i64>()
+    };
+    assert_eq!(snapshot_input(&complete), 120);
+    let cache_file = cache.join("ccstats/usage-facts-v2.sqlite3");
+    let complete_cache = fs::read(&cache_file).unwrap();
+    fs::rename(codex.join("sessions"), codex.join("saved-sessions")).unwrap();
+    fs::write(codex.join("sessions"), "not a directory").unwrap();
+    write_file(&archived, &transcript("archive", 40));
+    let (ok, out, err) = push();
+    assert!(!ok, "{}", String::from_utf8_lossy(&out));
+    let err = String::from_utf8_lossy(&err);
+    assert!(err.contains("Cannot discover session files"), "{err}");
+    assert!(err.contains("snapshot was not updated"), "{err}");
+    assert_eq!(fs::read(&snapshot).unwrap(), complete);
+    assert_eq!(fs::read(&cache_file).unwrap(), complete_cache);
+    let (ok, report, err) = run_ccstats(
+        &[
+            "daily",
+            "--source",
+            "codex",
+            "--json",
+            "--offline",
+            "--no-cost",
+        ],
+        &envs,
+    );
+    assert!(ok, "{}", String::from_utf8_lossy(&err));
+    let report: Value = serde_json::from_slice(&report).unwrap();
+    assert_eq!(report[0]["input_tokens"], 40);
+    assert_eq!(report[0]["data_quality"]["parse_errors"], 1);
+    assert_eq!(fs::read(&cache_file).unwrap(), complete_cache);
+    // A failed discovery with no readable files must also remain incomplete.
+    fs::rename(codex.join("archived_sessions"), codex.join("saved-archive")).unwrap();
+    fs::write(codex.join("archived_sessions"), "not a directory").unwrap();
+    let (ok, _, err) = push();
+    assert!(!ok);
+    assert!(String::from_utf8_lossy(&err).contains("snapshot was not updated"));
+    assert_eq!(fs::read(&snapshot).unwrap(), complete);
+    assert_eq!(fs::read(&cache_file).unwrap(), complete_cache);
+    fs::remove_file(codex.join("archived_sessions")).unwrap();
+    fs::rename(codex.join("saved-archive"), codex.join("archived_sessions")).unwrap();
+    fs::remove_file(codex.join("sessions")).unwrap();
+    fs::rename(codex.join("saved-sessions"), codex.join("sessions")).unwrap();
+    let (ok, _, err) = push();
+    assert!(ok, "{}", String::from_utf8_lossy(&err));
+    assert_eq!(snapshot_input(&fs::read(&snapshot).unwrap()), 140);
+}

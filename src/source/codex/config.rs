@@ -114,6 +114,18 @@ impl Source for CodexSource {
         find_codex_files()
     }
 
+    fn find_files_for_filter(
+        &self,
+        filter: &crate::core::DateFilter,
+        timezone: Timezone,
+    ) -> (Vec<PathBuf>, usize) {
+        let (files, errors) = crate::source::session_reader::discover(agent_sessions::Agent::Codex);
+        (
+            crate::source::cache::prune_discovered_files(files, filter, timezone),
+            errors,
+        )
+    }
+
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         if self.accounting_diagnostics {
             parse_codex_file_with_diagnostics(path, timezone, debug, self.scope)
@@ -125,11 +137,11 @@ impl Source for CodexSource {
     fn cache_partition(&self) -> &str {
         static DETAILS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
             ["all", "interactive", "exec", "subagent"]
-                .map(|scope| format!("{}:projection-v2:details:{scope}", agent_sessions::VERSION))
+                .map(|scope| format!("{}:projection-v3:details:{scope}", agent_sessions::VERSION))
         });
         static PARTITIONS: std::sync::LazyLock<[String; 4]> = std::sync::LazyLock::new(|| {
             ["all", "interactive", "exec", "subagent"]
-                .map(|scope| format!("{}:projection-v2:{scope}", agent_sessions::VERSION))
+                .map(|scope| format!("{}:projection-v3:{scope}", agent_sessions::VERSION))
         });
         let partitions = if self.accounting_diagnostics {
             &DETAILS

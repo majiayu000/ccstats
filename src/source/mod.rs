@@ -603,16 +603,21 @@ pub(crate) trait Source: Send + Sync {
     /// Find all data files for this source
     fn find_files(&self) -> Vec<PathBuf>;
 
-    /// Find data for a requested date range. Remote sources may use the range
-    /// to bound API requests; local logs prune by filename date and mtime.
+    /// Find files and count discovery failures for a requested date range.
+    /// Remote sources may bound API requests; local logs prune by filename date and mtime.
     /// `SQLite` main files may be old while recent records are still in a WAL.
-    fn find_files_for_filter(&self, filter: &DateFilter, timezone: Timezone) -> Vec<PathBuf> {
+    fn find_files_for_filter(
+        &self,
+        filter: &DateFilter,
+        timezone: Timezone,
+    ) -> (Vec<PathBuf>, usize) {
         let files = self.find_files();
-        if self.cache_policy() == cache::CachePolicy::Watermark {
+        let files = if self.cache_policy() == cache::CachePolicy::Watermark {
             files
         } else {
             cache::prune_discovered_files(files, filter, timezone)
-        }
+        };
+        (files, 0)
     }
 
     /// Parse a single file into raw entries and diagnostics.

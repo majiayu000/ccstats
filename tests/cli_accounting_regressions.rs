@@ -170,66 +170,82 @@ fn codex_count(total: i64, timestamp: &str) -> Value {
 
 #[test]
 fn codex_reset_usage_survives_loader_cache_and_archived_copy_dedup() {
-    let root = tempfile::tempdir().unwrap();
-    let home = root.path().join("codex");
-    let cache = root.path().join("cache");
-    let file = home.join("sessions/reset.jsonl");
-    let mut rows = vec![json!({"type":"session_meta", "payload":{
-        "id":"reset-session", "source":"cli", "model":"gpt-5"
-    }})];
-    for (index, total) in [100, 120, 20, 100, 120, 120].into_iter().enumerate() {
-        // Keep the initial cumulative checkpoint on a different day: its
-        // existing file-local scope is deliberately distinct from replay IDs.
-        let day = if index == 0 {
-            "2026-09-04"
-        } else {
-            "2026-09-05"
-        };
-        rows.push(codex_count(total, &format!("{day}T12:00:00Z")));
-    }
-    write_file(
-        &file,
-        &rows
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    let envs = [
-        ("CODEX_HOME", home.as_path()),
-        ("XDG_CACHE_HOME", cache.as_path()),
-    ];
-    let args = [
-        "daily",
-        "--source",
-        "codex",
-        "--json",
-        "--offline",
-        "--no-cost",
-        "--timezone",
-        "UTC",
-    ];
-    for _ in 0..2 {
-        let report = json_report(&args, &envs);
-        let total: i64 = report
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|day| day["total_tokens"].as_i64().unwrap())
-            .sum();
-        assert_eq!(total, 220);
-    }
-    write_file(
-        &home.join("archived_sessions/copy.jsonl"),
-        &fs::read_to_string(&file).unwrap(),
-    );
-    let mut selected = args.to_vec();
-    selected.extend(["--since", "2026-09-05", "--until", "2026-09-05"]);
-    for _ in 0..2 {
-        let report = json_report(&selected, &envs);
-        assert_eq!(report[0]["total_tokens"], 120);
-        assert_eq!(report[0]["data_quality"]["valid_entries"], 3);
-        assert_eq!(report[0]["data_quality"]["dedup_skipped_entries"], 3);
+    for nonzero_reset in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("codex");
+        let cache = root.path().join("cache");
+        let file = home.join("sessions/reset.jsonl");
+        let mut rows = vec![json!({"type":"session_meta", "payload":{
+            "id":"reset-session", "source":"cli", "model":"gpt-5"
+        }})];
+        for (index, total) in [100, 120, 20, 100, 120, 120].into_iter().enumerate() {
+            // Keep the initial cumulative checkpoint on a different day: its
+            // existing file-local scope is deliberately distinct from replay IDs.
+            let day = if index == 0 {
+                "2026-09-04"
+            } else {
+                "2026-09-05"
+            };
+            let mut row = codex_count(total, &format!("{day}T12:00:00Z"));
+            if nonzero_reset && index == 2 {
+                row["payload"]["info"]["last_token_usage"] =
+                    json!({"input_tokens":20,"output_tokens":0});
+            }
+            rows.push(row);
+        }
+        write_file(
+            &file,
+            &rows
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let envs = [
+            ("CODEX_HOME", home.as_path()),
+            ("XDG_CACHE_HOME", cache.as_path()),
+        ];
+        let args = [
+            "daily",
+            "--source",
+            "codex",
+            "--json",
+            "--offline",
+            "--no-cost",
+            "--timezone",
+            "UTC",
+        ];
+        for _ in 0..2 {
+            let report = json_report(&args, &envs);
+            let total: i64 = report
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|day| day["total_tokens"].as_i64().unwrap())
+                .sum();
+            assert_eq!(total, if nonzero_reset { 240 } else { 220 });
+        }
+        write_file(
+            &home.join("archived_sessions/copy.jsonl"),
+            &fs::read_to_string(&file).unwrap(),
+        );
+        let mut selected = args.to_vec();
+        selected.extend(["--since", "2026-09-05", "--until", "2026-09-05"]);
+        for _ in 0..2 {
+            let report = json_report(&selected, &envs);
+            assert_eq!(
+                report[0]["total_tokens"],
+                if nonzero_reset { 140 } else { 120 }
+            );
+            assert_eq!(
+                report[0]["data_quality"]["valid_entries"],
+                if nonzero_reset { 4 } else { 3 }
+            );
+            assert_eq!(
+                report[0]["data_quality"]["dedup_skipped_entries"],
+                if nonzero_reset { 4 } else { 3 }
+            );
+        }
     }
 }
 

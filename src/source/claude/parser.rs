@@ -111,7 +111,7 @@ impl BufRead for NativeLines {
 }
 
 pub(super) fn find_claude_files() -> Vec<PathBuf> {
-    session_reader::files(&session_reader::roots(Agent::ClaudeCode), Agent::ClaudeCode)
+    session_reader::files(&session_reader::roots(Agent::ClaudeCode), Agent::ClaudeCode).0
 }
 
 pub(super) fn parse_claude_file_with_debug(

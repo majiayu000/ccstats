@@ -181,10 +181,10 @@ impl<'a> DataLoader<'a> {
         R: Fn(T, T) -> T + Send + Sync,
     {
         let discovery_start = Instant::now();
-        let files = self.source.find_files_for_filter(filter, timezone);
+        let (files, discovery_errors) = self.source.find_files_for_filter(filter, timezone);
         let discovery_ms = discovery_start.elapsed().as_secs_f64() * 1000.0;
 
-        if files.is_empty() {
+        if files.is_empty() && discovery_errors == 0 {
             return None;
         }
 
@@ -206,8 +206,16 @@ impl<'a> DataLoader<'a> {
                 if self.cancelled.is_some_and(|cancelled| cancelled()) {
                     return (init(), 0);
                 }
-                let parsed =
-                    super::cache::parse_cached(self.source, path, filter, timezone, self.debug);
+                let parsed = if discovery_errors == 0 {
+                    super::cache::parse_cached(self.source, path, filter, timezone, self.debug)
+                } else {
+                    // Keep partial reports readable without replacing cached facts.
+                    let parsed = self.source.parse_file(path, timezone, self.debug);
+                    super::ParseOutput {
+                        entries: Self::filter_entries(parsed.entries, filter, timezone),
+                        errors: parsed.errors,
+                    }
+                };
                 (per_file(parsed.entries), parsed.errors)
             })
             .reduce(
@@ -232,7 +240,7 @@ impl<'a> DataLoader<'a> {
             }
         }
 
-        Some((result, parse_errors))
+        Some((result, parse_errors + discovery_errors))
     }
 
     /// Load and deduplicate entries incrementally to avoid buffering all raw records in memory.

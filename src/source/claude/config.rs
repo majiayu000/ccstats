@@ -84,6 +84,19 @@ impl Source for ClaudeSource {
         find_claude_files()
     }
 
+    fn find_files_for_filter(
+        &self,
+        filter: &crate::core::DateFilter,
+        timezone: Timezone,
+    ) -> (Vec<PathBuf>, usize) {
+        let (files, errors) =
+            crate::source::session_reader::discover(agent_sessions::Agent::ClaudeCode);
+        (
+            crate::source::cache::prune_discovered_files(files, filter, timezone),
+            errors,
+        )
+    }
+
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         if self.accounting_diagnostics {
             parse_claude_file_with_diagnostics(path, timezone, debug)

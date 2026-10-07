@@ -24,6 +24,7 @@ fn find_codex_files_in_root(root: &Path) -> Vec<PathBuf> {
         },
         Agent::Codex,
     )
+    .0
 }
 pub(super) fn find_codex_files() -> Vec<PathBuf> {
     codex_root_candidate().map_or_else(Vec::new, |p| find_codex_files_in_root(&p))
@@ -286,7 +287,7 @@ fn parse_mode(
     )
 }
 fn usage_id(model: &str, session: &str, total: [i64; 7], delta: [i64; 7], epoch: u64) -> String {
-    let prefix = if total[..6] == delta[..6] {
+    let prefix = if epoch == 0 && total[..6] == delta[..6] {
         "codex-token-count"
     } else {
         "source-wide:codex-token-count"
