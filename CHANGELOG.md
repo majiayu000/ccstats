@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Retain desktop CI and installer delivery until the QuotaBar handover is verified.
+- Expose contributing Claude/Codex source files in session drilldowns.
+
+
 ### Changed
 - Move the window `burn_pct_per_hour` field into `forecast`, and remove the Claude time-to-exhaustion note from `limits` notes.
 - Deprecate the ccstats desktop app: the release workflow no longer builds, signs, notarizes, or attaches desktop installers, and CI no longer builds or tests `desktop/`. QuotaBar (https://github.com/majiayu000/quotabar) is the GUI/tray surface; ccstats stays CLI + `watch` + SDK + `serve`. The `desktop/` code stays in the repository.

@@ -60,6 +60,7 @@ fn claude_details_preserve_prompt_exact_cwd_models_dedup_and_subagents() {
         "/x-reply-eval original prompt"
     );
     assert_eq!(session["project_path"], "/work-with-hyphens");
+    assert_eq!(session["source_paths"], serde_json::json!([file]));
     assert_eq!(session["is_subagent"], false);
     assert_eq!(session["requests"], 2);
     assert_eq!(session["first_timestamp"], "2026-09-24T10:00:00Z");

@@ -73,8 +73,9 @@ curl -fsSL https://raw.githubusercontent.com/majiayu000/ccstats/main/install.sh 
 
 The supported real-time surface is the CLI (`ccstats watch`). For a
 menu-bar GUI, use [QuotaBar](https://github.com/majiayu000/quotabar), a
-separate app built on the ccstats SDK. The old ccstats desktop app under
-`desktop/` is deprecated and no longer released. Packaging notes:
+separate app built on the ccstats SDK. The ccstats desktop under
+`desktop/` remains maintained until its diagnostics, investigation and device
+workflows have a [verified handover](docs/desktop-handover.md). Packaging notes:
 [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Usage

@@ -1,16 +1,15 @@
 # ccstats desktop
 
-> **Deprecated.** This app is no longer built in CI or attached to releases.
-> The GUI/tray surface for ccstats is
-> [QuotaBar](https://github.com/majiayu000/quotabar), which consumes the
-> published ccstats SDK. The code below is kept for reference only.
+> **Handover in progress.** QuotaBar is the primary GUI. This desktop remains
+> maintained and built in CI until source diagnostics, investigation and device
+> workflows have a verified handover. See [handover evidence](../docs/desktop-handover.md).
 
 The desktop app is a local investigation surface over the same source registry
 and summary APIs as the CLI. It does not upload transcripts or substitute mock
 data when a source fails.
 
-No production installers are published. This file is for from-source
-development and local packaging.
+Release automation builds installers again; availability must be checked on the
+actual GitHub Release. From-source use remains available while handover is pending.
 
 ## Prerequisites
 

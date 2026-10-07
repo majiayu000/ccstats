@@ -55,6 +55,40 @@ pub(super) fn files(roots: &Roots, agent: Agent) -> Vec<std::path::PathBuf> {
     discovery.files.into_iter().map(|f| f.path).collect()
 }
 
+pub(super) fn diagnose(agent: Agent) -> super::SourceDiagnostic {
+    match Roots::from_env_for(agent) {
+        Ok(roots) => diagnose_roots(&roots, agent),
+        Err(error) => super::SourceDiagnostic::error(error.to_string()),
+    }
+}
+
+fn diagnose_roots(roots: &Roots, agent: Agent) -> super::SourceDiagnostic {
+    let discovery = agent_sessions::discover(
+        roots,
+        &agent_sessions::DiscoverFilter {
+            agents: vec![agent],
+            include_subagents: true,
+            ..Default::default()
+        },
+    );
+    if !discovery.errors.is_empty() {
+        return super::SourceDiagnostic::error(
+            discovery
+                .errors
+                .iter()
+                .map(|error| format!("{}: {}", error.path.display(), error.source))
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
+    }
+    let count = discovery.files.len();
+    if count == 0 {
+        super::SourceDiagnostic::missing("No local usage files found")
+    } else {
+        super::SourceDiagnostic::detected(count, format!("Found {count} local usage file(s)"))
+    }
+}
+
 /// Explicit application aggregation: absent buckets historically count as zero.
 /// The shared event still retains absence separately from reported zero.
 pub(super) fn buckets(c: TokenCounts) -> Option<[i64; 7]> {
@@ -72,4 +106,25 @@ pub(super) fn buckets(c: TokenCounts) -> Option<[i64; 7]> {
         result[i] = i64::try_from(value.unwrap_or(0)).ok()?;
     }
     Some(result)
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn discovery_errors_are_not_missing_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("codex");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("sessions"), "not a directory").unwrap();
+        let status = diagnose_roots(
+            &Roots {
+                codex: Some(root),
+                claude: None,
+            },
+            Agent::Codex,
+        );
+        assert_eq!(status.status, crate::source::DiagnosticStatus::Error);
+        assert!(!status.detail.is_empty());
+    }
 }
