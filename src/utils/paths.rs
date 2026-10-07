@@ -53,9 +53,12 @@ pub(crate) fn glob_files(root: &Path, pattern: &str) -> (Vec<PathBuf>, usize) {
     for item in matches {
         match item {
             Ok(path) => {
-                let (found, failed) = existing_file(path);
-                files.extend(found);
-                errors += failed;
+                // A yielded match is no longer an optional missing root.
+                match std::fs::metadata(&path) {
+                    Ok(meta) if meta.is_file() => files.push(path),
+                    Ok(_) => {}
+                    Err(_) => errors += 1,
+                }
             }
             Err(_) => errors += 1,
         }
@@ -119,6 +122,16 @@ mod discovery_tests {
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
+    fn matched_dangling_symlink_is_a_discovery_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("usage.jsonl");
+        std::os::unix::fs::symlink(temp.path().join("missing"), &path).unwrap();
+        let pattern = glob_pattern(temp.path(), "*.jsonl");
+        assert_eq!(glob_files(temp.path(), &pattern), (Vec::new(), 1));
+        assert_eq!(existing_file(temp.path().join("optional")), (Vec::new(), 0));
+    }
+
+    #[test]
     fn literal_prefix_failure_is_not_a_missing_optional_root() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("source/logs");
@@ -129,11 +142,10 @@ mod discovery_tests {
         std::fs::write(&file, "").unwrap();
         assert_eq!(glob_files(&root, &pattern), (vec![file.clone()], 0));
         let parent = root.parent().unwrap();
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0)).unwrap();
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o000)).unwrap();
         let failed = glob_files(&root, &pattern);
         std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(failed.0.is_empty());
-        assert_eq!(failed.1, 1);
+        assert_eq!(failed, (Vec::new(), 1));
         assert_eq!(glob_files(&root, &pattern), (vec![file], 0));
     }
 }

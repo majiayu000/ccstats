@@ -85,20 +85,21 @@ pub trait Source: Send + Sync {
     fn capabilities(&self) -> Capabilities;
 
     fn setup_hint(&self) -> &'static str { /* doctor copy */ }
-    fn diagnose(&self) -> SourceDiagnostic { /* default: find_files().len() */ }
+    fn diagnose(&self) -> SourceDiagnostic { /* default: find_files() paths + errors */ }
 
-    fn find_files(&self) -> Vec<PathBuf>;
+    fn find_files(&self) -> (Vec<PathBuf>, usize);
     fn find_files_for_filter(
         &self,
         filter: &DateFilter,
         timezone: Timezone,
-    ) -> Vec<PathBuf> {
-        let files = self.find_files();
-        if self.cache_policy() == CachePolicy::Watermark {
+    ) -> (Vec<PathBuf>, usize) {
+        let (files, errors) = self.find_files();
+        let files = if self.cache_policy() == CachePolicy::Watermark {
             files
         } else {
             cache::prune_discovered_files(files, filter, timezone)
-        }
+        };
+        (files, errors)
     }
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput;
     fn cache_policy(&self) -> CachePolicy { CachePolicy::PerFile }
@@ -253,8 +254,8 @@ impl Source for NewcliSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        Vec::new()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        (Vec::new(), 0)
     }
 
     fn parse_file(&self, _path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {

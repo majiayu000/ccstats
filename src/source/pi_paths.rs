@@ -167,17 +167,14 @@ pub(super) fn find_senpi_files() -> (Vec<PathBuf>, usize) {
 }
 
 pub(super) fn diagnose_senpi_files() -> Result<usize, ()> {
-    senpi_sessions_dir()
-        .map_err(|_| ())
-        .and_then(|root| {
-            let (files, errors) = find_family_files(&root);
-            if errors == 0 {
-                Ok(files.len())
-            } else {
-                Err(())
-            }
-        })
-        .map_err(|_| ())
+    senpi_sessions_dir().map_err(|_| ()).and_then(|root| {
+        let (files, errors) = find_family_files(&root);
+        if errors == 0 {
+            Ok(files.len())
+        } else {
+            Err(())
+        }
+    })
 }
 
 pub(super) fn find_kimchi_files() -> (Vec<PathBuf>, usize) {

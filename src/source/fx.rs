@@ -48,17 +48,52 @@ impl Source for FxSource {
         let Some(root) = dirs::home_dir().map(|home| home.join(".fx")) else {
             return (Vec::new(), 0);
         };
-        // Parsing owns validation of both ledger and recovery registry.
-        match fs::metadata(&root) {
-            Ok(meta) if meta.is_dir() => (vec![root], 0),
-            Ok(_) => (Vec::new(), 1),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Vec::new(), 0),
-            Err(_) => (Vec::new(), 1),
-        }
+        find_root(&root)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         parse_root(path, timezone, debug)
+    }
+}
+
+// Parsing owns validation of ledger/recovery contents, discovery needs an artifact.
+fn find_root(root: &Path) -> (Vec<PathBuf>, usize) {
+    match fs::metadata(root) {
+        Ok(meta) if meta.is_dir() => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), 0),
+        Ok(_) | Err(_) => return (Vec::new(), 1),
+    }
+    let mut present = false;
+    let mut errors = 0;
+    for name in ["usage.jsonl", "usage-recovery"] {
+        match fs::metadata(root.join(name)) {
+            Ok(_) => present = true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => errors += 1,
+        }
+    }
+    (
+        present.then(|| root.to_path_buf()).into_iter().collect(),
+        errors,
+    )
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    #[test]
+    fn fx_needs_a_usage_artifact() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(".fx");
+        assert_eq!(find_root(&root), (Vec::new(), 0));
+        fs::create_dir(&root).unwrap();
+        assert_eq!(find_root(&root), (Vec::new(), 0));
+        fs::write(root.join("usage.jsonl"), "").unwrap();
+        assert_eq!(find_root(&root), (vec![root.clone()], 0));
+        fs::remove_file(root.join("usage.jsonl")).unwrap();
+        fs::create_dir(root.join("usage-recovery")).unwrap();
+        assert_eq!(find_root(&root), (vec![root], 0));
     }
 }
 

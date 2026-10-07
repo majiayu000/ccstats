@@ -429,7 +429,7 @@ fn gemini_discovery_failure_preserves_snapshot_and_cache() {
     let cache_file = cache.join("ccstats/usage-facts-v2.sqlite3");
     let complete_cache = fs::read(&cache_file).unwrap();
     let hidden = archive.parent().unwrap();
-    fs::set_permissions(hidden, fs::Permissions::from_mode(0)).unwrap();
+    fs::set_permissions(hidden, fs::Permissions::from_mode(0o000)).unwrap();
     let result = push();
     fs::set_permissions(hidden, fs::Permissions::from_mode(0o700)).unwrap();
     assert!(!result.0, "{}", String::from_utf8_lossy(&result.1));
