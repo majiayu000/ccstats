@@ -61,14 +61,14 @@ impl Source for GrokSource {
             return SourceDiagnostic::missing("Could not resolve the Grok data root");
         };
         let unified_log = home.join("logs/unified.jsonl");
-        if unified_log.is_file() {
+        let (logs, log_errors) = crate::utils::paths::existing_file(unified_log);
+        if log_errors > 0 {
+            return SourceDiagnostic::error("Failed to inspect the Grok unified inference log");
+        }
+        if !logs.is_empty() {
             return SourceDiagnostic::detected(1, "Found the Grok unified inference log");
         }
 
-        let sessions_dir = home.join("sessions");
-        if !sessions_dir.is_dir() {
-            return SourceDiagnostic::missing("No Grok unified log or sessions directory found");
-        }
         let (files, errors) = super::parser::find_grok_files();
         if errors > 0 {
             return SourceDiagnostic::error("Failed to discover Grok session files");
