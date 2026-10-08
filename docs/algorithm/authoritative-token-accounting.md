@@ -189,13 +189,13 @@ Anthropic 的字段天然互不重叠，parser 直接映射即可。
 
 Claude Code 的流式响应会为同一个 `message.id` 写入多条日志（每个 chunk 都可能更新 usage）。去重规则：
 
-1. 以“源日志文件 + `message.id`”作为去重键
+1. 以 Claude source 范围内的 `message.id` 作为去重键（内部加 `source-wide:claude:` 前缀），不包含源日志文件路径
 2. 同一去重键的多条记录，选择规则：
    - 优先选有 `stop_reason` 的（表示完成），取最新的一条
    - 若都没有 `stop_reason`，取最晚的一条（最佳近似）
 3. 没有 `message.id` 的条目：仅当有 `stop_reason` 时才计入
 
-这样可以避免不同日志文件中碰巧复用同一 `message.id` 时发生误去重，同时仍然保留同一文件内流式 chunk 的合并行为。
+因此，同一 `message.id` 的流式 chunk 和跨项目 / subagent 文件副本会竞争同一条记录。不同 ID 的重试不会自动合并；没有 ID 的完成记录也不会相互去重。这是日志身份去重，不保证消除所有重试或与服务端账单完全一致。
 
 ### 模型名归一化
 
@@ -222,7 +222,7 @@ Claude Code 的流式响应会为同一个 `message.id` 写入多条日志（每
 
 ### 原始字段
 
-OpenAI API 的 token 字段**存在包含关系**：
+ccstats 按以下**包含关系**解释 Codex usage 字段（手写示例包含可选的 cache write）：
 
 ```json
 {
@@ -233,6 +233,7 @@ OpenAI API 的 token 字段**存在包含关系**：
       "total_token_usage": {
         "input_tokens": 1000,
         "cached_input_tokens": 200,
+        "cache_write_input_tokens": 100,
         "output_tokens": 500,
         "reasoning_output_tokens": 200,
         "total_tokens": 1500
@@ -243,46 +244,57 @@ OpenAI API 的 token 字段**存在包含关系**：
 }
 ```
 
-**关键差异**：OpenAI 的字段有嵌套包含关系：
+**关键差异**：Codex parser 将这些字段视为嵌套包含关系：
 
 ```
-input_tokens (1000) ⊇ cached_input_tokens (200)
+input_tokens (1000) ⊇ cached_input_tokens (200) + cache_write_input_tokens (100)
 output_tokens (500) ⊇ reasoning_output_tokens (200)
 ```
 
-即 `input_tokens` 已包含 `cached_input_tokens`，`output_tokens` 已包含 `reasoning_output_tokens`。
+即 `input_tokens` 已包含 cache read 和已报告的 cache write，`output_tokens` 已包含 `reasoning_output_tokens`。缺失的 cache write 在 ccstats 聚合时按 0 处理；存在时必须保留。
 
 ### 字段映射（需要减法分离）
 
 ```
-input_tokens       ← (input_tokens - cached_input_tokens).max(0)     = 800
+input_tokens       ← input_tokens - cached_input_tokens - cache_write_input_tokens = 700
 output_tokens      ← (output_tokens - reasoning_output_tokens).max(0) = 300
 reasoning_tokens   ← reasoning_output_tokens                          = 200
-cache_creation     ← 0  (Codex 不支持)
+cache_creation     ← cache_write_input_tokens                         = 100
 cache_read         ← cached_input_tokens                              = 200
 ```
 
+cache read 与 cache write 的和超过 input（或相加溢出）时，parser 报解析错误，不把负的非缓存输入钳为 0。
+
 分离后各字段互不重叠，可安全求和：
 ```
-total = 800 + 300 + 200 + 0 + 200 = 1500 ✓
+total = 700 + 300 + 200 + 100 + 200 = 1500 ✓
 ```
 
 若不做减法（bug 行为）：
 ```
-total = 800 + 500 + 200 + 0 + 200 = 1700 ✗ (reasoning 被重复计算)
+total = 700 + 500 + 200 + 100 + 200 = 1700 ✗ (reasoning 被重复计算)
 ```
 
 ### 累积值转增量
 
-Codex 日志中 `total_token_usage` 是**累积值**（session 内单调递增），需要转换为每次调用的增量：
+Codex `event_msg / token_count` 日志中 `total_token_usage` 是**累积值**，需要转换为每次调用的增量。当前共享 reader 使用 `UsageStatistics` 策略：
 
-1. 如果 `last_token_usage` 存在，直接使用（它就是本次调用的增量）
-2. 否则，用当前 `total_token_usage` 减去上一条的 `total_token_usage` 得到增量
-3. 如果 `total_tokens` 未变化，跳过（重复事件）
+1. 要求存在非 null 的 `total_token_usage` 对象；只有 `last_token_usage` 不会生成这条累计账本的用量
+2. 先比较完整累计向量：input、output、cache read、cache write、1h cache write、reasoning 和 reported total（`total_tokens`）。此比较将缺失值视为 0；与上一向量相同就跳过，即使 `last_token_usage` 不同
+3. 非重复记录先更新累计基线；如果存在 `last_token_usage`，使用它作为本次增量
+4. 否则逐分量减去上一累计向量，下降的分量归 0；首个样本使用当前累计值
+
+因此，单个 `total_tokens` 不变、缺失或为 0，都不足以判定重复；其他分量增长仍会计入。累计计数也可能下降，不能假设始终单调递增。
+
+`token_usage_record` 是另一条 response usage 账本。只有选定 scope 的累计模式解析结果没有条目、没有错误且看见 response records 时，parser 才整文件改读 response 模式；两条账本不会相加。
 
 ### 去重
 
-Codex parser 先把累计值转换成增量，再用逻辑 session、模型、完整累计向量和增量向量生成稳定事件 ID。loader 在 source 范围去重，因此同一个 session 同时出现在活动目录和归档目录时不会重复统计；只比较完整 token 向量，不用单个 `total_tokens` 判断重复。
+累计 reader 的重复判断与 loader 的事件去重是两层规则。Codex parser 用逻辑 session、模型、epoch，以及累计 / 增量各自的 input、cache read、cache write、output、reasoning 和 reported total 生成事件 ID；该 ID 不含 1h cache write 分量。
+
+累计计数下降会开启新的去重 epoch，零增量的 reset 记录也参与 epoch 更新。同一 epoch 的累计 / 增量副本继续去重；reset 后重新达到相同累计 / 增量则属于新的用量。epoch 来自日志的累计序列，不依赖文件路径或行号。
+
+epoch 为 0 且上述累计 / 增量六分量相等时（通常是首个累计样本），loader 仍按文件范围去重；其他累计事件使用 source-wide ID。同一逻辑 session、模型、epoch 和向量的跨文件副本可合并，但不能据此保证整份 active/archive 副本完全不重复计数。逻辑 session 优先使用 `session_meta.id`，缺失时退回文件路径。
 
 ### 模型获取
 
@@ -293,8 +305,6 @@ Codex parser 先把累计值转换成增量，再用逻辑 session、模型、�
 4. `payload.model`
 5. 上一条 `turn_context` 事件中的模型
 6. 缺失时保留 `"unknown-model"`；普通报告、SDK、quota 和 details 不再推断为 GPT-5。真实 token 总量仍计入 `Real`，未知模型的费用保持为空。
-
-累计计数下降会开启新的去重 epoch，零增量的 reset 记录也参与 epoch 更新。同一 epoch 的累计/增量副本继续去重；reset 后重新达到相同累计/增量则属于新的用量。epoch 来自日志的累计序列，不依赖文件路径或行号，因此完整 active/archive 副本保持相同身份。首个累计样本仍沿用原有的文件内去重范围。
 
 ---
 
