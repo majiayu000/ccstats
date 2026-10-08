@@ -111,6 +111,8 @@ It now compares native path identity and still requires exactly one file.
 The Check and macOS jobs never started: GitHub reported repeated runner acquisition
 failures. The Windows desktop job, including its isolated native IPC test, passed;
 this hosted-runner result does not establish Windows 10/physical-display acceptance.
+On the next run Windows CLI passed. CI's newer Clippy also required equality
+assertions for two empty-value tests; both retain their original checks.
 
 The branch incorporates main's released 0.10.0 SDK and #206 accounting/WAL fixes,
 preserving discovery-error counts alongside explicit source diagnostics. Release

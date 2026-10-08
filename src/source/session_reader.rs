@@ -139,6 +139,6 @@ mod diagnostic_tests {
             Agent::Codex,
         );
         assert_eq!(status.status, crate::source::DiagnosticStatus::Error);
-        assert!(!status.detail.is_empty());
+        assert_ne!(status.detail, "");
     }
 }

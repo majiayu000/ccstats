@@ -456,8 +456,9 @@ mod tests {
             ["/logs/active.jsonl", "/logs/archive.jsonl"]
         );
         assert_eq!(session.session_id, "real-session-id");
-        assert!(
-            super::super::native_session_paths(UsageSource::Cursor, "cursor:session").is_empty()
+        assert_eq!(
+            super::super::native_session_paths(UsageSource::Cursor, "cursor:session"),
+            Vec::<String>::new()
         );
     }
 
