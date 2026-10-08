@@ -702,3 +702,69 @@ fn claude_blocks_csv_outputs_correct_format() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn diagnose_json_text_errors_and_warm_cache_preserve_evidence() {
+    use chrono::{Duration, Utc};
+    use serde_json::json;
+    let home = unique_temp_dir("claude-diagnose");
+    let at = (Utc::now() - Duration::minutes(10)).to_rfc3339();
+    let prompt = json!({"type":"user","version":"2.1.286","message":{"content":"private prompt must never appear in diagnosis"}}).to_string();
+    let usage = json!({"type":"assistant","timestamp":at,"message":{"id":"msg-diagnose","model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100,"cache_read_input_tokens":20,"inference_geo":"not_available"}}}).to_string();
+    write_file(
+        &home.join(".claude/projects/redacted/session-main.jsonl"),
+        &format!("{prompt}\n{usage}\n"),
+    );
+    let args = ["diagnose", "--json", "--offline", "--timezone", "UTC"];
+    let (ok, stdout, stderr) = run_ccstats(&args, &[("HOME", &home)]);
+    assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+    let first: Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(first["usage"]["messages"], 1);
+    assert_eq!(first["usage"]["total_tokens"], 135);
+    assert_eq!(first["versions"][0]["version"], "2.1.286");
+    assert_eq!(first["versions"][0]["complete_turns"], 1);
+    assert!(!String::from_utf8_lossy(&stdout).contains("private prompt"));
+    let (ok, stdout, stderr) = run_ccstats(&args, &[("HOME", &home)]);
+    assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+    let warm: Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(warm["versions"], first["versions"]);
+    assert_eq!(warm["usage"], first["usage"]);
+    for window in ["today", "7d"] {
+        let (ok, stdout, stderr) = run_ccstats(
+            &[
+                "diagnose",
+                "--window",
+                window,
+                "--versions",
+                "--offline",
+                "--timezone",
+                "UTC",
+            ],
+            &[("HOME", &home)],
+        );
+        assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+        assert!(String::from_utf8_lossy(&stdout).contains("Version comparison"));
+    }
+    for extra in [
+        vec!["--session", "missing"],
+        vec!["--source", "codex"],
+        vec!["--csv"],
+        vec!["--since", "2026-10-01"],
+        vec!["--window", "yesterday"],
+    ] {
+        let mut args = vec!["diagnose", "--offline"];
+        args.extend(extra);
+        let (ok, _, stderr) = run_ccstats(&args, &[("HOME", &home)]);
+        assert!(!ok, "{}", String::from_utf8_lossy(&stderr));
+    }
+    write_file(
+        &home.join(".claude/projects/redacted/broken.jsonl"),
+        "not-json\n",
+    );
+    let (ok, stdout, stderr) =
+        run_ccstats(&["diagnose", "--json", "--offline"], &[("HOME", &home)]);
+    assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+    let partial: Value = serde_json::from_slice(&stdout).unwrap();
+    assert!(partial["parse_errors"].as_u64().unwrap() > 0);
+    fs::remove_dir_all(home).unwrap();
+}

@@ -1,6 +1,6 @@
 //! Shared usage-facts cache. Source files remain authoritative.
 //!
-//! Filename carries the schema version (`usage-facts-v1.sqlite3`). Bump
+//! Filename carries the schema version (`usage-facts-v2.sqlite3`). Bump
 //! `CACHE_VERSION` (and the filename) when parser semantics or stored fields
 //! change so old rows cannot silently mix with a new algorithm.
 
@@ -30,8 +30,8 @@ use crate::utils::Timezone;
 type CacheResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Bump together with [`CACHE_FILE`] when stored facts or parser meaning change.
-pub(crate) const CACHE_VERSION: u32 = 1;
-pub(crate) const CACHE_FILE: &str = "usage-facts-v1.sqlite3";
+pub(crate) const CACHE_VERSION: u32 = 2;
+pub(crate) const CACHE_FILE: &str = "usage-facts-v2.sqlite3";
 const _: () = assert!(CACHE_VERSION >= 1);
 
 static DISABLED: AtomicBool = AtomicBool::new(false);
@@ -44,9 +44,9 @@ pub(crate) enum CachePolicy {
     None,
     /// Reuse a file when identity `(path, mtime, size, …)` is unchanged.
     PerFile,
-    /// `SQLite` sources: currently the same as [`CachePolicy::PerFile`] because
-    /// fork reconciliation still needs a full read when the file changes.
-    /// Declared separately so rowid watermarks can land without a trait break.
+    /// `SQLite` sources: reuse only a quiescent main file without a WAL.
+    /// Active WAL databases need a fresh `SQLite` snapshot, and their main-file
+    /// timestamps cannot be used to prune discovery by usage date.
     Watermark,
 }
 
@@ -258,6 +258,22 @@ fn fingerprint(path: &Path) -> CacheResult<String> {
     Ok(stamp)
 }
 
+/// A main-file stamp does not describe committed records in a `SQLite` WAL.
+/// Even an empty WAL can receive writes without changing the main file, so
+/// bypass the cache for its entire lifetime. Never checkpoint a source DB.
+fn cacheable_fingerprint(path: &Path, policy: CachePolicy) -> CacheResult<Option<String>> {
+    if policy == CachePolicy::Watermark {
+        // SQLite locates sidecars beside the actual database, including when
+        // an environment override names a symlink to it.
+        let mut wal = fs::canonicalize(path)?.into_os_string();
+        wal.push("-wal");
+        if Path::new(&wal).try_exists()? {
+            return Ok(None);
+        }
+    }
+    fingerprint(path).map(Some)
+}
+
 fn overlaps(
     first: Option<i64>,
     last: Option<i64>,
@@ -458,31 +474,36 @@ impl UsageFactCache {
         }
         let name = source.name();
         let partition = source.cache_partition();
-        let before = fingerprint(path);
+        let policy = source.cache_policy();
+        let before = cacheable_fingerprint(path, policy);
         match &before {
-            Ok(stamp) => match self.load(name, partition, path, stamp, filter, timezone) {
-                Ok(Some(entries)) => {
+            Ok(Some(stamp)) => match self.load(name, partition, path, stamp, filter, timezone) {
+                Ok(Some(entries))
+                    if cacheable_fingerprint(path, policy)
+                        .is_ok_and(|after| after.as_ref() == Some(stamp)) =>
+                {
                     self.hits.fetch_add(1, Ordering::Relaxed);
                     if debug {
                         eprintln!("[DEBUG] cache hit {name} {}", path.display());
                     }
                     return ParseOutput { entries, errors: 0 };
                 }
-                Ok(None) => {
+                Ok(_) => {
                     if debug {
                         eprintln!("[DEBUG] cache miss {name} {}", path.display());
                     }
                 }
                 Err(error) => self.report_error(&error),
             },
+            Ok(None) => {}
             Err(error) => self.report_error(error),
         }
         let parsed = source.parse_file(path, timezone, debug);
         if parsed.errors == 0
-            && let Ok(before) = before
+            && let Ok(Some(before)) = before
         {
-            match fingerprint(path) {
-                Ok(after) if before == after => {
+            match cacheable_fingerprint(path, policy) {
+                Ok(Some(after)) if before == after => {
                     if let Err(error) = self.save(name, partition, path, &before, &parsed.entries) {
                         self.report_error(&error);
                     }

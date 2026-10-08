@@ -61,15 +61,19 @@ impl Source for GrokSource {
             return SourceDiagnostic::missing("Could not resolve the Grok data root");
         };
         let unified_log = home.join("logs/unified.jsonl");
-        if unified_log.is_file() {
+        let (logs, log_errors) = crate::utils::paths::existing_file(unified_log);
+        if log_errors > 0 {
+            return SourceDiagnostic::error("Failed to inspect the Grok unified inference log");
+        }
+        if !logs.is_empty() {
             return SourceDiagnostic::detected(1, "Found the Grok unified inference log");
         }
 
-        let sessions_dir = home.join("sessions");
-        if !sessions_dir.is_dir() {
-            return SourceDiagnostic::missing("No Grok unified log or sessions directory found");
+        let (files, errors) = super::parser::find_grok_files();
+        if errors > 0 {
+            return SourceDiagnostic::error("Failed to discover Grok session files");
         }
-        let files = super::parser::find_grok_files().len();
+        let files = files.len();
         if files == 0 {
             SourceDiagnostic::missing("The Grok sessions directory contains no usage records")
         } else {
@@ -77,7 +81,7 @@ impl Source for GrokSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_grok_files()
     }
 
@@ -113,6 +117,8 @@ mod tests {
 
     fn entry(session_id: &str, cost_kind: CostKind, priced_tokens: i64) -> RawEntry {
         RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: "2026-08-21T05:42:00Z".to_string(),
             timestamp_ms: 0,
             date_str: "2026-08-21".to_string(),

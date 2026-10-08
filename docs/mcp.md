@@ -51,6 +51,7 @@ failures (bad arguments, unavailable source) come back with `isError: true`.
 |------|-----------|--------|
 | `get_limits` | `source`: `all` (default) / `claude` / `codex` / `cursor` | Same JSON as `ccstats limits --json` |
 | `get_usage_summary` | `source` (required, any `ccstats sources` name), `period`: `today` (default) / `week` / `month` | SDK `CostSummary` |
+| `diagnose` | `window`: `5h` (default) / `today` / `7d`; optional `session` ID | Same JSON as `ccstats diagnose --json`; local evidence, not subscription billing |
 | `doctor` | none | SDK source diagnostics, the `ccstats doctor --json` fields plus `source` |
 
 `get_limits` reads `windows[]`: `provider`, `window`, `used_pct` (0-100, null

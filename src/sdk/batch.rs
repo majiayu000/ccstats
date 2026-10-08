@@ -227,9 +227,15 @@ fn load_daily_ranges(
 ) -> Vec<LoadResult> {
     let start = Instant::now();
     let discovery_filter = discovery_filter(ranges);
-    let files = source.find_files_for_filter(&discovery_filter, timezone);
+    let (files, discovery_errors) = source.find_files_for_filter(&discovery_filter, timezone);
     if files.is_empty() {
-        return ranges.iter().map(|_| LoadResult::default()).collect();
+        return ranges
+            .iter()
+            .map(|_| LoadResult {
+                parse_errors: discovery_errors,
+                ..LoadResult::default()
+            })
+            .collect();
     }
     let needs_timestamp = ranges
         .iter()
@@ -269,7 +275,7 @@ fn load_daily_ranges(
         .iter()
         .map(|range| {
             let mut result = aggregate_entries_for_filter(&entries, &range.filter, source);
-            result.parse_errors = parse_errors;
+            result.parse_errors = parse_errors + discovery_errors;
             result.elapsed_ms = elapsed_ms;
             result
         })
@@ -389,6 +395,8 @@ mod tests {
             .expect("valid timestamp")
             .timestamp_millis();
         RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: timestamp.to_string(),
             timestamp_ms,
             date_str: "2026-08-21".to_string(),
@@ -439,15 +447,17 @@ mod tests {
             Capabilities::default()
         }
 
-        fn find_files(&self) -> Vec<PathBuf> {
+        fn find_files(&self) -> (Vec<PathBuf>, usize) {
             self.find_calls.fetch_add(1, Ordering::SeqCst);
-            self.files.clone()
+            (self.files.clone(), 0)
         }
 
         fn parse_file(&self, _path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {
             self.parse_calls.fetch_add(1, Ordering::SeqCst);
             ParseOutput {
                 entries: vec![RawEntry {
+                    agent_version: None,
+                    claude_diagnostics: None,
                     timestamp: "2026-05-09T12:00:00Z".to_string(),
                     timestamp_ms: 1_778_326_400_000,
                     date_str: "2026-05-09".to_string(),
@@ -503,12 +513,16 @@ mod tests {
             Capabilities::default()
         }
 
-        fn find_files(&self) -> Vec<PathBuf> {
+        fn find_files(&self) -> (Vec<PathBuf>, usize) {
             self.unfiltered_calls.fetch_add(1, Ordering::SeqCst);
-            Vec::new()
+            (Vec::new(), 0)
         }
 
-        fn find_files_for_filter(&self, filter: &DateFilter, _timezone: Timezone) -> Vec<PathBuf> {
+        fn find_files_for_filter(
+            &self,
+            filter: &DateFilter,
+            _timezone: Timezone,
+        ) -> (Vec<PathBuf>, usize) {
             self.filtered_calls.fetch_add(1, Ordering::SeqCst);
             self.since_ms.store(
                 filter.since_timestamp_ms.unwrap_or_default(),
@@ -518,7 +532,7 @@ mod tests {
                 filter.until_timestamp_ms.unwrap_or_default(),
                 Ordering::SeqCst,
             );
-            Vec::new()
+            (Vec::new(), 0)
         }
 
         fn parse_file(&self, _path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {

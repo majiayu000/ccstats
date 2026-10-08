@@ -56,7 +56,12 @@ impl Source for OpenClawSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    // SQLite WAL commits need not modify the main file's metadata.
+    fn cache_policy(&self) -> super::cache::CachePolicy {
+        super::cache::CachePolicy::Watermark
+    }
+
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_transcript_stores()
     }
 
@@ -195,6 +200,8 @@ fn build_entry(
     let is_copied_history = session_started_ms.is_some_and(|started| timestamp_ms < started);
 
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms,
         date_str: timezone

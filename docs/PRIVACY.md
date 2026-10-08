@@ -51,12 +51,14 @@ ccstats writes only operational data needed to make repeated reports reliable:
 
 - pricing cache under the platform cache directory and exchange-rate cache
   under `~/.cache/ccstats/`;
-- a usage-facts cache at `<platform cache>/ccstats/usage-facts-v1.sqlite3`
+- a usage-facts cache at `<platform cache>/ccstats/usage-facts-v2.sqlite3`
   (with SQLite WAL/SHM sidecars). It stores file identities, timestamps, model
   names, session IDs, working directories, and token/cost facts. It does not
-  store prompt text, completions, or source code. Unchanged files reuse these
+  store prompt text, completions, or source code. Claude facts additionally retain
+  agent version, user-turn number/start, subagent/parent identity, explicit compaction
+  times, full model ID, and whether cache-write fields were reported. Unchanged files reuse these
   facts. `--no-cache` reparses. Deleting the file while ccstats is stopped
-  forces a rebuild. Parser semantic changes bump the `v1` version in the
+  forces a rebuild. Parser semantic changes bump the cache version in the
   filename;
 - Claude quota snapshots at `<platform data>/ccstats/quota/claude.jsonl`
   (opt-in: written when `statusline` receives Claude Code hook JSON with

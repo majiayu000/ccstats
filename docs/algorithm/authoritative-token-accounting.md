@@ -292,7 +292,9 @@ Codex parser 先把累计值转换成增量，再用逻辑 session、模型、�
 3. `payload.info.metadata.model`
 4. `payload.model`
 5. 上一条 `turn_context` 事件中的模型
-6. 默认 `"gpt-5"`
+6. 缺失时保留 `"unknown-model"`；普通报告、SDK、quota 和 details 不再推断为 GPT-5。真实 token 总量仍计入 `Real`，未知模型的费用保持为空。
+
+累计计数下降会开启新的去重 epoch，零增量的 reset 记录也参与 epoch 更新。同一 epoch 的累计/增量副本继续去重；reset 后重新达到相同累计/增量则属于新的用量。epoch 来自日志的累计序列，不依赖文件路径或行号，因此完整 active/archive 副本保持相同身份。首个累计样本仍沿用原有的文件内去重范围。
 
 ---
 

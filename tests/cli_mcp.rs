@@ -126,7 +126,10 @@ fn mcp_stdio_session_lists_and_calls_tools() {
             tool["name"].as_str().unwrap()
         })
         .collect();
-    assert_eq!(tools, ["get_limits", "get_usage_summary", "doctor"]);
+    assert_eq!(
+        tools,
+        ["get_limits", "get_usage_summary", "diagnose", "doctor"]
+    );
 
     let summary = tool_payload(&responses[2]);
     assert_eq!(summary["source_name"], "claude");
@@ -164,4 +167,57 @@ fn mcp_exits_cleanly_on_stdin_eof_without_stdout() {
     assert!(ok, "stderr: {}", String::from_utf8_lossy(&stderr));
     assert!(stdout.is_empty(), "{}", String::from_utf8_lossy(&stdout));
     let _ = fs::remove_dir_all(home);
+}
+
+#[test]
+fn diagnose_mcp_returns_cli_shape_and_preserves_tool_error_contract() {
+    let home = unique_temp_dir("mcp-diagnose");
+    write_claude_entry(&home);
+    let responses = run_session(
+        &home,
+        &[
+            request(
+                1,
+                "tools/call",
+                &json!({"name":"diagnose","arguments":{"window":"5h"}}),
+            ),
+            request(
+                2,
+                "tools/call",
+                &json!({"name":"diagnose","arguments":{"window":"yesterday"}}),
+            ),
+            request(
+                3,
+                "tools/call",
+                &json!({"name":"diagnose","arguments":{"session":"missing"}}),
+            ),
+            request(
+                4,
+                "tools/call",
+                &json!({"name":"diagnose","arguments":{"window":5}}),
+            ),
+            request(
+                5,
+                "tools/call",
+                &json!({"name":"diagnose","arguments":{"extra":true}}),
+            ),
+        ],
+    );
+    let payload = tool_payload(&responses[0]);
+    assert_eq!(payload["source"], "claude");
+    assert_eq!(payload["usage"]["total_tokens"], 150);
+    assert_eq!(responses[0]["result"]["structuredContent"], payload);
+    let (ok, stdout, stderr) = run_ccstats(
+        &["diagnose", "--json", "--offline", "--timezone", "UTC"],
+        &[("HOME", &home)],
+    );
+    assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+    let cli: Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(payload["usage"], cli["usage"]);
+    assert_eq!(payload["versions"], cli["versions"]);
+    for response in &responses[1..] {
+        assert_eq!(response["result"]["isError"], true, "{response}");
+        assert!(response.get("error").is_none());
+    }
+    fs::remove_dir_all(home).unwrap();
 }

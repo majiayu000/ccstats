@@ -202,6 +202,7 @@ main() {
 
     echo ""
     echo "ccstats installed to $INSTALL_DIR/$install_name"
+    echo "Next: run ccstats doctor to check setup, then ccstats limits for remaining quota."
     echo ""
 
     # Check if in PATH

@@ -198,8 +198,10 @@ pub(crate) fn load_daily_ranges_with_cost_reports(
     quiet: bool,
     debug: bool,
 ) -> Vec<(LoadResult, HashMap<String, GrokCostReport>)> {
+    let (files, discovery_errors) = find_grok_files();
     load_daily_ranges_with_cost_reports_from_files_and_options(
-        &find_grok_files(),
+        &files,
+        discovery_errors,
         discovery_filter,
         filters,
         timezone,
@@ -216,6 +218,7 @@ fn load_daily_with_cost_reports_from_files(
 ) -> (LoadResult, HashMap<String, GrokCostReport>) {
     load_daily_ranges_with_cost_reports_from_files_and_options(
         files,
+        0,
         filter,
         std::slice::from_ref(filter),
         timezone,
@@ -228,6 +231,7 @@ fn load_daily_with_cost_reports_from_files(
 
 fn load_daily_ranges_with_cost_reports_from_files_and_options(
     files: &[PathBuf],
+    discovery_errors: usize,
     discovery_filter: &DateFilter,
     filters: &[DateFilter],
     timezone: Timezone,
@@ -239,7 +243,12 @@ fn load_daily_ranges_with_cost_reports_from_files_and_options(
         eprintln!("Scanning {} Grok files...", files.len());
     }
 
-    let snapshot = read_snapshot_files(files, discovery_filter, timezone, debug);
+    let mut snapshot = read_snapshot_files(files, discovery_filter, timezone, debug);
+    let record_errors = snapshot.parse_errors;
+    snapshot.parse_errors += discovery_errors;
+    if !quiet && discovery_errors > 0 {
+        eprintln!("Warning: failed to discover {discovery_errors} Grok usage path(s)");
+    }
     let mut results: Vec<_> = filters
         .iter()
         .map(|filter| cost_report_for_filter(&snapshot, filter))
@@ -259,11 +268,8 @@ fn load_daily_ranges_with_cost_reports_from_files_and_options(
         {
             eprintln!("Deduplicated {skipped} entries");
         }
-        if snapshot.parse_errors > 0 {
-            eprintln!(
-                "Warning: ignored {} malformed records",
-                snapshot.parse_errors
-            );
+        if record_errors > 0 {
+            eprintln!("Warning: ignored {record_errors} malformed records");
         }
     }
 
@@ -572,6 +578,28 @@ mod tests {
 
     fn tz() -> Timezone {
         Timezone::parse(Some("UTC")).expect("UTC timezone")
+    }
+
+    #[test]
+    fn discovery_and_record_errors_survive_every_cost_report_range() {
+        let root = tempdir().expect("temp dir");
+        let malformed = root.path().join("updates.jsonl");
+        fs::write(&malformed, "not JSON\n").expect("write malformed record");
+        let filter = DateFilter::new(None, None);
+        let results = load_daily_ranges_with_cost_reports_from_files_and_options(
+            &[malformed],
+            2,
+            &filter,
+            &[filter.clone(), filter.clone()],
+            tz(),
+            true,
+            false,
+        );
+        assert_eq!(results.len(), 2);
+        for (result, _) in results {
+            assert_eq!(result.parse_errors, 3);
+            assert!(result.day_stats.is_empty());
+        }
     }
 
     #[test]

@@ -49,11 +49,10 @@ impl Source for GooseSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         goose_database()
-            .filter(|path| path.is_file())
-            .into_iter()
-            .collect()
+            .map(dirs::existing_file)
+            .unwrap_or_default()
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
@@ -156,6 +155,8 @@ fn goose_entry(row: GooseUsageRow, timezone: Timezone) -> Result<Option<RawEntry
         .to_string();
 
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms,
         date_str: timezone

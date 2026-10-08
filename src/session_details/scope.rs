@@ -140,8 +140,8 @@ impl Source for Selection<'_> {
     fn capabilities(&self) -> Capabilities {
         self.source.capabilities()
     }
-    fn find_files(&self) -> Vec<PathBuf> {
-        self.files.clone()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        (self.files.clone(), 0)
     }
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
         self.source.parse_file(path, timezone, debug)

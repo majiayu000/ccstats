@@ -177,6 +177,20 @@ fn tool_definitions() -> Value {
             "annotations": { "readOnlyHint": true, "idempotentHint": true, "openWorldHint": true }
         },
         {
+            "name": "diagnose",
+            "title": "Claude quota diagnosis",
+            "description": "Explain local Claude token composition, subagents, compaction boundaries and same-model/endpoint completed-turn version comparisons. Same JSON as ccstats diagnose --json. This is observed token volume, not subscription billing; missing cache fields and insufficient samples remain explicit.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "window": { "type": "string", "enum": ["5h", "today", "7d"], "default": "5h" },
+                    "session": { "type": "string", "description": "Local session ID; includes its recorded subagents." }
+                },
+                "additionalProperties": false
+            },
+            "annotations": { "readOnlyHint": true, "idempotentHint": true, "openWorldHint": false }
+        },
+        {
             "name": "doctor",
             "title": "Source readiness",
             "description": "Readiness of every registered usage source, same data as `ccstats \
@@ -209,6 +223,7 @@ fn call_tool(params: &Value, ctx: &CommandContext<'_>) -> Result<Value, (i64, St
     let outcome = match name {
         "get_limits" => get_limits(arguments, ctx),
         "get_usage_summary" => get_usage_summary(arguments, ctx),
+        "diagnose" => diagnose(arguments, ctx),
         "doctor" => doctor(arguments),
         other => return Err((INVALID_PARAMS, format!("unknown tool: {other}"))),
     };
@@ -298,6 +313,22 @@ fn get_usage_summary(
     serde_json::to_value(summary).map_err(|error| error.to_string())
 }
 
+fn diagnose(arguments: &Map<String, Value>, ctx: &CommandContext<'_>) -> Result<Value, String> {
+    reject_unknown_arguments(arguments, &["window", "session"])?;
+    let window = match string_argument(arguments, "window")?.unwrap_or("5h") {
+        "5h" => crate::diagnose_cmd::DiagnoseWindow::FiveHours,
+        "today" => crate::diagnose_cmd::DiagnoseWindow::Today,
+        "7d" => crate::diagnose_cmd::DiagnoseWindow::SevenDays,
+        other => {
+            return Err(format!(
+                "unknown window '{other}'; expected 5h, today, or 7d"
+            ));
+        }
+    };
+    let report = crate::diagnose_cmd::report(ctx, window, string_argument(arguments, "session")?)?;
+    serde_json::to_value(report).map_err(|error| error.to_string())
+}
+
 fn doctor(arguments: &Map<String, Value>) -> Result<Value, String> {
     reject_unknown_arguments(arguments, &[])?;
     let diagnostics = diagnose_usage_sources().map_err(|error| error.to_string())?;
@@ -335,7 +366,10 @@ mod tests {
             .iter()
             .map(|tool| tool["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["get_limits", "get_usage_summary", "doctor"]);
+        assert_eq!(
+            names,
+            ["get_limits", "get_usage_summary", "diagnose", "doctor"]
+        );
         let sources = tools[1]["inputSchema"]["properties"]["source"]["enum"]
             .as_array()
             .unwrap();

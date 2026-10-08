@@ -58,7 +58,7 @@ impl Source for CopilotSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_copilot_files()
     }
 
@@ -67,21 +67,23 @@ impl Source for CopilotSource {
     }
 }
 
-fn find_copilot_files() -> Vec<PathBuf> {
+fn find_copilot_files() -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
+    let mut errors = 0;
     if let Some(path) = env::var_os(COPILOT_OTEL_PATH_ENV)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .filter(|path| path.is_file())
     {
-        files.push(path);
+        let (found, failed) = dirs::existing_file(path);
+        files.extend(found);
+        errors += failed;
     }
 
     if let Some(home) = dirs::home_dir() {
         let pattern = glob_pattern(&home, ".copilot/otel/**/*.jsonl");
-        if let Ok(matches) = glob::glob(&pattern) {
-            files.extend(matches.flatten().filter(|path| path.is_file()));
-        }
+        let (found, failed) = dirs::glob_files(&home.join(".copilot/otel"), &pattern);
+        files.extend(found);
+        errors += failed;
     }
 
     files = files
@@ -90,7 +92,7 @@ fn find_copilot_files() -> Vec<PathBuf> {
         .collect();
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 fn strict_token(attributes: &Map<String, Value>, key: &str) -> Result<i64, &'static str> {
@@ -231,6 +233,8 @@ fn chat_entry(record: &Value, timezone: Timezone) -> Result<Option<RawEntry>, &'
         .to_string();
 
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: start_ms,
         date_str: timezone

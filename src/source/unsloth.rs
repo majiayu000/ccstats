@@ -49,12 +49,11 @@ impl Source for UnslothSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         studio_root()
             .map(|root| root.join("studio.db"))
-            .filter(|path| path.is_file())
-            .into_iter()
-            .collect()
+            .map(dirs::existing_file)
+            .unwrap_or_default()
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {
@@ -271,6 +270,8 @@ fn entry(
     tokens: TokenRecord,
 ) -> RawEntry {
     RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: timestamp.timestamp_millis(),
         date_str: timezone

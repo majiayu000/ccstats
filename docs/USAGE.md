@@ -53,3 +53,12 @@ between offline local sources and Cursor's API-backed source.
 [All commands and flags](../README.md#usage) ·
 [Rust SDK and local HTTP API](api.md) ·
 [Report a reproducible issue](../CONTRIBUTING.md#reporting-issues)
+
+## Why did Claude Code usage increase?
+
+Run `ccstats diagnose` for a rolling five hours, `--window today` for the elapsed
+local day, or `--window 7d`. Add `--session ID` to include one session and its
+encoded child files. `--versions` limits text output to version comparisons;
+`--json` always returns the whole evidence report. This command uses Claude
+logs and saved statusline observations, and does not fetch pricing.
+[Diagnosis contract and limitations](diagnose.md).

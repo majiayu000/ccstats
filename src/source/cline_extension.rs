@@ -63,7 +63,7 @@ impl Source for RooCodeSource {
         extension_capabilities()
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_extension_files(ROO_EXTENSION_ID)
     }
 
@@ -89,7 +89,7 @@ impl Source for KiloCodeSource {
         extension_capabilities()
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_extension_files(KILO_EXTENSION_ID)
     }
 
@@ -131,17 +131,18 @@ fn extension_task_roots(extension_id: &str) -> Vec<PathBuf> {
     roots
 }
 
-pub(super) fn find_extension_files(extension_id: &str) -> Vec<PathBuf> {
+pub(super) fn find_extension_files(extension_id: &str) -> (Vec<PathBuf>, usize) {
     let mut files = Vec::new();
+    let mut errors = 0;
     for root in extension_task_roots(extension_id) {
         let pattern = glob_pattern(&root, "*/ui_messages.json");
-        if let Ok(matches) = glob::glob(&pattern) {
-            files.extend(matches.flatten().filter(|path| path.is_file()));
-        }
+        let (found, failed) = dirs::glob_files(&root, &pattern);
+        files.extend(found);
+        errors += failed;
     }
     files.sort();
     files.dedup();
-    files
+    (files, errors)
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -323,6 +324,8 @@ pub(super) fn parse_extension_file(
                 }
             };
         output.entries.push(RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: utc.to_rfc3339(),
             timestamp_ms,
             date_str: timezone

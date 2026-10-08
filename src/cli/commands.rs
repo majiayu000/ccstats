@@ -23,6 +23,17 @@ pub(crate) enum Commands {
     Doctor,
     /// List available data sources and aliases
     Sources,
+    /// Explain observed Claude token usage against a 14-day local baseline
+    Diagnose {
+        #[arg(long, value_enum, default_value = "5h")]
+        window: crate::diagnose_cmd::DiagnoseWindow,
+        /// Include this session and its recorded subagents
+        #[arg(long)]
+        session: Option<String>,
+        /// Show only the version comparison in text output
+        #[arg(long)]
+        versions: bool,
+    },
     /// Show daily usage (default)
     Daily,
     /// Show weekly usage
@@ -219,6 +230,7 @@ pub(crate) enum SourceCommand {
     Weekly,
     Quota,
     Limits,
+    Diagnose,
     Monthly,
     Today,
     Session,
@@ -254,6 +266,7 @@ impl SourceCommand {
             Self::Weekly => "weekly",
             Self::Quota => "quota",
             Self::Limits => "limits",
+            Self::Diagnose => "diagnose",
             Self::Monthly => "monthly",
             Self::Today => "today",
             Self::Session => "session",
@@ -288,6 +301,7 @@ impl From<&Commands> for SourceCommand {
             Commands::Weekly => SourceCommand::Weekly,
             Commands::Quota => SourceCommand::Quota,
             Commands::Limits => SourceCommand::Limits,
+            Commands::Diagnose { .. } => SourceCommand::Diagnose,
             Commands::Monthly => SourceCommand::Monthly,
             Commands::Today => SourceCommand::Today,
             Commands::Session => SourceCommand::Session,
@@ -368,6 +382,10 @@ pub(crate) fn parse_command(cmd: Option<&Commands>) -> ParsedCommand {
         Some(Commands::Codex { command }) => ParsedCommand {
             source_hint: Some("codex"),
             command: SourceCommand::from(command),
+        },
+        Some(Commands::Diagnose { .. }) => ParsedCommand {
+            source_hint: Some("claude"),
+            command: SourceCommand::Diagnose,
         },
         Some(Commands::Quota) => ParsedCommand {
             source_hint: Some("codex"),

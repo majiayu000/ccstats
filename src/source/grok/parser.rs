@@ -77,27 +77,28 @@ struct UpdateEnvelope {
 fn get_grok_sessions_dir() -> Option<PathBuf> {
     if let Some(grok_home) = env::var_os(GROK_HOME_ENV) {
         let path = PathBuf::from(grok_home).join(SESSIONS_SUBDIR);
-        return path.is_dir().then_some(path);
+        return Some(path);
     }
 
     let home = dirs::home_dir()?;
     let path = home.join(DEFAULT_GROK_DIR).join(SESSIONS_SUBDIR);
-    path.is_dir().then_some(path)
+    Some(path)
 }
 
-pub(super) fn find_grok_files() -> Vec<PathBuf> {
+pub(super) fn find_grok_files() -> (Vec<PathBuf>, usize) {
     let Some(sessions_dir) = get_grok_sessions_dir() else {
-        return Vec::new();
+        return (Vec::new(), 0);
     };
 
+    let mut errors = 0;
     let mut by_session: HashMap<PathBuf, PathBuf> = HashMap::new();
-    collect_session_files(
+    errors += collect_session_files(
         &sessions_dir,
         UPDATES_FILE,
         &mut by_session,
         FilePreference::Preferred,
     );
-    collect_session_files(
+    errors += collect_session_files(
         &sessions_dir,
         SUMMARY_FILE,
         &mut by_session,
@@ -106,7 +107,7 @@ pub(super) fn find_grok_files() -> Vec<PathBuf> {
 
     let mut files: Vec<PathBuf> = by_session.into_values().collect();
     files.sort();
-    files
+    (files, errors)
 }
 
 #[derive(Clone, Copy)]
@@ -120,12 +121,10 @@ fn collect_session_files(
     file_name: &str,
     by_session: &mut HashMap<PathBuf, PathBuf>,
     preference: FilePreference,
-) {
+) -> usize {
     let pattern = glob_pattern(sessions_dir, &format!("**/{file_name}"));
-    let Ok(entries) = glob::glob(&pattern) else {
-        return;
-    };
-    for path in entries.flatten().filter(|path| path.is_file()) {
+    let (files, errors) = crate::utils::paths::glob_files(sessions_dir, &pattern);
+    for path in files {
         let Some(parent) = path.parent() else {
             continue;
         };
@@ -138,6 +137,7 @@ fn collect_session_files(
             }
         }
     }
+    errors
 }
 
 fn read_optional_json<T>(path: &Path, debug: bool) -> Result<Option<T>, ()>
@@ -329,6 +329,7 @@ pub(super) fn parse_grok_session_file_for_provider(
     parse_grok_session_file(path, timezone, debug, true)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_grok_session_file(
     path: &Path,
     timezone: Timezone,
@@ -419,6 +420,8 @@ fn parse_grok_session_file(
 
     ParseOutput {
         entries: vec![RawEntry {
+            agent_version: None,
+            claude_diagnostics: None,
             timestamp: utc_dt.to_rfc3339(),
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),

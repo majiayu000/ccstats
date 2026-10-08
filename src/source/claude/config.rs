@@ -68,12 +68,15 @@ impl Source for ClaudeSource {
     }
 
     fn cache_partition(&self) -> &str {
-        static DETAILS: std::sync::LazyLock<String> =
-            std::sync::LazyLock::new(|| format!("{}:details-v1", agent_sessions::VERSION));
+        static BASE: std::sync::LazyLock<String> =
+            std::sync::LazyLock::new(|| format!("{}:diagnose-v1", agent_sessions::VERSION));
+        static DETAILS: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+            format!("{}:diagnose-v1:details-v1", agent_sessions::VERSION)
+        });
         if self.accounting_diagnostics {
             &DETAILS
         } else {
-            agent_sessions::VERSION
+            &BASE
         }
     }
 
@@ -81,8 +84,8 @@ impl Source for ClaudeSource {
         crate::source::session_reader::diagnose(agent_sessions::Agent::ClaudeCode)
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        find_claude_files()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        crate::source::session_reader::discover(agent_sessions::Agent::ClaudeCode)
     }
 
     fn parse_file(&self, path: &Path, timezone: Timezone, debug: bool) -> ParseOutput {

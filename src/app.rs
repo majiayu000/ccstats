@@ -617,6 +617,7 @@ pub(crate) fn handle_source_command(
         SourceCommand::Doctor => return crate::doctor_cmd::handle_doctor(ctx),
         SourceCommand::Sources => return crate::sources_cmd::handle_sources(ctx),
         SourceCommand::Quota => return crate::quota_cmd::handle_quota(ctx),
+        SourceCommand::Diagnose => return crate::diagnose_cmd::handle(ctx),
         SourceCommand::Limits => return crate::limits_cmd::handle_limits(ctx),
         SourceCommand::Session => return handle_session(source, ctx),
         SourceCommand::Project => {
@@ -719,6 +720,7 @@ fn handle_all_period(command: SourceCommand, ctx: &CommandContext<'_>) {
 }
 
 /// Handle aggregate commands across every registered data source.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandContext<'_>) {
     match command {
         SourceCommand::Doctor => return crate::doctor_cmd::handle_doctor(ctx),
@@ -727,6 +729,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
             eprintln!("Error: quota analysis only supports the Codex source");
             std::process::exit(1);
         }
+        SourceCommand::Diagnose => return crate::diagnose_cmd::handle(ctx),
         SourceCommand::Limits => return crate::limits_cmd::handle_limits(ctx),
         SourceCommand::Watch { once } => return crate::watch_cmd::handle(once, ctx),
         SourceCommand::Verify => return crate::verify_cmd::handle(ctx),

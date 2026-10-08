@@ -69,7 +69,7 @@ impl Source for PiSource {
         pi_capabilities()
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_pi_files()
     }
 
@@ -106,7 +106,7 @@ impl Source for SenpiSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_senpi_files()
     }
 
@@ -132,7 +132,7 @@ impl Source for KimchiSource {
         pi_capabilities()
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
         find_kimchi_files()
     }
 
@@ -300,6 +300,8 @@ fn usage_entry(
         .to_string();
 
     Ok(Some(RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: timestamp.timestamp_millis(),
         date_str: context

@@ -25,8 +25,11 @@ impl Source for TestSource {
         }
     }
 
-    fn find_files(&self) -> Vec<PathBuf> {
-        self.files.iter().map(|(path, _, _)| path.clone()).collect()
+    fn find_files(&self) -> (Vec<PathBuf>, usize) {
+        (
+            self.files.iter().map(|(path, _, _)| path.clone()).collect(),
+            0,
+        )
     }
 
     fn parse_file(&self, path: &Path, _timezone: Timezone, _debug: bool) -> ParseOutput {
@@ -44,6 +47,8 @@ impl Source for TestSource {
 
 fn entry(id: &str, input_tokens: i64) -> RawEntry {
     RawEntry {
+        agent_version: None,
+        claude_diagnostics: None,
         timestamp: "2026-02-06T12:00:00Z".to_string(),
         timestamp_ms: 1_770_379_200_000,
         date_str: "2026-02-06".to_string(),
