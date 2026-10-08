@@ -80,6 +80,10 @@ impl Source for ClaudeSource {
         }
     }
 
+    fn diagnose(&self) -> crate::source::SourceDiagnostic {
+        crate::source::session_reader::diagnose(agent_sessions::Agent::ClaudeCode)
+    }
+
     fn find_files(&self) -> (Vec<PathBuf>, usize) {
         crate::source::session_reader::discover(agent_sessions::Agent::ClaudeCode)
     }

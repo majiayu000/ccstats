@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-08
+
+### Added
+- Expose filtered contributing Claude/Codex source files in session drilldowns and opt-in session detail JSON. Other sources explicitly report unavailable file provenance.
+
+### Fixed
+- Keep native discovery errors visible instead of reporting a missing source.
+- Compare native source file identity portably in the Windows session-details test.
+
+### Changed
+- Restore desktop CI, five-platform installers, checksums and macOS signing/notarization until the QuotaBar handover is verified.
+- Add `SessionDrilldown.source_paths` to the public SDK struct; callers constructing it must supply the field. This is a breaking SDK change from 0.10.x.
+
 ## [0.10.0] - 2026-10-07
 
 ### Changed

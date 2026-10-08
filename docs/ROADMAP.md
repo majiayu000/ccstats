@@ -12,10 +12,11 @@ Do not chase source count or leaderboards.
 [QuotaBar](https://github.com/majiayu000/quotabar).**
 
 - ccstats stays CLI + `ccstats watch` + SDK + `ccstats serve`.
-- QuotaBar is the only GUI. It is a separate menu-bar app that consumes the
+- QuotaBar is the primary GUI. It is a separate menu-bar app that consumes the
   published ccstats SDK.
-- The ccstats desktop app under `desktop/` is deprecated. Its code stays in the
-  repository, but it is no longer built in CI or attached to releases.
+- QuotaBar is the primary GUI; ccstats desktop remains maintained until source
+  diagnostics, investigation and device workflows have a verified handover.
+  [Handover evidence](desktop-handover.md) records outstanding acceptance.
 
 ## Sequence
 

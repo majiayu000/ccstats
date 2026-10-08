@@ -108,6 +108,10 @@ impl Source for CodexSource {
         "Run OpenAI Codex once or set CODEX_HOME to its data root"
     }
 
+    fn diagnose(&self) -> crate::source::SourceDiagnostic {
+        crate::source::session_reader::diagnose(agent_sessions::Agent::Codex)
+    }
+
     fn find_files(&self) -> (Vec<PathBuf>, usize) {
         crate::source::session_reader::discover(agent_sessions::Agent::Codex)
     }

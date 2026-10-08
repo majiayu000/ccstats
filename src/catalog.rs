@@ -155,6 +155,9 @@ pub struct UsageMetrics {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionDrilldown {
     pub session_id: String,
+    /// Native Claude/Codex usage files contributing to this filtered session.
+    /// Empty when this source does not expose a reliable file location.
+    pub source_paths: Vec<String>,
     pub project_path: String,
     pub first_timestamp: String,
     pub last_timestamp: String,
@@ -392,6 +395,14 @@ fn usage_metrics(
     }
 }
 
+fn native_session_paths(source: UsageSource, key: &str) -> Vec<String> {
+    if matches!(source, UsageSource::Claude | UsageSource::Codex) && !key.is_empty() {
+        vec![key.to_owned()]
+    } else {
+        Vec::new()
+    }
+}
+
 /// Summarizes project totals and their contributing sessions for one source.
 ///
 /// # Errors
@@ -437,6 +448,7 @@ pub fn summarize_project_drilldown(
             let sessions = sessions
                 .into_iter()
                 .map(|session| SessionDrilldown {
+                    source_paths: native_session_paths(options.source, &session.session_key),
                     session_id: session.session_id,
                     project_path: session.project_path,
                     first_timestamp: session.first_timestamp,

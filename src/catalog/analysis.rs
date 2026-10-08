@@ -217,6 +217,18 @@ fn project_sessions(
     context: &AnalysisContext,
     cache_read: bool,
 ) -> Vec<ProjectDrilldown> {
+    let mut paths = HashMap::<String, BTreeSet<String>>::new();
+    for entry in &entries {
+        let identity = if source == UsageSource::Codex {
+            &entry.session_id
+        } else {
+            &entry.session_key
+        };
+        paths
+            .entry(identity.clone())
+            .or_default()
+            .extend(super::native_session_paths(source, &entry.session_key));
+    }
     // Deduplication keeps file provenance; display grouping uses the source session ID.
     if source == UsageSource::Codex {
         for entry in &mut entries {
@@ -231,6 +243,11 @@ fn project_sessions(
             .or_default()
             .push(SessionDrilldown {
                 session_id: session.session_id.clone(),
+                source_paths: paths
+                    .remove(&session.session_key)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
                 project_path: session.project_path.clone(),
                 first_timestamp: session.first_timestamp.clone(),
                 last_timestamp: session.last_timestamp.clone(),
@@ -396,6 +413,53 @@ mod tests {
         assert_eq!(result.hourly[0].tokens.total_tokens, 120);
         assert_eq!(result.available_models, ["gpt-5", "gpt-5-mini"]);
         assert_eq!(result.available_projects, ["/work/app", "/work/app-extra"]);
+    }
+
+    #[test]
+    fn filtered_codex_sessions_preserve_each_contributing_file() {
+        let options = SummaryOptions {
+            source: UsageSource::Codex,
+            offline: true,
+            ..SummaryOptions::default()
+        };
+        let context = analysis_context(&options).unwrap();
+        let mut entries = vec![
+            entry("2026-09-02T02:00:00Z", "gpt-5", "/work/app", 10),
+            entry("2026-09-02T03:00:00Z", "gpt-5", "/work/app", 20),
+            entry("2026-09-02T04:00:00Z", "gpt-5-mini", "/work/app", 30),
+        ];
+        for (entry, path) in entries.iter_mut().zip([
+            "/logs/active.jsonl",
+            "/logs/archive.jsonl",
+            "/logs/excluded.jsonl",
+        ]) {
+            entry.session_key = path.to_string();
+        }
+        let result = project_entries(
+            entries,
+            0,
+            0,
+            &options,
+            &AnalysisFilter {
+                model: Some("gpt-5".into()),
+                project: None,
+            },
+            &context,
+            true,
+            "Codex",
+        )
+        .unwrap();
+        let session = &result.projects.projects[0].sessions[0];
+        assert_eq!(session.metrics.tokens.total_tokens, 30);
+        assert_eq!(
+            session.source_paths,
+            ["/logs/active.jsonl", "/logs/archive.jsonl"]
+        );
+        assert_eq!(session.session_id, "real-session-id");
+        assert_eq!(
+            super::super::native_session_paths(UsageSource::Cursor, "cursor:session"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

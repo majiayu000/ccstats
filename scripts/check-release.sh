@@ -27,6 +27,10 @@ package_lock_version() {
     ' "$lockfile"
 }
 
+json_top_version() {
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$1"
+}
+
 require_same() {
     label=$1
     actual=$2
@@ -48,6 +52,12 @@ if [ -z "$version" ]; then
 fi
 
 require_same "Cargo.lock" "$(package_lock_version Cargo.lock ccstats)" "$version"
+require_same "desktop/src-tauri/Cargo.toml" "$(toml_version desktop/src-tauri/Cargo.toml)" "$version"
+require_same "desktop ccstats dependency" "$(sed -n 's/^ccstats = {.*version = "\([^"]*\)".*/\1/p' desktop/src-tauri/Cargo.toml)" "$version"
+require_same "desktop/src-tauri/Cargo.lock" "$(package_lock_version desktop/src-tauri/Cargo.lock ccstats-desktop)" "$version"
+require_same "desktop/src-tauri/tauri.conf.json" "$(json_top_version desktop/src-tauri/tauri.conf.json)" "$version"
+require_same "desktop/package.json" "$(json_top_version desktop/package.json)" "$version"
+require_same "desktop/package-lock.json" "$(json_top_version desktop/package-lock.json)" "$version"
 
 expected_tag="v$version"
 actual_tag="${GITHUB_REF_NAME:-}"

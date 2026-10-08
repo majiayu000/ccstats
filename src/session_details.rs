@@ -96,6 +96,7 @@ fn session_json(session: &SessionStats, metadata: &NativeMetadata, pricing: &Pri
     models.sort_by_key(|(model, _)| *model);
     json!({
         "session_id": session.session_id,
+        "source_paths": [&session.session_key],
         "project_path": metadata.cwd.as_deref().unwrap_or(&session.project_path),
         "first_timestamp": session.first_timestamp,
         "last_timestamp": session.last_timestamp,
