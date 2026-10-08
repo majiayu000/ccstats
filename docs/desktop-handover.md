@@ -102,3 +102,25 @@ filesystem, without printing paths or transcript content. Codex: 32 sessions,
 57 contributing files, 487,730,985 tokens, 0 parse errors. Claude: no records in
 Today, so this observation provides no non-empty Claude acceptance. This is a
 local data observation, not Windows UI acceptance or subscription-bill verification.
+
+## Follow-up — 2026-10-08
+
+QuotaBar #211 is merged. ccstats #207's Windows CLI job failed only because the
+source-file assertion compared path strings with different Windows separators.
+It now compares native path identity and still requires exactly one file.
+The Check and macOS jobs never started: GitHub reported repeated runner acquisition
+failures. The Windows desktop job, including its isolated native IPC test, passed;
+this hosted-runner result does not establish Windows 10/physical-display acceptance.
+
+The branch incorporates main's released 0.10.0 SDK and #206 accounting/WAL fixes,
+preserving discovery-error counts alongside explicit source diagnostics. Release
+metadata is aligned at 0.11.0 because the new public Rust struct field breaks
+0.10.x literal construction. The desktop release pipeline stays intact.
+
+Fresh checks: 1,075 Rust tests; 15 desktop Rust tests; 36 synthetic renderer E2E
+tests; frontend build; root Clippy with all targets/features and warnings denied;
+cargo-deny; formatting; release metadata; staging self-test; package dry-run.
+The final remote head must also pass CI before release. QuotaBar must resolve the
+published SDK from crates.io before its installed dependency handover is accepted.
+Windows SSH identity, user-device UI testing and full desktop-workflow parity remain
+unverified; no access-method or signing-gate workaround is introduced.
