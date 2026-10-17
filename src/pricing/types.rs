@@ -20,6 +20,7 @@ pub(super) struct LongContextPricing {
     pub(super) output: f64,
     pub(super) cache_read: f64,
     pub(super) cache_create: f64,
+    pub(super) cache_create_1h: f64,
 }
 
 /// Normalize version separators: some hosters spell version dots as `p`

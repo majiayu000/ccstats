@@ -40,9 +40,14 @@ pub(crate) fn parse_litellm_data(
             .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
 
+        let cache_create_1h = value
+            .get("cache_creation_input_token_cost_above_1hr")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(cache_create);
+
         let pricing = ModelPricing {
-            above_272k: long_context_pricing(&value, output, cache_create, "272k"),
-            above_100k: long_context_pricing(&value, output, cache_create, "100k"),
+            above_272k: long_context_pricing(&value, output, cache_create, cache_create_1h, "272k"),
+            above_100k: long_context_pricing(&value, output, cache_create, cache_create_1h, "100k"),
             input,
             output,
             reasoning_output,
@@ -51,10 +56,7 @@ pub(crate) fn parse_litellm_data(
                 .and_then(serde_json::Value::as_f64)
                 .unwrap_or(0.0),
             cache_create,
-            cache_create_1h: value
-                .get("cache_creation_input_token_cost_above_1hr")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(cache_create),
+            cache_create_1h,
         };
 
         // Store with multiple key variations for matching
@@ -135,31 +137,48 @@ fn long_context_pricing(
     value: &serde_json::Value,
     output: f64,
     cache_create: f64,
+    cache_create_1h: f64,
     threshold: &str,
 ) -> Option<super::super::types::LongContextPricing> {
-    value
+    let input = value
         .get(format!("input_cost_per_token_above_{threshold}_tokens"))
+        .and_then(serde_json::Value::as_f64)?;
+    let long_cache_create = value
+        .get(format!(
+            "cache_creation_input_token_cost_above_{threshold}_tokens"
+        ))
         .and_then(serde_json::Value::as_f64)
-        .map(|long_input| super::super::types::LongContextPricing {
-            input: long_input,
-            output: value
-                .get(format!("output_cost_per_token_above_{threshold}_tokens"))
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(output),
-            cache_read: value
-                .get(format!(
-                    "cache_read_input_token_cost_above_{threshold}_tokens"
-                ))
-                .or_else(|| value.get("cache_read_input_token_cost"))
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0),
-            cache_create: value
-                .get(format!(
-                    "cache_creation_input_token_cost_above_{threshold}_tokens"
-                ))
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(cache_create),
-        })
+        .unwrap_or(cache_create);
+    let long_cache_create_1h = value
+        .get(format!(
+            "cache_creation_input_token_cost_above_1hr_above_{threshold}_tokens"
+        ))
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or_else(|| {
+            // Retain the existing proportional estimate only when no explicit
+            // tiered 1h price is published. A zero base rate cannot form a ratio.
+            if cache_create > 0.0 {
+                cache_create_1h * (long_cache_create / cache_create)
+            } else {
+                cache_create_1h
+            }
+        });
+    Some(super::super::types::LongContextPricing {
+        input,
+        output: value
+            .get(format!("output_cost_per_token_above_{threshold}_tokens"))
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(output),
+        cache_read: value
+            .get(format!(
+                "cache_read_input_token_cost_above_{threshold}_tokens"
+            ))
+            .or_else(|| value.get("cache_read_input_token_cost"))
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0),
+        cache_create: long_cache_create,
+        cache_create_1h: long_cache_create_1h,
+    })
 }
 
 #[cfg(test)]
@@ -173,6 +192,30 @@ mod tests {
             "input_cost_per_token": input,
             "output_cost_per_token": output,
         })
+    }
+
+    #[test]
+    fn long_context_1h_price_defaults_only_when_not_published() {
+        for threshold in ["100k", "272k"] {
+            let mut value = json!({
+                format!("input_cost_per_token_above_{threshold}_tokens"): 0.5e-6,
+                format!("cache_creation_input_token_cost_above_{threshold}_tokens"): 0.625e-6,
+            });
+            let parse = |value: &serde_json::Value, base_write| {
+                long_context_pricing(value, 0.5e-6, base_write, 0.2e-6, threshold)
+                    .unwrap()
+                    .cache_create_1h
+            };
+            assert!((parse(&value, 0.125e-6) - 1e-6).abs() < 1e-15);
+            assert_eq!(parse(&value, 0.0), 0.2e-6);
+            for explicit in [3e-6, 0.0] {
+                value[format!(
+                    "cache_creation_input_token_cost_above_1hr_above_{threshold}_tokens"
+                )] = json!(explicit);
+                assert_eq!(parse(&value, 0.125e-6), explicit);
+                assert_eq!(parse(&value, 0.0), explicit);
+            }
+        }
     }
 
     #[test]

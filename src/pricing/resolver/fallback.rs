@@ -54,6 +54,7 @@ fn with_long_context(mut pricing: ModelPricing) -> ModelPricing {
         output: pricing.output * 1.5,
         cache_read: pricing.cache_read * 2.0,
         cache_create: pricing.cache_create * 2.0,
+        cache_create_1h: pricing.cache_create_1h * 2.0,
     });
     pricing
 }
@@ -228,6 +229,7 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
                 output: 2.5e-6,
                 cache_read: 0.05e-6,
                 cache_create: 0.625e-6,
+                cache_create_1h: 1e-6,
             });
             pricing
         } else if matches_claude_version(&claude_model, "haiku-4-5") {

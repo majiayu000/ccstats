@@ -235,6 +235,13 @@ impl PricingDb {
         self.resolve_pricing(model).map(|(_, source)| source)
     }
 
+    pub(crate) fn uses_long_context_price(&self, model: &str, prompt_tokens: i64) -> bool {
+        self.get_pricing(model).is_some_and(|pricing| {
+            (prompt_tokens > 100_000 && pricing.above_100k.is_some())
+                || (prompt_tokens > 272_000 && pricing.above_272k.is_some())
+        })
+    }
+
     pub(crate) fn source(&self) -> PricingSource {
         self.source
     }

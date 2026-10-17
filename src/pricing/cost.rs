@@ -41,19 +41,12 @@ fn calculate_token_cost(tokens: CostTokens, model: &str, pricing_db: &PricingDb)
                 rate.map(|rate| {
                     let long_ttl_tokens = long.cache_creation_1h.min(long.cache_creation);
                     let short_ttl_tokens = long.cache_creation - long_ttl_tokens;
-                    // Preserve the TTL premium when scaling cache writes. A zero
-                    // base write rate has no ratio, so retain the published 1h rate.
-                    let cache_create_1h = if pricing.cache_create > 0.0 {
-                        pricing.cache_create_1h * (rate.cache_create / pricing.cache_create)
-                    } else {
-                        pricing.cache_create_1h
-                    };
                     long.input_tokens as f64 * (rate.input - pricing.input)
                         + long.output_tokens as f64 * (rate.output - pricing.output)
                         + long.reasoning_tokens as f64 * (rate.output - pricing.reasoning_output)
                         + long.cache_read as f64 * (rate.cache_read - pricing.cache_read)
                         + short_ttl_tokens as f64 * (rate.cache_create - pricing.cache_create)
-                        + long_ttl_tokens as f64 * (cache_create_1h - pricing.cache_create_1h)
+                        + long_ttl_tokens as f64 * (rate.cache_create_1h - pricing.cache_create_1h)
                 })
             })
             .sum();
@@ -590,6 +583,7 @@ mod tests {
             output: pricing.output * 1.5,
             cache_read: pricing.cache_read * 2.0,
             cache_create: pricing.cache_create * 2.0,
+            cache_create_1h: pricing.cache_create_1h * 2.0,
         });
         let db = pricing_db_with("fable-5", pricing);
         let short = Stats {
@@ -616,6 +610,7 @@ mod tests {
             output: pricing.output * 1.5,
             cache_read: pricing.cache_read * 2.0,
             cache_create: pricing.cache_create * 2.0,
+            cache_create_1h: pricing.cache_create_1h * 2.0,
         });
         let db = pricing_db_with("fable-5", pricing);
         let mut stats = Stats {
@@ -639,6 +634,7 @@ mod tests {
             output: pricing.output,
             cache_read: pricing.cache_read,
             cache_create: 0.0,
+            cache_create_1h: pricing.cache_create_1h,
         });
         let db = pricing_db_with("fable-5", pricing);
         let mut stats = Stats {

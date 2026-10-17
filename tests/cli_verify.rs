@@ -58,3 +58,42 @@ fn verify_without_recorded_costs_prints_hint() {
 
     let _ = fs::remove_dir_all(home);
 }
+
+#[test]
+fn verify_classifies_only_applicable_request_price_tiers() {
+    let home = tempfile::tempdir().unwrap();
+    let usage = home.path().join("cursor-usage.json");
+    for (model, input, read, reason) in [
+        ("claude-haiku-5-5", 100_000, 0, "priced"),
+        ("claude-haiku-5-5", 100_001, 0, "tiered_pricing"),
+        ("claude-haiku-5-5", 1, 100_000, "tiered_pricing"),
+        ("claude-haiku-5-5", 0, 100_001, "tiered_pricing"),
+        ("claude-sonnet-5-5", 100_001, 0, "priced"),
+        ("gpt-6.1-sol", 272_000, 0, "priced"),
+        ("gpt-6.1-sol", 272_001, 0, "tiered_pricing"),
+    ] {
+        let data = serde_json::json!({"usageEventsDisplay":[{
+            "timestamp":"2026-10-17T12:00:00Z", "model":model,
+            "tokenUsage":{"inputTokens":input,"cacheReadTokens":read},
+            "chargedCents":1.0
+        }]});
+        write_file(&usage, &data.to_string());
+        let (ok, stdout, stderr) = run_ccstats(
+            &[
+                "verify",
+                "--source",
+                "cursor",
+                "--json",
+                "--offline",
+                "--no-cache",
+            ],
+            &[("HOME", home.path()), ("CURSOR_USAGE_FILE", &usage)],
+        );
+        assert!(ok, "{}", String::from_utf8_lossy(&stderr));
+        let value: Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(
+            value["sources"][0]["reasons"][reason], 1,
+            "{model}: {value}"
+        );
+    }
+}

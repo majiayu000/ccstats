@@ -212,3 +212,28 @@ fn strict_pricing_keeps_unpriced_usage_and_unknown_models() {
     assert_eq!(result[0]["total_tokens"], 1350);
     assert!(result[0]["cost"].is_null());
 }
+
+#[test]
+fn external_100k_tier_honors_explicit_1h_cache_price() {
+    let root = tempfile::tempdir().unwrap();
+    write_file(
+        &root.path().join("claude/projects/project/session.jsonl"),
+        &claude_row("claude-haiku-5-5", 0, 100_000, 200, 100).to_string(),
+    );
+    let mut prices: Value =
+        serde_json::from_str(include_str!("fixtures/pricing/latest-models.json")).unwrap();
+    // An explicitly supplied tier price takes precedence over a proportional
+    // estimate, including a legitimate zero price.
+    for rate in [3e-6, 0.0] {
+        prices["claude-haiku-5-5"]["cache_creation_input_token_cost_above_1hr_above_100k_tokens"] =
+            json!(rate);
+        write_file(
+            &root.path().join("cache/ccstats/pricing.json"),
+            &prices.to_string(),
+        );
+        let result = report(root.path(), "claude", &["--strict-pricing"]);
+        let expected =
+            (100_000.0 * 0.5 + 50.0 * 2.5 + 200.0 * 0.05 + 60.0 * 0.625) / 1e6 + 40.0 * rate;
+        assert_cost(&result[0]["cost"], expected);
+    }
+}

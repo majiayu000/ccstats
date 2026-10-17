@@ -72,7 +72,7 @@ fn verify_source(source: &dyn Source, ctx: &CommandContext<'_>) -> Option<Source
         records += 1;
         recorded_usd += recorded;
         let estimated = estimated_token_cost(entry, ctx.pricing_db);
-        classify(&mut reasons, entry, estimated);
+        classify(&mut reasons, entry, estimated, ctx.pricing_db);
         if estimated.is_finite() {
             estimated_usd += estimated;
         } else {
@@ -104,15 +104,21 @@ fn estimated_token_cost(entry: &crate::core::RawEntry, pricing_db: &PricingDb) -
     calculate_cost(&stats, &entry.model, pricing_db)
 }
 
-fn classify(reasons: &mut ReasonCounts, entry: &crate::core::RawEntry, estimated: f64) {
+fn classify(
+    reasons: &mut ReasonCounts,
+    entry: &crate::core::RawEntry,
+    estimated: f64,
+    pricing_db: &PricingDb,
+) {
     if !estimated.is_finite() {
         reasons.unknown_model += 1;
         return;
     }
-    if entry.to_stats().above_272k.input_tokens > 0
-        || entry.to_stats().above_272k.output_tokens > 0
-        || entry.to_stats().above_272k.cache_creation > 0
-    {
+    let prompt_tokens = entry
+        .input_tokens
+        .saturating_add(entry.cache_read)
+        .saturating_add(entry.cache_creation);
+    if pricing_db.uses_long_context_price(&entry.model, prompt_tokens) {
         reasons.tiered_pricing += 1;
         return;
     }
