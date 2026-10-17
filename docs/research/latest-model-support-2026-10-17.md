@@ -42,17 +42,26 @@ The downloaded LiteLLM price list already has all three new models. Consequently
 - Read the corresponding external price fields and include them in alias-conflict comparison. Keep recorded provider costs authoritative.
 - Native source parsers, public CLI flags, error handling, unknown-model behavior and `--strict-pricing` semantics are unchanged.
 
-`tests/cli_latest_models.rs` contains seven grouped CLI regressions. They cover the model matrix, cold/warm usage-cache reads, `--no-cache`, fallback versus external prices, Codex `token_count` and response-only `token_usage_record`, duplicate-counter/coexisting-response suppression, Claude cache TTLs, exact Haiku tier boundaries, and unknown/strict pricing. Three additional unit tests cover GPT-6.1's 272K boundary, Haiku serialization/recorded-cost/proxy partitioning, and conflicting 100K price aliases.
+`tests/cli_latest_models.rs` contains eight grouped CLI regressions. They cover the model matrix, cold/warm usage-cache reads, `--no-cache`, fallback versus external prices, Codex `token_count` and response-only `token_usage_record`, duplicate-counter/coexisting-response suppression, Claude cache TTLs, exact Haiku tier boundaries, and unknown/strict pricing. Three additional unit tests cover GPT-6.1's 272K boundary, Haiku serialization/recorded-cost/proxy partitioning, and conflicting 100K price aliases.
 
 Completed locally on macOS with rustc 1.97.0:
 
 - `cargo fmt --all --check`
 - `cargo check --locked`
 - `cargo clippy --locked --all-targets -- -D warnings`
-- `cargo test --locked`: 1,085 passed; 0 failed; 0 ignored, including 804 library tests.
+- `cargo test --locked`: 1,088 passed; 0 failed; 0 ignored, including 805 library tests.
 - `git diff --check`
 
 A read-only sample of local native logs was also replayed from isolated temporary directories after removing prompt/tool content and hashing identifiers: 24 Claude files and 30 Codex files. Both returned zero parse errors. Observed Opus 5.5, GPT-6.1 Sol, GPT-6 Astra and GPT-6 Luna usage remained priceable. No private logs or local usage totals are committed. Sonnet 5.5 and Haiku 5.5 were validated with deterministic fixtures, not live paid inference.
+
+## Review follow-up
+
+Two review findings were reproduced with failing CLI tests and corrected:
+
+- `verify` now reports `tiered_pricing` for requests exceeding an applicable 100K or 272K model price tier, including cache-only prompts. Models without that tier keep the ordinary/cache classification.
+- Explicit external 1-hour cache-write prices at each tier are retained and used directly, including a zero price. The existing proportional calculation is used only when the external field is absent. Conflicting tiered 1h prices are included in alias ambiguity detection.
+
+The initial CI dependency audit rejected rustls. The root and desktop lockfiles now pin patched rustls 0.23.46; `cargo deny check` passes without advisory suppression. Local desktop Rust tests also pass (15 tests). The initial Windows desktop browser failure was `ERR_NO_BUFFER_SPACE` during page navigation; a new CI run validates it without changing application or browser-test code.
 
 ## Interpretation and limits
 
