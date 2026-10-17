@@ -27,24 +27,36 @@ fn calculate_token_cost(tokens: CostTokens, model: &str, pricing_db: &PricingDb)
                 + tokens.cache_read as f64 * pricing.cache_read;
             // Only the token subset classified before aggregation receives the
             // long-context rates. Recorded provider costs still bypass pricing.
-            let long = tokens.above_272k;
-            let adjustment = pricing.above_272k.as_ref().map_or(0.0, |rate| {
-                let long_ttl_tokens = long.cache_creation_1h.min(long.cache_creation);
-                let short_ttl_tokens = long.cache_creation - long_ttl_tokens;
-                // Preserve the TTL premium when scaling cache writes. A zero
-                // base write rate has no ratio, so retain the published 1h rate.
-                let cache_create_1h = if pricing.cache_create > 0.0 {
-                    pricing.cache_create_1h * (rate.cache_create / pricing.cache_create)
-                } else {
-                    pricing.cache_create_1h
-                };
-                long.input_tokens as f64 * (rate.input - pricing.input)
-                    + long.output_tokens as f64 * (rate.output - pricing.output)
-                    + long.reasoning_tokens as f64 * (rate.output - pricing.reasoning_output)
-                    + long.cache_read as f64 * (rate.cache_read - pricing.cache_read)
-                    + short_ttl_tokens as f64 * (rate.cache_create - pricing.cache_create)
-                    + long_ttl_tokens as f64 * (cache_create_1h - pricing.cache_create_1h)
-            });
+            let above_100k = if pricing.above_272k.is_some() {
+                tokens.above_100k.saturating_sub(&tokens.above_272k)
+            } else {
+                tokens.above_100k
+            };
+            let adjustment: f64 = [
+                (above_100k, pricing.above_100k.as_ref()),
+                (tokens.above_272k, pricing.above_272k.as_ref()),
+            ]
+            .into_iter()
+            .filter_map(|(long, rate)| {
+                rate.map(|rate| {
+                    let long_ttl_tokens = long.cache_creation_1h.min(long.cache_creation);
+                    let short_ttl_tokens = long.cache_creation - long_ttl_tokens;
+                    // Preserve the TTL premium when scaling cache writes. A zero
+                    // base write rate has no ratio, so retain the published 1h rate.
+                    let cache_create_1h = if pricing.cache_create > 0.0 {
+                        pricing.cache_create_1h * (rate.cache_create / pricing.cache_create)
+                    } else {
+                        pricing.cache_create_1h
+                    };
+                    long.input_tokens as f64 * (rate.input - pricing.input)
+                        + long.output_tokens as f64 * (rate.output - pricing.output)
+                        + long.reasoning_tokens as f64 * (rate.output - pricing.reasoning_output)
+                        + long.cache_read as f64 * (rate.cache_read - pricing.cache_read)
+                        + short_ttl_tokens as f64 * (rate.cache_create - pricing.cache_create)
+                        + long_ttl_tokens as f64 * (cache_create_1h - pricing.cache_create_1h)
+                })
+            })
+            .sum();
             base_cost + adjustment
         }
         None => f64::NAN,
@@ -494,9 +506,45 @@ mod tests {
         assert!((calculate_cost(&stats, "gpt-6-astra", &db) - 9.14502).abs() < 1e-9);
     }
 
+    #[test]
+    fn haiku_100k_tier_survives_serialization_and_cost_partitioning() {
+        let db = PricingDb::default();
+        let mut entry = context_entry(100_000);
+        entry.model = "claude-haiku-5-5".to_string();
+        entry.cache_read = 1;
+        entry.cache_creation = 0;
+        let expected = (100_000.0 * 0.5 + 1000.0 * 2.5 + 0.05) / 1e6;
+        let mut stats = entry.to_stats();
+        assert!((calculate_cost(&stats, &entry.model, &db) - expected).abs() < 1e-12);
+        entry.cost_kind = CostKind::EstimatedProxy;
+        stats.add(&entry.to_stats());
+        entry.cost_kind = CostKind::Real;
+        entry.recorded_cost_usd = Some(7.0);
+        stats.add(&entry.to_stats());
+        let serialized = serde_json::to_string(&stats).unwrap();
+        let mut stats: Stats = serde_json::from_str(&serialized).unwrap();
+        assert!((calculate_cost(&stats, &entry.model, &db) - 7.0 - 2.0 * expected).abs() < 1e-12);
+        assert!((calculate_real_cost(&stats, &entry.model, &db) - 7.0 - expected).abs() < 1e-12);
+        assert!(
+            (calculate_estimated_proxy_cost(&stats, &entry.model, &db) - expected).abs() < 1e-12
+        );
+        stats.retain_real_token_totals();
+        assert!((calculate_cost(&stats, &entry.model, &db) - 7.0 - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn gpt_61_sol_uses_new_cache_rate_at_272k_boundary() {
+        let db = PricingDb::default();
+        let short = context_entry(72_000).to_stats();
+        let long = context_entry(72_001).to_stats();
+        assert!((calculate_cost(&short, "gpt-6.1-sol", &db) - 0.198).abs() < 1e-12);
+        assert!((calculate_cost(&long, "gpt-6.1-sol", &db) - 0.391_004).abs() < 1e-12);
+    }
+
     fn fable_pricing() -> super::super::types::ModelPricing {
         super::super::types::ModelPricing {
             above_272k: None,
+            above_100k: None,
             input: 1e-5,
             output: 5e-5,
             reasoning_output: 5e-5,

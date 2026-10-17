@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Token subset from individual requests with more than 272K input tokens.
+/// Token subset from individual requests exceeding a pricing threshold.
 /// Kept separate from display totals so aggregation never changes the price tier.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct LongContextTokens {
@@ -29,7 +29,7 @@ impl LongContextTokens {
         self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
     }
 
-    fn saturating_sub(self, other: &Self) -> Self {
+    pub(crate) fn saturating_sub(self, other: &Self) -> Self {
         Self {
             input_tokens: self.input_tokens.saturating_sub(other.input_tokens).max(0),
             output_tokens: self
@@ -58,6 +58,8 @@ impl LongContextTokens {
 pub(crate) struct Stats {
     #[serde(default)]
     pub(crate) above_272k: LongContextTokens,
+    #[serde(default)]
+    pub(crate) above_100k: LongContextTokens,
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_creation: i64,
@@ -97,6 +99,7 @@ pub(crate) struct Stats {
 impl Stats {
     pub(crate) fn add(&mut self, other: &Stats) {
         self.above_272k.add(&other.above_272k);
+        self.above_100k.add(&other.above_100k);
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
         self.cache_creation = self.cache_creation.saturating_add(other.cache_creation);
@@ -159,6 +162,7 @@ impl Stats {
     pub(crate) fn cost_tokens(&self) -> CostTokens {
         CostTokens {
             above_272k: self.above_272k,
+            above_100k: self.above_100k,
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             cache_creation: self.cache_creation,
@@ -189,6 +193,7 @@ impl Stats {
         self.reasoning_tokens = real.reasoning_tokens;
         self.count = real.count;
         self.above_272k = real.above_272k;
+        self.above_100k = real.above_100k;
         // Keep Total-mode recorded+priced cost real-only: priced_tokens still
         // includes estimated-proxy rows until they are dropped here.
         self.priced_tokens = self.priced_tokens.saturating_sub(&self.estimated_proxy);
@@ -274,6 +279,8 @@ impl Endpoint {
 pub(crate) struct CostTokens {
     #[serde(default)]
     pub(crate) above_272k: LongContextTokens,
+    #[serde(default)]
+    pub(crate) above_100k: LongContextTokens,
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_creation: i64,
@@ -296,6 +303,7 @@ impl CostTokens {
 
     pub(crate) fn add(&mut self, other: &Self) {
         self.above_272k.add(&other.above_272k);
+        self.above_100k.add(&other.above_100k);
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
         self.cache_creation = self.cache_creation.saturating_add(other.cache_creation);
@@ -310,6 +318,7 @@ impl CostTokens {
     pub(crate) fn saturating_sub(self, other: &Self) -> Self {
         Self {
             above_272k: self.above_272k.saturating_sub(&other.above_272k),
+            above_100k: self.above_100k.saturating_sub(&other.above_100k),
             input_tokens: self.input_tokens.saturating_sub(other.input_tokens).max(0),
             output_tokens: self
                 .output_tokens
@@ -499,6 +508,7 @@ impl RawEntry {
             .saturating_add(self.reasoning_tokens);
         let mut stats = Stats {
             above_272k: LongContextTokens::default(),
+            above_100k: LongContextTokens::default(),
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             cache_creation: self.cache_creation,
@@ -518,13 +528,12 @@ impl RawEntry {
             api_equivalent_coverage_tokens: self.api_equivalent_coverage_tokens.max(0),
             priced_tokens: CostTokens::default(),
         };
-        if self
+        let prompt_tokens = self
             .input_tokens
             .saturating_add(self.cache_creation)
-            .saturating_add(self.cache_read)
-            > 272_000
-        {
-            stats.above_272k = LongContextTokens {
+            .saturating_add(self.cache_read);
+        if prompt_tokens > 100_000 {
+            stats.above_100k = LongContextTokens {
                 input_tokens: self.input_tokens,
                 output_tokens: self.output_tokens,
                 cache_creation: self.cache_creation,
@@ -532,6 +541,9 @@ impl RawEntry {
                 cache_read: self.cache_read,
                 reasoning_tokens: self.reasoning_tokens,
             };
+        }
+        if prompt_tokens > 272_000 {
+            stats.above_272k = stats.above_100k;
         }
         if self.cost_kind == CostKind::EstimatedProxy {
             stats.estimated_proxy = stats.cost_tokens();

@@ -393,6 +393,7 @@ mod tests {
             "sonnet-4".to_string(),
             ModelPricing {
                 above_272k: None,
+                above_100k: None,
                 input: 3e-6,
                 output: 15e-6,
                 reasoning_output: 15e-6,
@@ -427,6 +428,7 @@ mod tests {
             "sonnet-4".to_string(),
             ModelPricing {
                 above_272k: None,
+                above_100k: None,
                 input: 3e-6,
                 output: 15e-6,
                 reasoning_output: 15e-6,
@@ -519,6 +521,7 @@ mod tests {
             "opus-4".to_string(),
             ModelPricing {
                 above_272k: None,
+                above_100k: None,
                 input: 15e-6,
                 output: 75e-6,
                 reasoning_output: 75e-6,

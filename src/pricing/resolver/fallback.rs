@@ -4,6 +4,7 @@ use super::super::types::{LongContextPricing, ModelPricing};
 fn claude_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
         above_272k: None,
+        above_100k: None,
         input,
         output,
         reasoning_output: output,
@@ -30,6 +31,7 @@ fn matches_claude_version(model: &str, version: &str) -> bool {
 fn openai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
         above_272k: None,
+        above_100k: None,
         input,
         output,
         reasoning_output: output,
@@ -82,6 +84,7 @@ fn matches_openai_model(model: &str, name: &str) -> bool {
 fn xai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
         above_272k: None,
+        above_100k: None,
         input,
         output,
         reasoning_output: output,
@@ -94,6 +97,7 @@ fn xai_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
 fn moonshot_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
         above_272k: None,
+        above_100k: None,
         input,
         output,
         reasoning_output: output,
@@ -106,6 +110,7 @@ fn moonshot_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
 fn google_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
     ModelPricing {
         above_272k: None,
+        above_100k: None,
         input,
         output,
         reasoning_output: output,
@@ -118,6 +123,8 @@ fn google_pricing(input: f64, output: f64, cache_read: f64) -> ModelPricing {
 fn openai_fallback_pricing(model: &str) -> Option<ModelPricing> {
     Some(if matches_openai_model(model, "gpt-6-astra") {
         with_long_context(openai_pricing_with_cache_write(10e-6, 50e-6, 1e-6))
+    } else if matches_openai_model(model, "gpt-6.1-sol") {
+        with_long_context(openai_pricing_with_cache_write(2e-6, 10e-6, 0.1e-6))
     } else if matches_openai_model(model, "gpt-6-sol") {
         with_long_context(openai_pricing_with_cache_write(2e-6, 10e-6, 0.2e-6))
     } else if matches_openai_model(model, "gpt-6-luna") {
@@ -208,10 +215,21 @@ pub(crate) fn fallback_pricing(model: &str) -> Option<ModelPricing> {
             claude_pricing(5e-6, 25e-6, 0.5e-6)
         } else if claude_model.contains("opus") {
             claude_pricing(15e-6, 75e-6, 1.5e-6)
+        } else if matches_claude_version(&claude_model, "sonnet-5-5") {
+            claude_pricing(2e-6, 10e-6, 0.1e-6)
         } else if matches_claude_version(&claude_model, "sonnet-5") {
             claude_pricing(2e-6, 10e-6, 0.2e-6)
         } else if claude_model.contains("sonnet") {
             claude_pricing(3e-6, 15e-6, 0.3e-6)
+        } else if matches_claude_version(&claude_model, "haiku-5-5") {
+            let mut pricing = claude_pricing(0.1e-6, 0.5e-6, 0.01e-6);
+            pricing.above_100k = Some(LongContextPricing {
+                input: 0.5e-6,
+                output: 2.5e-6,
+                cache_read: 0.05e-6,
+                cache_create: 0.625e-6,
+            });
+            pricing
         } else if matches_claude_version(&claude_model, "haiku-4-5") {
             claude_pricing(1e-6, 5e-6, 0.1e-6)
         } else if claude_model.contains("haiku") {

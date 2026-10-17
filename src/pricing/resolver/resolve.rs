@@ -299,7 +299,7 @@ fn strip_yyyy_mm_dd_suffix(key: &str) -> Option<&str> {
 }
 
 fn unique_pricing(
-    candidates: Vec<(String, String, [u64; 11], &ModelPricing)>,
+    candidates: Vec<(String, String, [u64; 16], &ModelPricing)>,
 ) -> Option<PricingMatch> {
     match resolve_unique_pricing(candidates) {
         PricingResolution::Resolved(pricing) => Some(pricing),
@@ -308,7 +308,7 @@ fn unique_pricing(
 }
 
 fn resolve_unique_pricing(
-    candidates: Vec<(String, String, [u64; 11], &ModelPricing)>,
+    candidates: Vec<(String, String, [u64; 16], &ModelPricing)>,
 ) -> PricingResolution {
     let mut unique = HashMap::new();
     for (canonical, matched_key, signature, pricing) in candidates {
@@ -339,7 +339,7 @@ fn resolve_unique_pricing(
     })
 }
 
-fn pricing_signature(pricing: &ModelPricing) -> [u64; 11] {
+fn pricing_signature(pricing: &ModelPricing) -> [u64; 16] {
     [
         pricing.input.to_bits(),
         pricing.output.to_bits(),
@@ -347,6 +347,20 @@ fn pricing_signature(pricing: &ModelPricing) -> [u64; 11] {
         pricing.cache_read.to_bits(),
         pricing.cache_create.to_bits(),
         pricing.cache_create_1h.to_bits(),
+        u64::from(pricing.above_100k.is_some()),
+        pricing.above_100k.as_ref().map_or(0, |p| p.input.to_bits()),
+        pricing
+            .above_100k
+            .as_ref()
+            .map_or(0, |p| p.output.to_bits()),
+        pricing
+            .above_100k
+            .as_ref()
+            .map_or(0, |p| p.cache_read.to_bits()),
+        pricing
+            .above_100k
+            .as_ref()
+            .map_or(0, |p| p.cache_create.to_bits()),
         u64::from(pricing.above_272k.is_some()),
         pricing.above_272k.as_ref().map_or(0, |p| p.input.to_bits()),
         pricing
@@ -370,6 +384,26 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn normalized_aliases_with_different_100k_prices_are_ambiguous() {
+        let low = ModelPricing {
+            input: 0.1e-6,
+            above_100k: Some(super::super::super::types::LongContextPricing {
+                input: 0.5e-6,
+                output: 2.5e-6,
+                cache_read: 0.05e-6,
+                cache_create: 0.625e-6,
+            }),
+            ..Default::default()
+        };
+        let mut high = low.clone();
+        high.above_100k.as_mut().unwrap().input = 1e-6;
+        let models = HashMap::from([
+            ("claude-haiku-5-5".to_string(), low),
+            ("CLAUDE-HAIKU-5-5".to_string(), high),
+        ]);
+        assert!(resolve_pricing_known("CLAUDE-HAIKU-5-5", &models).is_none());
+    }
     #[test]
     fn test_resolve_exact_match() {
         let mut models = HashMap::new();

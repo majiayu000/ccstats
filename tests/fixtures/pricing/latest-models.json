@@ -1,0 +1,113 @@
+{
+  "gpt-6.1-sol": {
+    "input_cost_per_token": 2e-06,
+    "output_cost_per_token": 1e-05,
+    "cache_read_input_token_cost": 1e-07,
+    "cache_creation_input_token_cost": 2.5e-06,
+    "input_cost_per_token_above_272k_tokens": 4e-06,
+    "output_cost_per_token_above_272k_tokens": 1.5e-05,
+    "cache_read_input_token_cost_above_272k_tokens": 2e-07,
+    "cache_creation_input_token_cost_above_272k_tokens": 5e-06
+  },
+  "gpt-6-sol": {
+    "input_cost_per_token": 2e-06,
+    "output_cost_per_token": 1e-05,
+    "cache_read_input_token_cost": 2e-07,
+    "cache_creation_input_token_cost": 2.5e-06,
+    "input_cost_per_token_above_272k_tokens": 4e-06,
+    "output_cost_per_token_above_272k_tokens": 1.5e-05,
+    "cache_read_input_token_cost_above_272k_tokens": 4e-07,
+    "cache_creation_input_token_cost_above_272k_tokens": 5e-06
+  },
+  "gpt-6-astra": {
+    "input_cost_per_token": 1e-05,
+    "output_cost_per_token": 5e-05,
+    "cache_read_input_token_cost": 1e-06,
+    "cache_creation_input_token_cost": 1.25e-05,
+    "input_cost_per_token_above_272k_tokens": 2e-05,
+    "output_cost_per_token_above_272k_tokens": 7.5e-05,
+    "cache_read_input_token_cost_above_272k_tokens": 2e-06,
+    "cache_creation_input_token_cost_above_272k_tokens": 2.5e-05
+  },
+  "gpt-6-luna": {
+    "input_cost_per_token": 1e-07,
+    "output_cost_per_token": 5e-07,
+    "cache_read_input_token_cost": 1e-08,
+    "cache_creation_input_token_cost": 1.25e-07,
+    "input_cost_per_token_above_272k_tokens": 2e-07,
+    "output_cost_per_token_above_272k_tokens": 7.5e-07,
+    "cache_read_input_token_cost_above_272k_tokens": 2e-08,
+    "cache_creation_input_token_cost_above_272k_tokens": 2.5e-07
+  },
+  "gpt-5.6-sol": {
+    "input_cost_per_token": 4e-06,
+    "output_cost_per_token": 2e-05,
+    "cache_read_input_token_cost": 4e-07,
+    "cache_creation_input_token_cost": 5e-06,
+    "input_cost_per_token_above_272k_tokens": 8e-06,
+    "output_cost_per_token_above_272k_tokens": 3e-05,
+    "cache_read_input_token_cost_above_272k_tokens": 8e-07,
+    "cache_creation_input_token_cost_above_272k_tokens": 1e-05
+  },
+  "claude-opus-5-5": {
+    "input_cost_per_token": 4e-06,
+    "output_cost_per_token": 2e-05,
+    "cache_read_input_token_cost": 2e-07,
+    "cache_creation_input_token_cost": 5e-06,
+    "cache_creation_input_token_cost_above_1hr": 8e-06
+  },
+  "claude-sonnet-5-5": {
+    "input_cost_per_token": 2e-06,
+    "output_cost_per_token": 1e-05,
+    "cache_read_input_token_cost": 1e-07,
+    "cache_creation_input_token_cost": 2.5e-06,
+    "cache_creation_input_token_cost_above_1hr": 4e-06
+  },
+  "claude-haiku-5-5": {
+    "input_cost_per_token": 1e-07,
+    "output_cost_per_token": 5e-07,
+    "cache_read_input_token_cost": 1e-08,
+    "cache_creation_input_token_cost": 1.25e-07,
+    "cache_creation_input_token_cost_above_1hr": 2e-07,
+    "input_cost_per_token_above_100k_tokens": 5e-07,
+    "output_cost_per_token_above_100k_tokens": 2.5e-06,
+    "cache_read_input_token_cost_above_100k_tokens": 5e-08,
+    "cache_creation_input_token_cost_above_100k_tokens": 6.25e-07,
+    "cache_creation_input_token_cost_above_1hr_above_100k_tokens": 1e-06
+  },
+  "claude-fable-5-1": {
+    "input_cost_per_token": 1e-05,
+    "output_cost_per_token": 5e-05,
+    "cache_read_input_token_cost": 2.5e-07,
+    "cache_creation_input_token_cost": 1.25e-05,
+    "cache_creation_input_token_cost_above_1hr": 2e-05
+  },
+  "claude-mythos-5-1": {
+    "input_cost_per_token": 1e-05,
+    "output_cost_per_token": 5e-05,
+    "cache_read_input_token_cost": 2.5e-07,
+    "cache_creation_input_token_cost": 1.25e-05,
+    "cache_creation_input_token_cost_above_1hr": 2e-05
+  },
+  "claude-opus-4-8": {
+    "input_cost_per_token": 5e-06,
+    "output_cost_per_token": 2.5e-05,
+    "cache_read_input_token_cost": 5e-07,
+    "cache_creation_input_token_cost": 6.25e-06,
+    "cache_creation_input_token_cost_above_1hr": 1e-05
+  },
+  "claude-sonnet-5": {
+    "input_cost_per_token": 2e-06,
+    "output_cost_per_token": 1e-05,
+    "cache_read_input_token_cost": 2e-07,
+    "cache_creation_input_token_cost": 2.5e-06,
+    "cache_creation_input_token_cost_above_1hr": 4e-06
+  },
+  "claude-haiku-4-5": {
+    "input_cost_per_token": 1e-06,
+    "output_cost_per_token": 5e-06,
+    "cache_read_input_token_cost": 1e-07,
+    "cache_creation_input_token_cost": 1.25e-06,
+    "cache_creation_input_token_cost_above_1hr": 2e-06
+  }
+}
