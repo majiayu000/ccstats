@@ -235,6 +235,13 @@ impl PricingDb {
         self.resolve_pricing(model).map(|(_, source)| source)
     }
 
+    pub(crate) fn uses_long_context_price(&self, model: &str, prompt_tokens: i64) -> bool {
+        self.get_pricing(model).is_some_and(|pricing| {
+            (prompt_tokens > 100_000 && pricing.above_100k.is_some())
+                || (prompt_tokens > 272_000 && pricing.above_272k.is_some())
+        })
+    }
+
     pub(crate) fn source(&self) -> PricingSource {
         self.source
     }
@@ -393,6 +400,7 @@ mod tests {
             "sonnet-4".to_string(),
             ModelPricing {
                 above_272k: None,
+                above_100k: None,
                 input: 3e-6,
                 output: 15e-6,
                 reasoning_output: 15e-6,
@@ -427,6 +435,7 @@ mod tests {
             "sonnet-4".to_string(),
             ModelPricing {
                 above_272k: None,
+                above_100k: None,
                 input: 3e-6,
                 output: 15e-6,
                 reasoning_output: 15e-6,
@@ -519,6 +528,7 @@ mod tests {
             "opus-4".to_string(),
             ModelPricing {
                 above_272k: None,
+                above_100k: None,
                 input: 15e-6,
                 output: 75e-6,
                 reasoning_output: 75e-6,

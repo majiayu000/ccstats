@@ -2,6 +2,7 @@
 #[derive(Debug, Clone, Default)]
 pub(super) struct ModelPricing {
     pub(super) above_272k: Option<LongContextPricing>,
+    pub(super) above_100k: Option<LongContextPricing>,
     pub(super) input: f64,
     pub(super) output: f64,
     pub(super) reasoning_output: f64,
@@ -12,13 +13,14 @@ pub(super) struct ModelPricing {
     pub(super) cache_create_1h: f64,
 }
 
-/// Standard API rates for a request whose input exceeds 272K tokens.
+/// API rates for a request whose input exceeds the associated token threshold.
 #[derive(Debug, Clone)]
 pub(super) struct LongContextPricing {
     pub(super) input: f64,
     pub(super) output: f64,
     pub(super) cache_read: f64,
     pub(super) cache_create: f64,
+    pub(super) cache_create_1h: f64,
 }
 
 /// Normalize version separators: some hosters spell version dots as `p`
