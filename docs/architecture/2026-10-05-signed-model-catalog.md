@@ -1,6 +1,6 @@
 # Signed model catalog (spec)
 
-Status: proposed, 2026-10-05. Needs owner decisions in [Open decisions](#open-decisions) before implementation.
+Status: deferred, 2026-11-02 (proposed 2026-10-05). See [Deferral](#deferral-2026-11-02).
 
 ## Problem
 
@@ -100,3 +100,17 @@ Out of scope, on purpose:
 2. **Key generation**: the owner generates the minisign key pair locally (`minisign -G`) and provides only the public key; the private key never enters a repository or chat.
 3. **Expiry window**: proposed 30 days.
 4. **v1 sections**: proposed `pricing` + `model_aliases` first; `quota_window_aliases` in step 4.
+
+## Deferral (2026-11-02)
+
+Decision: do not implement now.
+
+Why: the 2026-10-17 model audit ([latest-model-support-2026-10-17](../research/latest-model-support-2026-10-17.md), #212) found LiteLLM already carried GPT-6.1 Sol, Sonnet 5.5 and Haiku 5.5. The real defect was ccstats ignoring LiteLLM's `*_above_100k_tokens` fields, which is a code change a data catalog cannot ship. The catalog would only cover offline/LiteLLM-lag fallback rates and QuotaBar quota key renames, at the cost of a second repository, key custody and a re-sign every expiry window.
+
+Restart when either holds:
+
+- Within any 3-month window, at least 3 ccstats or QuotaBar releases exist only to update fallback prices, model aliases or quota window keys that LiteLLM did not already provide.
+- A user-visible incident where LiteLLM lacked a model for more than 14 days after its public pricing page went live.
+
+On restart, resolve the open decisions above first.
+
