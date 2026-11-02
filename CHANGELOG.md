@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-02
+
+### Fixed
+- Price Claude Sonnet 5.5, Claude Haiku 5.5 and GPT-6.1 Sol with their own rates. Haiku 5.5 short requests were overestimated about 8x, and its >100K-token request tier is now kept through aggregation and external LiteLLM prices.
+- `verify` reports `tiered_pricing` for requests above a model's 100K or 272K price tier, and explicit external 1-hour cache-write prices (including zero) are used as given.
+
+### Security
+- Update `rustls-webpki` (RUSTSEC-2026-0382), `webpki-roots` (RUSTSEC-2026-0381) and `zstd` 0.14 (RUSTSEC-2026-0391).
+
 ## [0.11.0] - 2026-10-08
 
 ### Added
