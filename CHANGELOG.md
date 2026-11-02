@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Raise the minimum supported Rust version to 1.89 (CLI and desktop) for `rusqlite` 0.41.
+- Update `comfy-table` to 8, `dirs` to 7 and `rusqlite` to 0.41. Table rendering is unchanged.
+
 ## [0.11.1] - 2026-11-02
 
 ### Fixed

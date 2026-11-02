@@ -1,6 +1,6 @@
 use comfy_table::{
-    Attribute, Cell, CellAlignment, Color, ContentArrangement, Table, TableComponent,
-    modifiers::UTF8_SOLID_INNER_BORDERS, presets::UTF8_FULL,
+    Attribute, Cell, CellAlignment, Color, ContentArrangement, LineStyle, Table, TableStyle,
+    presets::UTF8_FULL,
 };
 
 use crate::error::AppError;
@@ -175,22 +175,18 @@ pub(super) fn header_cell(text: &str, use_color: bool) -> Cell {
     cell
 }
 
-/// Replace the double-line header separator (╞═╪═╡) with single-line (├─┼─┤)
-fn normalize_header_separator(table: &mut Table) {
-    table.set_style(TableComponent::HeaderLines, '─');
-    table.set_style(TableComponent::LeftHeaderIntersection, '├');
-    table.set_style(TableComponent::MiddleHeaderIntersections, '┼');
-    table.set_style(TableComponent::RightHeaderIntersection, '┤');
-}
+/// `UTF8_FULL` with solid inner borders and a single-line header separator (├─┼─┤)
+/// instead of the double-line one (╞═╪═╡).
+const TABLE_STYLE: TableStyle = UTF8_FULL
+    .with_solid_inner_borders()
+    .header_separator(LineStyle::new('├', '─', '┼', '┤'));
 
-/// Create a table with the standard preset, inner borders, and normalized header separator.
+/// Create a table with the standard style and dynamic content arrangement.
 pub(super) fn create_styled_table() -> Table {
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_SOLID_INNER_BORDERS)
+        .load_style(TABLE_STYLE)
         .set_content_arrangement(ContentArrangement::Dynamic);
-    normalize_header_separator(&mut table);
     table
 }
 
