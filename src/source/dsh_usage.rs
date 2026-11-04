@@ -70,6 +70,7 @@ pub(super) fn usage_entry(
     Ok(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: event_time,
         date_str: timezone

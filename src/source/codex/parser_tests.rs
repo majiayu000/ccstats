@@ -244,3 +244,119 @@ fn ide_is_in_interactive_scope_and_subagent_object_wins() {
         assert_eq!(output.entries.len(), count);
     }
 }
+
+fn rollout(rows: &[String]) -> ParseOutput {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rollout.jsonl");
+    std::fs::write(&path, rows.join("\n") + "\n").unwrap();
+    parse_codex_file_with_scope(
+        &path,
+        Timezone::Named(chrono_tz::UTC),
+        false,
+        CodexScope::All,
+    )
+}
+
+/// A rollout line in Codex's field order: `timestamp`, `type`, `payload`.
+fn line(at: &str, kind: &str, payload: &serde_json::Value) -> String {
+    format!(r#"{{"timestamp":"2026-11-01T00:{at}Z","type":"{kind}","payload":{payload}}}"#)
+}
+
+fn item(at: &str, kind: &str, mut payload: serde_json::Value) -> String {
+    payload["type"] = kind.into();
+    line(at, "response_item", &payload)
+}
+
+fn record(at: &str, kind: &str) -> String {
+    line(at, kind, &serde_json::json!({}))
+}
+
+/// Usage of one response; `total` is the cumulative output so far.
+fn token_count(at: &str, output: i64, total: i64) -> String {
+    let payload = serde_json::json!({"type": "token_count", "info": {
+        "total_token_usage": {"input_tokens": total * 10, "output_tokens": total},
+        "last_token_usage": {"input_tokens": output * 10, "output_tokens": output}
+    }});
+    line(at, "event_msg", &payload)
+}
+
+#[test]
+fn responses_run_from_their_trigger_to_their_last_generated_item() {
+    let out = rollout(&[
+        serde_json::json!({"type": "session_meta", "payload": {"id": "s", "cwd": "/w"}})
+            .to_string(),
+        serde_json::json!({"type": "turn_context", "payload": {"model": "gpt-6.1-sol"}})
+            .to_string(),
+        line(
+            "00:00.000",
+            "event_msg",
+            &serde_json::json!({"type": "task_started"}),
+        ),
+        item(
+            "00:01.000",
+            "message",
+            serde_json::json!({"role": "developer"}),
+        ),
+        item("00:02.000", "message", serde_json::json!({"role": "user"})),
+        // 100 tokens from the prompt (2s) to the usage record (6s); the tool
+        // output written before this response's token_count belongs to the next.
+        item(
+            "00:04.000",
+            "message",
+            serde_json::json!({"role": "assistant"}),
+        ),
+        item("00:05.000", "custom_tool_call", serde_json::json!({})),
+        record("00:06.000", "token_usage_record"),
+        item(
+            "00:30.000",
+            "custom_tool_call_output",
+            serde_json::json!({}),
+        ),
+        token_count("00:30.001", 100, 100),
+        // A repeated token_count adds no usage and does not consume timing.
+        token_count("00:30.002", 100, 100),
+        // 60 tokens from the tool output (30s) to the last item (33s).
+        item("00:32.000", "reasoning", serde_json::json!({})),
+        item("00:33.000", "function_call", serde_json::json!({})),
+        token_count("00:33.001", 60, 160),
+        // Generated items after a response without a new trigger have no start.
+        item(
+            "00:40.000",
+            "message",
+            serde_json::json!({"role": "assistant"}),
+        ),
+        token_count("00:40.001", 30, 190),
+        // Usage without generated items (e.g. compaction) has no end.
+        token_count("00:50.000", 20, 210),
+        // An interrupted response that never reported usage is dropped.
+        item("01:00.000", "message", serde_json::json!({"role": "user"})),
+        item(
+            "01:01.000",
+            "message",
+            serde_json::json!({"role": "assistant"}),
+        ),
+        item("01:10.000", "agent_message", serde_json::json!({})),
+        item(
+            "01:12.000",
+            "message",
+            serde_json::json!({"role": "assistant"}),
+        ),
+        token_count("01:12.001", 40, 250),
+    ]);
+    assert_eq!(out.errors, 0);
+    let timings = out
+        .entries
+        .iter()
+        .map(|entry| entry.response.map(|r| (r.output_tokens, r.duration_ms)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        timings,
+        [
+            Some((100, Some(4_000))),
+            Some((60, Some(3_000))),
+            Some((30, None)),
+            Some((20, None)),
+            Some((40, Some(2_000))),
+        ]
+    );
+}

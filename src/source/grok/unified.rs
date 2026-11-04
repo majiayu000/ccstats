@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{CostKind, RawEntry};
+use crate::core::{CostKind, RawEntry, ResponseTiming};
 use crate::source::ParseOutput;
 use crate::utils::Timezone;
 
@@ -50,6 +50,8 @@ struct InferenceContext {
     cached_prompt_tokens: Option<i64>,
     completion_tokens: Option<i64>,
     reasoning_tokens: Option<i64>,
+    /// Request start to last token of this model call.
+    model_elapsed_ms: Option<i64>,
     model: Option<String>,
 }
 
@@ -79,6 +81,9 @@ pub(super) struct InferenceRecord {
     pub(super) cached_prompt_tokens: i64,
     pub(super) completion_tokens: i64,
     pub(super) reasoning_tokens: i64,
+    /// Absent in ledger rows written before it was recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) model_elapsed_ms: Option<i64>,
 }
 
 #[derive(Clone, Copy)]
@@ -415,6 +420,7 @@ fn normalize_inference(
         cached_prompt_tokens,
         completion_tokens,
         reasoning_tokens,
+        model_elapsed_ms: ctx.model_elapsed_ms,
     })
 }
 
@@ -538,6 +544,12 @@ pub(super) fn records_to_parse_output(
             Some(RawEntry {
                 agent_version: None,
                 claude_diagnostics: None,
+                // `completion_tokens` includes reasoning, matching Grok's own
+                // `tokens_per_sec`; elapsed time here also includes time to first token.
+                response: Some(ResponseTiming {
+                    output_tokens: completion_tokens,
+                    duration_ms: record.model_elapsed_ms,
+                }),
                 timestamp: utc_dt.to_rfc3339(),
                 timestamp_ms: utc_dt.timestamp_millis(),
                 date_str,

@@ -53,6 +53,7 @@ impl Source for ClineSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: false,
         }
     }
 
@@ -365,6 +366,7 @@ fn parse_cline_cli_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOu
         output.entries.push(RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: utc.to_rfc3339(),
             timestamp_ms,
             date_str: timezone

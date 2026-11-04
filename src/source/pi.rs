@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
+use crate::core::{CostKind, Endpoint, RawEntry, ResponseTiming, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
 use crate::utils::Timezone;
 
@@ -49,6 +49,7 @@ fn pi_capabilities() -> Capabilities {
         needs_dedup: true,
         has_tool_calls: false,
         has_endpoints: false,
+        has_response_timing: true,
     }
 }
 
@@ -217,6 +218,8 @@ struct PiEntry {
 #[serde(rename_all = "camelCase")]
 struct PiMessage {
     role: String,
+    /// Assistant messages: epoch ms when the provider stream started.
+    timestamp: Option<serde_json::Value>,
     model: Option<String>,
     usage: Option<PiUsage>,
     stop_reason: Option<String>,
@@ -302,6 +305,7 @@ fn usage_entry(
     Ok(Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: timestamp.timestamp_millis(),
         date_str: context
@@ -421,7 +425,8 @@ fn parse_entry(
                     let Some(usage) = message.usage else {
                         return Ok(None);
                     };
-                    usage_entry(
+                    let started = message.timestamp;
+                    let entry = usage_entry(
                         usage,
                         PiUsageContext {
                             source: profile.source,
@@ -436,7 +441,8 @@ fn parse_entry(
                                 .or_else(|| Some("assistant".to_string())),
                             timezone,
                         },
-                    )
+                    )?;
+                    Ok(entry.map(|entry| timed(entry, started.as_ref())))
                 }
                 "toolResult" => {
                     let Some((usage, details_model)) = tool_result_usage(message, path, profile)
@@ -480,6 +486,18 @@ fn parse_entry(
         }
         _ => Ok(None),
     }
+}
+
+/// The message is stamped when its stream starts and the entry when the
+/// finished message is appended.
+fn timed(mut entry: RawEntry, started: Option<&serde_json::Value>) -> RawEntry {
+    entry.response = Some(ResponseTiming {
+        output_tokens: entry.output_tokens.saturating_add(entry.reasoning_tokens),
+        duration_ms: started
+            .and_then(serde_json::Value::as_i64)
+            .map(|start| entry.timestamp_ms - start),
+    });
+    entry
 }
 
 fn parse_pi_file(path: &Path, timezone: Timezone, debug: bool, profile: PiProfile) -> ParseOutput {
@@ -734,5 +752,51 @@ mod tests {
             .find(|entry| entry.stop_reason.as_deref() == Some("branch_summary"))
             .unwrap();
         assert_eq!(summary.model, "model-a");
+    }
+
+    #[test]
+    fn assistant_responses_run_from_stream_start_to_append() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        // 2026-08-31T03:00:00Z is 1788145200000 ms.
+        fs::write(
+            &path,
+            r#"{"type":"session","version":3,"id":"session-1","timestamp":"2026-08-31T03:00:00Z","cwd":"/tmp/project"}
+{"type":"message","id":"assistant-a","parentId":null,"timestamp":"2026-08-31T03:00:04.000Z","message":{"role":"assistant","model":"m","timestamp":1788145200000,"usage":{"input":1,"output":200,"cacheRead":0,"cacheWrite":0},"stopReason":"toolUse"}}
+{"type":"message","id":"assistant-b","parentId":"assistant-a","timestamp":"2026-08-31T03:00:05.000Z","message":{"role":"assistant","model":"m","usage":{"input":1,"output":50,"cacheRead":0,"cacheWrite":0},"stopReason":"stop"}}
+{"type":"compaction","id":"summary-a","parentId":"assistant-b","timestamp":"2026-08-31T03:00:06Z","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0}}
+"#,
+        )
+        .unwrap();
+
+        let parsed = parse_pi_file(
+            &path,
+            Timezone::Named(chrono_tz::UTC),
+            false,
+            PiProfile::pi(),
+        );
+
+        assert_eq!(parsed.errors, 0);
+        let timings = parsed
+            .entries
+            .iter()
+            .map(|entry| entry.response)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            timings,
+            [
+                Some(ResponseTiming {
+                    output_tokens: 200,
+                    duration_ms: Some(4_000)
+                }),
+                // Without the stream-start stamp the response cannot be timed.
+                Some(ResponseTiming {
+                    output_tokens: 50,
+                    duration_ms: None
+                }),
+                // Compaction summaries are not model responses of the session.
+                None,
+            ]
+        );
     }
 }

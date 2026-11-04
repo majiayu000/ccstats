@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
-use crate::core::{CostKind, Endpoint, RawEntry};
+use crate::core::{CostKind, Endpoint, RawEntry, ResponseTiming};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
@@ -51,6 +51,7 @@ impl Source for QwenSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: true,
         }
     }
 
@@ -102,6 +103,8 @@ struct QwenUsageRecord {
     cached_tokens: i64,
     thoughts_tokens: i64,
     total_tokens: i64,
+    /// Stream request start to stream completion, as logged by Qwen Code.
+    api_duration_ms: Option<i64>,
 }
 
 fn entry_from_record(
@@ -152,6 +155,10 @@ fn entry_from_record(
     Ok(Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: Some(ResponseTiming {
+            output_tokens: record.output_tokens.saturating_add(record.thoughts_tokens),
+            duration_ms: record.api_duration_ms,
+        }),
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms,
         date_str: timezone
@@ -276,6 +283,13 @@ mod tests {
         assert_eq!(entry.input_tokens, 70);
         assert_eq!(entry.output_tokens, 20);
         assert_eq!(entry.reasoning_tokens, 10);
+        assert_eq!(
+            entry.response,
+            Some(ResponseTiming {
+                output_tokens: 30,
+                duration_ms: Some(50)
+            })
+        );
         assert_eq!(entry.cache_read, 30);
     }
 

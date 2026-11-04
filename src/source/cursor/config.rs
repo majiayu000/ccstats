@@ -50,6 +50,7 @@ impl Source for CursorSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: false,
         }
     }
 

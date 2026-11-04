@@ -433,6 +433,7 @@ dependencies = [
  "glob",
  "json5",
  "jsonc-parser",
+ "memchr",
  "rayon",
  "rpassword",
  "rusqlite",

@@ -85,6 +85,7 @@ pub fn usage_analysis_cancellable_with_cli_config(
     let (entries, skipped, errors) =
         load_entries_cancellable(source, &context.filter, context.timezone, cancelled);
     check_cancelled()?;
+    let capabilities = source.capabilities();
     let result = project_entries(
         entries,
         skipped,
@@ -92,11 +93,21 @@ pub fn usage_analysis_cancellable_with_cli_config(
         &options,
         filter,
         &context,
-        source.capabilities().has_cache_read,
+        Projection {
+            cache_read: capabilities.has_cache_read,
+            response_timing: capabilities.has_response_timing,
+        },
         source.display_name(),
     )?;
     check_cancelled()?;
     Ok(result)
+}
+
+/// Source capabilities that shape the projected metrics.
+#[derive(Clone, Copy)]
+struct Projection {
+    cache_read: bool,
+    response_timing: bool,
 }
 
 #[expect(
@@ -110,9 +121,10 @@ fn project_entries(
     options: &SummaryOptions,
     filter: &AnalysisFilter,
     context: &AnalysisContext,
-    cache_read: bool,
+    projection: Projection,
     display_name: &str,
 ) -> Result<UsageAnalysis, SdkError> {
+    let cache_read = projection.cache_read;
     let available_models = entries
         .iter()
         .map(|entry| entry.model.clone())
@@ -163,7 +175,7 @@ fn project_entries(
         dedup_skipped_entries: skipped,
         parse_error_entries: errors,
     };
-    let projects = project_sessions(entries, options.source, context, cache_read);
+    let projects = project_sessions(entries, options.source, context, projection);
     let points = daily_points(days, context, cache_read);
     let (since, until) = options.range.resolve(context.as_of_date)?;
     Ok(UsageAnalysis {
@@ -215,8 +227,9 @@ fn project_sessions(
     mut entries: Vec<RawEntry>,
     source: UsageSource,
     context: &AnalysisContext,
-    cache_read: bool,
+    projection: Projection,
 ) -> Vec<ProjectDrilldown> {
+    let cache_read = projection.cache_read;
     let mut paths = HashMap::<String, BTreeSet<String>>::new();
     for entry in &entries {
         let identity = if source == UsageSource::Codex {
@@ -252,6 +265,7 @@ fn project_sessions(
                 first_timestamp: session.first_timestamp.clone(),
                 last_timestamp: session.last_timestamp.clone(),
                 metrics: usage_metrics(&session.stats, &session.models, context, cache_read),
+                output_speed: super::output_speed(&session.speed, projection.response_timing),
             });
     }
     let mut projects = aggregate_projects(sessions)
@@ -335,6 +349,9 @@ fn daily_points(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::{
+        MeasuredOutputSpeed, ModelOutputSpeed, OutputSpeed, OutputSpeedUnavailable,
+    };
 
     fn entry(timestamp: &str, model: &str, project: &str, tokens: i64) -> RawEntry {
         serde_json::from_value(serde_json::json!({
@@ -386,7 +403,10 @@ mod tests {
                 project: Some("/work/app".into()),
             },
             &context,
-            true,
+            Projection {
+                cache_read: true,
+                response_timing: true,
+            },
             "Codex",
         )
         .unwrap();
@@ -445,7 +465,10 @@ mod tests {
                 project: None,
             },
             &context,
-            true,
+            Projection {
+                cache_read: true,
+                response_timing: true,
+            },
             "Codex",
         )
         .unwrap();
@@ -476,7 +499,10 @@ mod tests {
             &options,
             &AnalysisFilter::default(),
             &context,
-            true,
+            Projection {
+                cache_read: true,
+                response_timing: false,
+            },
             "Test",
         )
         .unwrap();
@@ -488,5 +514,91 @@ mod tests {
             HistoryCostStatus::Unknown
         );
         assert_eq!(result.history.points[0].cost_usd, None);
+    }
+
+    #[test]
+    fn session_output_speed_is_the_median_of_timed_responses_and_never_zero() {
+        let options = SummaryOptions {
+            source: UsageSource::Codex,
+            offline: true,
+            ..SummaryOptions::default()
+        };
+        let context = analysis_context(&options).unwrap();
+        let timed = |model: &str, output_tokens: i64, duration_ms: Option<i64>| {
+            let mut entry = entry("2026-09-02T02:00:00Z", model, "/work/app", 1);
+            entry.response = Some(crate::core::ResponseTiming {
+                output_tokens,
+                duration_ms,
+            });
+            entry
+        };
+        let entries = vec![
+            timed("gpt-5", 100, Some(2_000)),
+            timed("gpt-5", 300, Some(2_000)),
+            timed("gpt-5-mini", 400, Some(1_000)),
+            timed("gpt-5", 100, None),
+            timed("gpt-5", 0, Some(1_000)),
+            timed("gpt-5", 10, Some(0)),
+            // Not a model response (for example a turn-level usage row).
+            entry("2026-09-02T02:00:00Z", "gpt-5", "/work/app", 1),
+        ];
+        let speed = |entries: Vec<RawEntry>, response_timing: bool, model: Option<&str>| {
+            let result = project_entries(
+                entries,
+                0,
+                0,
+                &options,
+                &AnalysisFilter {
+                    model: model.map(str::to_owned),
+                    project: None,
+                },
+                &context,
+                Projection {
+                    cache_read: true,
+                    response_timing,
+                },
+                "Codex",
+            )
+            .unwrap();
+            result.projects.projects[0].sessions[0].output_speed.clone()
+        };
+        assert_eq!(
+            speed(entries.clone(), true, None),
+            OutputSpeed::Measured(MeasuredOutputSpeed {
+                median_tokens_per_second: 150.0,
+                measured_responses: 3,
+                excluded_responses: 3,
+                models: vec![
+                    ModelOutputSpeed {
+                        model: "gpt-5".into(),
+                        median_tokens_per_second: 100.0,
+                        measured_responses: 2,
+                    },
+                    ModelOutputSpeed {
+                        model: "gpt-5-mini".into(),
+                        median_tokens_per_second: 400.0,
+                        measured_responses: 1,
+                    },
+                ],
+            })
+        );
+        // A model filter measures only that model's responses, like the totals.
+        let OutputSpeed::Measured(filtered) = speed(entries.clone(), true, Some("gpt-5-mini"))
+        else {
+            panic!("filtered session should be measured");
+        };
+        assert_eq!(filtered.median_tokens_per_second, 400.0);
+        assert_eq!(
+            speed(entries[3..].to_vec(), true, None),
+            OutputSpeed::Unavailable {
+                reason: OutputSpeedUnavailable::NoTiming
+            }
+        );
+        assert_eq!(
+            speed(entries, false, None),
+            OutputSpeed::Unavailable {
+                reason: OutputSpeedUnavailable::UnsupportedSource
+            }
+        );
     }
 }

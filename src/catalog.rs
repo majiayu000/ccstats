@@ -7,7 +7,7 @@ pub use analysis::{
 };
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use crate::config::Config;
 use crate::consts::DATE_FORMAT;
-use crate::core::{DateFilter, SessionStats, Stats, aggregate_projects};
+use crate::core::{DateFilter, SessionStats, SpeedSamples, Stats, aggregate_projects};
 use crate::pricing::{
     CurrencyConverter, PricingDb, calculate_cost, calculate_estimated_proxy_cost, model_cost_kind,
     pricing_source_for_model_stats, pricing_source_for_models,
@@ -162,6 +162,94 @@ pub struct SessionDrilldown {
     pub first_timestamp: String,
     pub last_timestamp: String,
     pub metrics: UsageMetrics,
+    /// Output tokens per second of this session's responses in the range.
+    pub output_speed: OutputSpeed,
+}
+
+/// Output speed of one session, or why it cannot be measured.
+///
+/// A response runs from its trigger (prompt or tool result) to its last
+/// generated content, so the rate includes time to first token. Responses
+/// without trustworthy timing are excluded, never estimated.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum OutputSpeed {
+    Measured(MeasuredOutputSpeed),
+    Unavailable { reason: OutputSpeedUnavailable },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeasuredOutputSpeed {
+    /// Median output tokens per second across measured responses.
+    pub median_tokens_per_second: f64,
+    pub measured_responses: usize,
+    /// Responses without trustworthy timing or without generated tokens.
+    pub excluded_responses: usize,
+    /// Per model, so a model switch is not mistaken for a slowdown.
+    pub models: Vec<ModelOutputSpeed>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelOutputSpeed {
+    pub model: String,
+    pub median_tokens_per_second: f64,
+    pub measured_responses: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputSpeedUnavailable {
+    /// The source's logs do not bound each response with start and end times.
+    UnsupportedSource,
+    /// No response in this session's range had trustworthy timing.
+    NoTiming,
+}
+
+fn output_speed(samples: &SpeedSamples, supported: bool) -> OutputSpeed {
+    if !supported {
+        return OutputSpeed::Unavailable {
+            reason: OutputSpeedUnavailable::UnsupportedSource,
+        };
+    }
+    let mut all = samples
+        .rates
+        .iter()
+        .map(|(_, rate)| *rate)
+        .collect::<Vec<_>>();
+    let Some(median_tokens_per_second) = median(&mut all) else {
+        return OutputSpeed::Unavailable {
+            reason: OutputSpeedUnavailable::NoTiming,
+        };
+    };
+    let mut models = BTreeMap::<&str, Vec<f64>>::new();
+    for (model, rate) in &samples.rates {
+        models.entry(model).or_default().push(*rate);
+    }
+    OutputSpeed::Measured(MeasuredOutputSpeed {
+        median_tokens_per_second,
+        measured_responses: all.len(),
+        excluded_responses: samples.excluded,
+        models: models
+            .into_iter()
+            .filter_map(|(model, mut rates)| {
+                Some(ModelOutputSpeed {
+                    model: model.to_owned(),
+                    measured_responses: rates.len(),
+                    median_tokens_per_second: median(&mut rates)?,
+                })
+            })
+            .collect(),
+    })
+}
+
+fn median(values: &mut [f64]) -> Option<f64> {
+    values.sort_by(f64::total_cmp);
+    let mid = values.len() / 2;
+    match values.len() {
+        0 => None,
+        len if len % 2 == 1 => Some(values[mid]),
+        _ => Some(f64::midpoint(values[mid - 1], values[mid])),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -433,6 +521,7 @@ pub fn summarize_project_drilldown(
             .push(session);
     }
     let supports_cache_read = source.capabilities().has_cache_read;
+    let supports_speed = source.capabilities().has_response_timing;
     let projects = projects
         .into_iter()
         .map(|project| {
@@ -448,6 +537,7 @@ pub fn summarize_project_drilldown(
             let sessions = sessions
                 .into_iter()
                 .map(|session| SessionDrilldown {
+                    output_speed: output_speed(&session.speed, supports_speed),
                     source_paths: native_session_paths(options.source, &session.session_key),
                     session_id: session.session_id,
                     project_path: session.project_path,

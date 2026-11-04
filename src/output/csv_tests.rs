@@ -149,6 +149,7 @@ fn session_csv_structure() {
             ..Default::default()
         },
         models: HashMap::new(),
+        speed: crate::core::SpeedSamples::default(),
     }];
 
     let db = PricingDb::default();
@@ -180,6 +181,7 @@ fn session_csv_includes_reasoning_and_cache_tokens() {
             ..Default::default()
         },
         models: HashMap::new(),
+        speed: crate::core::SpeedSamples::default(),
     }];
 
     let db = PricingDb::default();

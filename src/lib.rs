@@ -62,9 +62,10 @@ pub use activity::{
 };
 pub use catalog::{
     AnalysisFilter, AnalysisSummary, AnalyticsQuality, DailyUsagePoint, DrilldownError,
-    HistoryCostStatus, HourlyUsagePoint, ProjectDrilldown, ProjectDrilldownSummary,
-    SessionDrilldown, SourceDescriptor, SourceDiagnosticDescriptor, SourceDiagnosticStatus,
-    UsageAnalysis, UsageHistory, UsageMetrics, diagnose_usage_sources, list_usage_sources,
+    HistoryCostStatus, HourlyUsagePoint, MeasuredOutputSpeed, ModelOutputSpeed, OutputSpeed,
+    OutputSpeedUnavailable, ProjectDrilldown, ProjectDrilldownSummary, SessionDrilldown,
+    SourceDescriptor, SourceDiagnosticDescriptor, SourceDiagnosticStatus, UsageAnalysis,
+    UsageHistory, UsageMetrics, diagnose_usage_sources, list_usage_sources,
     summarize_project_drilldown, summarize_project_drilldown_with_cli_config,
     usage_analysis_cancellable_with_cli_config, usage_analysis_with_cli_config, usage_history,
     usage_history_with_cli_config,

@@ -428,6 +428,7 @@ mod tests {
         crate::core::RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: String::new(),
             timestamp_ms: 0,
             date_str: String::new(),

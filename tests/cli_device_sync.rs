@@ -332,7 +332,7 @@ fn partial_discovery_keeps_the_complete_snapshot_and_cache_until_repaired() {
             .sum::<i64>()
     };
     assert_eq!(snapshot_input(&complete), 120);
-    let cache_file = cache.join("ccstats/usage-facts-v2.sqlite3");
+    let cache_file = cache.join("ccstats/usage-facts-v3.sqlite3");
     let complete_cache = fs::read(&cache_file).unwrap();
     fs::rename(codex.join("sessions"), codex.join("saved-sessions")).unwrap();
     fs::write(codex.join("sessions"), "not a directory").unwrap();
@@ -426,7 +426,7 @@ fn gemini_discovery_failure_preserves_snapshot_and_cache() {
             .sum::<i64>()
     };
     assert_eq!(total(&complete), 120);
-    let cache_file = cache.join("ccstats/usage-facts-v2.sqlite3");
+    let cache_file = cache.join("ccstats/usage-facts-v3.sqlite3");
     let complete_cache = fs::read(&cache_file).unwrap();
     let hidden = archive.parent().unwrap();
     fs::set_permissions(hidden, fs::Permissions::from_mode(0o000)).unwrap();

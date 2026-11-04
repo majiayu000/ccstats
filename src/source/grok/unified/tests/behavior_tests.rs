@@ -155,3 +155,37 @@ fn malformed_live_tail_fails_closed_instead_of_returning_stale_ledger() {
     assert_eq!(parsed.errors, 1);
     assert!(parsed.entries.is_empty());
 }
+
+#[test]
+fn ledger_keeps_model_elapsed_time_for_output_speed() {
+    let root = tempdir().expect("temp dir");
+    let sessions_dir = root.path().join("sessions");
+    let source_path = root.path().join("unified.jsonl");
+    let ledger_path = root.path().join("grok-inference.jsonl");
+    write_session_summary(&sessions_dir, "session-1", "grok-4.7");
+    let timed = r#"{"ts":"2026-11-04T17:00:00.000Z","sid":"session-1","msg":"shell.turn.inference_done","ctx":{"loop_index":1,"model_elapsed_ms":4370,"ttft_ms":2421,"prompt_tokens":27015,"cached_prompt_tokens":1664,"completion_tokens":176,"reasoning_tokens":140,"tokens_per_sec":90.3}}"#;
+    let untimed = inference_line("2026-11-04T17:01:00.000Z", "session-1", 2, 100, 0, 10, 0);
+    fs::write(&source_path, format!("{timed}\n{untimed}\n")).expect("write source");
+
+    sync_ledger_at(&source_path, &ledger_path, &sessions_dir).expect("sync ledger");
+    let parsed = parse_ledger_file(&ledger_path, tz(), true);
+    assert_eq!(parsed.errors, 0);
+    let timings = parsed
+        .entries
+        .iter()
+        .map(|entry| entry.response)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        timings,
+        [
+            Some(ResponseTiming {
+                output_tokens: 176,
+                duration_ms: Some(4370)
+            }),
+            Some(ResponseTiming {
+                output_tokens: 10,
+                duration_ms: None
+            }),
+        ]
+    );
+}

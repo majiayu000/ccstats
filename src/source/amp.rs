@@ -48,6 +48,7 @@ impl Source for AmpSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: false,
         }
     }
 
@@ -327,6 +328,7 @@ fn into_raw_entry(
     Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: None,
         timestamp: utc.to_rfc3339(),
         timestamp_ms: record.timestamp_ms,
         date_str: timezone

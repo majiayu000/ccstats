@@ -315,6 +315,7 @@ impl<'a> DataLoader<'a> {
             last_timestamp,
             stats,
             models,
+            speed,
             ..
         } = incoming;
 
@@ -331,6 +332,7 @@ impl<'a> DataLoader<'a> {
         for (model, stats) in models {
             into.models.entry(model).or_default().add(&stats);
         }
+        into.speed.merge(speed);
         if into.project_path.is_empty() && !project_path.is_empty() {
             into.project_path = project_path;
         }
@@ -570,6 +572,7 @@ mod tests {
         RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: format!("{date_str}T12:00:00Z"),
             timestamp_ms: 0,
             date_str: date_str.to_string(),
@@ -703,6 +706,7 @@ mod tests {
                 );
                 m
             },
+            speed: crate::core::SpeedSamples::default(),
         }
     }
 

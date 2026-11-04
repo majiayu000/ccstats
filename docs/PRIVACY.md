@@ -51,7 +51,7 @@ ccstats writes only operational data needed to make repeated reports reliable:
 
 - pricing cache under the platform cache directory and exchange-rate cache
   under `~/.cache/ccstats/`;
-- a usage-facts cache at `<platform cache>/ccstats/usage-facts-v2.sqlite3`
+- a usage-facts cache at `<platform cache>/ccstats/usage-facts-v3.sqlite3`
   (with SQLite WAL/SHM sidecars). It stores file identities, timestamps, model
   names, session IDs, working directories, and token/cost facts. It does not
   store prompt text, completions, or source code. Claude facts additionally retain

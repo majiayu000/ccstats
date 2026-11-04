@@ -3,6 +3,9 @@ use agent_sessions::{
     AccountingPolicy, Agent, CodexUsageMode, EventKinds, ReadError, ReadOptions, Roots,
     SessionReader, TokenCounts,
 };
+use std::cell::RefCell;
+use std::io::{self, BufRead, Read};
+use std::rc::Rc;
 use std::{fs::File, io::BufReader, path::Path};
 
 pub(super) fn reader(
@@ -12,18 +15,115 @@ pub(super) fn reader(
     mode: CodexUsageMode,
 ) -> Result<SessionReader, ReadError> {
     let file = File::open(path).map_err(ReadError::Io)?;
+    agent_sessions::read_from(agent, BufReader::new(file), &options(include, mode))
+}
+
+fn options(include: EventKinds, mode: CodexUsageMode) -> ReadOptions {
+    ReadOptions {
+        include,
+        codex_usage: mode,
+        accounting: AccountingPolicy::UsageStatistics,
+        max_file_bytes: None,
+        max_line_bytes: None,
+        ..Default::default()
+    }
+}
+
+/// Sees each native line before the shared reader parses it, for fields the
+/// shared reader does not project. Events of a line are emitted before the
+/// next line is observed.
+pub(super) trait LineObserver {
+    fn observe(&mut self, line: &[u8]);
+}
+
+/// Same reader as [`reader`], with `observer` fed every line first.
+pub(super) fn observed_reader<O: LineObserver>(
+    path: &Path,
+    agent: Agent,
+    include: EventKinds,
+    mode: CodexUsageMode,
+    observer: Rc<RefCell<O>>,
+) -> Result<SessionReader<ObservedLines<O>>, ReadError> {
+    let file = File::open(path).map_err(ReadError::Io)?;
     agent_sessions::read_from(
         agent,
-        BufReader::new(file),
-        &ReadOptions {
-            include,
-            codex_usage: mode,
-            accounting: AccountingPolicy::UsageStatistics,
-            max_file_bytes: None,
-            max_line_bytes: None,
-            ..Default::default()
+        ObservedLines {
+            file,
+            buffer: Vec::new(),
+            position: 0,
+            line_end: 0,
+            filled: 0,
+            eof: false,
+            observer,
         },
+        &options(include, mode),
     )
+}
+
+/// Line-at-a-time reader that buffers file bytes once (no second copy per
+/// line) and shows each complete line to the observer before handing it out.
+pub(super) struct ObservedLines<O> {
+    file: File,
+    buffer: Vec<u8>,
+    position: usize,
+    line_end: usize,
+    filled: usize,
+    eof: bool,
+    observer: Rc<RefCell<O>>,
+}
+
+const READ_CHUNK: usize = 64 * 1024;
+
+impl<O> ObservedLines<O> {
+    /// End of the line starting at `position`, reading more of the file as needed.
+    fn next_line_end(&mut self) -> io::Result<usize> {
+        let mut searched = self.position;
+        loop {
+            if let Some(offset) = memchr::memchr(b'\n', &self.buffer[searched..self.filled]) {
+                return Ok(searched + offset + 1);
+            }
+            if self.eof {
+                return Ok(self.filled);
+            }
+            searched = self.filled;
+            if self.position > 0 {
+                self.buffer.copy_within(self.position..self.filled, 0);
+                searched -= self.position;
+                self.filled -= self.position;
+                self.position = 0;
+            }
+            if self.buffer.len() - self.filled < READ_CHUNK {
+                self.buffer.resize(self.filled + READ_CHUNK, 0);
+            }
+            let n = self.file.read(&mut self.buffer[self.filled..])?;
+            self.filled += n;
+            self.eof = n == 0;
+        }
+    }
+}
+
+impl<O: LineObserver> Read for ObservedLines<O> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        let n = self.fill_buf()?.read(bytes)?;
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl<O: LineObserver> BufRead for ObservedLines<O> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        if self.position == self.line_end {
+            self.line_end = self.next_line_end()?;
+            self.observer
+                .borrow_mut()
+                .observe(&self.buffer[self.position..self.line_end]);
+        }
+        Ok(&self.buffer[self.position..self.line_end])
+    }
+
+    fn consume(&mut self, n: usize) {
+        self.position = (self.position + n).min(self.line_end);
+    }
 }
 
 pub(super) fn roots(agent: Agent) -> Roots {

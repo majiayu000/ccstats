@@ -511,6 +511,7 @@ mod tests {
                 ..Default::default()
             },
             models: HashMap::new(),
+            speed: crate::core::SpeedSamples::default(),
         }
     }
 

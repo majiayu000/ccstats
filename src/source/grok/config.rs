@@ -49,6 +49,7 @@ impl Source for GrokSource {
             needs_dedup: true,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: true,
         }
     }
 
@@ -119,6 +120,7 @@ mod tests {
         RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: "2026-08-21T05:42:00Z".to_string(),
             timestamp_ms: 0,
             date_str: "2026-08-21".to_string(),
