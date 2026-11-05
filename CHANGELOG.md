@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-05
+
 ### Added
 - Session drilldowns report `output_speed`: median output tokens per second per session and per model, with measured and excluded response counts, for Claude, Codex, Grok, Qwen, Copilot, Pi, Senpi and Kimchi. Other sources report `unsupported_source`, and sessions without trustworthy timing report `no_timing` instead of 0.
 
