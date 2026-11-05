@@ -297,6 +297,7 @@ fn parse_turn_line(
         entries.push(RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: utc_dt.to_rfc3339(),
             timestamp_ms: utc_dt.timestamp_millis(),
             date_str: date_str.clone(),

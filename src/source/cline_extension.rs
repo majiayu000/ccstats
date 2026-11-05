@@ -43,6 +43,7 @@ fn extension_capabilities() -> Capabilities {
         needs_dedup: false,
         has_tool_calls: false,
         has_endpoints: false,
+        has_response_timing: false,
     }
 }
 
@@ -306,11 +307,9 @@ pub(super) fn parse_extension_file(
                 continue;
             }
         };
-        let Some(timestamp_ms) = parse_timestamp(message.ts.as_ref()) else {
-            output.errors += 1;
-            continue;
-        };
-        let Some(utc) = DateTime::<Utc>::from_timestamp_millis(timestamp_ms) else {
+        let Some((timestamp_ms, utc)) = parse_timestamp(message.ts.as_ref())
+            .and_then(|ms| Some((ms, DateTime::<Utc>::from_timestamp_millis(ms)?)))
+        else {
             output.errors += 1;
             continue;
         };
@@ -326,6 +325,7 @@ pub(super) fn parse_extension_file(
         output.entries.push(RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: utc.to_rfc3339(),
             timestamp_ms,
             date_str: timezone

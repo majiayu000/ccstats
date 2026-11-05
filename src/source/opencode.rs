@@ -54,6 +54,7 @@ fn opencode_capabilities() -> Capabilities {
         needs_dedup: true,
         has_tool_calls: false,
         has_endpoints: false,
+        has_response_timing: false,
     }
 }
 
@@ -612,6 +613,7 @@ fn entry_from_database_message(
     Ok(Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms,
         date_str: timezone

@@ -388,6 +388,7 @@ pub(crate) struct SessionStats {
     pub(crate) last_timestamp: String,
     pub(crate) stats: Stats,
     pub(crate) models: HashMap<String, Stats>,
+    pub(crate) speed: SpeedSamples,
 }
 
 /// Project statistics
@@ -433,6 +434,42 @@ pub(crate) struct ClaudeDiagnostics {
     pub(crate) model_id: String,
 }
 
+/// One model response's generated tokens and wall-clock generation time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ResponseTiming {
+    /// Tokens the model generated, visible output plus reasoning.
+    pub(crate) output_tokens: i64,
+    /// From the request trigger to the last generated content, including time
+    /// to first token. `None` when the log cannot bound this response honestly.
+    pub(crate) duration_ms: Option<i64>,
+}
+
+/// Per-response output rates collected for one session.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct SpeedSamples {
+    /// `(model, tokens per second)` for every measured response.
+    pub(crate) rates: Vec<(String, f64)>,
+    /// Responses without trustworthy timing or without generated tokens.
+    pub(crate) excluded: usize,
+}
+
+impl SpeedSamples {
+    pub(crate) fn add(&mut self, model: &str, timing: ResponseTiming) {
+        match timing.duration_ms.filter(|ms| *ms > 0) {
+            Some(ms) if timing.output_tokens > 0 => self.rates.push((
+                model.to_owned(),
+                timing.output_tokens as f64 * 1000.0 / ms as f64,
+            )),
+            _ => self.excluded += 1,
+        }
+    }
+
+    pub(crate) fn merge(&mut self, other: Self) {
+        self.rates.extend(other.rates);
+        self.excluded += other.excluded;
+    }
+}
+
 /// Raw entry parsed from source files
 /// All sources convert their native format to this unified structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,6 +478,10 @@ pub(crate) struct RawEntry {
     pub(crate) agent_version: Option<String>,
     #[serde(default)]
     pub(crate) claude_diagnostics: Option<ClaudeDiagnostics>,
+    /// Set on records that represent one model response, for sources whose
+    /// capabilities declare `has_response_timing`.
+    #[serde(default)]
+    pub(crate) response: Option<ResponseTiming>,
     /// UTC timestamp string
     pub(crate) timestamp: String,
     /// Timestamp in milliseconds for ordering

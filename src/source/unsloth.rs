@@ -46,6 +46,7 @@ impl Source for UnslothSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: false,
         }
     }
 
@@ -272,6 +273,7 @@ fn entry(
     RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: timestamp.timestamp_millis(),
         date_str: timezone

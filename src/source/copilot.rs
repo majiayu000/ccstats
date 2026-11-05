@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
-use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
+use crate::core::{CostKind, Endpoint, RawEntry, ResponseTiming, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
 
@@ -55,6 +55,7 @@ impl Source for CopilotSource {
             needs_dedup: true,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: true,
         }
     }
 
@@ -201,11 +202,9 @@ fn chat_entry(record: &Value, timezone: Timezone) -> Result<Option<RawEntry>, &'
         .get("startTime")
         .ok_or("missing span start time")
         .and_then(span_timestamp_ms)?;
-    if let Some(end_time) = record.get("endTime") {
-        let end_ms = span_timestamp_ms(end_time)?;
-        if end_ms < start_ms {
-            return Err("span end precedes start");
-        }
+    let end_ms = record.get("endTime").map(span_timestamp_ms).transpose()?;
+    if end_ms.is_some_and(|end_ms| end_ms < start_ms) {
+        return Err("span end precedes start");
     }
     let timestamp = DateTime::<Utc>::from_timestamp_millis(start_ms)
         .ok_or("span time is outside supported range")?;
@@ -235,6 +234,11 @@ fn chat_entry(record: &Value, timezone: Timezone) -> Result<Option<RawEntry>, &'
     Ok(Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        // A chat span covers one model call, from request to last streamed token.
+        response: Some(ResponseTiming {
+            output_tokens: output_total,
+            duration_ms: end_ms.map(|end_ms| end_ms - start_ms),
+        }),
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: start_ms,
         date_str: timezone
@@ -350,6 +354,32 @@ mod tests {
         assert_eq!(entry.input_tokens, 60);
         assert_eq!(entry.output_tokens, 15);
         assert_eq!(entry.reasoning_tokens, 5);
+        // No end time: the call cannot be timed.
+        assert_eq!(
+            entry.response,
+            Some(ResponseTiming {
+                output_tokens: 20,
+                duration_ms: None
+            })
+        );
+    }
+
+    #[test]
+    fn chat_span_times_one_model_call() {
+        let record: Value = serde_json::from_str(
+            r#"{"type":"span","startTime":[1788145445,0],"endTime":[1788145447,500000000],"attributes":{"gen_ai.operation.name":"chat","gen_ai.usage.input_tokens":100,"gen_ai.usage.output_tokens":200,"gen_ai.usage.reasoning.output_tokens":50}}"#,
+        )
+        .unwrap();
+        let entry = chat_entry(&record, Timezone::Named(chrono_tz::UTC))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            entry.response,
+            Some(ResponseTiming {
+                output_tokens: 200,
+                duration_ms: Some(2_500)
+            })
+        );
     }
 
     #[test]

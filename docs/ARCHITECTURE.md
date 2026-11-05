@@ -119,7 +119,7 @@ New sources must ship `tests/fixtures/<source>/` with a minimal log plus an upst
 
 ## `Capabilities`
 
-All eight flags that exist today:
+All nine flags that exist today:
 
 ```rust
 pub struct Capabilities {
@@ -131,6 +131,7 @@ pub struct Capabilities {
     pub needs_dedup: bool,
     pub has_tool_calls: bool,
     pub has_endpoints: bool,        // native vs proxy (Claude)
+    pub has_response_timing: bool,  // per-response start/end, see "Output speed"
 }
 ```
 
@@ -251,6 +252,7 @@ impl Source for NewcliSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: false,
         }
     }
 
@@ -401,7 +403,7 @@ Preferred file: platform cache dir / `ccstats/pricing.json` (for example `~/Libr
 
 ## Usage-facts cache
 
-Shared SQLite at `<platform cache>/ccstats/usage-facts-v1.sqlite3`. The `v1` in the filename is `CACHE_VERSION`; bump both when parser semantics or stored `RawEntry` fields change so a new algorithm cannot mix with old rows.
+Shared SQLite at `<platform cache>/ccstats/usage-facts-v3.sqlite3`. The `v3` in the filename is `CACHE_VERSION`; bump both when parser semantics or stored `RawEntry` fields change so a new algorithm cannot mix with old rows.
 
 Key = `(source, cache_partition, absolute path, fingerprint of mtime/size/inode)`. Payload is zstd JSON of token/cost facts plus `session_key`. Prompt text, message content, and source code are not stored (`docs/PRIVACY.md`). `--no-cache` skips the layer; `--debug` prints per-file hit/miss and the loader prints hit/miss counts.
 
@@ -410,10 +412,25 @@ Key = `(source, cache_partition, absolute path, fingerprint of mtime/size/inode)
 ## Performance
 
 - Parallel file parse (rayon)
-- Date-range file prune, then usage-facts cache (`usage-facts-v1.sqlite3`)
+- Date-range file prune, then usage-facts cache (`usage-facts-v3.sqlite3`)
 - Filter after parse (local date + timezone, optional timestamp bounds)
 - Lazy pricing load and 24h cache
 - Streaming JSONL reads
+
+## Output speed
+
+`SessionDrilldown::output_speed` is the median output tokens per second over the session's responses in the selected range, plus per-model medians and measured/excluded counts. A parser that can bound one model response sets `RawEntry::response` (generated tokens, visible output plus reasoning, and a duration); its source declares `has_response_timing`. The duration runs from the request trigger to the last generated content, so it includes time to first token. A response the log cannot bound honestly keeps `duration_ms: None` and is counted as excluded, never estimated. Sources without `has_response_timing` report `unsupported_source`; a supported session with no timed response reports `no_timing`. Under `--source all`, sessions of unsupported sources also report `no_timing`.
+
+| Source | Response | Start | End |
+|--------|----------|-------|-----|
+| `claude` | assistant records sharing a message id | nearest `user` record (prompt or tool result) in the `parentUuid` chain, not before the previous response in the same thread ended | last block (the deduplicated final record). Chains through `system` records (retries), without a trigger, or usage without `stop_reason` (streaming snapshot) are excluded |
+| `codex` | generated items (assistant message, reasoning, `*_call`) before a non-zero `token_count` | latest turn start, user/developer message, tool output or inter-agent message before the first item, not before the previous response ended | last generated item or `token_usage_record`, whichever is later. Usage without items or without a new trigger is excluded |
+| `grok` | `shell.turn.inference_done` | `model_elapsed_ms` | |
+| `qwen` | usage-ledger record | `apiDurationMs` (stream request to stream completion) | |
+| `copilot` | OTel `chat` span | `startTime` | `endTime` |
+| `pi`, `senpi`, `kimchi` | assistant message entry | `message.timestamp` (stream start) | entry `timestamp` (appended when the message ends) |
+
+Unsupported, because the logs do not bound one model response: `cursor` (usage API events have one timestamp), `kimi` (turn-scope usage spans tool calls), `gemini` (one message timestamp, no completion time), `cline`, `roocode`, `kilocode` (`api_req_started` marks the request start but no completion is logged), `opencode`, `mimocode`, `kilo` (assistant `time.completed` includes tool execution of the step), `gjc`, `prime`, `omp`, `openclaw` (writer timestamps not verified), `amp`, `goose`, `xum`, `fx`, `unsloth`, `reasonix`, `dsh` (one timestamp per usage row), `hermes` (per-session aggregates).
 
 ## Session windows (`blocks`)
 

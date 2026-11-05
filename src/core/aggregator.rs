@@ -6,7 +6,8 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 use crate::core::types::{
-    BlockStats, DayStats, Endpoint, EndpointStats, ProjectStats, RawEntry, SessionStats, Stats,
+    BlockStats, DayStats, Endpoint, EndpointStats, ProjectStats, RawEntry, SessionStats,
+    SpeedSamples, Stats,
 };
 use crate::utils::Timezone;
 
@@ -65,6 +66,7 @@ struct SessionAccumulator {
     last_timestamp_ms: i64,
     stats: Stats,
     models: HashMap<String, Stats>,
+    speed: SpeedSamples,
 }
 
 impl SessionAccumulator {
@@ -85,6 +87,7 @@ impl SessionAccumulator {
             last_timestamp_ms: timestamp_ms,
             stats: Stats::default(),
             models: HashMap::new(),
+            speed: SpeedSamples::default(),
         }
     }
 
@@ -93,6 +96,9 @@ impl SessionAccumulator {
         let timestamp_ms = entry.timestamp_ms;
         let model = entry.model.clone();
         let stats = entry.to_stats();
+        if let Some(timing) = entry.response {
+            self.speed.add(&model, timing);
+        }
         self.stats.add(&stats);
         self.models.entry(model).or_default().add(&stats);
         self.update_timestamps(timestamp, timestamp_ms);
@@ -122,6 +128,7 @@ impl SessionAccumulator {
             last_timestamp: self.last_timestamp,
             stats: self.stats,
             models: self.models,
+            speed: self.speed,
         }
     }
 }
@@ -322,6 +329,7 @@ mod tests {
         RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: format!("2025-01-01T{:02}:00:00Z", ts_ms / 3_600_000 % 24),
             timestamp_ms: ts_ms,
             date_str: date.to_string(),
@@ -557,6 +565,7 @@ mod tests {
             RawEntry {
                 agent_version: None,
                 claude_diagnostics: None,
+                response: None,
                 timestamp: "2025-01-01T12:00:00Z".to_string(),
                 timestamp_ms: 5000,
                 date_str: "2025-01-01".to_string(),
@@ -583,6 +592,7 @@ mod tests {
             RawEntry {
                 agent_version: None,
                 claude_diagnostics: None,
+                response: None,
                 timestamp: "2025-01-01T08:00:00Z".to_string(),
                 timestamp_ms: 1000,
                 date_str: "2025-01-01".to_string(),
@@ -609,6 +619,7 @@ mod tests {
             RawEntry {
                 agent_version: None,
                 claude_diagnostics: None,
+                response: None,
                 timestamp: "2025-01-01T20:00:00Z".to_string(),
                 timestamp_ms: 9000,
                 date_str: "2025-01-01".to_string(),
@@ -691,6 +702,7 @@ mod tests {
                     ..Default::default()
                 },
             )]),
+            speed: SpeedSamples::default(),
         }];
         let result = aggregate_projects(sessions);
         assert_eq!(result.len(), 1);

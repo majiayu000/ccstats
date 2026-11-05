@@ -8,7 +8,9 @@ use crate::{
     utils::Timezone,
 };
 use agent_sessions::{Agent, CodexUsageMode, Event, EventKinds, Origin};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 pub(crate) fn codex_root_candidate() -> Option<PathBuf> {
     session_reader::roots(Agent::Codex).codex
@@ -178,6 +180,7 @@ impl Projection {
         Ok(Some(RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp,
             timestamp_ms: at.timestamp_millis(),
             date_str: self
@@ -208,6 +211,176 @@ impl Projection {
         }))
     }
 }
+/// Record kind and timestamp, read without scanning the rest of the line.
+///
+/// Rollout lines start with `timestamp`, `type`, then `payload`, whose `type`
+/// and `role` precede its content. Tool outputs can be megabytes, so the
+/// visitors stop once these fields are known and the trailing-data error that
+/// follows is ignored.
+#[derive(Default)]
+struct NativeHead {
+    timestamp: Option<String>,
+    kind: Option<String>,
+    payload_kind: Option<String>,
+    role: Option<String>,
+}
+
+impl NativeHead {
+    fn read(line: &[u8]) -> Self {
+        let mut head = Self::default();
+        let mut reader = serde_json::Deserializer::from_slice(line);
+        let _stopped_early = serde::Deserializer::deserialize_map(&mut reader, Record(&mut head));
+        head
+    }
+}
+
+struct Record<'a>(&'a mut NativeHead);
+struct Payload<'a>(&'a mut NativeHead);
+
+impl<'de> serde::de::Visitor<'de> for Record<'_> {
+    type Value = ();
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a rollout record")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+        while let Some(key) = map.next_key::<&str>()? {
+            match key {
+                "timestamp" => self.0.timestamp = Some(map.next_value()?),
+                "type" => self.0.kind = Some(map.next_value()?),
+                "payload" => return map.next_value_seed(Payload(self.0)),
+                _ => {
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for Payload<'_> {
+    type Value = ();
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+        deserializer.deserialize_map(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for Payload<'_> {
+    type Value = ();
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a rollout payload")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+        while let Some(key) = map.next_key::<&str>()? {
+            match key {
+                "type" => self.0.payload_kind = Some(map.next_value()?),
+                "role" => self.0.role = Some(map.next_value()?),
+                _ => {
+                    map.next_value::<serde::de::IgnoredAny>()?;
+                }
+            }
+            // Only messages need a role.
+            if self
+                .0
+                .payload_kind
+                .as_deref()
+                .is_some_and(|kind| kind != "message" || self.0.role.is_some())
+            {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct Pending {
+    start_ms: Option<i64>,
+    end_ms: i64,
+}
+
+/// Response timing from native rollout order.
+///
+/// A response is the run of generated items (assistant messages, reasoning,
+/// tool calls) before its usage record. It starts at the latest trigger before
+/// its first item (turn start, user or developer message, tool output,
+/// inter-agent message), never before the previous response ended, and ends at
+/// its last generated item or `token_usage_record`, whichever is later. Usage
+/// without generated items, or a response without a trigger, has no duration.
+#[derive(Default)]
+struct ResponseClock {
+    trigger_ms: Option<i64>,
+    pending: Option<Pending>,
+    previous_end_ms: Option<i64>,
+}
+
+impl ResponseClock {
+    fn output(&mut self, at: i64) {
+        if self.trigger_ms.is_none()
+            && let Some(pending) = &mut self.pending
+        {
+            pending.end_ms = pending.end_ms.max(at);
+            return;
+        }
+        // A trigger after generated items starts another request; a response
+        // that never reported usage is dropped here.
+        if let Some(abandoned) = self.pending.take() {
+            self.previous_end_ms = Some(abandoned.end_ms);
+        }
+        let start_ms = self
+            .trigger_ms
+            .take()
+            .map(|trigger| trigger.max(self.previous_end_ms.unwrap_or(i64::MIN)));
+        self.pending = Some(Pending {
+            start_ms,
+            end_ms: at,
+        });
+    }
+
+    /// Duration of the response that the usage on the current line reports.
+    fn finish(&mut self) -> Option<i64> {
+        let pending = self.pending.take()?;
+        self.previous_end_ms = Some(pending.end_ms);
+        pending.start_ms.map(|start| pending.end_ms - start)
+    }
+}
+
+impl session_reader::LineObserver for ResponseClock {
+    fn observe(&mut self, line: &[u8]) {
+        let head = NativeHead::read(line);
+        let Some(at) = head
+            .timestamp
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|at| at.timestamp_millis())
+        else {
+            return;
+        };
+        let payload_kind = head.payload_kind.as_deref().unwrap_or_default();
+        match head.kind.as_deref() {
+            Some("token_usage_record") => {
+                if let Some(pending) = &mut self.pending {
+                    pending.end_ms = pending.end_ms.max(at);
+                }
+            }
+            Some("event_msg") if matches!(payload_kind, "task_started" | "user_message") => {
+                self.trigger_ms = Some(at);
+            }
+            Some("response_item") => match payload_kind {
+                "message" if head.role.as_deref() == Some("assistant") => self.output(at),
+                "message" | "agent_message" => self.trigger_ms = Some(at),
+                kind if kind.ends_with("_output") => self.trigger_ms = Some(at),
+                kind if kind == "reasoning" || kind.ends_with("_call") => self.output(at),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
 fn parse_mode(
     path: &Path,
     timezone: Timezone,
@@ -220,11 +393,13 @@ fn parse_mode(
         entries: Vec::new(),
         errors: 0,
     };
-    let mut reader = match session_reader::reader(
+    let clock = Rc::new(RefCell::new(ResponseClock::default()));
+    let mut reader = match session_reader::observed_reader(
         path,
         Agent::Codex,
         EventKinds::USAGE.union(EventKinds::META),
         mode,
+        Rc::clone(&clock),
     ) {
         Ok(r) => r,
         Err(e) => {
@@ -262,7 +437,13 @@ fn parse_mode(
             projection.metadata(m);
         } else if included(scope, projection.origin) {
             match projection.entry(event) {
-                Ok(Some(entry)) => out.entries.push(entry),
+                Ok(Some(mut entry)) => {
+                    entry.response = Some(crate::core::ResponseTiming {
+                        output_tokens: entry.output_tokens.saturating_add(entry.reasoning_tokens),
+                        duration_ms: clock.borrow_mut().finish(),
+                    });
+                    out.entries.push(entry);
+                }
                 Ok(None) => {}
                 Err(()) => out.errors += 1,
             }

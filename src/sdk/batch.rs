@@ -397,6 +397,7 @@ mod tests {
         RawEntry {
             agent_version: None,
             claude_diagnostics: None,
+            response: None,
             timestamp: timestamp.to_string(),
             timestamp_ms,
             date_str: "2026-08-21".to_string(),
@@ -458,6 +459,7 @@ mod tests {
                 entries: vec![RawEntry {
                     agent_version: None,
                     claude_diagnostics: None,
+                    response: None,
                     timestamp: "2026-05-09T12:00:00Z".to_string(),
                     timestamp_ms: 1_778_326_400_000,
                     date_str: "2026-05-09".to_string(),

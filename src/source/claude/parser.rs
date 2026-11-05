@@ -6,10 +6,9 @@ use crate::{
     source::ParseOutput,
     utils::Timezone,
 };
-use agent_sessions::{AccountingPolicy, Agent, Event, EventKinds, ReadOptions};
+use agent_sessions::{Agent, Event, EventKinds, ReadOptions};
 use std::cell::RefCell;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -20,34 +19,149 @@ struct NativeContext {
     turn: Option<u64>,
     turn_start_ms: Option<i64>,
     compactions: Vec<i64>,
+    speed: ResponseClock,
+    /// Trigger time of the response on the most recently observed line.
+    response_start_ms: Option<i64>,
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct NativeHeader {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    subtype: Option<String>,
+    timestamp: Option<String>,
+    uuid: Option<String>,
+    parent_uuid: Option<String>,
+    is_sidechain: Option<bool>,
+    agent_id: Option<String>,
+    message: Option<HeaderMessage>,
+}
+
+#[derive(serde::Deserialize)]
+struct HeaderMessage {
+    id: Option<String>,
+    model: Option<String>,
+}
+
+/// Minimal header for rows whose `message` is not an object.
+#[derive(serde::Deserialize)]
+struct BareHeader {
     #[serde(rename = "type")]
     kind: Option<String>,
     subtype: Option<String>,
     timestamp: Option<String>,
 }
 
-impl NativeContext {
-    fn observe(&mut self, bytes: &[u8]) {
-        let Ok(header) = serde_json::from_slice::<NativeHeader>(bytes) else {
-            return;
+#[derive(Clone, Copy, PartialEq)]
+enum NodeKind {
+    User,
+    Assistant,
+    System,
+    Other,
+}
+
+struct Node {
+    kind: NodeKind,
+    parent: Option<String>,
+    at_ms: Option<i64>,
+}
+
+/// Response start times from the `parentUuid` chain of one transcript.
+///
+/// A response starts at the nearest `user` record (prompt or tool result) in
+/// its parent chain, never before the previous response in the same thread
+/// ended, so queued prompts do not absorb earlier turns. A chain that reaches
+/// an assistant or system record first (API retry, resume) has no start.
+#[derive(Default)]
+struct ResponseClock {
+    nodes: HashMap<String, Node>,
+    starts: HashMap<String, Option<i64>>,
+    lane_end_ms: HashMap<(bool, Option<String>), i64>,
+}
+
+impl ResponseClock {
+    fn observe(&mut self, header: NativeHeader, at_ms: Option<i64>) -> Option<i64> {
+        let kind = match header.kind.as_deref() {
+            Some("user") => NodeKind::User,
+            Some("assistant") => NodeKind::Assistant,
+            Some("system") => NodeKind::System,
+            _ => NodeKind::Other,
         };
-        if header.kind.as_deref() == Some("system")
-            && header.subtype.as_deref() == Some("compact_boundary")
-        {
-            if let Some(at) = header
-                .timestamp
-                .as_deref()
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            {
-                self.compactions.push(at.timestamp_millis());
+        if let Some(uuid) = header.uuid {
+            self.nodes.entry(uuid).or_insert(Node {
+                kind,
+                parent: header.parent_uuid.clone(),
+                at_ms,
+            });
+        }
+        let message = header.message.filter(|_| kind == NodeKind::Assistant)?;
+        let id = message.id?;
+        if message.model.as_deref() == Some("<synthetic>") {
+            return None;
+        }
+        let lane = (header.is_sidechain == Some(true), header.agent_id);
+        let previous_end = self.lane_end_ms.get(&lane).copied();
+        if let Some(at) = at_ms {
+            let end = self.lane_end_ms.entry(lane).or_insert(at);
+            *end = (*end).max(at);
+        }
+        if let Some(start) = self.starts.get(&id) {
+            return *start;
+        }
+        let start = self
+            .trigger_ms(header.parent_uuid.as_deref())
+            .map(|trigger| trigger.max(previous_end.unwrap_or(i64::MIN)));
+        self.starts.insert(id, start);
+        start
+    }
+
+    fn trigger_ms<'a>(&'a self, mut parent: Option<&'a str>) -> Option<i64> {
+        // Bounded by the node count so a malformed parent cycle cannot loop.
+        for _ in 0..=self.nodes.len() {
+            let node = self.nodes.get(parent?)?;
+            match node.kind {
+                NodeKind::User => return node.at_ms,
+                NodeKind::Assistant | NodeKind::System => return None,
+                NodeKind::Other => parent = node.parent.as_deref(),
+            }
+        }
+        None
+    }
+}
+
+fn millis(timestamp: Option<&str>) -> Option<i64> {
+    timestamp
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|at| at.timestamp_millis())
+}
+
+impl session_reader::LineObserver for NativeContext {
+    fn observe(&mut self, bytes: &[u8]) {
+        self.response_start_ms = None;
+        let (kind, subtype, timestamp) = match serde_json::from_slice::<NativeHeader>(bytes) {
+            Ok(header) => {
+                let at_ms = millis(header.timestamp.as_deref());
+                let fields = (
+                    header.kind.clone(),
+                    header.subtype.clone(),
+                    header.timestamp.clone(),
+                );
+                self.response_start_ms = self.speed.observe(header, at_ms);
+                fields
+            }
+            Err(_) => match serde_json::from_slice::<BareHeader>(bytes) {
+                Ok(header) => (header.kind, header.subtype, header.timestamp),
+                Err(_) => return,
+            },
+        };
+        if kind.as_deref() == Some("system") && subtype.as_deref() == Some("compact_boundary") {
+            if let Some(at) = millis(timestamp.as_deref()) {
+                self.compactions.push(at);
             }
             return;
         }
-        if header.kind.as_deref() != Some("user") {
+        if kind.as_deref() != Some("user") {
             return;
         }
         let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
@@ -69,44 +183,9 @@ impl NativeContext {
                 });
             if has_prompt {
                 self.turn = Some(self.turn.unwrap_or(0) + 1);
-                self.turn_start_ms = header
-                    .timestamp
-                    .as_deref()
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                    .map(|at| at.timestamp_millis());
+                self.turn_start_ms = millis(timestamp.as_deref());
             }
         }
-    }
-}
-
-struct NativeLines {
-    source: BufReader<File>,
-    line: Vec<u8>,
-    position: usize,
-    context: Rc<RefCell<NativeContext>>,
-}
-
-impl Read for NativeLines {
-    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        let n = self.fill_buf()?.read(bytes)?;
-        self.consume(n);
-        Ok(n)
-    }
-}
-
-impl BufRead for NativeLines {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        if self.position == self.line.len() {
-            self.line.clear();
-            self.position = 0;
-            self.source.read_until(b'\n', &mut self.line)?;
-            self.context.borrow_mut().observe(&self.line);
-        }
-        Ok(&self.line[self.position..])
-    }
-
-    fn consume(&mut self, n: usize) {
-        self.position = (self.position + n).min(self.line.len());
     }
 }
 
@@ -142,31 +221,12 @@ fn parse_file(
         errors: 0,
     };
     let context = Rc::new(RefCell::new(NativeContext::default()));
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(e) => {
-            if debug {
-                eprintln!("Cannot read {}: {e}", path.display());
-            }
-            out.errors = 1;
-            return out;
-        }
-    };
-    let mut reader = match agent_sessions::read_from(
+    let mut reader = match session_reader::observed_reader(
+        path,
         Agent::ClaudeCode,
-        NativeLines {
-            source: BufReader::new(file),
-            line: Vec::new(),
-            position: 0,
-            context: Rc::clone(&context),
-        },
-        &ReadOptions {
-            include: EventKinds::USAGE.union(EventKinds::META),
-            accounting: AccountingPolicy::UsageStatistics,
-            max_file_bytes: None,
-            max_line_bytes: None,
-            ..Default::default()
-        },
+        EventKinds::USAGE.union(EventKinds::META),
+        ReadOptions::default().codex_usage,
+        Rc::clone(&context),
     ) {
         Ok(r) => r,
         Err(e) => {
@@ -251,8 +311,18 @@ fn parse_file(
                     start.min(at.timestamp_millis())
                 }));
         }
+        // Without a stop reason the usage is a streaming snapshot (subagent
+        // transcripts often keep only that), not the response's final count.
+        let response = Some(crate::core::ResponseTiming {
+            output_tokens: output.saturating_add(reasoning),
+            duration_ms: native
+                .response_start_ms
+                .filter(|_| usage.stop_reason.is_some())
+                .map(|start| at.timestamp_millis() - start),
+        });
         out.entries.push(RawEntry {
             agent_version: agent_version.clone(),
+            response,
             claude_diagnostics: Some(crate::core::ClaudeDiagnostics {
                 turn: native.turn,
                 turn_start_ms: native.turn_start_ms,

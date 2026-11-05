@@ -82,6 +82,7 @@ mod reasonix {
                 needs_dedup: false,
                 has_tool_calls: false,
                 has_endpoints: false,
+                has_response_timing: false,
             }
         }
 
@@ -308,6 +309,7 @@ mod reasonix {
             RawEntry {
                 agent_version: None,
                 claude_diagnostics: None,
+                response: None,
                 timestamp: timestamp.to_rfc3339(),
                 timestamp_ms: timestamp.timestamp_millis(),
                 date_str: timezone
@@ -533,6 +535,9 @@ pub(crate) struct Capabilities {
     pub(crate) has_tool_calls: bool,
     /// Populates the serving-endpoint field (native vs proxy classification)
     pub(crate) has_endpoints: bool,
+    /// Logs bound each model response with start and end times, so output
+    /// speed can be measured (see `RawEntry::response`).
+    pub(crate) has_response_timing: bool,
 }
 
 impl Capabilities {
@@ -553,6 +558,7 @@ impl Capabilities {
             combined.needs_dedup |= caps.needs_dedup;
             combined.has_tool_calls |= caps.has_tool_calls;
             combined.has_endpoints |= caps.has_endpoints;
+            combined.has_response_timing |= caps.has_response_timing;
         }
         combined.has_cache_read &= has_sources;
         combined

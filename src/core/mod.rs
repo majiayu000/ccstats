@@ -22,6 +22,6 @@ pub(crate) use tool_types::ToolStats;
 pub(crate) use tool_types::{ToolCall, ToolCallIdentity, ToolSummary};
 pub(crate) use types::{
     BlockStats, ClaudeDiagnostics, CostKind, CostTokens, DataQuality, DateFilter, DayStats,
-    Endpoint, EndpointStats, LoadResult, ProjectStats, RawEntry, SessionStats, Stats,
-    apply_real_token_totals_for_all_source,
+    Endpoint, EndpointStats, LoadResult, ProjectStats, RawEntry, ResponseTiming, SessionStats,
+    SpeedSamples, Stats, apply_real_token_totals_for_all_source,
 };

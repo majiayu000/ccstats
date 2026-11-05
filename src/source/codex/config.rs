@@ -101,6 +101,7 @@ impl Source for CodexSource {
             needs_dedup: true,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: true,
         }
     }
 

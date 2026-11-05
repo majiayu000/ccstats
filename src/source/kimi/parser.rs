@@ -264,6 +264,7 @@ fn parse_usage_line(
     Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: None,
         timestamp: utc_dt.to_rfc3339(),
         timestamp_ms: time_ms,
         date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),

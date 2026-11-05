@@ -60,6 +60,7 @@ impl Source for ClaudeSource {
             needs_dedup: true,
             has_tool_calls: true,
             has_endpoints: true,
+            has_response_timing: true,
         }
     }
 

@@ -41,6 +41,7 @@ impl Source for FxSource {
             needs_dedup: false,
             has_tool_calls: false,
             has_endpoints: false,
+            has_response_timing: false,
         }
     }
 
@@ -255,6 +256,7 @@ fn entry(fact: &Fact, timezone: Timezone) -> Result<RawEntry, &'static str> {
     Ok(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
+        response: None,
         timestamp: timestamp.to_rfc3339(),
         timestamp_ms: fact.created_at_ms,
         date_str: timezone
