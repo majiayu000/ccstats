@@ -27,6 +27,56 @@ fn details(root: &Path, source: &str, day: &str) -> Value {
 }
 
 #[test]
+fn native_content_does_not_duplicate_usage_details_or_tool_statistics() {
+    let root = unique_temp_dir("session-details-content-projection");
+    write_file(
+        &root.join(".claude/projects/acceptance/session.jsonl"),
+        concat!(
+            "{\"type\":\"user\",\"timestamp\":\"2026-09-24T09:00:00Z\",\"cwd\":\"/synthetic/project\",\"message\":{\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/png\",\"data\":\"c3ludGhldGlj\"}},{\"type\":\"text\",\"text\":\"visible request\"}]}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-09-24T10:00:00Z\",\"message\":{\"id\":\"a\",\"model\":\"claude-opus-4-6\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"synthetic private thought\"},{\"type\":\"text\",\"text\":\"visible answer\"},{\"type\":\"tool_use\",\"id\":\"tool-a\",\"name\":\"Read\",\"input\":{\"file_path\":\"/synthetic/input\"}}],\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-09-24T10:00:00Z\",\"message\":{\"id\":\"a\",\"model\":\"claude-opus-4-6\",\"content\":[],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":10,\"output_tokens\":3}}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-09-24T11:00:00Z\",\"message\":{\"id\":\"b\",\"model\":\"claude-opus-4-6\",\"content\":[{\"type\":\"text\",\"text\":\"done\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n"
+        ),
+    );
+    let report = details(&root, "claude", "2026-09-24");
+    assert_eq!(report["parse_errors"], 0);
+    assert_eq!(report["sessions"].as_array().unwrap().len(), 1);
+    let session = &report["sessions"][0];
+    assert_eq!(session["first_user_prompt"], "visible request");
+    assert_eq!(session["project_path"], "/synthetic/project");
+    assert_eq!(session["requests"], 2);
+    assert_eq!(session["breakdown"][0]["input_tokens"], 17);
+    assert_eq!(session["breakdown"][0]["output_tokens"], 4);
+
+    for (command, total) in [("daily", 21), ("tools", 1)] {
+        let (ok, out, err) = run_ccstats(
+            &[
+                command,
+                "--json",
+                "--source",
+                "claude",
+                "--offline",
+                "--no-cache",
+                "--timezone",
+                "UTC",
+            ],
+            &[("HOME", &root)],
+        );
+        assert!(ok, "{}", String::from_utf8_lossy(&err));
+        let value: Value = serde_json::from_slice(&out).unwrap();
+        if command == "daily" {
+            assert_eq!(value.as_array().unwrap().len(), 1);
+            assert_eq!(value[0]["total_tokens"], total);
+        } else {
+            assert_eq!(value["total"], total);
+            assert_eq!(value["tools"].as_array().unwrap().len(), 1);
+            assert_eq!(value["tools"][0]["name"], "Read");
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn claude_details_preserve_prompt_exact_cwd_models_dedup_and_subagents() {
     let root = unique_temp_dir("session-details-claude");
     let file = root.join(".claude/projects/-work-with-hyphens/full-session-id.jsonl");
