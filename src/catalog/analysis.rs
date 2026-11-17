@@ -587,7 +587,7 @@ mod tests {
         else {
             panic!("filtered session should be measured");
         };
-        assert_eq!(filtered.median_tokens_per_second, 400.0);
+        assert!((filtered.median_tokens_per_second - 400.0).abs() < f64::EPSILON);
         assert_eq!(
             speed(entries[3..].to_vec(), true, None),
             OutputSpeed::Unavailable {
