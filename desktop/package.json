@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
     "test:e2e": "playwright test --grep-invert \"native Tauri\"",
+    "test:e2e:handover": "playwright test --grep @desktop-handover",
     "test:e2e:native": "npm run tauri -- build --debug --features native-e2e && playwright test --grep \"native Tauri\" --workers=1"
   },
   "dependencies": {

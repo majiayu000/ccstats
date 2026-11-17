@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -391,7 +391,8 @@ async function injectBridge(page: Page, options: MockOptions = {}) {
         return machineState;
       },
       exportMachineBundle: async () => JSON.stringify({ schema_version: 1, machines: machineState.machines }),
-      importMachineBundle: async () => {
+      importMachineBundle: async (content) => {
+        if (JSON.parse(content).schema_version !== 1) throw new Error("Unsupported machine snapshot schema");
         const remoteTotals = { today_tokens: 1_240, week_tokens: 8_420, month_tokens: 24_900, today_cost: null, week_cost: 7.42, month_cost: 18.9 };
         const local = machineState.machines[0];
         const totals = { today_tokens: machineState.totals.today_tokens + remoteTotals.today_tokens, week_tokens: machineState.totals.week_tokens + remoteTotals.week_tokens, month_tokens: machineState.totals.month_tokens + remoteTotals.month_tokens, today_cost: null, week_cost: (machineState.totals.week_cost ?? 0) + 7.42, month_cost: (machineState.totals.month_cost ?? 0) + 18.9 };
@@ -458,7 +459,7 @@ test("explains pricing provenance and partial API-equivalent coverage", async ({
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test("separates model turns from independently counted tool calls", async ({ page }) => {
+test("separates model turns from independently counted tool calls", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectBridge(page);
   await page.goto("/");
 
@@ -475,7 +476,7 @@ test("separates model turns from independently counted tool calls", async ({ pag
   await expect(page.getByTestId("activity-turn-count")).toHaveText("2");
 });
 
-test("shows source diagnostics and actionable setup guidance", async ({ page }) => {
+test("shows source diagnostics and actionable setup guidance", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectBridge(page);
   await page.goto("/");
 
@@ -488,7 +489,7 @@ test("shows source diagnostics and actionable setup guidance", async ({ page }) 
   await expect(page.getByText("Run Codex once")).toBeVisible();
 });
 
-test("shows Codex quota and calculates a monthly budget", async ({ page }) => {
+test("shows Codex quota and calculates a monthly budget", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectBridge(page);
   await page.goto("/");
 
@@ -504,7 +505,7 @@ test("shows Codex quota and calculates a monthly budget", async ({ page }) => {
   await expect(page.getByTestId("budget-remaining")).toHaveText("$981.10");
 });
 
-test("keeps monthly budget available when quota is unavailable", async ({ page }) => {
+test("keeps monthly budget available when quota is unavailable", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectBridge(page, { quotaFail: true });
   await page.goto("/");
 
@@ -514,7 +515,7 @@ test("keeps monthly budget available when quota is unavailable", async ({ page }
   await expect(page.getByTestId("budget-spent")).toHaveText("$18.90");
 });
 
-test("does not present a lower-bound monthly cost as exact budget spend", async ({ page }) => {
+test("does not present a lower-bound monthly cost as exact budget spend", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectBridge(page);
   await page.addInitScript(() => {
     const bridge = window.__CCSTATS_TEST_BRIDGE__!;
@@ -548,7 +549,7 @@ test("ranks consumers and flags a daily usage spike", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test("monitors live growth, preserves trusted data on failure, and pauses polling", async ({ page }) => {
+test("monitors live growth, preserves trusted data on failure, and pauses polling", { tag: "@desktop-handover" }, async ({ page }) => {
   await page.clock.install();
   await injectBridge(page, { liveGrowth: true, liveFailAfterGrowth: true });
   await page.goto("/");
@@ -574,7 +575,7 @@ test("monitors live growth, preserves trusted data on failure, and pauses pollin
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test("persists this machine and imports a remote machine rollup", async ({ page }) => {
+test("persists this machine and imports a remote machine rollup", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectBridge(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Machines" }).click();
@@ -588,8 +589,18 @@ test("persists this machine and imports a remote machine rollup", async ({ page 
 
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export snapshots" }).click();
-  expect((await download).suggestedFilename()).toBe("ccstats-machine-snapshots.json");
+  const exported = await download;
+  expect(exported.suggestedFilename()).toBe("ccstats-machine-snapshots.json");
+  expect(JSON.parse(await readFile(await exported.path(), "utf8"))).toMatchObject({
+    schema_version: 1,
+    machines: [{ machine_id: "local-1", machine_name: "Studio Mac" }],
+  });
   await page.getByLabel("Import machine snapshots").setInputFiles({ name: "remote.json", mimeType: "application/json", buffer: Buffer.from('{"schema_version":1}') });
+  await expect(page.getByRole("row", { name: /Remote laptop/ })).toBeVisible();
+  await expect(page.getByTestId("machines-month")).toHaveText("49,800");
+
+  await page.getByLabel("Import machine snapshots").setInputFiles({ name: "unsupported.json", mimeType: "application/json", buffer: Buffer.from('{"schema_version":99}') });
+  await expect(page.getByRole("alert")).toHaveText("Unsupported machine snapshot schema");
   await expect(page.getByRole("row", { name: /Remote laptop/ })).toBeVisible();
   await expect(page.getByTestId("machines-month")).toHaveText("49,800");
 
@@ -710,7 +721,7 @@ test("rejects mixed ready/error diagnostics before starting live All Sources", a
   expect(await page.evaluate(() => window.__CCSTATS_TEST_CALLS__)).toEqual([]);
 });
 
-test("rejects mixed ready/error diagnostics on live refresh and labels retained data", async ({ page }) => {
+test("rejects mixed ready/error diagnostics on live refresh and labels retained data", { tag: "@desktop-handover" }, async ({ page }) => {
   await page.clock.install();
   await injectMixedSources(page);
   await page.goto("/");
@@ -727,7 +738,7 @@ test("rejects mixed ready/error diagnostics on live refresh and labels retained 
   expect(await page.evaluate(() => window.__CCSTATS_TEST_CALLS__)).toEqual([]);
 });
 
-test("rejects mixed ready/error diagnostics before saving a machine snapshot", async ({ page }) => {
+test("rejects mixed ready/error diagnostics before saving a machine snapshot", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectMixedSources(page);
   await page.goto("/");
   await page.getByRole("button", { name: "Machines", exact: true }).click();
@@ -827,7 +838,7 @@ test("missing session titles use project, first activity and short ID; empty edi
   await expect(page.locator(".session-title-text")).toHaveText(fallback);
 });
 
-test("source title errors remain visible while session usage stays available", async ({ page }) => {
+test("source title errors remain visible while session usage stays available", { tag: "@desktop-handover" }, async ({ page }) => {
   await injectBridge(page, { titleMode: "error" });
   await page.goto("/");
   await openSession(page);
