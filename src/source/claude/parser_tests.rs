@@ -4,7 +4,7 @@ fn parse(row: &Value) -> ParseOutput {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("session.jsonl");
     std::fs::write(&path, row.to_string()).unwrap();
-    parse_claude_file_with_debug(&path, Timezone::Named(chrono_tz::UTC), false)
+    parse_claude_file_with_debug(&path, Timezone::UTC, false)
 }
 fn row() -> Value {
     json!({"timestamp":"2026-02-06T10:00:00.000Z","message":{"id":"msg","model":"claude-fable-5",
@@ -67,7 +67,7 @@ fn transcript(lines: &[Value]) -> ParseOutput {
         .join("\n")
         + "\n";
     std::fs::write(&path, body).unwrap();
-    parse_claude_file_with_debug(&path, Timezone::Named(chrono_tz::UTC), false)
+    parse_claude_file_with_debug(&path, Timezone::UTC, false)
 }
 fn user(uuid: &str, parent: Option<&str>, at: &str) -> Value {
     json!({"type":"user","uuid":uuid,"parentUuid":parent,"timestamp":at,

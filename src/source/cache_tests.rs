@@ -44,7 +44,7 @@ fn session(path: &Path) {
 }
 
 fn utc() -> Timezone {
-    Timezone::Named(chrono_tz::UTC)
+    Timezone::UTC
 }
 
 fn parse(cache: &UsageFactCache, path: &Path, filter: &DateFilter, tz: Timezone) -> ParseOutput {
@@ -170,8 +170,8 @@ fn cached_ranges_and_timezone_changes_match_uncached_filtering() {
     ];
     for timezone in [
         utc(),
-        Timezone::Named(chrono_tz::Asia::Shanghai),
-        Timezone::Named(chrono_tz::America::Los_Angeles),
+        Timezone::Named(tzdb::time_zone::asia::SHANGHAI),
+        Timezone::Named(tzdb::time_zone::america::LOS_ANGELES),
     ] {
         for filter in &filters {
             let raw = source().parse_file(&path, timezone, false);

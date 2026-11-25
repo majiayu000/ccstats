@@ -67,7 +67,7 @@ fn load_weekly_window_usage_from_files(
     resets_at: DateTime<Utc>,
     files: &[PathBuf],
 ) -> Result<CodexWindowUsage, CodexQuotaError> {
-    let utc = Timezone::Named(chrono_tz::UTC);
+    let utc = Timezone::UTC;
 
     let (accumulator, parse_errors) = files
         .par_iter()
@@ -369,7 +369,7 @@ mod tests {
 
         let parsed = super::super::parser::parse_codex_file_with_scope(
             &log,
-            Timezone::Named(chrono_tz::UTC),
+            Timezone::UTC,
             false,
             super::super::config::CodexScope::All,
         );

@@ -13,14 +13,14 @@ fn fork_copy_deduplication_keeps_original_ownership() {
             r#"{"type":"session","version":3,"id":"fork","timestamp":"2026-08-31T01:01:00Z","cwd":"/fork"}"#.to_string(),
             message(),
         ],
-        Timezone::Named(chrono_tz::UTC),
+        Timezone::UTC,
     );
     let original = parse_lines(
         vec![
             r#"{"type":"session","version":3,"id":"original","timestamp":"2026-08-31T01:00:00Z","cwd":"/original"}"#.to_string(),
             message(),
         ],
-        Timezone::Named(chrono_tz::UTC),
+        Timezone::UTC,
     );
     let mut dedup = DedupAccumulator::new();
     dedup.extend(fork.entries);
@@ -40,7 +40,7 @@ fn session_without_v3_marker_is_rejected() {
             r#"{"type":"session","id":"legacy","timestamp":"2026-08-31T01:00:00Z","cwd":"/legacy"}"#.to_string(),
             message(),
         ],
-        Timezone::Named(chrono_tz::UTC),
+        Timezone::UTC,
     );
 
     assert!(parsed.entries.is_empty());
@@ -57,7 +57,7 @@ fn v3_session_without_valid_header_timestamp_is_rejected() {
                 format!(r#"{{"type":"session","version":3,"id":"fork"{timestamp},"cwd":"/fork"}}"#),
                 message(),
             ],
-            Timezone::Named(chrono_tz::UTC),
+            Timezone::UTC,
         );
 
         assert!(parsed.entries.is_empty());

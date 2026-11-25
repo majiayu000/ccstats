@@ -662,7 +662,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_gemini_file(&path, Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_gemini_file(&path, Timezone::UTC, false);
 
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
@@ -716,7 +716,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_gemini_file(&path, Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_gemini_file(&path, Timezone::UTC, false);
 
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
@@ -771,7 +771,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_gemini_file(&path, Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_gemini_file(&path, Timezone::UTC, false);
 
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 2);
@@ -811,7 +811,7 @@ mod tests {
                     "tokens": {"input": 100, "output": 5, "cached": 20}
                 }
             }),
-            Timezone::Named(chrono_tz::UTC),
+            Timezone::UTC,
             "session-1",
             Some("gemini-2.5-pro".to_string()),
             None,
@@ -830,7 +830,7 @@ mod tests {
         let entries = parse_headless_value(
             Path::new("event.jsonl"),
             &serde_json::json!({"type": "tool"}),
-            Timezone::Named(chrono_tz::UTC),
+            Timezone::UTC,
             "session-1",
             None,
             None,

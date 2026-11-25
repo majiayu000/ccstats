@@ -338,14 +338,9 @@ fn usage_entry(
 }
 
 fn linked_transcript_produces_entry(path: &Path) -> bool {
-    !parse_pi_file(
-        path,
-        Timezone::Named(chrono_tz::UTC),
-        false,
-        PiProfile::kimchi_probe(),
-    )
-    .entries
-    .is_empty()
+    !parse_pi_file(path, Timezone::UTC, false, PiProfile::kimchi_probe())
+        .entries
+        .is_empty()
 }
 
 fn tool_result_usage(
@@ -655,7 +650,7 @@ mod tests {
                 project_path: "/tmp/project",
                 model: Some("gpt-5"),
                 stop_reason: Some("stop".to_string()),
-                timezone: Timezone::Named(chrono_tz::UTC),
+                timezone: Timezone::UTC,
             },
         )
         .unwrap()
@@ -687,7 +682,7 @@ mod tests {
                     project_path: "/tmp/project",
                     model: Some("gpt-5"),
                     stop_reason: Some("stop".to_string()),
-                    timezone: Timezone::Named(chrono_tz::UTC),
+                    timezone: Timezone::UTC,
                 },
             ),
             Err("negative token count")
@@ -715,7 +710,7 @@ mod tests {
                     project_path: "/tmp/project",
                     model: Some("gpt-5"),
                     stop_reason: Some("stop".to_string()),
-                    timezone: Timezone::Named(chrono_tz::UTC),
+                    timezone: Timezone::UTC,
                 },
             ),
             Err("empty entry id")
@@ -738,12 +733,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_pi_file(
-            &path,
-            Timezone::Named(chrono_tz::UTC),
-            false,
-            PiProfile::pi(),
-        );
+        let parsed = parse_pi_file(&path, Timezone::UTC, false, PiProfile::pi());
 
         assert_eq!(parsed.errors, 0);
         let summary = parsed
@@ -769,12 +759,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_pi_file(
-            &path,
-            Timezone::Named(chrono_tz::UTC),
-            false,
-            PiProfile::pi(),
-        );
+        let parsed = parse_pi_file(&path, Timezone::UTC, false, PiProfile::pi());
 
         assert_eq!(parsed.errors, 0);
         let timings = parsed

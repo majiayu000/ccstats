@@ -207,8 +207,7 @@ fn native_user_boundaries_tool_results_metadata_and_compactions_survive_projecti
             .join("\n"),
     )
     .unwrap();
-    let parsed =
-        ClaudeSource::new().parse_file(&path, crate::utils::Timezone::Named(chrono_tz::UTC), false);
+    let parsed = ClaudeSource::new().parse_file(&path, crate::utils::Timezone::UTC, false);
     assert_eq!(parsed.errors, 0);
     assert_eq!(parsed.entries.len(), 3);
     let d: Vec<_> = parsed
@@ -291,8 +290,7 @@ fn loader_date_cut_does_not_turn_old_prefix_into_a_complete_new_turn() {
             .join("\n"),
     )
     .unwrap();
-    let parsed =
-        ClaudeSource::new().parse_file(&path, crate::utils::Timezone::Named(chrono_tz::UTC), false);
+    let parsed = ClaudeSource::new().parse_file(&path, crate::utils::Timezone::UTC, false);
     assert_eq!(parsed.errors, 0);
     let cutoff = (now - Duration::days(22)).timestamp_millis();
     let filtered: Vec<_> = parsed

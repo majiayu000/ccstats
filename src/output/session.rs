@@ -415,20 +415,20 @@ mod tests {
 
     #[test]
     fn extract_date_valid_utc_timestamp() {
-        let tz = Timezone::Named(chrono_tz::UTC);
+        let tz = Timezone::UTC;
         assert_eq!(extract_date("2026-02-12T10:30:00Z", tz), "2026-02-12");
     }
 
     #[test]
     fn extract_date_fallback_on_invalid_timestamp() {
-        let tz = Timezone::Named(chrono_tz::UTC);
+        let tz = Timezone::UTC;
         // Falls back to splitting on 'T'
         assert_eq!(extract_date("2026-02-12T_garbage", tz), "2026-02-12");
     }
 
     #[test]
     fn extract_date_no_t_separator() {
-        let tz = Timezone::Named(chrono_tz::UTC);
+        let tz = Timezone::UTC;
         assert_eq!(extract_date("just-a-string", tz), "just-a-string");
     }
 

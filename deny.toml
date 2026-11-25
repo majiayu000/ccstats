@@ -2,11 +2,8 @@
 # Deny any crates with known security vulnerabilities
 version = 2
 ignore = [
-    # chrono and chrono-tz are unmaintained (no fixed release; jiff or time
-    # recommended). Not vulnerabilities; chrono is used across the crate and through
-    # agent-sessions, so migrating is its own change. Remove once both are gone.
+    # chrono remains in ccstats and agent-sessions while the timestamp API migrates.
     { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; migration to jiff or time tracked separately" },
-    { id = "RUSTSEC-2026-0555", reason = "chrono-tz unmaintained; goes with the chrono migration" },
 ]
 
 [licenses]

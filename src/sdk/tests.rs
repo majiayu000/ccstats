@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 #[test]
 fn usage_windows_record_timezone_specific_utc_boundaries() {
     let now = "2026-09-02T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
-    let utc = current_usage_windows(Timezone::Named(chrono_tz::UTC), now).unwrap();
-    let shanghai = current_usage_windows(Timezone::Named(chrono_tz::Asia::Shanghai), now).unwrap();
+    let utc = current_usage_windows(Timezone::UTC, now).unwrap();
+    let shanghai =
+        current_usage_windows(Timezone::Named(tzdb::time_zone::asia::SHANGHAI), now).unwrap();
 
     assert_eq!(utc[0].since, shanghai[0].since);
     assert_eq!(utc[0].until, shanghai[0].until);

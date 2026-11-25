@@ -120,7 +120,7 @@ mod tests {
                 cache_write_tokens: None,
                 reasoning_tokens: None,
             },
-            Timezone::Named(chrono_tz::UTC),
+            Timezone::UTC,
             "session-a:attempt:0",
         )
         .expect("valid DSH usage");

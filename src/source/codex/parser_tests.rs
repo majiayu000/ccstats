@@ -29,13 +29,8 @@ fn escaped_working_directories_preserve_session_and_model_metadata() {
         std::fs::write(&path, lines.replace("项目", r"\u9879\u76ee")).unwrap();
 
         for result in [
-            parse_codex_file_for_quota(&path, Timezone::Named(chrono_tz::UTC)),
-            parse_codex_file_with_scope(
-                &path,
-                Timezone::Named(chrono_tz::UTC),
-                false,
-                CodexScope::Interactive,
-            ),
+            parse_codex_file_for_quota(&path, Timezone::UTC),
+            parse_codex_file_with_scope(&path, Timezone::UTC, false, CodexScope::Interactive),
         ] {
             assert_eq!(result.errors, 0, "cwd: {cwd}");
             assert_eq!(result.entries.len(), 1, "cwd: {cwd}");
@@ -62,7 +57,7 @@ fn parse_cache_write_usage(writes: i64) -> ParseOutput {
             "info": {"total_token_usage": usage, "last_token_usage": usage}}
     });
     std::fs::write(&path, event.to_string()).unwrap();
-    parse_codex_file_for_quota(&path, Timezone::Named(chrono_tz::UTC))
+    parse_codex_file_for_quota(&path, Timezone::UTC)
 }
 
 #[test]
@@ -112,7 +107,7 @@ fn native_rows(rows: &[serde_json::Value]) -> ParseOutput {
             .join("\n"),
     )
     .unwrap();
-    parse_codex_file_for_quota(&path, Timezone::Named(chrono_tz::UTC))
+    parse_codex_file_for_quota(&path, Timezone::UTC)
 }
 fn native_count(total: i64, last: Option<i64>) -> serde_json::Value {
     let mut info =
@@ -170,7 +165,7 @@ fn missing_model_keeps_recorded_tokens_without_inventing_a_model() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("unknown.jsonl");
     std::fs::write(&path, native_count(100, None).to_string()).unwrap();
-    let timezone = Timezone::Named(chrono_tz::UTC);
+    let timezone = Timezone::UTC;
     for output in [
         parse_codex_file_with_scope(&path, timezone, false, CodexScope::All),
         parse_codex_file_for_quota(&path, timezone),
@@ -238,8 +233,7 @@ fn ide_is_in_interactive_scope_and_subagent_object_wins() {
         let path = dir.path().join("scope.jsonl");
         let meta = serde_json::json!({"type":"session_meta","payload":{"source":source,"originator":"Codex Desktop"}});
         std::fs::write(&path, format!("{}\n{}", meta, native_count(100, None))).unwrap();
-        let output =
-            parse_codex_file_with_scope(&path, Timezone::Named(chrono_tz::UTC), false, scope);
+        let output = parse_codex_file_with_scope(&path, Timezone::UTC, false, scope);
         assert_eq!(output.errors, 0);
         assert_eq!(output.entries.len(), count);
     }
@@ -249,12 +243,7 @@ fn rollout(rows: &[String]) -> ParseOutput {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rollout.jsonl");
     std::fs::write(&path, rows.join("\n") + "\n").unwrap();
-    parse_codex_file_with_scope(
-        &path,
-        Timezone::Named(chrono_tz::UTC),
-        false,
-        CodexScope::All,
-    )
+    parse_codex_file_with_scope(&path, Timezone::UTC, false, CodexScope::All)
 }
 
 /// A rollout line in Codex's field order: `timestamp`, `type`, `payload`.

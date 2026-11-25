@@ -380,7 +380,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_extension_file(&path, "roocode", Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_extension_file(&path, "roocode", Timezone::UTC, false);
 
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
@@ -413,7 +413,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_extension_file(&path, "cline", Timezone::UTC, false);
 
         assert_eq!(parsed.entries.len(), 2);
         assert_eq!(parsed.entries[0].model, "claude-sonnet-4");
@@ -437,7 +437,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_extension_file(&path, "cline", Timezone::UTC, false);
 
         assert!(parsed.entries.is_empty());
         assert_eq!(parsed.errors, 1);
@@ -455,7 +455,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_extension_file(&path, "cline", Timezone::UTC, false);
 
         assert!(parsed.entries.is_empty());
         assert_eq!(parsed.errors, 1);
@@ -480,7 +480,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_extension_file(&path, "cline", Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_extension_file(&path, "cline", Timezone::UTC, false);
 
         assert_eq!(parsed.entries.len(), 1);
         assert_eq!(parsed.entries[0].project_path, "/work/project");

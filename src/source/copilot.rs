@@ -348,9 +348,7 @@ mod tests {
             r#"{"type":"span","traceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","spanId":"bbbbbbbbbbbbbbbb","startTime":[1788145445,0],"attributes":{"gen_ai.operation.name":"chat","gen_ai.response.model":"gpt-5","gen_ai.usage.input_tokens":100,"gen_ai.usage.output_tokens":20,"gen_ai.usage.cache_read.input_tokens":30,"gen_ai.usage.cache_creation.input_tokens":10,"gen_ai.usage.reasoning.output_tokens":5}}"#,
         )
         .unwrap();
-        let entry = chat_entry(&record, Timezone::Named(chrono_tz::UTC))
-            .unwrap()
-            .unwrap();
+        let entry = chat_entry(&record, Timezone::UTC).unwrap().unwrap();
         assert_eq!(entry.input_tokens, 60);
         assert_eq!(entry.output_tokens, 15);
         assert_eq!(entry.reasoning_tokens, 5);
@@ -370,9 +368,7 @@ mod tests {
             r#"{"type":"span","startTime":[1788145445,0],"endTime":[1788145447,500000000],"attributes":{"gen_ai.operation.name":"chat","gen_ai.usage.input_tokens":100,"gen_ai.usage.output_tokens":200,"gen_ai.usage.reasoning.output_tokens":50}}"#,
         )
         .unwrap();
-        let entry = chat_entry(&record, Timezone::Named(chrono_tz::UTC))
-            .unwrap()
-            .unwrap();
+        let entry = chat_entry(&record, Timezone::UTC).unwrap().unwrap();
         assert_eq!(
             entry.response,
             Some(ResponseTiming {
@@ -389,7 +385,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            chat_entry(&record, Timezone::Named(chrono_tz::UTC)),
+            chat_entry(&record, Timezone::UTC),
             Err("cache tokens exceed total input")
         ));
     }

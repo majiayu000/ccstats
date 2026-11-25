@@ -760,13 +760,9 @@ mod tests {
             data: r#"{"agent":"build","model":{"id":"gpt-5","providerID":"openai"},"finish":"stop","cost":0.25,"tokens":{"input":100,"output":20,"reasoning":5,"cache":{"read":30,"write":10}},"time":{"created":1788131045000,"completed":1788131046000}}"#.to_string(),
         };
 
-        let entry = entry_from_database_message(
-            &row,
-            Timezone::Named(chrono_tz::UTC),
-            ParseProfile::opencode(),
-        )
-        .unwrap()
-        .unwrap();
+        let entry = entry_from_database_message(&row, Timezone::UTC, ParseProfile::opencode())
+            .unwrap()
+            .unwrap();
 
         assert_eq!(entry.input_tokens, 100);
         assert_eq!(entry.output_tokens, 20);
@@ -788,11 +784,7 @@ mod tests {
         };
 
         assert!(matches!(
-            entry_from_database_message(
-                &row,
-                Timezone::Named(chrono_tz::UTC),
-                ParseProfile::opencode(),
-            ),
+            entry_from_database_message(&row, Timezone::UTC, ParseProfile::opencode(),),
             Err("negative token count")
         ));
     }
