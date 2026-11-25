@@ -456,7 +456,6 @@ name = "ccstats-desktop"
 version = "0.12.0"
 dependencies = [
  "ccstats",
- "chrono",
  "rusqlite",
  "serde",
  "serde_json",
