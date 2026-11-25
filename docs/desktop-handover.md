@@ -26,6 +26,40 @@ and SQLite/JSON machine snapshot code remains intact.
 | Preserve diagnostics and device workflow | ccstats desktop CI and release pipeline restored; QuotaBar source diagnostics and cost/session analysis retained | Device snapshot exchange, live, tool-turn investigation and limits/budget do not yet have complete QuotaBar parity. Desktop remains available; handover is not accepted |
 | Installation, use and release delivery | Restored release metadata/staging; README/development and release instructions updated | No new tag, signed installer, public release or maintainer/user confirmation is claimed |
 
+## Repeatable handover checks
+
+The published [ccstats 0.12.0](https://github.com/majiayu000/ccstats/releases/tag/v0.12.0)
+release still carries five desktop installers. Use it as a retained-workflow
+reference when verifying a QuotaBar replacement. From the repository root, run:
+
+```bash
+cd desktop
+npm ci
+npx playwright install chromium
+npm run test:e2e:handover
+cargo test --locked --manifest-path src-tauri/Cargo.toml machines::tests
+```
+
+The Playwright subset exercises the ccstats renderer against synthetic bridge
+responses. The Rust machine tests exercise SQLite and JSON import/export. Run
+`npm run test:e2e:native` on a host with the supported Tauri/WebDriver setup to
+check native IPC as well. Record the test scope beside the result.
+
+| Retained workflow | Repeat with installed apps before handover |
+| --- | --- |
+| Device snapshots | On two separate test profiles, capture each device, export one, and import it on the other. Compare the machine count and day/week/month totals. Reimport the same bundle and an older copy. Totals must avoid double counting, stale periods must be labeled, and a failed import must leave the prior rollup visible. |
+| Live monitoring | Start a local test session and observe a token delta on the next poll. In a test profile with a failed source read, confirm the last trustworthy result is labeled stale. Pause monitoring and verify that polling stops; resume and verify that it advances again. |
+| Turn and tool investigation | Open a Claude fixture with known model turns and tool calls. Reconcile the two separate counts. Select a source without tool-call evidence and verify the unsupported label and retained model turns. Unattributed tool tokens must stay unknown. |
+| Limits and budget | On the same complete accounting window, compare usage, estimated remaining quota/reset, API-equivalent spend, and remaining reference budget. Replay an unavailable quota read and a partially priced period. Quota absence must stay visible and partial spend must render as a lower bound. |
+
+For each row, record the two app versions, OS and architecture, the input fixture
+or sanitized observations, and the outcome. The replacement must work from its
+normal installed UI. Complete [QuotaBar's Windows acceptance](https://github.com/majiayu000/quotabar/blob/main/docs/usage-handover.md#repeatable-windows-acceptance)
+for the tray and titled-session issues, and confirm that the tested public
+QuotaBar build contains the replacement workflows. Keep ccstats desktop CI and
+all five installers available until the four installed checks and Windows
+checks have recorded passing evidence and the maintainer accepts the handover.
+
 ## Source-path contract
 
 `SessionDrilldown.source_paths` lists sorted unique native files contributing to
