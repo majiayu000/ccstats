@@ -51,7 +51,7 @@ fn discovery_reuses_one_root_encoding_snapshot_for_all_parses() {
         .expect("create zstd session directory");
     fs::write(late_zstd, b"late writer data").expect("write late zstd session");
 
-    let parsed = source.parse_file(&files[0], Timezone::Named(chrono_tz::UTC), false);
+    let parsed = source.parse_file(&files[0], Timezone::UTC, false);
     assert_eq!(parsed.errors, 0);
     assert_eq!(parsed.entries.len(), 1);
 }

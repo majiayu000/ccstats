@@ -29,12 +29,7 @@ fn gjc_child_patch_does_not_replace_inherited_project() {
     )
     .unwrap();
 
-    let parsed = parse_file(
-        &child,
-        Timezone::Named(chrono_tz::UTC),
-        false,
-        ForkProfile::gjc(),
-    );
+    let parsed = parse_file(&child, Timezone::UTC, false, ForkProfile::gjc());
 
     assert_eq!(parsed.errors, 0);
     assert_eq!(parsed.entries.len(), 1);
@@ -69,18 +64,8 @@ fn gjc_partial_child_subtracts_only_emitted_usage_from_parent_rollup() {
     )
     .unwrap();
 
-    let parent_output = parse_file(
-        &parent,
-        Timezone::Named(chrono_tz::UTC),
-        false,
-        ForkProfile::gjc(),
-    );
-    let child_output = parse_file(
-        &child,
-        Timezone::Named(chrono_tz::UTC),
-        false,
-        ForkProfile::gjc(),
-    );
+    let parent_output = parse_file(&parent, Timezone::UTC, false, ForkProfile::gjc());
+    let child_output = parse_file(&child, Timezone::UTC, false, ForkProfile::gjc());
 
     assert_eq!(child_output.errors, 1);
     assert_eq!(child_output.entries.len(), 1);

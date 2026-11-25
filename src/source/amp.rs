@@ -474,7 +474,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_amp_file(&path, Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_amp_file(&path, Timezone::UTC, false);
 
         assert_eq!(parsed.errors, 0);
         assert_eq!(parsed.entries.len(), 1);
@@ -504,7 +504,7 @@ mod tests {
         )
         .unwrap();
 
-        let parsed = parse_amp_file(&path, Timezone::Named(chrono_tz::UTC), false);
+        let parsed = parse_amp_file(&path, Timezone::UTC, false);
 
         assert!(parsed.entries.is_empty());
         assert_eq!(parsed.errors, 1);

@@ -649,7 +649,7 @@ mod tests {
         )
         .unwrap();
 
-        let results = load_daily_ranges(&source, &ranges, Timezone::Named(chrono_tz::UTC));
+        let results = load_daily_ranges(&source, &ranges, Timezone::UTC);
 
         assert_eq!(source.find_calls.load(Ordering::SeqCst), 1);
         assert_eq!(source.parse_calls.load(Ordering::SeqCst), 2);
@@ -684,7 +684,7 @@ mod tests {
         )
         .expect("resolve ranges");
 
-        let results = load_daily_ranges(&source, &ranges, Timezone::Named(chrono_tz::UTC));
+        let results = load_daily_ranges(&source, &ranges, Timezone::UTC);
 
         assert_eq!(results.len(), 2);
         assert_eq!(source.unfiltered_calls.load(Ordering::SeqCst), 0);

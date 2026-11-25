@@ -309,9 +309,7 @@ mod tests {
             cost_source: Some("provider_reported".to_string()),
             is_compaction: false,
         };
-        let entry = goose_entry(row, Timezone::Named(chrono_tz::UTC))
-            .unwrap()
-            .unwrap();
+        let entry = goose_entry(row, Timezone::UTC).unwrap().unwrap();
         assert_eq!(entry.input_tokens, 60);
         assert_eq!(entry.cache_read, 30);
         assert_eq!(entry.cache_creation, 10);
@@ -336,7 +334,7 @@ mod tests {
             is_compaction: false,
         };
         assert!(matches!(
-            goose_entry(row, Timezone::Named(chrono_tz::UTC)),
+            goose_entry(row, Timezone::UTC),
             Err("cache tokens exceed total input")
         ));
     }
@@ -359,7 +357,7 @@ mod tests {
             is_compaction: false,
         };
         assert!(matches!(
-            goose_entry(row, Timezone::Named(chrono_tz::UTC)),
+            goose_entry(row, Timezone::UTC),
             Err("unknown cost source")
         ));
     }
