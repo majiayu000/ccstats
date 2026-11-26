@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, RawEntry, ResponseTiming};
 use crate::source::ParseOutput;
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const APP_DATA_DIR: &str = "ccstats";
 const GROK_CACHE_DIR: &str = "grok";
@@ -553,7 +553,7 @@ pub(super) fn records_to_parse_output(
                     duration_ms: record.model_elapsed_ms,
                 }),
                 timestamp: crate::utils::rfc3339(utc_dt),
-                timestamp_ms: utc_dt.as_millisecond(),
+                timestamp_ms: epoch_millis(utc_dt),
                 date_str,
                 message_id: Some(record.event_key),
                 session_key: record.session_key,

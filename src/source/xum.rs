@@ -14,7 +14,7 @@ use serde::Deserialize;
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const XUM_ROOT_ENV: &str = "XUM_ROOT";
 
@@ -296,7 +296,7 @@ fn usage_entry(
         claude_diagnostics: None,
         response: None,
         timestamp: crate::utils::rfc3339(timestamp),
-        timestamp_ms: timestamp.as_millisecond(),
+        timestamp_ms: epoch_millis(timestamp),
         date_str: date_str.to_string(),
         message_id: Some(source_wide_message_id(
             "xum",

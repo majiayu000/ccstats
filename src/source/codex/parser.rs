@@ -1,6 +1,7 @@
 //! Codex native events projected into ccstats accounting and scope policy.
 use super::config::CodexScope;
 use crate::source::session_reader;
+use crate::utils::epoch_millis;
 use crate::{
     consts::{DATE_FORMAT, UNKNOWN},
     core::RawEntry,
@@ -182,7 +183,7 @@ impl Projection {
             claude_diagnostics: None,
             response: None,
             timestamp,
-            timestamp_ms: at.as_millisecond(),
+            timestamp_ms: epoch_millis(at),
             date_str: self
                 .timezone
                 .to_fixed_offset(at)
@@ -355,7 +356,7 @@ impl session_reader::LineObserver for ResponseClock {
             .timestamp
             .as_deref()
             .and_then(|s| s.parse::<jiff::Timestamp>().ok())
-            .map(jiff::Timestamp::as_millisecond)
+            .map(epoch_millis)
         else {
             return;
         };

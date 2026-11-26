@@ -11,7 +11,7 @@ use crate::source::openclaw_store::{
     diagnose_transcript_stores, find_transcript_stores, load_transcripts,
 };
 use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 pub(crate) struct OpenClawSource;
 
@@ -197,7 +197,7 @@ fn build_entry(
         .or_else(|| current_provider.map(str::to_string))
         .unwrap_or_else(|| UNKNOWN.to_string());
     let timestamp = timestamp_from_row(message.timestamp, row.timestamp.as_deref())?;
-    let timestamp_ms = timestamp.as_millisecond();
+    let timestamp_ms = epoch_millis(timestamp);
     let is_copied_history = session_started_ms.is_some_and(|started| timestamp_ms < started);
 
     Ok(Some(RawEntry {
@@ -287,7 +287,7 @@ fn parse_lines(lines: Vec<String>, timezone: Timezone) -> ParseOutput {
                     .timestamp
                     .as_deref()
                     .and_then(|value| value.parse::<jiff::Timestamp>().ok())
-                    .map(jiff::Timestamp::as_millisecond)
+                    .map(epoch_millis)
                 else {
                     output.errors += 1;
                     continue;

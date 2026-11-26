@@ -16,7 +16,7 @@ use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
 use crate::core::{CostKind, RawEntry, source_wide_message_id};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 use super::parser::{GrokSessionContext, first_non_empty};
 
@@ -299,7 +299,7 @@ fn parse_turn_line(
             claude_diagnostics: None,
             response: None,
             timestamp: crate::utils::rfc3339(utc_dt),
-            timestamp_ms: utc_dt.as_millisecond(),
+            timestamp_ms: epoch_millis(utc_dt),
             date_str: date_str.clone(),
             message_id,
             session_key: ctx.session_key.clone(),

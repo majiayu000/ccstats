@@ -35,6 +35,11 @@ pub(crate) fn rfc3339(at: Timestamp) -> String {
     format!("{}{fraction}+00:00", civil.strftime("%Y-%m-%dT%H:%M:%S"))
 }
 
+/// The Unix millisecond containing the instant, including before the epoch.
+pub(crate) fn epoch_millis(at: Timestamp) -> i64 {
+    at.as_nanosecond().div_euclid(1_000_000) as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

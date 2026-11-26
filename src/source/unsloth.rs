@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 use super::{CachePolicy, Capabilities, ParseOutput, Source};
 
@@ -277,7 +277,7 @@ fn entry(
         claude_diagnostics: None,
         response: None,
         timestamp: crate::utils::rfc3339(timestamp),
-        timestamp_ms: timestamp.as_millisecond(),
+        timestamp_ms: epoch_millis(timestamp),
         date_str: timezone
             .to_fixed_offset(timestamp)
             .date()

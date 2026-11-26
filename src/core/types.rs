@@ -2,6 +2,7 @@
 //!
 //! These types represent the unified data model that all sources convert to.
 
+use crate::utils::epoch_millis;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -634,8 +635,8 @@ impl DateFilter {
         since: jiff::Timestamp,
         until: jiff::Timestamp,
     ) -> Self {
-        self.since_timestamp_ms = Some(since.as_millisecond());
-        self.until_timestamp_ms = Some(until.as_millisecond());
+        self.since_timestamp_ms = Some(epoch_millis(since));
+        self.until_timestamp_ms = Some(epoch_millis(until));
         self.since_timestamp = Some(since);
         self.until_timestamp = Some(until);
         self
@@ -671,7 +672,7 @@ impl DateFilter {
             return false;
         }
         if self.since_timestamp.is_none() && self.until_timestamp.is_none() {
-            return self.contains_timestamp(timestamp.as_millisecond());
+            return self.contains_timestamp(epoch_millis(timestamp));
         }
         true
     }

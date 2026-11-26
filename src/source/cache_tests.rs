@@ -90,6 +90,31 @@ fn warm_cache_preserves_all_fields_and_session_identity_across_reopening() {
 }
 
 #[test]
+fn warm_cache_keeps_the_day_of_a_submillisecond_before_the_unix_epoch() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("epoch.jsonl");
+    fs::write(
+        &path,
+        format!(
+            "{}\n{}\n{}",
+            serde_json::json!({"type":"session_meta","payload":{"id":"epoch","source":"cli"}}),
+            serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5"}}),
+            event("1969-12-31T23:59:59.999500Z", 10),
+        ),
+    )
+    .unwrap();
+
+    let filter = DateFilter::default();
+    let cold = parse(&cache(root.path()), &path, &filter, utc());
+    let reopened = cache(root.path());
+    let warm = parse(&reopened, &path, &filter, utc());
+    assert_eq!(reopened.hits(), 1);
+    assert_eq!(warm.entries[0].date_str, "1969-12-31");
+    assert_eq!(warm.entries[0].timestamp_ms, -1);
+    assert_equal(&warm, &cold);
+}
+
+#[test]
 fn cache_writes_and_long_context_classification_survive_reopening() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("writes.jsonl");

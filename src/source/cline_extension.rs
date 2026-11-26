@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry};
 use crate::source::{Capabilities, ParseOutput, Source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const ROO_EXTENSION_ID: &str = "rooveterinaryinc.roo-cline";
 const KILO_EXTENSION_ID: &str = "kilocode.kilo-code";
@@ -183,7 +183,7 @@ fn parse_timestamp(value: Option<&Value>) -> Option<i64> {
     let value = value?;
     if let Some(text) = value.as_str() {
         if let Ok(timestamp) = text.parse::<jiff::Timestamp>() {
-            return Some(timestamp.as_millisecond());
+            return Some(epoch_millis(timestamp));
         }
         let number = text.parse::<i64>().ok()?;
         return numeric_timestamp(number);

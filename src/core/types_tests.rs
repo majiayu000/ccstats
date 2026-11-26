@@ -334,6 +334,21 @@ fn date_filter_both_bounds() {
 }
 
 #[test]
+fn timestamp_filters_keep_the_millisecond_before_the_unix_epoch() {
+    let at = "1969-12-31T23:59:59.999500Z"
+        .parse::<jiff::Timestamp>()
+        .unwrap();
+    let filter = DateFilter::default().with_exact_timestamp_range(at, at);
+    assert_eq!(filter.since_timestamp_ms, Some(-1));
+    assert_eq!(filter.until_timestamp_ms, Some(-1));
+    assert!(
+        DateFilter::default()
+            .with_timestamp_range(-1, -1)
+            .contains_datetime(at)
+    );
+}
+
+#[test]
 fn date_filter_single_day_range() {
     let f = DateFilter::new(Some(d(2025, 1, 15)), Some(d(2025, 1, 15)));
     assert!(!f.contains(d(2025, 1, 14)));

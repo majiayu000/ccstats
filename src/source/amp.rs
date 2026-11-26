@@ -12,7 +12,7 @@ use serde::Deserialize;
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry};
 use crate::source::{Capabilities, ParseOutput, Source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const XDG_DATA_HOME_ENV: &str = "XDG_DATA_HOME";
 
@@ -183,12 +183,7 @@ fn non_empty(value: Option<String>) -> Option<String> {
 }
 
 fn parse_rfc3339_ms(value: Option<&str>) -> Option<i64> {
-    value.and_then(|value| {
-        value
-            .parse::<jiff::Timestamp>()
-            .ok()
-            .map(jiff::Timestamp::as_millisecond)
-    })
+    value.and_then(|value| value.parse::<jiff::Timestamp>().ok().map(epoch_millis))
 }
 
 fn valid_base_timestamp(thread_created: Option<i64>, file_mtime: Option<i64>) -> Option<i64> {
