@@ -3,15 +3,20 @@ mod common;
 use std::fs;
 use std::path::Path;
 
-use chrono::{SecondsFormat, Timelike, Utc};
 use common::{run_ccstats, run_ccstats_with_stdin, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use serde_json::{Value, json};
 
 fn write_claude_entry(home: &Path) {
-    let timestamp = Utc::now()
-        .with_nanosecond(0)
+    let timestamp = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
         .unwrap()
-        .to_rfc3339_opts(SecondsFormat::Secs, true);
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
     write_file(
         &home.join(".claude/projects/mcp-app/session.jsonl"),
         &format!(

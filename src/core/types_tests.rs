@@ -1,5 +1,5 @@
 use super::*;
-use chrono::NaiveDate;
+use jiff::civil::Date;
 
 fn make_stats(input: i64, output: i64, cache_c: i64, cache_r: i64, reason: i64) -> Stats {
     Stats {
@@ -296,8 +296,8 @@ fn raw_entry_preserves_independent_reported_total_without_repricing_the_delta() 
 
 // --- DateFilter ---
 
-fn d(y: i32, m: u32, day: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, day).unwrap()
+fn d(y: i16, m: i8, day: i8) -> Date {
+    jiff::civil::Date::new(y, m, day).unwrap()
 }
 
 #[test]

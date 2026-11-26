@@ -18,7 +18,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_BASIC_INFO, FileBasicInfo, GetFileInformationByHandleEx,
 };
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
@@ -144,26 +145,29 @@ fn file_might_overlap(path: &Path, filter: &DateFilter, timezone: Timezone) -> b
     let Ok(mtime) = fs::metadata(path).and_then(|meta| meta.modified()) else {
         return true;
     };
-    let dt = DateTime::<Utc>::from(mtime);
-    timezone.to_fixed_offset(dt).date_naive() >= since
+    let Ok(dt) = jiff::Timestamp::try_from(mtime) else {
+        return true;
+    };
+    timezone.to_fixed_offset(dt).date() >= since
 }
 
-fn filename_date(path: &Path) -> Option<NaiveDate> {
+fn filename_date(path: &Path) -> Option<Date> {
     let stem = path.file_stem()?.to_str()?;
-    NaiveDate::parse_from_str(stem, "%Y-%m-%d").ok()
+    Date::strptime("%Y-%m-%d", stem).ok()
 }
 
 /// `date_str` is a local calendar day, so cached facts must be re-dated for
 /// the timezone of this request instead of reusing the parse-time value.
-fn apply_local_date(mut entry: RawEntry, timezone: Timezone) -> CacheResult<(RawEntry, NaiveDate)> {
-    let utc = DateTime::<Utc>::from_timestamp_millis(entry.timestamp_ms)
-        .or_else(|| entry.timestamp.parse::<DateTime<Utc>>().ok())
+fn apply_local_date(mut entry: RawEntry, timezone: Timezone) -> CacheResult<(RawEntry, Date)> {
+    let utc = jiff::Timestamp::from_millisecond(entry.timestamp_ms)
+        .ok()
+        .or_else(|| entry.timestamp.parse::<Timestamp>().ok())
         .ok_or("invalid cached timestamp")?;
     if entry.timestamp_ms == 0 {
-        entry.timestamp_ms = utc.timestamp_millis();
+        entry.timestamp_ms = utc.as_millisecond();
     }
-    let date = timezone.to_fixed_offset(utc).date_naive();
-    entry.date_str = date.format(DATE_FORMAT).to_string();
+    let date = timezone.to_fixed_offset(utc).date();
+    entry.date_str = date.strftime(DATE_FORMAT).to_string();
     Ok((entry, date))
 }
 
@@ -287,12 +291,14 @@ fn overlaps(
         return Ok(filter.since_timestamp_ms.is_none_or(|since| last >= since)
             && filter.until_timestamp_ms.is_none_or(|until| first <= until));
     }
-    let first =
-        DateTime::<Utc>::from_timestamp_millis(first).ok_or("invalid first cached timestamp")?;
-    let last =
-        DateTime::<Utc>::from_timestamp_millis(last).ok_or("invalid last cached timestamp")?;
-    let first = timezone.to_fixed_offset(first).date_naive();
-    let last = timezone.to_fixed_offset(last).date_naive();
+    let first = jiff::Timestamp::from_millisecond(first)
+        .ok()
+        .ok_or("invalid first cached timestamp")?;
+    let last = jiff::Timestamp::from_millisecond(last)
+        .ok()
+        .ok_or("invalid last cached timestamp")?;
+    let first = timezone.to_fixed_offset(first).date();
+    let last = timezone.to_fixed_offset(last).date();
     Ok(filter.since.is_none_or(|since| last >= since)
         && filter.until.is_none_or(|until| first <= until))
 }

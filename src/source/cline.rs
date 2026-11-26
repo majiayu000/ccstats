@@ -8,7 +8,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -191,8 +190,8 @@ fn numeric_timestamp(value: i64) -> Option<i64> {
 fn parse_timestamp(value: Option<&Value>) -> Option<i64> {
     let value = value?;
     if let Some(text) = value.as_str() {
-        if let Ok(timestamp) = DateTime::parse_from_rfc3339(text) {
-            return Some(timestamp.timestamp_millis());
+        if let Ok(timestamp) = text.parse::<jiff::Timestamp>() {
+            return Some(timestamp.as_millisecond());
         }
         return text.parse().ok().and_then(numeric_timestamp);
     }
@@ -352,7 +351,7 @@ fn parse_cline_cli_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOu
             output.errors += 1;
             continue;
         };
-        let Some(utc) = DateTime::<Utc>::from_timestamp_millis(timestamp_ms) else {
+        let Some(utc) = jiff::Timestamp::from_millisecond(timestamp_ms).ok() else {
             output.errors += 1;
             continue;
         };
@@ -367,12 +366,12 @@ fn parse_cline_cli_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOu
             agent_version: None,
             claude_diagnostics: None,
             response: None,
-            timestamp: utc.to_rfc3339(),
+            timestamp: crate::utils::rfc3339(utc),
             timestamp_ms,
             date_str: timezone
                 .to_fixed_offset(utc)
-                .date_naive()
-                .format(DATE_FORMAT)
+                .date()
+                .strftime(DATE_FORMAT)
                 .to_string(),
             message_id,
             session_key: format!("cline-cli:{}::{session_id}", path.display()),

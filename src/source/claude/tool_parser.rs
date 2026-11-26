@@ -38,8 +38,8 @@ pub(crate) fn parse_tool_calls(path: &Path, timezone: Timezone) -> Vec<ToolCall>
                     |at| {
                         timezone
                             .to_fixed_offset(at)
-                            .date_naive()
-                            .format(DATE_FORMAT)
+                            .date()
+                            .strftime(DATE_FORMAT)
                             .to_string()
                     },
                 ),

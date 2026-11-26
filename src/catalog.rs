@@ -9,7 +9,8 @@ pub use analysis::{
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::{NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -293,7 +294,7 @@ pub enum HistoryCostStatus {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DailyUsagePoint {
-    pub date: NaiveDate,
+    pub date: Date,
     pub currency: String,
     pub tokens: TokenBreakdown,
     pub records: i64,
@@ -311,7 +312,7 @@ pub struct UsageHistory {
     pub source_name: String,
     pub display_name: String,
     pub range: UsageRange,
-    pub as_of_date: NaiveDate,
+    pub as_of_date: Date,
     pub currency: String,
     pub points: Vec<DailyUsagePoint>,
     pub quality: AnalyticsQuality,
@@ -319,7 +320,7 @@ pub struct UsageHistory {
 
 struct AnalysisContext {
     range: UsageRange,
-    as_of_date: NaiveDate,
+    as_of_date: Date,
     filter: DateFilter,
     timezone: Timezone,
     pricing_db: PricingDb,
@@ -348,7 +349,7 @@ pub(crate) fn apply_cli_config(mut options: SummaryOptions) -> Result<SummaryOpt
 fn analysis_context(options: &SummaryOptions) -> Result<AnalysisContext, SdkError> {
     let timezone = Timezone::parse(options.timezone.as_deref())
         .map_err(|error| SdkError::Configuration(error.to_string()))?;
-    let today = timezone.to_fixed_offset(Utc::now()).date_naive();
+    let today = timezone.to_fixed_offset(Timestamp::now()).date();
     let (since, until) = options.range.resolve(today)?;
     let mut filter = DateFilter::new(since, until);
     if let Some((since_timestamp, until_timestamp)) = options.range.timestamp_bounds() {
@@ -609,7 +610,7 @@ pub fn usage_history(options: &SummaryOptions) -> Result<UsageHistory, SdkError>
         .day_stats
         .iter()
         .map(|(date, day)| {
-            let date = NaiveDate::parse_from_str(date, DATE_FORMAT).map_err(|error| {
+            let date = Date::strptime(DATE_FORMAT, date).map_err(|error| {
                 SdkError::Configuration(format!(
                     "invalid aggregated history date '{date}': {error}"
                 ))
@@ -784,7 +785,7 @@ mod tests {
         let models = HashMap::from([("provider-recorded".to_string(), stats.clone())]);
         let context = AnalysisContext {
             range: UsageRange::Today,
-            as_of_date: NaiveDate::from_ymd_opt(2026, 9, 2).expect("valid date"),
+            as_of_date: jiff::civil::Date::new(2026, 9, 2).expect("valid date"),
             filter: DateFilter::default(),
             timezone: Timezone::parse(Some("UTC")).expect("valid timezone"),
             pricing_db: PricingDb::default(),
@@ -857,10 +858,10 @@ mod tests {
             source_name: "claude".to_string(),
             display_name: "Claude Code".to_string(),
             range: crate::sdk::UsageRange::ThisMonth,
-            as_of_date: chrono::NaiveDate::from_ymd_opt(2026, 9, 2).unwrap(),
+            as_of_date: jiff::civil::Date::new(2026, 9, 2).unwrap(),
             currency: "USD".to_string(),
             points: vec![DailyUsagePoint {
-                date: chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
+                date: jiff::civil::Date::new(2026, 9, 1).unwrap(),
                 currency: "USD".to_string(),
                 tokens: crate::sdk::TokenBreakdown::default(),
                 records: 2,

@@ -109,13 +109,12 @@ pub(super) fn render(
 }
 
 fn prior_days(source_name: Option<&str>, ctx: &CommandContext<'_>) -> HashMap<String, DayStats> {
-    let today = ctx
-        .timezone
-        .to_fixed_offset(chrono::Utc::now())
-        .date_naive();
+    let today = ctx.timezone.to_fixed_offset(jiff::Timestamp::now()).date();
     let filter = DateFilter::new(
-        today.checked_sub_signed(chrono::Duration::days(7)),
-        today.pred_opt(),
+        today
+            .checked_sub(jiff::SignedDuration::from_hours(24 * 7))
+            .ok(),
+        today.yesterday().ok(),
     );
     let mut result = match source_name {
         Some("codex") => load_daily(

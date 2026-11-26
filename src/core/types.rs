@@ -602,16 +602,16 @@ impl RawEntry {
 /// Date filter for queries
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DateFilter {
-    pub(crate) since: Option<chrono::NaiveDate>,
-    pub(crate) until: Option<chrono::NaiveDate>,
+    pub(crate) since: Option<jiff::civil::Date>,
+    pub(crate) until: Option<jiff::civil::Date>,
     pub(crate) since_timestamp_ms: Option<i64>,
     pub(crate) until_timestamp_ms: Option<i64>,
-    since_timestamp: Option<chrono::DateTime<chrono::Utc>>,
-    until_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    since_timestamp: Option<jiff::Timestamp>,
+    until_timestamp: Option<jiff::Timestamp>,
 }
 
 impl DateFilter {
-    pub(crate) fn new(since: Option<chrono::NaiveDate>, until: Option<chrono::NaiveDate>) -> Self {
+    pub(crate) fn new(since: Option<jiff::civil::Date>, until: Option<jiff::civil::Date>) -> Self {
         Self {
             since,
             until,
@@ -631,11 +631,11 @@ impl DateFilter {
 
     pub(crate) fn with_exact_timestamp_range(
         mut self,
-        since: chrono::DateTime<chrono::Utc>,
-        until: chrono::DateTime<chrono::Utc>,
+        since: jiff::Timestamp,
+        until: jiff::Timestamp,
     ) -> Self {
-        self.since_timestamp_ms = Some(since.timestamp_millis());
-        self.until_timestamp_ms = Some(until.timestamp_millis());
+        self.since_timestamp_ms = Some(since.as_millisecond());
+        self.until_timestamp_ms = Some(until.as_millisecond());
         self.since_timestamp = Some(since);
         self.until_timestamp = Some(until);
         self
@@ -659,7 +659,7 @@ impl DateFilter {
         true
     }
 
-    pub(crate) fn contains_datetime(&self, timestamp: chrono::DateTime<chrono::Utc>) -> bool {
+    pub(crate) fn contains_datetime(&self, timestamp: jiff::Timestamp) -> bool {
         if let Some(since) = self.since_timestamp
             && timestamp < since
         {
@@ -671,7 +671,7 @@ impl DateFilter {
             return false;
         }
         if self.since_timestamp.is_none() && self.until_timestamp.is_none() {
-            return self.contains_timestamp(timestamp.timestamp_millis());
+            return self.contains_timestamp(timestamp.as_millisecond());
         }
         true
     }
@@ -679,13 +679,13 @@ impl DateFilter {
     pub(crate) fn contains_entry_timestamp(&self, timestamp: &str, timestamp_ms: i64) -> bool {
         if self.since_timestamp.is_some() || self.until_timestamp.is_some() {
             return timestamp
-                .parse::<chrono::DateTime<chrono::Utc>>()
+                .parse::<jiff::Timestamp>()
                 .is_ok_and(|timestamp| self.contains_datetime(timestamp));
         }
         self.contains_timestamp(timestamp_ms)
     }
 
-    pub(crate) fn contains(&self, date: chrono::NaiveDate) -> bool {
+    pub(crate) fn contains(&self, date: jiff::civil::Date) -> bool {
         if let Some(s) = self.since
             && date < s
         {

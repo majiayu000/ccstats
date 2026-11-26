@@ -3,7 +3,7 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 
 use crate::consts::DATE_FORMAT;
 use crate::core::{DayStats, Stats};
@@ -195,7 +195,7 @@ fn today_metric_cost(day: &DayStats, input: &PeriodConclusionInput<'_>) -> f64 {
 fn today_key(day_stats: &HashMap<String, DayStats>) -> Option<&str> {
     day_stats
         .keys()
-        .filter(|key| NaiveDate::parse_from_str(key, DATE_FORMAT).is_ok())
+        .filter(|key| Date::strptime(DATE_FORMAT, key).is_ok())
         .max()
         .map(String::as_str)
 }
@@ -204,14 +204,14 @@ fn prior_complete_days<'a>(
     day_stats: &'a HashMap<String, DayStats>,
     today: &str,
 ) -> Vec<&'a DayStats> {
-    let Ok(today_date) = NaiveDate::parse_from_str(today, DATE_FORMAT) else {
+    let Ok(today_date) = Date::strptime(DATE_FORMAT, today) else {
         return Vec::new();
     };
     let mut prior: Vec<_> = day_stats
         .iter()
         .filter_map(|(key, day)| {
-            let date = NaiveDate::parse_from_str(key, DATE_FORMAT).ok()?;
-            (date < today_date && today_date.signed_duration_since(date).num_days() <= 7)
+            let date = Date::strptime(DATE_FORMAT, key).ok()?;
+            (date < today_date && today_date.duration_since(date).as_hours() <= 7 * 24)
                 .then_some((date, day))
         })
         .collect();

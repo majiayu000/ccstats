@@ -480,7 +480,7 @@ fn entry_in_filter(entry: &RawEntry, filter: &DateFilter) -> bool {
     if filter.has_timestamp_range() {
         return filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms);
     }
-    chrono::NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
+    jiff::civil::Date::strptime(DATE_FORMAT, &entry.date_str)
         .is_ok_and(|date| filter.contains(date))
 }
 
@@ -628,7 +628,7 @@ mod tests {
         )
         .expect("write ledger");
 
-        let date = chrono::NaiveDate::from_ymd_opt(2026, 8, 16).unwrap();
+        let date = jiff::civil::Date::new(2026, 8, 16).unwrap();
         let (result, reports) = load_daily_with_cost_reports_from_files(
             &[updates_path, ledger_path],
             &DateFilter::new(Some(date), Some(date)),

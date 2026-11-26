@@ -14,7 +14,8 @@ use std::hash::{BuildHasher, Hasher};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -43,7 +44,7 @@ pub(crate) struct DeviceFile {
     pub(crate) ccstats_version: String,
     pub(crate) device_id: String,
     pub(crate) device_label: String,
-    pub(crate) generated_at: DateTime<Utc>,
+    pub(crate) generated_at: Timestamp,
     /// UTC offset that defined the exporting device's day boundaries.
     pub(crate) utc_offset: String,
     pub(crate) rows: Vec<DeviceRow>,
@@ -122,7 +123,7 @@ fn load_or_create_device_id_at(path: &Path) -> Result<String, String> {
 
 /// 128 random bits from the std hasher's OS-seeded keys, rendered as 32 hex chars.
 fn new_device_id() -> String {
-    let nanos = Utc::now().timestamp_nanos_opt().unwrap_or_default();
+    let nanos = i64::try_from(Timestamp::now().as_nanosecond()).unwrap_or_default();
     let mut id = String::with_capacity(32);
     for salt in 0..2_u8 {
         let mut hasher = RandomState::new().build_hasher();
@@ -162,7 +163,7 @@ pub(crate) fn build_device_file<'a>(
     device_id: &str,
     device_label: &str,
     utc_offset: &str,
-    generated_at: DateTime<Utc>,
+    generated_at: Timestamp,
     sources: impl IntoIterator<Item = (&'a str, &'a HashMap<String, DayStats>)>,
 ) -> DeviceFile {
     let mut merged: BTreeMap<(String, String, String), Stats> = BTreeMap::new();
@@ -326,7 +327,7 @@ fn parse_device_file(path: &Path) -> Result<DeviceFile, String> {
     if let Some(row) = file
         .rows
         .iter()
-        .find(|row| NaiveDate::parse_from_str(&row.date, "%Y-%m-%d").is_err())
+        .find(|row| Date::strptime("%Y-%m-%d", &row.date).is_err())
     {
         return Err(format!("invalid row date '{}'", row.date));
     }
@@ -430,7 +431,7 @@ impl DeviceMerge {
             if row.source != source {
                 continue;
             }
-            let Ok(date) = NaiveDate::parse_from_str(&row.date, "%Y-%m-%d") else {
+            let Ok(date) = Date::strptime("%Y-%m-%d", &row.date) else {
                 continue;
             };
             if !filter.contains(date) {

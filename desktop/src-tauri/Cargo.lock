@@ -10,12 +10,12 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agent-sessions"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8b9823b6ba030aedeb18e21403ec85abc2e998d87fe99ef774c7f8abcf2ef82"
+checksum = "cffbbacce772df5aa11cedcdbfbae97e6d35c01a6cb3ca383bf0a41104f65b08"
 dependencies = [
  "base64 0.22.1",
- "chrono",
+ "jiff",
  "memchr",
  "prost-reflect",
  "rusqlite",
@@ -428,12 +428,12 @@ version = "0.12.0"
 dependencies = [
  "agent-sessions",
  "base64 0.23.1",
- "chrono",
  "clap",
  "comfy-table",
  "dirs 7.0.0",
  "fs4",
  "glob",
+ "jiff",
  "json5",
  "jsonc-parser",
  "memchr",
@@ -515,10 +515,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 

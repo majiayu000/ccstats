@@ -50,7 +50,7 @@ pub(crate) struct CommandContext<'a> {
     pub(crate) number_format: NumberFormat,
     pub(crate) jq_filter: Option<&'a str>,
     pub(crate) currency: Option<&'a crate::pricing::CurrencyConverter>,
-    pub(crate) budget_as_of: chrono::NaiveDate,
+    pub(crate) budget_as_of: jiff::civil::Date,
     /// Other devices' synced rows; `None` keeps reports to this device.
     pub(crate) devices: Option<&'a crate::device_sync::DeviceMerge>,
 }
@@ -422,7 +422,7 @@ fn handle_statusline(source: &dyn Source, ctx: &CommandContext<'_>) {
     let scope = codex_scope_for_source(source, ctx);
     let label = source_label(source, ctx);
     let result = load_daily(source, ctx.filter, ctx.timezone, true, ctx.cli.debug);
-    let captured_at = chrono::Utc::now();
+    let captured_at = jiff::Timestamp::now();
     let hook = crate::quota::read_claude_hook_from_stdin().map(|hook| {
         crate::quota::append_claude_snapshot(&hook, captured_at);
         StatuslineHook {
@@ -737,7 +737,7 @@ pub(crate) fn handle_all_sources_command(command: SourceCommand, ctx: &CommandCo
         SourceCommand::Mcp => return crate::mcp_cmd::handle(ctx),
         SourceCommand::Statusline => {
             let (result, caps, _) = load_all_daily(ctx, true);
-            let captured_at = chrono::Utc::now();
+            let captured_at = jiff::Timestamp::now();
             let hook = crate::quota::read_claude_hook_from_stdin().map(|hook| {
                 crate::quota::append_claude_snapshot(&hook, captured_at);
                 StatuslineHook {

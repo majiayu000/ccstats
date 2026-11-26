@@ -9,7 +9,7 @@ use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
 use crate::utils::Timezone;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::pi_fork_paths::{
     diagnose_omp_files, diagnose_prime_files, find_gjc_files, find_omp_files, find_prime_files,
@@ -183,12 +183,14 @@ source_impl!(
 fn parse_timestamp(
     message_timestamp: Option<i64>,
     entry_timestamp: &str,
-) -> Result<DateTime<Utc>, &'static str> {
+) -> Result<Timestamp, &'static str> {
     if let Some(timestamp_ms) = message_timestamp {
-        return DateTime::from_timestamp_millis(timestamp_ms).ok_or("invalid message timestamp");
+        return jiff::Timestamp::from_millisecond(timestamp_ms)
+            .ok()
+            .ok_or("invalid message timestamp");
     }
-    DateTime::parse_from_rfc3339(entry_timestamp)
-        .map(|timestamp| timestamp.with_timezone(&Utc))
+    entry_timestamp
+        .parse::<jiff::Timestamp>()
         .map_err(|_| "invalid entry timestamp")
 }
 
@@ -237,7 +239,7 @@ fn usage_entry(
     let identity = format!(
         "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}",
         context.entry_id,
-        timestamp.timestamp_millis(),
+        timestamp.as_millisecond(),
         context.provider.unwrap_or_default(),
         context.model.unwrap_or_default(),
         usage.input,
@@ -253,12 +255,12 @@ fn usage_entry(
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
-        timestamp_ms: timestamp.timestamp_millis(),
+        timestamp: crate::utils::rfc3339(timestamp),
+        timestamp_ms: timestamp.as_millisecond(),
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(source_wide_message_id(profile.source, &identity)),
         session_key: format!("{}::{}", profile.source, header.id),

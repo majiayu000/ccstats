@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
@@ -232,7 +232,7 @@ fn parse_turn_line(
         return Ok(TurnLineOutcome::InvalidUsage);
     };
     let local_dt = timezone.to_fixed_offset(utc_dt);
-    let date_str = local_dt.date_naive().format(DATE_FORMAT).to_string();
+    let date_str = local_dt.date().strftime(DATE_FORMAT).to_string();
     let session_id = first_non_empty(&[params.and_then(|params| params.session_id.as_deref())])
         .unwrap_or_else(|| ctx.session_id.clone());
     let prompt_id = update.and_then(|update| update.prompt_id.as_deref());
@@ -298,8 +298,8 @@ fn parse_turn_line(
             agent_version: None,
             claude_diagnostics: None,
             response: None,
-            timestamp: utc_dt.to_rfc3339(),
-            timestamp_ms: utc_dt.timestamp_millis(),
+            timestamp: crate::utils::rfc3339(utc_dt),
+            timestamp_ms: utc_dt.as_millisecond(),
             date_str: date_str.clone(),
             message_id,
             session_key: ctx.session_key.clone(),
@@ -325,22 +325,22 @@ fn parse_turn_line(
     Ok(TurnLineOutcome::from_entries(entries))
 }
 
-fn event_time(envelope: &UpdateEnvelope) -> Option<DateTime<Utc>> {
+fn event_time(envelope: &UpdateEnvelope) -> Option<Timestamp> {
     let meta_ms = envelope
         .params
         .as_ref()
         .and_then(|params| params.meta.as_ref())
         .and_then(|meta| meta.agent_timestamp_ms)
         .filter(|ms| *ms > 0);
-    if let Some(timestamp) = meta_ms.and_then(DateTime::<Utc>::from_timestamp_millis) {
+    if let Some(timestamp) = meta_ms.and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok()) {
         return Some(timestamp);
     }
 
     let timestamp = envelope.timestamp.filter(|timestamp| *timestamp > 0)?;
     if timestamp > 1_000_000_000_000 {
-        DateTime::<Utc>::from_timestamp_millis(timestamp)
+        jiff::Timestamp::from_millisecond(timestamp).ok()
     } else {
-        DateTime::<Utc>::from_timestamp(timestamp, 0)
+        jiff::Timestamp::from_second(timestamp).ok()
     }
 }
 

@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use fs4::FileExt;
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::forecast::QuotaSample;
@@ -22,7 +22,7 @@ static SNAPSHOT_WRITE_WARNING: Once = Once::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct ClaudeQuotaSnapshot {
-    pub captured_at: DateTime<Utc>,
+    pub captured_at: Timestamp,
     pub version: Option<String>,
     pub five_hour: Option<RateWindow>,
     pub seven_day: Option<RateWindow>,
@@ -38,13 +38,11 @@ impl ClaudeQuotaState {
         self.snapshots.last()
     }
 
-    pub(crate) fn is_stale(&self, now: DateTime<Utc>) -> bool {
+    pub(crate) fn is_stale(&self, now: Timestamp) -> bool {
         let Some(latest) = self.latest() else {
             return true;
         };
-        now.signed_duration_since(latest.captured_at)
-            .to_std()
-            .unwrap_or(Duration::ZERO)
+        Duration::try_from(now.duration_since(latest.captured_at)).unwrap_or(Duration::ZERO)
             > STALE_AFTER
     }
 
@@ -64,7 +62,7 @@ impl ClaudeQuotaState {
                     window.used_percentage?,
                     window
                         .resets_at
-                        .and_then(|reset| DateTime::from_timestamp(reset, 0)),
+                        .and_then(|reset| jiff::Timestamp::from_second(reset).ok()),
                 ))
             })
             .collect()
@@ -93,7 +91,7 @@ fn acquire_lock(dir: &Path) -> Result<File, String> {
     Ok(lock)
 }
 
-pub(crate) fn append_claude_snapshot(hook: &ClaudeHook, captured_at: DateTime<Utc>) {
+pub(crate) fn append_claude_snapshot(hook: &ClaudeHook, captured_at: Timestamp) {
     if !hook.has_official_windows() {
         return;
     }
@@ -110,7 +108,7 @@ pub(crate) fn append_claude_snapshot(hook: &ClaudeHook, captured_at: DateTime<Ut
 fn append_claude_snapshot_to(
     dir: &Path,
     hook: &ClaudeHook,
-    captured_at: DateTime<Utc>,
+    captured_at: Timestamp,
 ) -> Result<(), String> {
     let path = dir.join(SNAPSHOT_FILE);
     let _lock = acquire_lock(dir)?;
@@ -158,7 +156,7 @@ mod tests {
     use super::*;
     use crate::quota::hook::parse_claude_hook;
 
-    fn snapshot(at: DateTime<Utc>, five: Option<RateWindow>) -> ClaudeQuotaSnapshot {
+    fn snapshot(at: Timestamp, five: Option<RateWindow>) -> ClaudeQuotaSnapshot {
         ClaudeQuotaSnapshot {
             captured_at: at,
             version: None,
@@ -169,8 +167,8 @@ mod tests {
 
     #[test]
     fn samples_and_stale() {
-        let t0 = DateTime::from_timestamp(1_000_000, 0).unwrap();
-        let t1 = t0 + chrono::Duration::hours(2);
+        let t0 = jiff::Timestamp::from_second(1_000_000).ok().unwrap();
+        let t1 = t0 + jiff::SignedDuration::from_hours(2);
         let state = ClaudeQuotaState {
             snapshots: vec![
                 snapshot(
@@ -196,12 +194,12 @@ mod tests {
             vec![QuotaSample::new(
                 t0,
                 10.0,
-                DateTime::from_timestamp(1_020_000, 0)
+                jiff::Timestamp::from_second(1_020_000).ok()
             )]
         );
         assert_eq!(state.samples(false), [] as [QuotaSample; 0]);
-        assert!(!state.is_stale(t1 + chrono::Duration::minutes(1)));
-        assert!(state.is_stale(t1 + chrono::Duration::minutes(11)));
+        assert!(!state.is_stale(t1 + jiff::SignedDuration::from_mins(1)));
+        assert!(state.is_stale(t1 + jiff::SignedDuration::from_mins(11)));
     }
 
     #[test]
@@ -212,7 +210,7 @@ mod tests {
         .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(SNAPSHOT_FILE);
-        append_claude_snapshot_to(dir.path(), &hook, Utc::now()).unwrap();
+        append_claude_snapshot_to(dir.path(), &hook, Timestamp::now()).unwrap();
         let loaded = load_claude_quota_state_from(&path);
         assert_eq!(loaded.snapshots.len(), 1);
         assert_eq!(

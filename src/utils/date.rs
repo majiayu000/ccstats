@@ -1,22 +1,38 @@
-use chrono::NaiveDate;
+use jiff::Timestamp;
+use jiff::civil::Date;
+use jiff::tz::TimeZone;
 
 use crate::consts::DATE_FORMAT;
 use crate::error::AppError;
 
-pub(crate) fn parse_date(s: &str) -> Result<NaiveDate, AppError> {
+pub(crate) fn parse_date(s: &str) -> Result<Date, AppError> {
     // Try YYYYMMDD
     if s.len() == 8
-        && let Ok(d) = NaiveDate::parse_from_str(s, "%Y%m%d")
+        && let Ok(d) = Date::strptime("%Y%m%d", s)
     {
         return Ok(d);
     }
     // Try YYYY-MM-DD
-    if let Ok(d) = NaiveDate::parse_from_str(s, DATE_FORMAT) {
+    if let Ok(d) = Date::strptime(DATE_FORMAT, s) {
         return Ok(d);
     }
     Err(AppError::InvalidDate {
         input: s.to_string(),
     })
+}
+
+/// RFC 3339 in UTC as ccstats has always written it: `+00:00`, and a fraction of
+/// 3, 6 or 9 digits only when the time has one.
+pub(crate) fn rfc3339(at: Timestamp) -> String {
+    let civil = at.to_zoned(TimeZone::UTC).datetime();
+    let nanos = civil.subsec_nanosecond();
+    let fraction = match nanos {
+        0 => String::new(),
+        n if n % 1_000_000 == 0 => format!(".{:03}", n / 1_000_000),
+        n if n % 1_000 == 0 => format!(".{:06}", n / 1_000),
+        n => format!(".{n:09}"),
+    };
+    format!("{}{fraction}+00:00", civil.strftime("%Y-%m-%dT%H:%M:%S"))
 }
 
 #[cfg(test)]
@@ -26,13 +42,13 @@ mod tests {
     #[test]
     fn parse_yyyymmdd_format() {
         let d = parse_date("20260212").unwrap();
-        assert_eq!(d, NaiveDate::from_ymd_opt(2026, 2, 12).unwrap());
+        assert_eq!(d, jiff::civil::date(2026, 2, 12));
     }
 
     #[test]
     fn parse_yyyy_mm_dd_format() {
         let d = parse_date("2026-02-12").unwrap();
-        assert_eq!(d, NaiveDate::from_ymd_opt(2026, 2, 12).unwrap());
+        assert_eq!(d, jiff::civil::date(2026, 2, 12));
     }
 
     #[test]
@@ -65,12 +81,33 @@ mod tests {
     #[test]
     fn parse_leap_day_valid() {
         let d = parse_date("2024-02-29").unwrap();
-        assert_eq!(d, NaiveDate::from_ymd_opt(2024, 2, 29).unwrap());
+        assert_eq!(d, jiff::civil::date(2024, 2, 29));
     }
 
     #[test]
     fn parse_leap_day_invalid_year() {
         assert!(parse_date("2025-02-29").is_err());
+    }
+
+    #[test]
+    fn rfc3339_keeps_the_previous_utc_form() {
+        let at = |s: &str| s.parse::<Timestamp>().unwrap();
+        assert_eq!(
+            rfc3339(at("2026-02-12T10:00:00Z")),
+            "2026-02-12T10:00:00+00:00"
+        );
+        assert_eq!(
+            rfc3339(at("2026-02-12T10:00:00.12Z")),
+            "2026-02-12T10:00:00.120+00:00"
+        );
+        assert_eq!(
+            rfc3339(at("2026-02-12T10:00:00.1234Z")),
+            "2026-02-12T10:00:00.123400+00:00"
+        );
+        assert_eq!(
+            rfc3339(at("2026-02-12T10:00:00.000000001Z")),
+            "2026-02-12T10:00:00.000000001+00:00"
+        );
     }
 
     #[test]

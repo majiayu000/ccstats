@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -131,15 +131,15 @@ fn non_empty(value: Option<String>) -> Option<String> {
 fn timestamp_from_row(
     message_timestamp: Option<i64>,
     row_timestamp: Option<&str>,
-) -> Result<DateTime<Utc>, &'static str> {
+) -> Result<Timestamp, &'static str> {
     if let Some(timestamp) = message_timestamp {
-        return DateTime::<Utc>::from_timestamp_millis(timestamp)
+        return jiff::Timestamp::from_millisecond(timestamp)
+            .ok()
             .filter(|_| timestamp > 0)
             .ok_or("invalid message timestamp");
     }
     row_timestamp
-        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-        .map(|value| value.with_timezone(&Utc))
+        .and_then(|value| value.parse::<jiff::Timestamp>().ok())
         .ok_or("missing or invalid entry timestamp")
 }
 
@@ -197,19 +197,19 @@ fn build_entry(
         .or_else(|| current_provider.map(str::to_string))
         .unwrap_or_else(|| UNKNOWN.to_string());
     let timestamp = timestamp_from_row(message.timestamp, row.timestamp.as_deref())?;
-    let timestamp_ms = timestamp.timestamp_millis();
+    let timestamp_ms = timestamp.as_millisecond();
     let is_copied_history = session_started_ms.is_some_and(|started| timestamp_ms < started);
 
     Ok(Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(timestamp),
         timestamp_ms,
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(source_wide_message_id("openclaw", &id)),
         session_key: format!("openclaw::{session_id}"),
@@ -286,8 +286,8 @@ fn parse_lines(lines: Vec<String>, timezone: Timezone) -> ParseOutput {
                 let Some(started_ms) = row
                     .timestamp
                     .as_deref()
-                    .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-                    .map(|value| value.timestamp_millis())
+                    .and_then(|value| value.parse::<jiff::Timestamp>().ok())
+                    .map(jiff::Timestamp::as_millisecond)
                 else {
                     output.errors += 1;
                     continue;

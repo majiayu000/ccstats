@@ -705,10 +705,10 @@ fn claude_blocks_csv_outputs_correct_format() {
 
 #[test]
 fn diagnose_json_text_errors_and_warm_cache_preserve_evidence() {
-    use chrono::{Duration, Utc};
+    use jiff::Timestamp;
     use serde_json::json;
     let home = unique_temp_dir("claude-diagnose");
-    let at = (Utc::now() - Duration::minutes(10)).to_rfc3339();
+    let at = (Timestamp::now() - jiff::SignedDuration::from_mins(10)).to_string();
     let prompt = json!({"type":"user","version":"2.1.286","message":{"content":"private prompt must never appear in diagnosis"}}).to_string();
     let usage = json!({"type":"assistant","timestamp":at,"message":{"id":"msg-diagnose","model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100,"cache_read_input_tokens":20,"inference_geo":"not_available"}}}).to_string();
     write_file(

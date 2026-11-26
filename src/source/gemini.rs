@@ -9,7 +9,6 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_json::Value;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -125,8 +124,8 @@ fn non_empty_string(value: Option<&Value>) -> Option<String> {
 }
 
 fn parse_timestamp_text(value: &str) -> Option<i64> {
-    if let Ok(timestamp) = DateTime::parse_from_rfc3339(value) {
-        return Some(timestamp.timestamp_millis());
+    if let Ok(timestamp) = value.parse::<jiff::Timestamp>() {
+        return Some(timestamp.as_millisecond());
     }
     for format in [
         "%Y-%m-%dT%H:%M:%S%.f",
@@ -134,8 +133,11 @@ fn parse_timestamp_text(value: &str) -> Option<i64> {
         "%Y-%m-%d %H:%M:%S%.f",
         "%Y-%m-%d %H:%M:%S",
     ] {
-        if let Ok(timestamp) = NaiveDateTime::parse_from_str(value, format) {
-            return Some(timestamp.and_utc().timestamp_millis());
+        if let Ok(timestamp) = jiff::civil::DateTime::strptime(format, value) {
+            return timestamp
+                .to_zoned(jiff::tz::TimeZone::UTC)
+                .ok()
+                .map(|at| at.timestamp().as_millisecond());
         }
     }
     value.parse::<i64>().ok().and_then(parse_numeric_timestamp)
@@ -217,7 +219,7 @@ fn build_entry(
     tokens: GeminiTokens,
     message_id: Option<String>,
 ) -> Option<RawEntry> {
-    let utc = DateTime::<Utc>::from_timestamp_millis(timestamp_ms)?;
+    let utc = jiff::Timestamp::from_millisecond(timestamp_ms).ok()?;
     let (input, cache_read) = normalized_session_input(&tokens);
     let input_tokens = input.saturating_add(tokens.tool.max(0));
     let output_tokens = tokens.output.max(0);
@@ -234,12 +236,12 @@ fn build_entry(
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: utc.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(utc),
         timestamp_ms,
         date_str: timezone
             .to_fixed_offset(utc)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id,
         session_key: format!("{}::{session_id}", path.display()),

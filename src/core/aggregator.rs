@@ -2,7 +2,7 @@
 //!
 //! Converts raw entries into various aggregated views (daily, session, etc.)
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use std::collections::HashMap;
 
 use crate::core::types::{
@@ -219,8 +219,10 @@ fn floor_to_utc_hour_ms(timestamp_ms: i64) -> i64 {
     timestamp_ms.div_euclid(UTC_HOUR_MS) * UTC_HOUR_MS
 }
 
-fn local_from_utc_ms(utc_ms: i64, timezone: Timezone) -> DateTime<chrono::FixedOffset> {
-    let utc = DateTime::<Utc>::from_timestamp_millis(utc_ms).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
+fn local_from_utc_ms(utc_ms: i64, timezone: Timezone) -> jiff::Zoned {
+    let utc = jiff::Timestamp::from_millisecond(utc_ms)
+        .ok()
+        .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
     timezone.to_fixed_offset(utc)
 }
 
@@ -233,8 +235,8 @@ fn into_block_stats(
     let local_start = local_from_utc_ms(start_ms, timezone);
     let local_end = local_from_utc_ms(start_ms + SESSION_WINDOW_MS, timezone);
     BlockStats {
-        block_start: local_start.format("%Y-%m-%d %H:%M").to_string(),
-        block_end: local_end.format("%H:%M").to_string(),
+        block_start: local_start.strftime("%Y-%m-%d %H:%M").to_string(),
+        block_end: local_end.strftime("%H:%M").to_string(),
         start_ms,
         stats,
         models,
@@ -248,9 +250,9 @@ fn into_block_stats(
 /// invent a 0% remaining quota when this returns `None`.
 pub(crate) fn select_active_block(
     blocks: &[BlockStats],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Option<(&BlockStats, i64)> {
-    let now_ms = now.timestamp_millis();
+    let now_ms = now.as_millisecond();
     blocks.iter().find_map(|block| {
         let end_ms = block.start_ms.saturating_add(SESSION_WINDOW_MS);
         (now_ms >= block.start_ms && now_ms < end_ms).then_some((block, end_ms - now_ms))
@@ -275,7 +277,10 @@ pub(crate) fn aggregate_blocks(mut entries: Vec<RawEntry>, timezone: Timezone) -
     let mut models: HashMap<String, Stats> = HashMap::new();
 
     for entry in entries {
-        if DateTime::<Utc>::from_timestamp_millis(entry.timestamp_ms).is_none() {
+        if jiff::Timestamp::from_millisecond(entry.timestamp_ms)
+            .ok()
+            .is_none()
+        {
             continue;
         }
         let entry_stats = entry.to_stats();
@@ -315,7 +320,6 @@ pub(crate) fn aggregate_blocks(mut entries: Vec<RawEntry>, timezone: Timezone) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     fn make_entry(
         date: &str,
@@ -789,15 +793,18 @@ mod tests {
 
     // --- aggregate_blocks (activity-driven session windows) ---
 
-    fn utc(hour: u32, min: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2025, 1, 1, hour, min, 0).unwrap()
+    fn utc(hour: i8, min: i8) -> Timestamp {
+        jiff::civil::datetime(2025, 1, 1, hour, min, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .map(|at| at.timestamp())
+            .unwrap()
     }
 
     fn utc_tz() -> Timezone {
         Timezone::parse(Some("UTC")).unwrap()
     }
 
-    fn entry_at(dt: DateTime<Utc>, input: i64) -> RawEntry {
+    fn entry_at(dt: Timestamp, input: i64) -> RawEntry {
         make_entry(
             "2025-01-01",
             "s1",
@@ -805,7 +812,7 @@ mod tests {
             "claude",
             input,
             50,
-            dt.timestamp_millis(),
+            dt.as_millisecond(),
         )
     }
 
@@ -844,7 +851,7 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].block_start, "2025-01-01 02:00");
         assert_eq!(result[0].block_end, "07:00");
-        assert_eq!(result[0].start_ms, utc(2, 0).timestamp_millis());
+        assert_eq!(result[0].start_ms, utc(2, 0).as_millisecond());
         assert_eq!(result[0].stats.input_tokens, 300);
         assert_eq!(result[1].block_start, "2025-01-01 08:00");
         assert_eq!(result[1].block_end, "13:00");
@@ -901,7 +908,10 @@ mod tests {
     #[test]
     fn session_window_labels_convert_floored_utc_to_local() {
         let timezone = Timezone::parse(Some("Asia/Tokyo")).unwrap();
-        let t1 = Utc.with_ymd_and_hms(2025, 6, 15, 10, 55, 0).unwrap();
+        let t1 = jiff::civil::datetime(2025, 6, 15, 10, 55, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .map(|at| at.timestamp())
+            .unwrap();
         let result = aggregate_blocks(vec![entry_at(t1, 100)], timezone);
         // 10:00 UTC → 19:00 +09:00; window end 15:00 UTC → 00:00 local.
         assert_eq!(result[0].block_start, "2025-06-15 19:00");
@@ -913,7 +923,10 @@ mod tests {
         // DST ends 2025-11-02 02:00 America/New_York (07:00 UTC).
         // 04:30Z floors to 04:00Z = 00:00 EDT; window end 09:00Z = 04:00 EST.
         let timezone = Timezone::parse(Some("America/New_York")).unwrap();
-        let t1 = Utc.with_ymd_and_hms(2025, 11, 2, 4, 30, 0).unwrap();
+        let t1 = jiff::civil::datetime(2025, 11, 2, 4, 30, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .map(|at| at.timestamp())
+            .unwrap();
         let result = aggregate_blocks(vec![entry_at(t1, 100)], timezone);
         assert_eq!(result[0].block_start, "2025-11-02 00:00");
         assert_eq!(result[0].block_end, "04:00");

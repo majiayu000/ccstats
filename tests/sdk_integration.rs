@@ -9,7 +9,7 @@ use ccstats::{
     estimate_codex_weekly_value, estimate_codex_weekly_value_for_window, forecast_limit,
     load_codex_weekly_quota, summarize_cost, summarize_cost_ranges,
 };
-use chrono::{Datelike, Days, Duration, NaiveDate, Timelike, Utc};
+use jiff::Timestamp;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -41,8 +41,8 @@ fn sdk_session_titles_respect_source_roots_and_leave_accounting_unchanged() {
     let options = SummaryOptions {
         source: UsageSource::Claude,
         range: UsageRange::DateRange {
-            since: NaiveDate::from_ymd_opt(2026, 9, 2),
-            until: NaiveDate::from_ymd_opt(2026, 9, 2),
+            since: jiff::civil::Date::new(2026, 9, 2).ok(),
+            until: jiff::civil::Date::new(2026, 9, 2).ok(),
         },
         timezone: Some("UTC".into()),
         offline: true,
@@ -82,11 +82,11 @@ fn sdk_loads_codex_weekly_quota_from_explicit_home() {
         "isolated-[quota]*-home"
     });
     let session_file = codex_home.join("sessions").join("quota.jsonl");
-    let now = Utc::now();
-    let observed_at = now - Duration::hours(1);
-    let resets_at = now + Duration::days(6);
+    let now = Timestamp::now();
+    let observed_at = now - jiff::SignedDuration::from_hours(1);
+    let resets_at = now + jiff::SignedDuration::from_hours(24 * 6);
     let event = serde_json::json!({
-        "timestamp": observed_at.to_rfc3339(),
+        "timestamp": observed_at.to_string(),
         "type": "event_msg",
         "payload": {
             "type": "token_count",
@@ -94,7 +94,7 @@ fn sdk_loads_codex_weekly_quota_from_explicit_home() {
                 "secondary": {
                     "used_percent": 25.0,
                     "window_minutes": 10_080,
-                    "resets_at": resets_at.timestamp(),
+                    "resets_at": resets_at.as_second(),
                 }
             }
         }
@@ -104,7 +104,7 @@ fn sdk_loads_codex_weekly_quota_from_explicit_home() {
     let report = load_codex_weekly_quota(Some(&codex_home)).expect("load quota report");
 
     assert_eq!(report.observed_at, observed_at);
-    assert_eq!(report.resets_at.timestamp(), resets_at.timestamp());
+    assert_eq!(report.resets_at.as_second(), resets_at.as_second());
     assert_eq!(report.window_minutes, 10_080);
     assert_eq!(report.used_pct, 25.0);
     assert_eq!(report.remaining_pct, 75.0);
@@ -125,12 +125,16 @@ fn sdk_estimates_codex_weekly_api_equivalent_value() {
     let root = tempfile::tempdir().expect("temp dir");
     let codex_home = root.path().join("codex-home");
     let session_file = codex_home.join("sessions").join("quota-and-usage.jsonl");
-    let observed_at = (Utc::now() - Duration::hours(1))
-        .with_nanosecond(0)
+    let observed_at = (Timestamp::now() - jiff::SignedDuration::from_hours(1))
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
         .expect("valid timestamp");
-    let resets_at = observed_at + Duration::days(6);
+    let resets_at = observed_at + jiff::SignedDuration::from_hours(24 * 6);
     let event = serde_json::json!({
-        "timestamp": observed_at.to_rfc3339(),
+        "timestamp": observed_at.to_string(),
         "type": "event_msg",
         "payload": {
             "type": "token_count",
@@ -155,7 +159,7 @@ fn sdk_estimates_codex_weekly_api_equivalent_value() {
                 "secondary": {
                     "used_percent": 25.0,
                     "window_minutes": 10_080,
-                    "resets_at": resets_at.timestamp(),
+                    "resets_at": resets_at.as_second(),
                 }
             }
         }
@@ -168,7 +172,7 @@ fn sdk_estimates_codex_weekly_api_equivalent_value() {
     assert_eq!(estimate.observed_at, observed_at);
     assert_eq!(
         estimate.window_started_at,
-        resets_at - Duration::minutes(10_080)
+        resets_at - jiff::SignedDuration::from_mins(10_080)
     );
     assert_eq!(estimate.observed_tokens, 1_100_000);
     assert!(estimate.observed_cost_usd > 0.0);
@@ -185,12 +189,16 @@ fn sdk_estimates_codex_value_for_an_explicit_exact_window() {
     let root = tempfile::tempdir().expect("temp dir");
     let codex_home = root.path().join("codex-home");
     let session_file = codex_home.join("sessions").join("usage.jsonl");
-    let observed_at = (Utc::now() - Duration::hours(1))
-        .with_nanosecond(0)
+    let observed_at = (Timestamp::now() - jiff::SignedDuration::from_hours(1))
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
         .expect("valid timestamp");
-    let resets_at = observed_at + Duration::days(6);
-    let before_window = observed_at - Duration::days(8);
-    let in_window = observed_at - Duration::hours(12);
+    let resets_at = observed_at + jiff::SignedDuration::from_hours(24 * 6);
+    let before_window = observed_at - jiff::SignedDuration::from_hours(24 * 8);
+    let in_window = observed_at - jiff::SignedDuration::from_hours(12);
     let usage_event = |timestamp, total: i64, delta: i64| {
         serde_json::json!({
             "timestamp": timestamp,
@@ -246,12 +254,16 @@ fn sdk_explicit_window_rejects_usage_without_a_timestamp() {
     let root = tempfile::tempdir().expect("temp dir");
     let codex_home = root.path().join("codex-home");
     let session_file = codex_home.join("sessions").join("usage.jsonl");
-    let observed_at = (Utc::now() - Duration::hours(1))
-        .with_nanosecond(0)
+    let observed_at = (Timestamp::now() - jiff::SignedDuration::from_hours(1))
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
         .expect("valid timestamp");
-    let resets_at = observed_at + Duration::days(6);
+    let resets_at = observed_at + jiff::SignedDuration::from_hours(24 * 6);
     let valid = serde_json::json!({
-        "timestamp": observed_at - Duration::minutes(1),
+        "timestamp": observed_at - jiff::SignedDuration::from_mins(1),
         "type": "event_msg",
         "payload": {
             "type": "token_count",
@@ -477,8 +489,8 @@ fn sdk_summarizes_codex_cost_without_running_cli() {
     let summary = summarize_cost(SummaryOptions {
         source: UsageSource::Codex,
         range: UsageRange::DateRange {
-            since: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
-            until: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+            since: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
+            until: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
         },
         timezone: Some("UTC".to_string()),
         offline: true,
@@ -528,8 +540,8 @@ fn sdk_preserves_unknown_codex_model_and_real_token_provenance() {
             summarize_cost(SummaryOptions {
                 source: UsageSource::Codex,
                 range: UsageRange::DateRange {
-                    since: NaiveDate::from_ymd_opt(2026, 2, 6),
-                    until: NaiveDate::from_ymd_opt(2026, 2, 6),
+                    since: jiff::civil::Date::new(2026, 2, 6).ok(),
+                    until: jiff::civil::Date::new(2026, 2, 6).ok(),
                 },
                 timezone: Some("UTC".to_string()),
                 offline: true,
@@ -562,11 +574,10 @@ fn sdk_batch_summarizes_codex_ranges_like_repeated_single_calls() {
     let codex_home = root.path().join("codex-home");
     let session_file = codex_home.join("sessions").join("sdk-batch-session.jsonl");
 
-    let today = Utc::now().date_naive();
-    let week_start = today
-        .checked_sub_days(Days::new(u64::from(today.weekday().num_days_from_monday())))
-        .unwrap();
-    let month_start = today.with_day(1).unwrap();
+    let today = Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC).date();
+    let days_since_monday = i64::from(today.weekday().to_monday_zero_offset());
+    let week_start = today - jiff::SignedDuration::from_hours(24 * days_since_monday);
+    let month_start = today.first_of_month();
     write_file(
         &session_file,
         &format!(
@@ -663,8 +674,8 @@ fn sdk_batch_deduplicates_replayed_codex_token_counts_across_files() {
     let batch = summarize_cost_ranges(MultiSummaryOptions {
         source: UsageSource::Codex,
         ranges: vec![UsageRange::DateRange {
-            since: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
-            until: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+            since: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
+            until: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
         }],
         timezone: Some("UTC".to_string()),
         offline: true,
@@ -709,8 +720,8 @@ fn sdk_batch_respects_timezone_boundaries_like_single_range() {
     }
 
     let range = UsageRange::DateRange {
-        since: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
-        until: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+        since: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
+        until: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
     };
     let shanghai_batch = summarize_cost_ranges(MultiSummaryOptions {
         source: UsageSource::Codex,
@@ -830,8 +841,8 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     let summary = summarize_cost(SummaryOptions {
         source: UsageSource::Grok,
         range: UsageRange::DateRange {
-            since: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
-            until: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+            since: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
+            until: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
         },
         timezone: Some("UTC".to_string()),
         offline: true,
@@ -883,8 +894,8 @@ fn sdk_summarizes_grok_context_tokens_without_running_cli() {
     let batch = summarize_cost_ranges(MultiSummaryOptions {
         source: UsageSource::Grok,
         ranges: vec![UsageRange::DateRange {
-            since: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
-            until: Some(NaiveDate::from_ymd_opt(2026, 2, 6).unwrap()),
+            since: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
+            until: Some(jiff::civil::Date::new(2026, 2, 6).unwrap()),
         }],
         timezone: Some("UTC".to_string()),
         offline: true,
@@ -1007,12 +1018,22 @@ fn sdk_exposes_grok_partial_cost_estimate_for_exact_window() {
 
 #[test]
 fn sdk_forecasts_limit_exhaustion_from_samples() {
-    let now = Utc::now().with_nanosecond(0).unwrap();
-    let resets_at = now + Duration::hours(3);
+    let now = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
+        .unwrap();
+    let resets_at = now + jiff::SignedDuration::from_hours(3);
     let history: Vec<QuotaSample> = [(2, 20.0), (1, 40.0)]
         .into_iter()
         .map(|(hours_ago, pct)| {
-            QuotaSample::new(now - Duration::hours(hours_ago), pct, Some(resets_at))
+            QuotaSample::new(
+                now - jiff::SignedDuration::from_hours(hours_ago),
+                pct,
+                Some(resets_at),
+            )
         })
         .collect();
     let forecast = forecast_limit(&ForecastInput::new(
@@ -1027,7 +1048,7 @@ fn sdk_forecasts_limit_exhaustion_from_samples() {
     assert_eq!(forecast.burn_pct_per_hour, Some(20.0));
     assert_eq!(
         forecast.projected_exhaustion_at,
-        Some(now + Duration::hours(2))
+        Some(now + jiff::SignedDuration::from_hours(2))
     );
     assert_eq!(forecast.exhausts_before_reset, Some(true));
 

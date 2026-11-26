@@ -7,7 +7,6 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -206,7 +205,8 @@ fn chat_entry(record: &Value, timezone: Timezone) -> Result<Option<RawEntry>, &'
     if end_ms.is_some_and(|end_ms| end_ms < start_ms) {
         return Err("span end precedes start");
     }
-    let timestamp = DateTime::<Utc>::from_timestamp_millis(start_ms)
+    let timestamp = jiff::Timestamp::from_millisecond(start_ms)
+        .ok()
         .ok_or("span time is outside supported range")?;
 
     let trace_id = record
@@ -239,12 +239,12 @@ fn chat_entry(record: &Value, timezone: Timezone) -> Result<Option<RawEntry>, &'
             output_tokens: output_total,
             duration_ms: end_ms.map(|end_ms| end_ms - start_ms),
         }),
-        timestamp: timestamp.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(timestamp),
         timestamp_ms: start_ms,
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: message_identity
             .as_deref()

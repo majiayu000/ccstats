@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use crate::core::{DataQuality, DayStats, Stats};
 use crate::output::format::{
@@ -17,7 +17,7 @@ use crate::quota::{ClaudeHook, Confidence, CostSource, format_reset_countdown};
 pub(crate) struct StatuslineHook {
     pub hook: ClaudeHook,
     pub cost_source: CostSource,
-    pub captured_at: DateTime<Utc>,
+    pub captured_at: Timestamp,
 }
 
 struct Totals {
@@ -128,7 +128,7 @@ pub(crate) fn print_statusline_json_with_quality(
     } else {
         Confidence::Estimated
     };
-    let captured_at = hook.map_or_else(Utc::now, |h| h.captured_at);
+    let captured_at = hook.map_or_else(jiff::Timestamp::now, |h| h.captured_at);
 
     let mut output = serde_json::json!({
         "source": source_label,
@@ -144,7 +144,7 @@ pub(crate) fn print_statusline_json_with_quality(
         "total_tokens": t.stats.total_tokens(),
         "cost": cost_json_value(display_cost, currency),
         "confidence": confidence.as_str(),
-        "captured_at": captured_at.to_rfc3339(),
+        "captured_at": crate::utils::rfc3339(captured_at),
         "formatted": {
             "cost": format_statusline_cost(t.cost, currency, hook),
             "input": format_compact(t.stats.input_tokens, number_format),
@@ -353,7 +353,7 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let captured_at = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let captured_at = jiff::Timestamp::from_second(1_700_000_000).ok().unwrap();
         let json = print_statusline_json_with_quality(
             &HashMap::new(),
             &PricingDb::default(),
@@ -370,7 +370,7 @@ mod tests {
             }),
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let captured = captured_at.to_rfc3339();
+        let captured = crate::utils::rfc3339(captured_at);
         assert_eq!(v["confidence"].as_str(), Some("official"));
         assert_eq!(v["context_used_pct"].as_f64(), Some(42.0));
         assert_eq!(v["cc_cost"].as_f64(), Some(1.5));

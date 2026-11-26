@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -123,7 +123,7 @@ fn valid_rollup_parent(path: &Path, usage: &UsageFile) -> bool {
             .map(|request| request.timestamp)
             .or_else(|| file_timestamp(path))
             .filter(|timestamp| *timestamp > 0)
-            .and_then(DateTime::<Utc>::from_timestamp_millis)
+            .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
             .is_some()
         && !usage.by_model.is_empty()
         && usage.by_model.iter().all(|(model_key, usage)| {
@@ -283,7 +283,7 @@ fn file_timestamp(path: &Path) -> Option<i64> {
 }
 
 fn usage_entry(
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
     date_str: &str,
     workspace_id: &str,
     model_key: &str,
@@ -295,8 +295,8 @@ fn usage_entry(
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
-        timestamp_ms: timestamp.timestamp_millis(),
+        timestamp: crate::utils::rfc3339(timestamp),
+        timestamp_ms: timestamp.as_millisecond(),
         date_str: date_str.to_string(),
         message_id: Some(source_wide_message_id(
             "xum",
@@ -362,7 +362,7 @@ fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput
         .or_else(|| file_timestamp(path));
     let Some(timestamp) = timestamp_ms
         .filter(|value| *value > 0)
-        .and_then(DateTime::<Utc>::from_timestamp_millis)
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
     else {
         return ParseOutput {
             entries: Vec::new(),
@@ -375,8 +375,8 @@ fn parse_usage_file(path: &Path, timezone: Timezone, debug: bool) -> ParseOutput
     );
     let date_str = timezone
         .to_fixed_offset(timestamp)
-        .date_naive()
-        .format(DATE_FORMAT)
+        .date()
+        .strftime(DATE_FORMAT)
         .to_string();
     let mut output = ParseOutput {
         entries: Vec::new(),

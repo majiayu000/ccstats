@@ -7,7 +7,6 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
@@ -146,10 +145,11 @@ fn entry_from_record(
         };
     }
 
-    let timestamp = DateTime::parse_from_rfc3339(&record.timestamp)
-        .map_err(|_| "invalid timestamp")?
-        .with_timezone(&Utc);
-    let timestamp_ms = timestamp.timestamp_millis();
+    let timestamp = record
+        .timestamp
+        .parse::<jiff::Timestamp>()
+        .map_err(|_| "invalid timestamp")?;
+    let timestamp_ms = timestamp.as_millisecond();
     let session_id = record.session_id.trim().to_string();
 
     Ok(Some(RawEntry {
@@ -159,12 +159,12 @@ fn entry_from_record(
             output_tokens: record.output_tokens.saturating_add(record.thoughts_tokens),
             duration_ms: record.api_duration_ms,
         }),
-        timestamp: timestamp.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(timestamp),
         timestamp_ms,
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: None,
         session_key: format!("{}::{session_id}", path.display()),

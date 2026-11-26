@@ -9,7 +9,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, TimeZone, Utc};
+use jiff::Timestamp;
 use serde_json::Value;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -40,7 +40,8 @@ pub(super) fn find_cursor_files(filter: &DateFilter, timezone: Timezone) -> Vec<
         });
         let end_ms = filter.until_timestamp_ms.or_else(|| {
             filter.until.and_then(|date| {
-                date.succ_opt()
+                date.tomorrow()
+                    .ok()
                     .and_then(|next| timezone.date_start_utc_millis(next))
                     .map(|next_start| next_start.saturating_sub(1))
             })
@@ -191,9 +192,9 @@ fn entry_from_event(event: &Value, ordinal: usize, timezone: Timezone) -> Option
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: utc_dt.to_rfc3339(),
-        timestamp_ms: utc_dt.timestamp_millis(),
-        date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),
+        timestamp: crate::utils::rfc3339(utc_dt),
+        timestamp_ms: utc_dt.as_millisecond(),
+        date_str: local_dt.date().strftime(DATE_FORMAT).to_string(),
         message_id: Some(message_id),
         session_key: format!("cursor:{session_id}"),
         session_id,
@@ -262,13 +263,13 @@ fn token_count_at(value: &Value, paths: &[&[&str]]) -> i64 {
         .max(0)
 }
 
-fn timestamp_from_value(value: &Value) -> Option<DateTime<Utc>> {
+fn timestamp_from_value(value: &Value) -> Option<Timestamp> {
     if let Some(timestamp) = first_string(value, &[&["timestamp"], &["createdAt"], &["time"]]) {
-        if let Ok(parsed) = timestamp.parse::<DateTime<Utc>>() {
+        if let Ok(parsed) = timestamp.parse::<Timestamp>() {
             return Some(parsed);
         }
         if let Ok(millis) = timestamp.parse::<i64>() {
-            return Utc.timestamp_millis_opt(millis).single();
+            return jiff::Timestamp::from_millisecond(millis).ok();
         }
     }
 
@@ -276,7 +277,7 @@ fn timestamp_from_value(value: &Value) -> Option<DateTime<Utc>> {
         .or_else(|| integer_at(value, &["createdAt"]))
         .or_else(|| integer_at(value, &["unixMs"]))
         .or_else(|| integer_at(value, &["timestampMs"]))?;
-    Utc.timestamp_millis_opt(millis).single()
+    jiff::Timestamp::from_millisecond(millis).ok()
 }
 
 fn integer_at(value: &Value, path: &[&str]) -> Option<i64> {

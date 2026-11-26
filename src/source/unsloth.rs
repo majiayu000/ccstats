@@ -6,7 +6,7 @@ use std::env;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -249,11 +249,13 @@ fn chat_tokens(metadata: &Metadata) -> Result<Option<TokenRecord>, &'static str>
     }))
 }
 
-fn timestamp(value: i64) -> Result<DateTime<Utc>, &'static str> {
+fn timestamp(value: i64) -> Result<Timestamp, &'static str> {
     if value <= 0 {
         return Err("invalid timestamp");
     }
-    DateTime::<Utc>::from_timestamp_millis(value).ok_or("timestamp outside supported range")
+    jiff::Timestamp::from_millisecond(value)
+        .ok()
+        .ok_or("timestamp outside supported range")
 }
 
 struct EntryMeta {
@@ -265,7 +267,7 @@ struct EntryMeta {
 }
 
 fn entry(
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
     timezone: Timezone,
     meta: EntryMeta,
     tokens: TokenRecord,
@@ -274,12 +276,12 @@ fn entry(
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
-        timestamp_ms: timestamp.timestamp_millis(),
+        timestamp: crate::utils::rfc3339(timestamp),
+        timestamp_ms: timestamp.as_millisecond(),
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(meta.message_id),
         session_key: format!("unsloth::{}", meta.session_id),

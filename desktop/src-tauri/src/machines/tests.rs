@@ -149,8 +149,8 @@ fn freshness_and_rollup_are_independent_for_each_range() {
         .iter_mut()
         .for_each(|row| row.currency = "EUR".to_string());
     let mut windows = current_usage_windows_with_cli_config().expect("usage windows");
-    windows[0].since = windows[0].since.pred_opt().expect("previous day");
-    windows[0].until = windows[0].until.pred_opt().expect("previous day");
+    windows[0].since = windows[0].since.yesterday().expect("previous day");
+    windows[0].until = windows[0].until.yesterday().expect("previous day");
     windows[0].since_utc_ms -= 24 * 60 * 60 * 1_000;
     windows[0].until_exclusive_utc_ms -= 24 * 60 * 60 * 1_000;
     source.summaries[0].since = Some(windows[0].since);

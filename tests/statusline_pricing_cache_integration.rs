@@ -1,4 +1,4 @@
-use chrono::Utc;
+use jiff::Timestamp;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -68,7 +68,7 @@ fn statusline_offline_corrupt_pricing_cache_fails_closed() {
     let root = unique_temp_dir("statusline-corrupt-pricing");
     let xdg_cache = root.join("xdg-cache");
     write_pricing_cache(&root, &xdg_cache, "{not json");
-    let today = Utc::now().format("%Y-%m-%dT12:00:00Z").to_string();
+    let today = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z").to_string();
     let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
     write_file(
         &claude_file,

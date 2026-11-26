@@ -2,7 +2,7 @@
 
 use std::io::{IsTerminal, Read};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
@@ -115,16 +115,16 @@ pub(crate) fn read_claude_hook_from_stdin() -> Option<ClaudeHook> {
     parse_claude_hook(&buf)
 }
 
-pub(crate) fn format_reset_countdown(resets_at: i64, now: DateTime<Utc>) -> String {
-    let Some(reset) = DateTime::from_timestamp(resets_at, 0) else {
+pub(crate) fn format_reset_countdown(resets_at: i64, now: Timestamp) -> String {
+    let Some(reset) = jiff::Timestamp::from_second(resets_at).ok() else {
         return "?".to_string();
     };
-    let delta = reset.signed_duration_since(now);
-    if delta.num_seconds() <= 0 {
+    let delta = reset.duration_since(now);
+    if delta.as_secs() <= 0 {
         return "now".to_string();
     }
-    let hours = delta.num_hours();
-    let minutes = delta.num_minutes() % 60;
+    let hours = delta.as_hours();
+    let minutes = delta.as_mins() % 60;
     if hours >= 24 {
         format!("{}d{}h", hours / 24, hours % 24)
     } else if hours > 0 {
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn countdown_formats_hours_and_days() {
-        let now = DateTime::from_timestamp(1_000_000, 0).unwrap();
+        let now = jiff::Timestamp::from_second(1_000_000).ok().unwrap();
         assert_eq!(format_reset_countdown(1_000_000 + 130 * 60, now), "2h10m");
         assert_eq!(format_reset_countdown(1_000_000 + 26 * 3600, now), "1d2h");
     }

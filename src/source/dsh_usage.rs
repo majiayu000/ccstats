@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
@@ -65,18 +64,19 @@ pub(super) fn usage_entry(
         }
         None => None,
     };
-    let timestamp =
-        DateTime::<Utc>::from_timestamp_millis(event_time).ok_or("invalid timestamp")?;
+    let timestamp = jiff::Timestamp::from_millisecond(event_time)
+        .ok()
+        .ok_or("invalid timestamp")?;
     Ok(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(timestamp),
         timestamp_ms: event_time,
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(source_wide_message_id("dsh", identity)),
         session_key: format!("dsh::{session_id}"),

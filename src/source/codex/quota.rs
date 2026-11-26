@@ -9,7 +9,8 @@ use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -49,9 +50,9 @@ impl CodexQuotaStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct CodexWeeklyQuota {
-    pub observed_at: DateTime<Utc>,
-    pub resets_at: DateTime<Utc>,
-    pub estimated_depletion_at: Option<DateTime<Utc>>,
+    pub observed_at: Timestamp,
+    pub resets_at: Timestamp,
+    pub estimated_depletion_at: Option<Timestamp>,
     pub window_minutes: i64,
     pub used_pct: f64,
     pub remaining_pct: f64,
@@ -84,9 +85,9 @@ pub enum CodexQuotaError {
 
     #[error(
         "the newest Codex weekly quota snapshot expired at {reset}. Start a Codex CLI session to refresh it.",
-        reset = resets_at.to_rfc3339()
+        reset = crate::utils::rfc3339(*resets_at)
     )]
-    SnapshotExpired { resets_at: DateTime<Utc> },
+    SnapshotExpired { resets_at: Timestamp },
 
     #[error("the newest Codex weekly quota snapshot has invalid {reason}")]
     InvalidSnapshotTiming { reason: &'static str },
@@ -106,8 +107,8 @@ pub enum CodexQuotaError {
 
 #[derive(Debug, Clone)]
 pub(super) struct QuotaSnapshot {
-    pub(super) observed_at: DateTime<Utc>,
-    pub(super) resets_at: DateTime<Utc>,
+    pub(super) observed_at: Timestamp,
+    pub(super) resets_at: Timestamp,
     pub(super) window_minutes: i64,
     pub(super) used_pct: f64,
 }
@@ -195,7 +196,7 @@ fn load_weekly_quota_observation_from_home(
         };
     }
     let files = discover_quota_files(&sessions_dir)?;
-    load_weekly_quota_from_files_at(files, Utc::now())
+    load_weekly_quota_from_files_at(files, Timestamp::now())
 }
 
 pub(super) fn validate_sessions_dir(sessions_dir: &Path) -> Result<(), CodexQuotaError> {
@@ -259,7 +260,7 @@ pub(super) fn discover_quota_files(sessions_dir: &Path) -> Result<Vec<PathBuf>, 
 
 fn load_weekly_quota_from_files_at(
     files: Vec<PathBuf>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<CodexQuotaObservation, CodexQuotaError> {
     let files = recent_codex_files(files, now)?;
     let snapshots = file_snapshots(files)?;
@@ -280,23 +281,26 @@ fn load_weekly_quota_from_files_at(
 
 pub(super) fn recent_codex_files(
     files: Vec<PathBuf>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<Vec<PathBuf>, CodexQuotaError> {
-    let cutoff = now - Duration::minutes(WEEKLY_WINDOW_MINUTES + DISCOVERY_MARGIN_MINUTES);
+    let cutoff =
+        now - jiff::SignedDuration::from_mins(WEEKLY_WINDOW_MINUTES + DISCOVERY_MARGIN_MINUTES);
     codex_files_since(files, cutoff)
 }
 
 pub(super) fn codex_files_since(
     files: Vec<PathBuf>,
-    cutoff: DateTime<Utc>,
+    cutoff: Timestamp,
 ) -> Result<Vec<PathBuf>, CodexQuotaError> {
     files
         .into_iter()
         .filter_map(|path| {
-            let path_is_recent =
-                session_path_date(&path).is_some_and(|date| date >= cutoff.date_naive());
+            let path_is_recent = session_path_date(&path)
+                .is_some_and(|date| date >= cutoff.to_zoned(jiff::tz::TimeZone::UTC).date());
             let modified = match path.metadata().and_then(|metadata| metadata.modified()) {
-                Ok(modified) => DateTime::<Utc>::from(modified),
+                Ok(modified) => {
+                    jiff::Timestamp::try_from(modified).unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+                }
                 Err(error) => {
                     return Some(Err(CodexQuotaError::SessionFile {
                         action: "inspect",
@@ -310,7 +314,7 @@ pub(super) fn codex_files_since(
         .collect()
 }
 
-fn session_path_date(path: &Path) -> Option<NaiveDate> {
+fn session_path_date(path: &Path) -> Option<Date> {
     let day = path.parent()?.file_name()?.to_str()?.parse().ok()?;
     let month = path
         .parent()?
@@ -327,7 +331,7 @@ fn session_path_date(path: &Path) -> Option<NaiveDate> {
         .to_str()?
         .parse()
         .ok()?;
-    NaiveDate::from_ymd_opt(year, month, day)
+    jiff::civil::Date::new(year, month, day).ok()
 }
 
 /// The newest weekly snapshot of each file that has one.
@@ -465,7 +469,7 @@ pub(super) fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaS
     let timestamp = entry
         .timestamp
         .ok_or_else(|| serde_json::Error::custom("weekly quota snapshot has no timestamp"))?;
-    let observed_at = timestamp.parse::<DateTime<Utc>>().map_err(|error| {
+    let observed_at = timestamp.parse::<Timestamp>().map_err(|error| {
         serde_json::Error::custom(format!(
             "weekly quota snapshot has invalid timestamp: {error}"
         ))
@@ -475,7 +479,7 @@ pub(super) fn snapshot_from_line(line: &str) -> serde_json::Result<Option<QuotaS
 }
 
 fn snapshot_from_window(
-    observed_at: DateTime<Utc>,
+    observed_at: Timestamp,
     window: &RateLimitWindow,
 ) -> serde_json::Result<QuotaSnapshot> {
     if !window.used_percent.is_finite() || !(0.0..=100.0).contains(&window.used_percent) {
@@ -483,9 +487,11 @@ fn snapshot_from_window(
             "weekly quota snapshot has invalid used percentage",
         ));
     }
-    let resets_at = DateTime::from_timestamp(window.resets_at, 0).ok_or_else(|| {
-        serde_json::Error::custom("weekly quota snapshot has invalid reset timestamp")
-    })?;
+    let resets_at = jiff::Timestamp::from_second(window.resets_at)
+        .ok()
+        .ok_or_else(|| {
+            serde_json::Error::custom("weekly quota snapshot has invalid reset timestamp")
+        })?;
     Ok(QuotaSnapshot {
         observed_at,
         resets_at,
@@ -496,9 +502,9 @@ fn snapshot_from_window(
 
 fn build_report(
     snapshot: &QuotaSnapshot,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<CodexWeeklyQuota, CodexQuotaError> {
-    if snapshot.observed_at > now + Duration::seconds(MAX_CLOCK_SKEW_SECONDS) {
+    if snapshot.observed_at > now + jiff::SignedDuration::from_secs(MAX_CLOCK_SKEW_SECONDS) {
         return Err(CodexQuotaError::SnapshotInFuture);
     }
     if now >= snapshot.resets_at {
@@ -507,18 +513,15 @@ fn build_report(
         });
     }
 
-    let window_start = snapshot.resets_at - Duration::minutes(snapshot.window_minutes);
-    let elapsed = snapshot.observed_at - window_start;
-    if elapsed <= Duration::zero() || snapshot.observed_at >= snapshot.resets_at {
+    let window_start =
+        snapshot.resets_at - jiff::SignedDuration::from_mins(snapshot.window_minutes);
+    let elapsed = snapshot.observed_at.duration_since(window_start);
+    if elapsed <= jiff::SignedDuration::ZERO || snapshot.observed_at >= snapshot.resets_at {
         return Err(CodexQuotaError::InvalidSnapshotTiming {
             reason: "window timing",
         });
     }
-    let elapsed_seconds = elapsed
-        .num_nanoseconds()
-        .ok_or(CodexQuotaError::InvalidSnapshotTiming { reason: "timing" })?
-        as f64
-        / 1_000_000_000.0;
+    let elapsed_seconds = elapsed.as_secs_f64();
 
     let window_seconds = snapshot.window_minutes as f64 * 60.0;
     let projected_pct = if snapshot.used_pct == 0.0 {
@@ -528,7 +531,7 @@ fn build_report(
     };
     let estimated_depletion_at = (snapshot.used_pct > 0.0 && projected_pct > 100.0).then(|| {
         let seconds_to_limit = elapsed_seconds * 100.0 / snapshot.used_pct;
-        window_start + Duration::seconds(seconds_to_limit.round() as i64)
+        window_start + jiff::SignedDuration::from_secs(seconds_to_limit.round() as i64)
     });
     let status = if snapshot.used_pct >= 100.0 {
         CodexQuotaStatus::Exhausted
@@ -560,7 +563,7 @@ mod tests {
 
     use super::*;
 
-    fn utc(value: &str) -> DateTime<Utc> {
+    fn utc(value: &str) -> Timestamp {
         value.parse().unwrap()
     }
 
@@ -576,7 +579,7 @@ mod tests {
         assert_eq!(snapshot.observed_at, utc("2026-08-21T09:22:20Z"));
         assert_eq!(snapshot.window_minutes, WEEKLY_WINDOW_MINUTES);
         assert_close(snapshot.used_pct, 25.0);
-        assert_eq!(snapshot.resets_at.timestamp(), 1_787_801_336);
+        assert_eq!(snapshot.resets_at.as_second(), 1_787_801_336);
     }
 
     #[test]

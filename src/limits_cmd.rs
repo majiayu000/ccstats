@@ -13,7 +13,7 @@ use crate::quota_cmd::{LoadedQuota, load_quota};
 use crate::source::{
     ALL_SOURCES, CursorPlanUsage, fetch_cursor_plan_usage, get_source, load_blocks,
 };
-use chrono::{DateTime, Duration, Utc};
+use jiff::Timestamp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LimitsScope {
@@ -60,8 +60,9 @@ fn limits_scope(source: Option<&str>) -> Result<LimitsScope, String> {
 }
 
 fn timestamp_secs(unix: i64) -> Option<String> {
-    DateTime::from_timestamp(unix, 0)
-        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    jiff::Timestamp::from_second(unix)
+        .ok()
+        .map(|dt| dt.strftime("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
 fn window(
@@ -86,17 +87,13 @@ fn window(
 
 /// Window inputs for [`forecast_limit`] beyond the latest used percentage.
 struct ForecastContext<'a> {
-    observed_at: DateTime<Utc>,
-    resets_at: Option<DateTime<Utc>>,
-    window_start: Option<DateTime<Utc>>,
+    observed_at: Timestamp,
+    resets_at: Option<Timestamp>,
+    window_start: Option<Timestamp>,
     history: &'a [QuotaSample],
 }
 
-fn forecast(
-    used_pct: Option<f64>,
-    context: &ForecastContext<'_>,
-    now: DateTime<Utc>,
-) -> LimitForecast {
+fn forecast(used_pct: Option<f64>, context: &ForecastContext<'_>, now: Timestamp) -> LimitForecast {
     forecast_limit(&ForecastInput::new(
         used_pct,
         context.observed_at,
@@ -107,10 +104,8 @@ fn forecast(
     ))
 }
 
-fn parse_rfc3339(value: Option<&str>) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value?)
-        .ok()
-        .map(|at| at.with_timezone(&Utc))
+fn parse_rfc3339(value: Option<&str>) -> Option<Timestamp> {
+    (value?).parse::<jiff::Timestamp>().ok()
 }
 
 pub(crate) fn collect_limits(
@@ -121,7 +116,7 @@ pub(crate) fn collect_limits(
     let want_codex = matches!(scope, LimitsScope::All | LimitsScope::Codex);
     let want_claude = matches!(scope, LimitsScope::All | LimitsScope::Claude);
     let want_cursor = matches!(scope, LimitsScope::All | LimitsScope::Cursor);
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let mut notes = Vec::new();
     let mut loaded_quota = None;
@@ -195,7 +190,7 @@ pub(crate) fn collect_limits(
 fn extend_codex_windows(
     windows: &mut Vec<LimitWindow>,
     loaded: Option<&LoadedQuota>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) {
     let Some(loaded) = loaded else {
         return;
@@ -209,7 +204,8 @@ fn extend_codex_windows(
             loaded
                 .report
                 .resets_at
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                .strftime("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
         ),
         "official",
         false,
@@ -224,7 +220,9 @@ fn extend_codex_windows(
         &ForecastContext {
             observed_at: report.observed_at,
             resets_at: Some(report.resets_at),
-            window_start: Some(report.resets_at - Duration::minutes(report.window_minutes)),
+            window_start: Some(
+                report.resets_at - jiff::SignedDuration::from_mins(report.window_minutes),
+            ),
             history: &loaded.history,
         },
         now,
@@ -237,7 +235,7 @@ fn extend_claude_windows(
     want_claude: bool,
     claude_blocks: &[BlockStats],
     ctx: &CommandContext<'_>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) {
     if !want_claude {
         return;
@@ -247,8 +245,8 @@ fn extend_claude_windows(
     let claude_active = select_active_block(claude_blocks, now);
     if let Some(latest) = quota_state.latest() {
         for (name, five_hour, length) in [
-            ("five_hour", true, Duration::hours(5)),
-            ("seven_day", false, Duration::days(7)),
+            ("five_hour", true, jiff::SignedDuration::from_hours(5)),
+            ("seven_day", false, jiff::SignedDuration::from_hours(24 * 7)),
         ] {
             let current = if five_hour {
                 latest.five_hour.as_ref()
@@ -260,7 +258,7 @@ fn extend_claude_windows(
             };
             let resets_at = current
                 .resets_at
-                .and_then(|reset| DateTime::from_timestamp(reset, 0));
+                .and_then(|reset| jiff::Timestamp::from_second(reset).ok());
             let mut row = window(
                 "claude",
                 name,
@@ -309,7 +307,7 @@ fn extend_claude_windows(
 fn extend_cursor_windows(
     windows: &mut Vec<LimitWindow>,
     plan: Option<&CursorPlanUsage>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) {
     let Some(plan) = plan else {
         return;
@@ -339,13 +337,12 @@ fn extend_cursor_windows(
 
 impl LimitsSnapshot {
     fn view(&self) -> LimitsView<'_> {
-        let claude =
-            select_active_block(&self.claude_blocks, Utc::now()).map(|(block, remaining_ms)| {
-                ClaudeWindowView {
-                    block,
-                    remaining_ms,
-                }
-            });
+        let claude = select_active_block(&self.claude_blocks, Timestamp::now()).map(
+            |(block, remaining_ms)| ClaudeWindowView {
+                block,
+                remaining_ms,
+            },
+        );
         let cursor = self.cursor.as_ref().map(|plan| CursorPlanView {
             membership: plan.membership.as_deref(),
             used_pct: plan.used_pct,

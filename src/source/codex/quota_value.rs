@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use rayon::prelude::*;
 
 use crate::core::{DedupAccumulator, RawEntry, Stats};
@@ -33,9 +33,9 @@ pub(crate) struct ModelTokenSample {
 }
 
 pub(crate) fn load_weekly_window_usage_from_home(
-    observed_at: DateTime<Utc>,
-    window_started_at: DateTime<Utc>,
-    resets_at: DateTime<Utc>,
+    observed_at: Timestamp,
+    window_started_at: Timestamp,
+    resets_at: Timestamp,
     codex_home: Option<&Path>,
 ) -> Result<CodexWindowUsage, CodexQuotaError> {
     let sessions_dir = resolve_sessions_dir(codex_home)?;
@@ -62,9 +62,9 @@ fn resolve_sessions_dir(codex_home: Option<&Path>) -> Result<PathBuf, CodexQuota
 }
 
 fn load_weekly_window_usage_from_files(
-    observed_at: DateTime<Utc>,
-    window_started_at: DateTime<Utc>,
-    resets_at: DateTime<Utc>,
+    observed_at: Timestamp,
+    window_started_at: Timestamp,
+    resets_at: Timestamp,
     files: &[PathBuf],
 ) -> Result<CodexWindowUsage, CodexQuotaError> {
     let utc = Timezone::UTC;
@@ -79,12 +79,9 @@ fn load_weekly_window_usage_from_files(
                 // Filter after parsing so cumulative deltas across model switches
                 // remain correct; general usage analytics keep these entries.
                 entry.model != "gpt-reserve"
-                    && entry
-                        .timestamp
-                        .parse::<DateTime<Utc>>()
-                        .is_ok_and(|timestamp| {
-                            timestamp >= window_started_at && timestamp <= observed_at
-                        })
+                    && entry.timestamp.parse::<Timestamp>().is_ok_and(|timestamp| {
+                        timestamp >= window_started_at && timestamp <= observed_at
+                    })
             }));
             (partial, parsed.errors)
         })
@@ -169,7 +166,7 @@ fn model_token_samples(
         .map(|entry| {
             entry
                 .timestamp
-                .parse::<DateTime<Utc>>()
+                .parse::<Timestamp>()
                 .map(|at| (at, entry))
                 .map_err(|_| CodexQuotaError::UsageParse { count: 1 })
         })
@@ -255,7 +252,6 @@ mod tests {
     use std::fs;
     use std::io::Write as _;
 
-    use chrono::{DateTime, Duration};
     use serde_json::json;
     use tempfile::{NamedTempFile, tempdir};
 
@@ -266,8 +262,8 @@ mod tests {
 
     fn quota() -> CodexWeeklyQuota {
         CodexWeeklyQuota {
-            observed_at: "2026-08-22T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            resets_at: "2026-08-27T00:00:00Z".parse::<DateTime<_>>().unwrap(),
+            observed_at: "2026-08-22T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            resets_at: "2026-08-27T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             estimated_depletion_at: None,
             window_minutes: 10_080,
             used_pct: 25.0,
@@ -324,7 +320,7 @@ mod tests {
         let quota = quota();
         let usage = load_weekly_window_usage_from_files(
             quota.observed_at,
-            quota.resets_at - Duration::minutes(quota.window_minutes),
+            quota.resets_at - jiff::SignedDuration::from_mins(quota.window_minutes),
             quota.resets_at,
             &[file.path().to_path_buf()],
         )
@@ -469,7 +465,7 @@ mod tests {
         let quota = quota();
         let usage = load_weekly_window_usage_from_files(
             quota.observed_at,
-            quota.resets_at - Duration::minutes(quota.window_minutes),
+            quota.resets_at - jiff::SignedDuration::from_mins(quota.window_minutes),
             quota.resets_at,
             &[file.path().to_path_buf()],
         )
@@ -487,7 +483,7 @@ mod tests {
         let quota = quota();
         let error = load_weekly_window_usage_from_files(
             quota.observed_at,
-            quota.resets_at - Duration::minutes(quota.window_minutes),
+            quota.resets_at - jiff::SignedDuration::from_mins(quota.window_minutes),
             quota.resets_at,
             &[file.path().to_path_buf()],
         )
@@ -505,7 +501,7 @@ mod tests {
         let quota = quota();
         let usage = load_weekly_window_usage_from_files(
             quota.observed_at,
-            quota.resets_at - Duration::minutes(quota.window_minutes),
+            quota.resets_at - jiff::SignedDuration::from_mins(quota.window_minutes),
             quota.resets_at,
             &[file.path().to_path_buf()],
         )
@@ -523,7 +519,7 @@ mod tests {
         if let Some(pct) = pct {
             row["payload"]["rate_limits"] = json!({
                 "limit_id": "codex",
-                "secondary": {"used_percent": pct, "window_minutes": 10080, "resets_at": quota().resets_at.timestamp()}
+                "secondary": {"used_percent": pct, "window_minutes": 10080, "resets_at": quota().resets_at.as_second()}
             });
         }
         row.to_string()
@@ -534,7 +530,7 @@ mod tests {
         let quota = quota();
         load_weekly_window_usage_from_files(
             quota.observed_at,
-            quota.resets_at - Duration::minutes(quota.window_minutes),
+            quota.resets_at - jiff::SignedDuration::from_mins(quota.window_minutes),
             quota.resets_at,
             &[file.path().to_path_buf()],
         )
@@ -623,9 +619,9 @@ mod tests {
         let usage = samples_for(&[
             sample_event(0, "gpt-6-astra", 0, 0, Some(0.0)),
             sample_event(1, "gpt-6-astra", 100, 100, Some(10.0)).replace(
-                &quota().resets_at.timestamp().to_string(),
-                &(quota().resets_at + Duration::days(7))
-                    .timestamp()
+                &quota().resets_at.as_second().to_string(),
+                &(quota().resets_at + jiff::SignedDuration::from_hours(24 * 7))
+                    .as_second()
                     .to_string(),
             ),
         ]);
@@ -642,7 +638,7 @@ mod tests {
         let quota = quota();
         let usage = load_weekly_window_usage_from_files(
             quota.observed_at,
-            quota.resets_at - Duration::days(7),
+            quota.resets_at - jiff::SignedDuration::from_hours(24 * 7),
             quota.resets_at,
             &[
                 astra.path().to_path_buf(),

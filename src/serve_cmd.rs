@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 
-use chrono::NaiveDate;
+use jiff::civil::Date;
 use serde_json::json;
 
 use crate::app::CommandContext;
@@ -115,10 +115,10 @@ fn analysis(query: &str, ctx: &CommandContext<'_>) -> (u16, String) {
     }
 }
 
-fn parse_date_param(query: &str, key: &str) -> Option<Result<NaiveDate, String>> {
+fn parse_date_param(query: &str, key: &str) -> Option<Result<Date, String>> {
     query_param(query, key).map(|raw| {
-        NaiveDate::parse_from_str(&raw, "%Y-%m-%d")
-            .or_else(|_| NaiveDate::parse_from_str(&raw, "%Y%m%d"))
+        Date::strptime("%Y-%m-%d", &raw)
+            .or_else(|_| Date::strptime("%Y%m%d", &raw))
             .map_err(|_| format!("invalid {key} date '{raw}'"))
     })
 }

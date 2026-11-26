@@ -1,4 +1,4 @@
-use chrono::{Datelike, NaiveDate};
+use jiff::civil::Date;
 use std::collections::HashMap;
 
 use crate::consts::DATE_FORMAT;
@@ -22,10 +22,10 @@ impl Period {
 }
 
 fn week_start(date_str: &str) -> String {
-    if let Ok(date) = NaiveDate::parse_from_str(date_str, DATE_FORMAT) {
-        let weekday = date.weekday().num_days_from_monday();
-        let monday = date - chrono::Duration::days(i64::from(weekday));
-        monday.format(DATE_FORMAT).to_string()
+    if let Ok(date) = Date::strptime(DATE_FORMAT, date_str) {
+        let weekday = date.weekday().to_monday_zero_offset();
+        let monday = date - jiff::SignedDuration::from_hours(24 * (i64::from(weekday)));
+        monday.strftime(DATE_FORMAT).to_string()
     } else {
         date_str.to_string()
     }

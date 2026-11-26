@@ -3,27 +3,27 @@ mod common;
 use std::fs;
 use std::path::Path;
 
-use chrono::{Duration, SecondsFormat, Timelike, Utc};
 use common::{run_ccstats, run_ccstats_with_stdin, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use serde_json::{Value, json};
 
 fn quota_event(
-    observed_at: chrono::DateTime<Utc>,
+    observed_at: jiff::Timestamp,
     used_pct: f64,
-    resets_at: chrono::DateTime<Utc>,
+    resets_at: jiff::Timestamp,
     weekly_in_secondary: bool,
 ) -> String {
     let weekly = json!({
         "used_percent": used_pct,
         "window_minutes": 10_080,
-        "resets_at": resets_at.timestamp(),
+        "resets_at": resets_at.as_second(),
     });
     let rate_limits = if weekly_in_secondary {
         json!({
             "primary": {
                 "used_percent": 10.0,
                 "window_minutes": 300,
-                "resets_at": (observed_at + Duration::hours(4)).timestamp(),
+                "resets_at": (observed_at + jiff::SignedDuration::from_hours(4)).as_second(),
             },
             "secondary": weekly,
         })
@@ -34,7 +34,7 @@ fn quota_event(
     format!(
         "{}\n",
         json!({
-            "timestamp": observed_at.to_rfc3339_opts(SecondsFormat::Secs, true),
+            "timestamp": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "type": "event_msg",
             "payload": {
                 "type": "token_count",
@@ -62,8 +62,14 @@ fn quota_event(
 }
 
 fn write_codex_quota(home: &Path) {
-    let observed_at = Utc::now().with_nanosecond(0).unwrap();
-    let resets_at = observed_at + Duration::days(6);
+    let observed_at = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
+        .unwrap();
+    let resets_at = observed_at + jiff::SignedDuration::from_hours(24 * 6);
     write_file(
         &home.join(".codex/sessions/newer.jsonl"),
         &quota_event(observed_at, 25.0, resets_at, true),
@@ -71,10 +77,15 @@ fn write_codex_quota(home: &Path) {
 }
 
 fn write_active_claude_block(home: &Path) {
-    let timestamp = Utc::now()
-        .with_nanosecond(0)
+    let timestamp = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
         .unwrap()
-        .to_rfc3339_opts(SecondsFormat::Secs, true);
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
     write_file(
         &home.join(".claude/projects/limits-app/session.jsonl"),
         &format!(
@@ -253,13 +264,19 @@ fn limits_and_watch_do_not_scale_local_cost_into_official_claude_windows() {
     assert_eq!(local["windows"][0]["source"], "estimated");
     assert_eq!(local["windows"][0]["value_estimate_usd"], local_cost);
 
-    let now = Utc::now().with_nanosecond(0).unwrap();
-    let five_reset = now + Duration::hours(1);
-    let seven_reset = now + Duration::days(1);
+    let now = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
+        .unwrap();
+    let five_reset = now + jiff::SignedDuration::from_hours(1);
+    let seven_reset = now + jiff::SignedDuration::from_hours(24);
     let hook = json!({
         "rate_limits": {
-            "five_hour": {"used_percentage": 80.0, "resets_at": five_reset.timestamp()},
-            "seven_day": {"used_percentage": 90.0, "resets_at": seven_reset.timestamp()},
+            "five_hour": {"used_percentage": 80.0, "resets_at": five_reset.as_second()},
+            "seven_day": {"used_percentage": 90.0, "resets_at": seven_reset.as_second()},
         }
     });
     let (ok, _, stderr) = run_ccstats_with_stdin(
@@ -298,7 +315,7 @@ fn limits_and_watch_do_not_scale_local_cost_into_official_claude_windows() {
                 assert_eq!(window["used_pct"], used_pct);
                 assert_eq!(
                     window["resets_at"],
-                    reset.to_rfc3339_opts(SecondsFormat::Secs, true)
+                    reset.strftime("%Y-%m-%dT%H:%M:%SZ").to_string()
                 );
                 assert_eq!(window["stale"], false);
                 assert!(
@@ -424,12 +441,23 @@ fn limits_empty_home_keeps_its_schema_and_ignores_unrelated_credentials() {
 #[test]
 fn limits_codex_forecast_uses_per_session_snapshot_history() {
     let home = unique_temp_dir("limits-codex-forecast");
-    let now = Utc::now().with_nanosecond(0).unwrap();
-    let resets_at = now + Duration::days(2);
+    let now = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
+        .unwrap();
+    let resets_at = now + jiff::SignedDuration::from_hours(24 * 2);
     for (name, hours_ago, used) in [("a", 2, 10.0), ("b", 1, 20.0), ("c", 0, 30.0)] {
         write_file(
             &home.join(format!(".codex/sessions/{name}.jsonl")),
-            &quota_event(now - Duration::hours(hours_ago), used, resets_at, true),
+            &quota_event(
+                now - jiff::SignedDuration::from_hours(hours_ago),
+                used,
+                resets_at,
+                true,
+            ),
         );
     }
 
@@ -455,8 +483,8 @@ fn limits_codex_forecast_uses_per_session_snapshot_history() {
     assert_eq!(forecast["source"], "estimated");
     assert!(forecast["reason"].is_null());
     let projected = forecast["projected_exhaustion_at"].as_str().unwrap();
-    let projected: chrono::DateTime<Utc> = projected.parse().unwrap();
-    assert_eq!(projected, now + Duration::hours(7));
+    let projected: jiff::Timestamp = projected.parse().unwrap();
+    assert_eq!(projected, now + jiff::SignedDuration::from_hours(7));
 
     let (ok, stdout, stderr) = run_home(
         &home,
@@ -524,12 +552,18 @@ fn limits_claude_forecast_is_null_with_reason_when_history_is_too_short() {
     let home = unique_temp_dir("limits-claude-forecast-null");
     let data = home.join("data");
     let envs = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
-    let now = Utc::now().with_nanosecond(0).unwrap();
-    let five_reset = now + Duration::hours(5) - Duration::minutes(5);
+    let now = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
+        .unwrap();
+    let five_reset = now + jiff::SignedDuration::from_hours(5) - jiff::SignedDuration::from_mins(5);
     let snapshot = json!({
-        "captured_at": now.to_rfc3339_opts(SecondsFormat::Secs, true),
+        "captured_at": now.strftime("%Y-%m-%dT%H:%M:%SZ").to_string(),
         "version": null,
-        "five_hour": {"used_percentage": 3.0, "resets_at": five_reset.timestamp()},
+        "five_hour": {"used_percentage": 3.0, "resets_at": five_reset.as_second()},
         "seven_day": null,
     });
     write_file(

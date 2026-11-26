@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use chrono::Utc;
+use jiff::Timestamp;
 
 use crate::cli::{Cli, SourceCommand, SyncCommands};
 use crate::config::Config;
@@ -39,7 +39,10 @@ fn own_label(config: &Config, device_id: Option<&str>) -> String {
 }
 
 fn utc_offset(timezone: Timezone) -> String {
-    timezone.to_fixed_offset(Utc::now()).offset().to_string()
+    timezone
+        .to_fixed_offset(Timestamp::now())
+        .offset()
+        .to_string()
 }
 
 pub(crate) fn handle(command: &SyncCommands, cli: &Cli, config: &Config, timezone: Timezone) {
@@ -75,7 +78,7 @@ fn push(sync_dir: &std::path::Path, cli: &Cli, config: &Config, timezone: Timezo
         &device_id,
         &label,
         &utc_offset(timezone),
-        Utc::now(),
+        Timestamp::now(),
         loaded
             .iter()
             .map(|(name, result)| (*name, &result.day_stats)),
@@ -113,8 +116,7 @@ fn status(sync_dir: &std::path::Path, config: &Config) {
             "- {} [{}] generated {} by ccstats {} (schema {}), {} rows {first}..{last}, UTC{}{marker}",
             file.device_label,
             default_label(&file.device_id),
-            file.generated_at
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            file.generated_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             file.ccstats_version,
             file.schema_version,
             file.rows.len(),
@@ -196,8 +198,7 @@ pub(crate) fn resolve_report_devices(
         names.push(format!(
             "{} (pushed {})",
             file.device_label,
-            file.generated_at
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            file.generated_at.strftime("%Y-%m-%dT%H:%M:%SZ")
         ));
     }
     let local = if merge.include_local {

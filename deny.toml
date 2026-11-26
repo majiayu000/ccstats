@@ -1,10 +1,7 @@
 [advisories]
 # Deny any crates with known security vulnerabilities
 version = 2
-ignore = [
-    # chrono remains in ccstats and agent-sessions while the timestamp API migrates.
-    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; migration to jiff or time tracked separately" },
-]
+ignore = []
 
 [licenses]
 version = 2

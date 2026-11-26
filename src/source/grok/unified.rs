@@ -14,7 +14,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -379,7 +379,9 @@ fn normalize_inference(
     active_models: &HashMap<String, String>,
 ) -> Result<InferenceRecord, &'static str> {
     let timestamp = envelope.ts.ok_or("missing ts")?.trim().to_string();
-    DateTime::parse_from_rfc3339(&timestamp).map_err(|_| "invalid ts")?;
+    timestamp
+        .parse::<jiff::Timestamp>()
+        .map_err(|_| "invalid ts")?;
     let session_id = envelope.sid.ok_or("missing sid")?.trim().to_string();
     if session_id.is_empty() {
         return Err("empty sid");
@@ -527,7 +529,7 @@ pub(super) fn records_to_parse_output(
     let entries = records
         .into_iter()
         .filter_map(|record| {
-            let Ok(utc_dt) = record.timestamp.parse::<DateTime<Utc>>() else {
+            let Ok(utc_dt) = record.timestamp.parse::<Timestamp>() else {
                 errors += 1;
                 return None;
             };
@@ -538,8 +540,8 @@ pub(super) fn records_to_parse_output(
                 api_cost_usd(&record.model, prompt_tokens, cache_read, completion_tokens);
             let date_str = timezone
                 .to_fixed_offset(utc_dt)
-                .date_naive()
-                .format(DATE_FORMAT)
+                .date()
+                .strftime(DATE_FORMAT)
                 .to_string();
             Some(RawEntry {
                 agent_version: None,
@@ -550,8 +552,8 @@ pub(super) fn records_to_parse_output(
                     output_tokens: completion_tokens,
                     duration_ms: record.model_elapsed_ms,
                 }),
-                timestamp: utc_dt.to_rfc3339(),
-                timestamp_ms: utc_dt.timestamp_millis(),
+                timestamp: crate::utils::rfc3339(utc_dt),
+                timestamp_ms: utc_dt.as_millisecond(),
                 date_str,
                 message_id: Some(record.event_key),
                 session_key: record.session_key,

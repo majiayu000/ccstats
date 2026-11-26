@@ -132,8 +132,8 @@ impl ResponseClock {
 
 fn millis(timestamp: Option<&str>) -> Option<i64> {
     timestamp
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|at| at.timestamp_millis())
+        .and_then(|s| s.parse::<jiff::Timestamp>().ok())
+        .map(jiff::Timestamp::as_millisecond)
 }
 
 impl session_reader::LineObserver for NativeContext {
@@ -306,10 +306,11 @@ fn parse_file(
         let mut native = context.borrow_mut();
         if native.turn.is_some() {
             // Retain the whole-file prefix before the loader applies date cuts.
-            native.turn_start_ms =
-                Some(native.turn_start_ms.map_or(at.timestamp_millis(), |start| {
-                    start.min(at.timestamp_millis())
-                }));
+            native.turn_start_ms = Some(
+                native
+                    .turn_start_ms
+                    .map_or(at.as_millisecond(), |start| start.min(at.as_millisecond())),
+            );
         }
         // Without a stop reason the usage is a streaming snapshot (subagent
         // transcripts often keep only that), not the response's final count.
@@ -318,7 +319,7 @@ fn parse_file(
             duration_ms: native
                 .response_start_ms
                 .filter(|_| usage.stop_reason.is_some())
-                .map(|start| at.timestamp_millis() - start),
+                .map(|start| at.as_millisecond() - start),
         });
         out.entries.push(RawEntry {
             agent_version: agent_version.clone(),
@@ -333,11 +334,11 @@ fn parse_file(
                 model_id: usage.model.clone().unwrap_or_default(),
             }),
             timestamp,
-            timestamp_ms: at.timestamp_millis(),
+            timestamp_ms: at.as_millisecond(),
             date_str: timezone
                 .to_fixed_offset(at)
-                .date_naive()
-                .format(DATE_FORMAT)
+                .date()
+                .strftime(DATE_FORMAT)
                 .to_string(),
             message_id: event
                 .message_id

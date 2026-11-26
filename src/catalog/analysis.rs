@@ -1,15 +1,15 @@
 //! Coherent, exactly filtered projections of the same deduplicated usage facts.
 
 use super::{
-    AnalysisContext, AnalyticsQuality, DailyUsagePoint, Deserialize, HashMap, HistoryCostStatus,
-    NaiveDate, ProjectDrilldown, ProjectDrilldownSummary, SdkError, Serialize, SessionDrilldown,
-    Stats, SummaryOptions, TokenBreakdown, UsageHistory, UsageMetrics, UsageSource, Utc,
-    aggregate_projects, analysis_context, apply_cli_config, converted, get_source, token_breakdown,
-    usage_metrics,
+    AnalysisContext, AnalyticsQuality, DailyUsagePoint, Date, Deserialize, HashMap,
+    HistoryCostStatus, ProjectDrilldown, ProjectDrilldownSummary, SdkError, Serialize,
+    SessionDrilldown, Stats, SummaryOptions, TokenBreakdown, UsageHistory, UsageMetrics,
+    UsageSource, aggregate_projects, analysis_context, apply_cli_config, converted, get_source,
+    token_breakdown, usage_metrics,
 };
 use crate::core::{DayStats, RawEntry, aggregate_sessions};
 use crate::source::load_entries_cancellable;
-use chrono::{DateTime, Timelike};
+
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -43,8 +43,8 @@ pub struct UsageAnalysis {
     pub hourly: Vec<HourlyUsagePoint>,
     pub available_models: Vec<String>,
     pub available_projects: Vec<String>,
-    pub since: Option<NaiveDate>,
-    pub until: Option<NaiveDate>,
+    pub since: Option<Date>,
+    pub until: Option<Date>,
     pub timezone: String,
 }
 
@@ -149,26 +149,24 @@ fn project_entries(
                 .is_none_or(|project| entry.project_path == *project)
     });
     let mut total = DayStats::default();
-    let mut days = BTreeMap::<NaiveDate, DayStats>::new();
+    let mut days = BTreeMap::<Date, DayStats>::new();
     let mut hours = BTreeMap::<String, Stats>::new();
     for entry in &entries {
-        let timestamp = DateTime::parse_from_rfc3339(&entry.timestamp).map_err(|error| {
-            SdkError::Configuration(format!("invalid usage timestamp: {error}"))
-        })?;
-        let local = context
-            .timezone
-            .to_fixed_offset(timestamp.with_timezone(&Utc));
+        let timestamp = entry
+            .timestamp
+            .parse::<jiff::Timestamp>()
+            .map_err(|error| {
+                SdkError::Configuration(format!("invalid usage timestamp: {error}"))
+            })?;
+        let local = context.timezone.to_fixed_offset(timestamp);
         let stats = entry.to_stats();
         total.add_stats(entry.model.clone(), &stats);
-        days.entry(local.date_naive())
+        days.entry(local.date())
             .or_default()
             .add_stats(entry.model.clone(), &stats);
-        let hour = local
-            .with_minute(0)
-            .and_then(|time| time.with_second(0))
-            .and_then(|time| time.with_nanosecond(0))
-            .ok_or_else(|| SdkError::Configuration("invalid usage hour".to_string()))?;
-        hours.entry(hour.to_rfc3339()).or_default().add(&stats);
+        // The local hour as RFC 3339, e.g. `2026-01-01T10:00:00+08:00`.
+        let hour = local.strftime("%Y-%m-%dT%H:00:00%:z").to_string();
+        hours.entry(hour).or_default().add(&stats);
     }
     let quality = AnalyticsQuality {
         valid_entries: total.stats.records,
@@ -301,7 +299,7 @@ fn project_sessions(
 }
 
 fn daily_points(
-    days: BTreeMap<NaiveDate, DayStats>,
+    days: BTreeMap<Date, DayStats>,
     context: &AnalysisContext,
     cache_read: bool,
 ) -> Vec<DailyUsagePoint> {
@@ -355,7 +353,7 @@ mod tests {
 
     fn entry(timestamp: &str, model: &str, project: &str, tokens: i64) -> RawEntry {
         serde_json::from_value(serde_json::json!({
-            "timestamp": timestamp, "timestamp_ms": DateTime::parse_from_rfc3339(timestamp).unwrap().timestamp_millis(),
+            "timestamp": timestamp, "timestamp_ms": timestamp.parse::<jiff::Timestamp>().unwrap().as_millisecond(),
             "date_str": &timestamp[..10], "message_id": null, "session_id": "real-session-id", "project_path": project,
             "model": model, "input_tokens": tokens, "output_tokens": 0, "cache_creation": 0, "cache_read": 0, "reasoning_tokens": 0,
             "stop_reason": "complete"

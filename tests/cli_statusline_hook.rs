@@ -1,12 +1,12 @@
 mod common;
 
-use chrono::Utc;
 use common::{run_ccstats, run_ccstats_with_stdin, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use serde_json::Value;
 use std::fs;
 
 fn write_today_claude(root: &std::path::Path) {
-    let today = Utc::now().format("%Y-%m-%dT12:00:00Z");
+    let today = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z");
     write_file(
         &root.join(".claude/projects/hook-app/session.jsonl"),
         &format!(

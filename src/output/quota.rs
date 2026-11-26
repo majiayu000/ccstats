@@ -18,8 +18,8 @@ fn rounded_cost(value: f64) -> f64 {
     (value * 1_000_000.0).round() / 1_000_000.0
 }
 
-fn timestamp(value: chrono::DateTime<chrono::Utc>) -> String {
-    value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+fn timestamp(value: jiff::Timestamp) -> String {
+    value.strftime("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 pub(crate) type QuotaValueEstimate<'a> =
@@ -159,7 +159,7 @@ pub(crate) fn print_quota_table(
         |value| {
             timezone
                 .to_fixed_offset(value)
-                .format("%Y-%m-%d %H:%M %:z")
+                .strftime("%Y-%m-%d %H:%M %:z")
                 .to_string()
         },
     );
@@ -177,7 +177,7 @@ pub(crate) fn print_quota_table(
         Cell::new(
             timezone
                 .to_fixed_offset(report.resets_at)
-                .format("%Y-%m-%d %H:%M %:z")
+                .strftime("%Y-%m-%d %H:%M %:z")
                 .to_string(),
         ),
         Cell::new(depletion),
@@ -188,7 +188,7 @@ pub(crate) fn print_quota_table(
         "Observed: {} · Projection is a pace estimate, not a token allowance.",
         timezone
             .to_fixed_offset(report.observed_at)
-            .format("%Y-%m-%d %H:%M:%S %:z")
+            .strftime("%Y-%m-%d %H:%M:%S %:z")
     );
     match value_estimate {
         Some(Ok(estimate)) => {
@@ -208,7 +208,7 @@ pub(crate) fn print_quota_table(
                 "Value window: {} to the quota observation above.",
                 timezone
                     .to_fixed_offset(estimate.window_started_at)
-                    .format("%Y-%m-%d %H:%M:%S %:z")
+                    .strftime("%Y-%m-%d %H:%M:%S %:z")
             );
             println!(
                 "Dollar and token values are local API-pricing estimates, not official provider allowances."
@@ -221,14 +221,15 @@ pub(crate) fn print_quota_table(
 
 #[cfg(test)]
 mod tests {
-    use chrono::DateTime;
 
     use super::*;
     fn report() -> CodexWeeklyQuota {
         CodexWeeklyQuota {
-            observed_at: "2026-08-22T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            resets_at: "2026-08-28T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            estimated_depletion_at: Some("2026-08-25T00:00:00Z".parse::<DateTime<_>>().unwrap()),
+            observed_at: "2026-08-22T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            resets_at: "2026-08-28T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            estimated_depletion_at: Some(
+                "2026-08-25T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            ),
             window_minutes: 10_080,
             used_pct: 25.0,
             remaining_pct: 75.0,
@@ -239,9 +240,9 @@ mod tests {
 
     fn value_estimate() -> CodexWeeklyValueEstimate {
         CodexWeeklyValueEstimate {
-            observed_at: "2026-08-22T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            window_started_at: "2026-08-21T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            resets_at: "2026-08-28T00:00:00Z".parse::<DateTime<_>>().unwrap(),
+            observed_at: "2026-08-22T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            window_started_at: "2026-08-21T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            resets_at: "2026-08-28T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             used_pct: 25.0,
             observed_cost_usd: 50.0,
             estimated_weekly_value_usd: 200.0,

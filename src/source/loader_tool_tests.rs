@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use chrono::NaiveDate;
-
 use crate::core::{DateFilter, ToolCall};
 use crate::source::{Capabilities, ParseOutput, Source};
 use crate::utils::Timezone;
@@ -55,8 +53,8 @@ fn load_tool_calls_dispatches_through_source_trait() {
         has_tool_calls: true,
     };
     let filter = DateFilter::new(
-        NaiveDate::from_ymd_opt(2026, 2, 6),
-        NaiveDate::from_ymd_opt(2026, 2, 6),
+        jiff::civil::Date::new(2026, 2, 6).ok(),
+        jiff::civil::Date::new(2026, 2, 6).ok(),
     );
 
     let calls = load_tool_calls(&source, &filter, tz());

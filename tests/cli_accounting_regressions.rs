@@ -14,7 +14,7 @@ fn json_report(args: &[&str], envs: &[(&str, &Path)]) -> Value {
 }
 
 fn insert_usage(writer: &Connection, id: &str, input: i64) {
-    let at = chrono::Utc::now().timestamp_millis();
+    let at = jiff::Timestamp::now().as_millisecond();
     let data = json!({
         "role": "assistant", "modelID": "gpt-5", "finish": "stop",
         "cost": input as f64 / 1000.0,
