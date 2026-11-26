@@ -14,7 +14,7 @@ use crate::consts::DATE_FORMAT;
 use crate::core::{DateFilter, DedupAccumulator, LoadResult, RawEntry, aggregate_daily};
 use crate::pricing::PricingDb;
 use crate::source::{CostCoverage, Source, get_source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 mod grok;
 
@@ -252,7 +252,7 @@ fn load_daily_ranges(
                 .filter_map(|mut entry| {
                     if needs_timestamp && entry.timestamp_ms == 0 {
                         entry.timestamp_ms =
-                            entry.timestamp.parse::<Timestamp>().ok()?.as_millisecond();
+                            epoch_millis(entry.timestamp.parse::<Timestamp>().ok()?);
                     }
                     let date = normalize_entry_date(&mut entry, timezone)?;
                     contains_any_range(&entry, date, ranges).then_some(entry)
@@ -288,7 +288,7 @@ fn normalize_entry_date(entry: &mut RawEntry, timezone: Timezone) -> Option<Date
     let utc_dt = entry.timestamp.parse::<Timestamp>().ok()?;
     let date = timezone.to_fixed_offset(utc_dt).date();
     entry.date_str = date.strftime(DATE_FORMAT).to_string();
-    entry.timestamp_ms = utc_dt.as_millisecond();
+    entry.timestamp_ms = epoch_millis(utc_dt);
     Some(date)
 }
 

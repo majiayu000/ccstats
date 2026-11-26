@@ -133,7 +133,7 @@ impl ResponseClock {
 fn millis(timestamp: Option<&str>) -> Option<i64> {
     timestamp
         .and_then(|s| s.parse::<jiff::Timestamp>().ok())
-        .map(jiff::Timestamp::as_millisecond)
+        .map(crate::utils::epoch_millis)
 }
 
 impl session_reader::LineObserver for NativeContext {
@@ -303,14 +303,12 @@ fn parse_file(
             continue;
         };
         let endpoint = endpoint(usage.endpoint);
+        let at_ms = crate::utils::epoch_millis(at);
         let mut native = context.borrow_mut();
         if native.turn.is_some() {
             // Retain the whole-file prefix before the loader applies date cuts.
-            native.turn_start_ms = Some(
-                native
-                    .turn_start_ms
-                    .map_or(at.as_millisecond(), |start| start.min(at.as_millisecond())),
-            );
+            native.turn_start_ms =
+                Some(native.turn_start_ms.map_or(at_ms, |start| start.min(at_ms)));
         }
         // Without a stop reason the usage is a streaming snapshot (subagent
         // transcripts often keep only that), not the response's final count.
@@ -319,7 +317,7 @@ fn parse_file(
             duration_ms: native
                 .response_start_ms
                 .filter(|_| usage.stop_reason.is_some())
-                .map(|start| at.as_millisecond() - start),
+                .map(|start| at_ms - start),
         });
         out.entries.push(RawEntry {
             agent_version: agent_version.clone(),
@@ -334,7 +332,7 @@ fn parse_file(
                 model_id: usage.model.clone().unwrap_or_default(),
             }),
             timestamp,
-            timestamp_ms: at.as_millisecond(),
+            timestamp_ms: at_ms,
             date_str: timezone
                 .to_fixed_offset(at)
                 .date()

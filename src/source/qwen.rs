@@ -12,7 +12,7 @@ use serde::Deserialize;
 use crate::consts::DATE_FORMAT;
 use crate::core::{CostKind, Endpoint, RawEntry, ResponseTiming};
 use crate::source::{Capabilities, ParseOutput, Source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_QWEN_DIR: &str = ".qwen";
@@ -149,7 +149,7 @@ fn entry_from_record(
         .timestamp
         .parse::<jiff::Timestamp>()
         .map_err(|_| "invalid timestamp")?;
-    let timestamp_ms = timestamp.as_millisecond();
+    let timestamp_ms = epoch_millis(timestamp);
     let session_id = record.session_id.trim().to_string();
 
     Ok(Some(RawEntry {

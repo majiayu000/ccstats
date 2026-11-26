@@ -5,6 +5,7 @@ use tz::TimeZoneRef;
 use tz::datetime::FoundDateTimeKind;
 
 use crate::error::AppError;
+use crate::utils::epoch_millis;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Timezone {
@@ -39,7 +40,7 @@ impl Timezone {
             Timezone::Local => TimeZone::system().to_offset(utc),
             Timezone::Named(tz) => {
                 let seconds = tz
-                    .find_local_time_type(utc.as_second())
+                    .find_local_time_type(epoch_millis(utc).div_euclid(1_000))
                     .expect("bundled IANA zone covers the supported timestamp range")
                     .ut_offset();
                 Offset::from_seconds(seconds).expect("valid IANA UTC offset")
@@ -62,7 +63,7 @@ impl Timezone {
                     AmbiguousOffset::Fold { before, .. } => before,
                     AmbiguousOffset::Gap { .. } => return None,
                 };
-                Some(offset.to_timestamp(local).ok()?.as_millisecond())
+                Some(epoch_millis(offset.to_timestamp(local).ok()?))
             }
             Timezone::Named(tz) => {
                 let candidates = tz::DateTime::find(
@@ -84,11 +85,9 @@ impl Timezone {
                             FoundDateTimeKind::Normal(datetime) => Some(datetime.unix_time()),
                             FoundDateTimeKind::Skipped { .. } => None,
                         })?;
-                Some(
-                    Timestamp::new(seconds, local.subsec_nanosecond())
-                        .ok()?
-                        .as_millisecond(),
-                )
+                Some(epoch_millis(
+                    Timestamp::new(seconds, local.subsec_nanosecond()).ok()?,
+                ))
             }
         }
     }
@@ -186,6 +185,15 @@ mod tests {
         // EDT is UTC-4 in June
         assert_eq!(fixed.offset().seconds(), -4 * 3600);
         assert_eq!(fixed.strftime("%H:%M").to_string(), "08:00");
+    }
+
+    #[test]
+    fn named_zone_keeps_the_offset_just_before_a_pre_epoch_transition() {
+        let zone = Timezone::parse(Some("America/New_York")).unwrap();
+        let before = "1969-04-27T06:59:59.500Z".parse::<Timestamp>().unwrap();
+        let after = "1969-04-27T07:00:00Z".parse::<Timestamp>().unwrap();
+        assert_eq!(zone.to_fixed_offset(before).offset().seconds(), -5 * 3600);
+        assert_eq!(zone.to_fixed_offset(after).offset().seconds(), -4 * 3600);
     }
 
     #[test]

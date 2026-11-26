@@ -1,4 +1,5 @@
 //! Local Claude usage evidence, never a reconstruction of subscription billing.
+use crate::utils::epoch_millis;
 use std::collections::{BTreeMap, BTreeSet};
 
 use jiff::Timestamp;
@@ -544,7 +545,7 @@ pub(crate) fn report(
     session: Option<&str>,
 ) -> Result<Report, String> {
     let now = Timestamp::now();
-    let end = now.as_millisecond();
+    let end = epoch_millis(now);
     let today = ctx.timezone.to_fixed_offset(now).date();
     let (start, span) = match window {
         DiagnoseWindow::FiveHours => (end - FIVE_HOURS, FIVE_HOURS),

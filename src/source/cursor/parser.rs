@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{DateFilter, RawEntry};
 use crate::source::ParseOutput;
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 use super::client::{fetch_usage_events, has_api_credentials};
 
@@ -193,7 +193,7 @@ fn entry_from_event(event: &Value, ordinal: usize, timezone: Timezone) -> Option
         claude_diagnostics: None,
         response: None,
         timestamp: crate::utils::rfc3339(utc_dt),
-        timestamp_ms: utc_dt.as_millisecond(),
+        timestamp_ms: epoch_millis(utc_dt),
         date_str: local_dt.date().strftime(DATE_FORMAT).to_string(),
         message_id: Some(message_id),
         session_key: format!("cursor:{session_id}"),

@@ -15,7 +15,7 @@ use super::cline_extension::{CLINE_EXTENSION_ID, find_extension_files, parse_ext
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry};
 use crate::source::{Capabilities, ParseOutput, Source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const CLINE_SESSION_DATA_DIR_ENV: &str = "CLINE_SESSION_DATA_DIR";
 const CLINE_DATA_DIR_ENV: &str = "CLINE_DATA_DIR";
@@ -191,7 +191,7 @@ fn parse_timestamp(value: Option<&Value>) -> Option<i64> {
     let value = value?;
     if let Some(text) = value.as_str() {
         if let Ok(timestamp) = text.parse::<jiff::Timestamp>() {
-            return Some(timestamp.as_millisecond());
+            return Some(epoch_millis(timestamp));
         }
         return text.parse().ok().and_then(numeric_timestamp);
     }

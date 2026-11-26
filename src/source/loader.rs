@@ -13,7 +13,7 @@ use crate::core::{
     aggregate_sessions, aggregate_sessions_map, merge_day_stats,
 };
 use crate::source::Source;
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 use jiff::Timestamp;
 #[cfg(test)]
 use jiff::civil::Date;
@@ -130,7 +130,7 @@ impl<'a> DataLoader<'a> {
                     let Ok(utc_dt) = entry.timestamp.parse::<Timestamp>() else {
                         continue;
                     };
-                    entry.timestamp_ms = utc_dt.as_millisecond();
+                    entry.timestamp_ms = epoch_millis(utc_dt);
                 }
                 if !filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms) {
                     continue;
@@ -161,7 +161,7 @@ impl<'a> DataLoader<'a> {
                 let date = local_dt.date();
                 if filter.contains(date) {
                     entry.date_str = date.strftime(DATE_FORMAT).to_string();
-                    entry.timestamp_ms = utc_dt.as_millisecond();
+                    entry.timestamp_ms = epoch_millis(utc_dt);
                     filtered.push(entry);
                 }
             }

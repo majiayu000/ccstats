@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 use jiff::Timestamp;
 
 use super::pi_fork_paths::{
@@ -239,7 +239,7 @@ fn usage_entry(
     let identity = format!(
         "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}",
         context.entry_id,
-        timestamp.as_millisecond(),
+        epoch_millis(timestamp),
         context.provider.unwrap_or_default(),
         context.model.unwrap_or_default(),
         usage.input,
@@ -256,7 +256,7 @@ fn usage_entry(
         claude_diagnostics: None,
         response: None,
         timestamp: crate::utils::rfc3339(timestamp),
-        timestamp_ms: timestamp.as_millisecond(),
+        timestamp_ms: epoch_millis(timestamp),
         date_str: timezone
             .to_fixed_offset(timestamp)
             .date()

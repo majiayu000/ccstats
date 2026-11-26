@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, ResponseTiming, source_wide_message_id};
 use crate::source::{Capabilities, ParseOutput, Source, SourceDiagnostic};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 use super::pi_paths::{diagnose_senpi_files, find_kimchi_files, find_pi_files, find_senpi_files};
 
@@ -307,7 +307,7 @@ fn usage_entry(
         claude_diagnostics: None,
         response: None,
         timestamp: crate::utils::rfc3339(timestamp),
-        timestamp_ms: timestamp.as_millisecond(),
+        timestamp_ms: epoch_millis(timestamp),
         date_str: context
             .timezone
             .to_fixed_offset(timestamp)

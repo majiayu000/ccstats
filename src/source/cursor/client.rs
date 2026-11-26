@@ -11,6 +11,7 @@ use jiff::Timestamp;
 use serde_json::{Value, json};
 
 use crate::credentials::{CursorAuth, resolve_cursor_credentials};
+use crate::utils::epoch_millis;
 
 const ADMIN_EVENTS_URL: &str = "https://api.cursor.com/teams/filtered-usage-events";
 const DASHBOARD_EVENTS_URL: &str = "https://cursor.com/api/dashboard/get-filtered-usage-events";
@@ -250,13 +251,13 @@ fn date_window(
     {
         start
     } else {
-        default_start.as_millisecond()
+        epoch_millis(default_start)
     };
     (
         requested_start_ms.unwrap_or(provider_start),
         requested_end_ms
-            .unwrap_or_else(|| end.as_millisecond())
-            .min(end.as_millisecond()),
+            .unwrap_or_else(|| epoch_millis(end))
+            .min(epoch_millis(end)),
     )
 }
 
@@ -271,7 +272,7 @@ fn dashboard_billing_start(
     if debug {
         eprintln!("Cursor billing cycle starts at {start}");
     }
-    Some(parsed.as_millisecond())
+    Some(epoch_millis(parsed))
 }
 
 fn page_body(api: CursorApi, start_ms: i64, end_ms: i64, page: u32) -> Value {

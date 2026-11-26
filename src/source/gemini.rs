@@ -14,7 +14,7 @@ use serde_json::Value;
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry};
 use crate::source::{Capabilities, ParseOutput, Source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const GEMINI_HOME_ENV: &str = "GEMINI_CLI_HOME";
 const DEFAULT_GEMINI_HOME: &str = ".gemini";
@@ -125,7 +125,7 @@ fn non_empty_string(value: Option<&Value>) -> Option<String> {
 
 fn parse_timestamp_text(value: &str) -> Option<i64> {
     if let Ok(timestamp) = value.parse::<jiff::Timestamp>() {
-        return Some(timestamp.as_millisecond());
+        return Some(epoch_millis(timestamp));
     }
     for format in [
         "%Y-%m-%dT%H:%M:%S%.f",
@@ -137,7 +137,7 @@ fn parse_timestamp_text(value: &str) -> Option<i64> {
             return timestamp
                 .to_zoned(jiff::tz::TimeZone::UTC)
                 .ok()
-                .map(|at| at.timestamp().as_millisecond());
+                .map(|at| epoch_millis(at.timestamp()));
         }
     }
     value.parse::<i64>().ok().and_then(parse_numeric_timestamp)

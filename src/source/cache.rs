@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::consts::DATE_FORMAT;
 use crate::core::{DateFilter, RawEntry};
 use crate::source::{ParseOutput, Source, loader::DataLoader};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 type CacheResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -164,7 +164,7 @@ fn apply_local_date(mut entry: RawEntry, timezone: Timezone) -> CacheResult<(Raw
         .or_else(|| entry.timestamp.parse::<Timestamp>().ok())
         .ok_or("invalid cached timestamp")?;
     if entry.timestamp_ms == 0 {
-        entry.timestamp_ms = utc.as_millisecond();
+        entry.timestamp_ms = epoch_millis(utc);
     }
     let date = timezone.to_fixed_offset(utc).date();
     entry.date_str = date.strftime(DATE_FORMAT).to_string();

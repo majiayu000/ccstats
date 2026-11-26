@@ -18,7 +18,7 @@ use serde::Deserialize;
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, RawEntry};
 use crate::source::ParseOutput;
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const DEFAULT_GROK_DIR: &str = ".grok";
 const GROK_HOME_ENV: &str = "GROK_HOME";
@@ -424,7 +424,7 @@ fn parse_grok_session_file(
             claude_diagnostics: None,
             response: None,
             timestamp: crate::utils::rfc3339(utc_dt),
-            timestamp_ms: utc_dt.as_millisecond(),
+            timestamp_ms: epoch_millis(utc_dt),
             date_str: local_dt.date().strftime(DATE_FORMAT).to_string(),
             message_id: Some(session_id.clone()),
             session_key: ctx.session_key,

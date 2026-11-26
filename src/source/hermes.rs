@@ -10,7 +10,7 @@ use rusqlite::{Connection, OpenFlags};
 use crate::consts::{DATE_FORMAT, UNKNOWN};
 use crate::core::{CostKind, Endpoint, RawEntry, source_wide_message_id};
 use crate::source::{CachePolicy, Capabilities, ParseOutput, Source};
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 const HERMES_HOME_ENV: &str = "HERMES_HOME";
 
@@ -188,7 +188,7 @@ fn entry_from_row(row: &HermesRow, timezone: Timezone) -> Result<Option<RawEntry
         claude_diagnostics: None,
         response: None,
         timestamp: crate::utils::rfc3339(timestamp),
-        timestamp_ms: timestamp.as_millisecond(),
+        timestamp_ms: epoch_millis(timestamp),
         date_str: timezone
             .to_fixed_offset(timestamp)
             .date()

@@ -9,7 +9,7 @@ use crate::core::types::{
     BlockStats, DayStats, Endpoint, EndpointStats, ProjectStats, RawEntry, SessionStats,
     SpeedSamples, Stats,
 };
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 /// Aggregate entries by day (consumes entries to avoid cloning)
 pub(crate) fn aggregate_daily(entries: Vec<RawEntry>) -> HashMap<String, DayStats> {
@@ -252,7 +252,7 @@ pub(crate) fn select_active_block(
     blocks: &[BlockStats],
     now: Timestamp,
 ) -> Option<(&BlockStats, i64)> {
-    let now_ms = now.as_millisecond();
+    let now_ms = epoch_millis(now);
     blocks.iter().find_map(|block| {
         let end_ms = block.start_ms.saturating_add(SESSION_WINDOW_MS);
         (now_ms >= block.start_ms && now_ms < end_ms).then_some((block, end_ms - now_ms))

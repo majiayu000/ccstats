@@ -14,7 +14,7 @@ use crate::output::pricing_meta;
 use crate::pricing::{
     CurrencyConverter, PricingDb, model_cost_kind, sum_estimated_proxy_model_costs, sum_model_costs,
 };
-use crate::utils::Timezone;
+use crate::utils::{Timezone, epoch_millis};
 
 /// Truncate session ID for display
 fn truncate_session_id(id: &str, max_len: usize) -> String {
@@ -38,9 +38,7 @@ fn extract_date(ts: &str, timezone: Timezone) -> String {
 }
 
 fn parse_timestamp_millis(ts: &str) -> Option<i64> {
-    ts.parse::<jiff::Timestamp>()
-        .ok()
-        .map(jiff::Timestamp::as_millisecond)
+    ts.parse::<jiff::Timestamp>().ok().map(epoch_millis)
 }
 
 pub(super) fn compare_session_last_timestamp(a: &SessionStats, b: &SessionStats) -> Ordering {
