@@ -90,7 +90,7 @@ fn warm_cache_preserves_all_fields_and_session_identity_across_reopening() {
 }
 
 #[test]
-fn warm_cache_keeps_the_day_of_a_submillisecond_before_the_unix_epoch() {
+fn cache_rebuild_keeps_the_day_of_a_submillisecond_before_the_unix_epoch() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("epoch.jsonl");
     fs::write(
@@ -105,7 +105,19 @@ fn warm_cache_keeps_the_day_of_a_submillisecond_before_the_unix_epoch() {
     .unwrap();
 
     let filter = DateFilter::default();
-    let cold = parse(&cache(root.path()), &path, &filter, utc());
+    let old_cache_file = root.path().join("usage-facts-v3.sqlite3");
+    let old_cache = UsageFactCache::open_at(&old_cache_file);
+    assert_eq!(parse(&old_cache, &path, &filter, utc()).entries.len(), 1);
+    drop(old_cache);
+
+    let current = cache(root.path());
+    let cold = parse(&current, &path, &filter, utc());
+    assert_eq!(
+        current.hits(),
+        0,
+        "rebuild from the log instead of reusing v3"
+    );
+    assert!(old_cache_file.is_file());
     let reopened = cache(root.path());
     let warm = parse(&reopened, &path, &filter, utc());
     assert_eq!(reopened.hits(), 1);
