@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{TimeZone, Utc};
+use jiff::Timestamp;
 
 use super::*;
 
@@ -32,7 +32,10 @@ fn device(id: &str, label: &str, input: i64) -> DeviceFile {
         id,
         label,
         "+00:00",
-        Utc.with_ymd_and_hms(2026, 10, 2, 0, 0, 0).unwrap(),
+        jiff::civil::datetime(2026, 10, 2, 0, 0, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .map(|at| at.timestamp())
+            .unwrap(),
         [("claude", &claude)],
     )
 }
@@ -74,7 +77,7 @@ fn round_trip_two_devices_merges_other_device_and_skips_self() {
             .day_stats_for("codex", &DateFilter::new(None, None))
             .is_empty()
     );
-    let outside = DateFilter::new(NaiveDate::from_ymd_opt(2026, 10, 2), None);
+    let outside = DateFilter::new(jiff::civil::Date::new(2026, 10, 2).ok(), None);
     assert!(merge.day_stats_for("claude", &outside).is_empty());
 }
 
@@ -159,7 +162,10 @@ fn duplicate_device_files_keep_newest() {
     let sync = temp_sync_dir();
     let old = device("aaaaaaaa11112222", "laptop", 1);
     let mut new = old.clone();
-    new.generated_at = Utc.with_ymd_and_hms(2026, 10, 3, 0, 0, 0).unwrap();
+    new.generated_at = jiff::civil::datetime(2026, 10, 3, 0, 0, 0, 0)
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .map(|at| at.timestamp())
+        .unwrap();
     new.rows[0].stats.input_tokens = 5;
     write_device_file(sync.path(), &old).unwrap();
     fs::write(
@@ -192,7 +198,7 @@ fn recorded_and_estimated_provenance_survives_round_trip() {
         "ffffffff00001111",
         "desktop",
         "+00:00",
-        Utc::now(),
+        Timestamp::now(),
         [("grok", &days)],
     );
     write_device_file(sync.path(), &file).unwrap();

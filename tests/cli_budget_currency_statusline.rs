@@ -1,7 +1,7 @@
 mod common;
 
-use chrono::Utc;
 use common::{run_ccstats, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use serde_json::Value;
 use std::fs::{self, File, FileTimes};
 use std::path::Path;
@@ -614,7 +614,7 @@ fn daily_csv_fallback_source_omits_empty_cache_columns() {
 fn statusline_json_uses_requested_currency() {
     let root = unique_temp_dir("statusline-currency");
     write_exchange_rates_cache(&root, r#"{"CNY":7.0}"#);
-    let today = Utc::now().format("%Y-%m-%dT12:00:00Z").to_string();
+    let today = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z").to_string();
     let claude_file = root.join(".claude/projects/myproject/session-a.jsonl");
     write_file(
         &claude_file,
@@ -652,7 +652,7 @@ fn statusline_json_includes_data_quality_metadata() {
     let root = unique_temp_dir("statusline-quality");
     let codex_home = root.join("codex-home");
     let session_file = codex_home.join("sessions").join("statusline.jsonl");
-    let today = Utc::now().format("%Y-%m-%dT12:00:00Z").to_string();
+    let today = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z").to_string();
     write_file(
         &session_file,
         &format!(

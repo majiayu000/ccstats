@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use chrono::{Datelike, NaiveDate};
 use comfy_table::{Cell, Color};
+use jiff::civil::Date;
 use serde_json::{Map, Value};
 
 use crate::cli::SortOrder;
@@ -37,7 +37,7 @@ pub(crate) struct MonthlyBudgetOptions<'a> {
     pub(crate) show_cost: bool,
     pub(crate) supports_cache_read: bool,
     pub(crate) limit: f64,
-    pub(crate) as_of: NaiveDate,
+    pub(crate) as_of: Date,
     pub(crate) currency: Option<&'a CurrencyConverter>,
     pub(crate) cost_mode: CostDisplayMode,
 }
@@ -54,26 +54,21 @@ fn month_parts(month: &str) -> Option<(i32, u32)> {
 }
 
 fn days_in_month(year: i32, month: u32) -> Option<u32> {
-    let start = NaiveDate::from_ymd_opt(year, month, 1)?;
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-    let next = NaiveDate::from_ymd_opt(next_year, next_month, 1)?;
-    Some((next - start).num_days() as u32)
+    let start = jiff::civil::Date::new(year.try_into().ok()?, month.try_into().ok()?, 1).ok()?;
+    start.days_in_month().try_into().ok()
 }
 
-fn budget_days(month: &str, as_of: NaiveDate) -> (u32, u32) {
+fn budget_days(month: &str, as_of: Date) -> (u32, u32) {
     let Some((year, month_num)) = month_parts(month) else {
         return (1, 1);
     };
     let days_in_month = days_in_month(year, month_num).unwrap_or(1);
-    let elapsed = if (as_of.year(), as_of.month()) == (year, month_num) {
-        as_of.day().min(days_in_month)
-    } else {
-        days_in_month
-    };
+    let elapsed =
+        if (i32::from(as_of.year()), as_of.month().try_into().ok()) == (year, Some(month_num)) {
+            u32::try_from(as_of.day()).unwrap_or(1).min(days_in_month)
+        } else {
+            days_in_month
+        };
     (elapsed.max(1), days_in_month)
 }
 
@@ -101,7 +96,7 @@ fn budget_report(
     month: String,
     spent: f64,
     limit: f64,
-    as_of: NaiveDate,
+    as_of: Date,
     pricing_source: PricingSource,
     pricing_db: &PricingDb,
 ) -> MonthlyBudgetReport {
@@ -142,7 +137,7 @@ pub(crate) fn monthly_budget_reports(
     pricing_db: &PricingDb,
     order: SortOrder,
     monthly_budget: f64,
-    as_of: NaiveDate,
+    as_of: Date,
     currency: Option<&CurrencyConverter>,
     cost_mode: CostDisplayMode,
 ) -> Vec<MonthlyBudgetReport> {
@@ -392,7 +387,7 @@ mod tests {
             &PricingDb::default(),
             SortOrder::Asc,
             10.0,
-            NaiveDate::from_ymd_opt(2026, 2, 10).unwrap(),
+            jiff::civil::Date::new(2026, 2, 10).unwrap(),
             None,
             CostDisplayMode::Total,
         );
@@ -413,7 +408,7 @@ mod tests {
             "2026-02".to_string(),
             4.5,
             10.0,
-            NaiveDate::from_ymd_opt(2026, 2, 10).unwrap(),
+            jiff::civil::Date::new(2026, 2, 10).unwrap(),
             PricingSource::Fallback,
             &PricingDb::default(),
         );

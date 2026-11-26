@@ -5,7 +5,6 @@ use crate::utils::paths as dirs;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -183,8 +182,8 @@ fn value_i64(value: Option<&Value>) -> Option<i64> {
 fn parse_timestamp(value: Option<&Value>) -> Option<i64> {
     let value = value?;
     if let Some(text) = value.as_str() {
-        if let Ok(timestamp) = DateTime::parse_from_rfc3339(text) {
-            return Some(timestamp.timestamp_millis());
+        if let Ok(timestamp) = text.parse::<jiff::Timestamp>() {
+            return Some(timestamp.as_millisecond());
         }
         let number = text.parse::<i64>().ok()?;
         return numeric_timestamp(number);
@@ -308,7 +307,7 @@ pub(super) fn parse_extension_file(
             }
         };
         let Some((timestamp_ms, utc)) = parse_timestamp(message.ts.as_ref())
-            .and_then(|ms| Some((ms, DateTime::<Utc>::from_timestamp_millis(ms)?)))
+            .and_then(|ms| Some((ms, jiff::Timestamp::from_millisecond(ms).ok()?)))
         else {
             output.errors += 1;
             continue;
@@ -326,12 +325,12 @@ pub(super) fn parse_extension_file(
             agent_version: None,
             claude_diagnostics: None,
             response: None,
-            timestamp: utc.to_rfc3339(),
+            timestamp: crate::utils::rfc3339(utc),
             timestamp_ms,
             date_str: timezone
                 .to_fixed_offset(utc)
-                .date_naive()
-                .format(DATE_FORMAT)
+                .date()
+                .strftime(DATE_FORMAT)
                 .to_string(),
             message_id: None,
             session_key: format!("{source}:{}", path.parent().unwrap_or(path).display()),

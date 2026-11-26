@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{MultiCostSummary, MultiSummaryOptions, discovery_filter, resolve_ranges};
 use crate::pricing::PricingDb;
@@ -11,17 +11,17 @@ use crate::utils::Timezone;
 pub(super) fn summarize_grok_cost_ranges(
     options: &MultiSummaryOptions,
 ) -> Result<MultiCostSummary, SdkError> {
-    summarize_grok_cost_ranges_at(options, Utc::now())
+    summarize_grok_cost_ranges_at(options, Timestamp::now())
 }
 
 pub(super) fn summarize_grok_cost_ranges_at(
     options: &MultiSummaryOptions,
-    observed_at: DateTime<Utc>,
+    observed_at: Timestamp,
 ) -> Result<MultiCostSummary, SdkError> {
     let start = Instant::now();
     let timezone = Timezone::parse(options.timezone.as_deref())
         .map_err(|err| SdkError::Configuration(err.to_string()))?;
-    let today = timezone.to_fixed_offset(observed_at).date_naive();
+    let today = timezone.to_fixed_offset(observed_at).date();
     let resolved_ranges = resolve_ranges(&options.ranges, today)?;
     let source = get_source(UsageSource::Grok.as_str()).ok_or_else(|| SdkError::InvalidSource {
         name: UsageSource::Grok.as_str().to_string(),
@@ -77,7 +77,7 @@ pub(super) fn summarize_grok_cost_ranges_at(
         source_name: source.name().to_string(),
         display_name: source.display_name().to_string(),
         currency: currency_code,
-        generated_at: Utc::now().to_rfc3339(),
+        generated_at: crate::utils::rfc3339(Timestamp::now()),
         summaries,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
@@ -85,12 +85,12 @@ pub(super) fn summarize_grok_cost_ranges_at(
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use jiff::civil::Date;
 
     use super::*;
     use crate::sdk::UsageRange;
 
-    fn date(value: &str) -> NaiveDate {
+    fn date(value: &str) -> Date {
         value.parse().expect("valid date")
     }
 

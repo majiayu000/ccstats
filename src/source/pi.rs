@@ -5,7 +5,6 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -292,9 +291,10 @@ fn usage_entry(
         return Ok(None);
     }
 
-    let timestamp = DateTime::parse_from_rfc3339(context.timestamp)
-        .map_err(|_| "invalid timestamp")?
-        .with_timezone(&Utc);
+    let timestamp = context
+        .timestamp
+        .parse::<jiff::Timestamp>()
+        .map_err(|_| "invalid timestamp")?;
     let model = context
         .model
         .map(str::trim)
@@ -306,13 +306,13 @@ fn usage_entry(
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
-        timestamp_ms: timestamp.timestamp_millis(),
+        timestamp: crate::utils::rfc3339(timestamp),
+        timestamp_ms: timestamp.as_millisecond(),
         date_str: context
             .timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(source_wide_message_id(context.source, context.entry_id)),
         session_key: format!("{}::{}", context.source, context.session_id),

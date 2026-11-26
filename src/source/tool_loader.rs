@@ -28,7 +28,7 @@ pub(crate) fn load_tool_calls(
                 .parse_tool_call_file(path, timezone)
                 .into_iter()
                 .filter(|call| {
-                    chrono::NaiveDate::parse_from_str(&call.date_str, crate::consts::DATE_FORMAT)
+                    jiff::civil::Date::strptime(crate::consts::DATE_FORMAT, &call.date_str)
                         .is_ok_and(|date| filter.contains(date))
                 })
                 .collect::<Vec<_>>()

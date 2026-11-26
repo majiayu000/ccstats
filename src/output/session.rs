@@ -1,5 +1,5 @@
-use chrono::{DateTime, Utc};
 use comfy_table::{Cell, Color};
+use jiff::Timestamp;
 use std::cmp::Ordering;
 
 use crate::cli::SortOrder;
@@ -30,17 +30,17 @@ fn truncate_session_id(id: &str, max_len: usize) -> String {
 
 /// Extract date from timestamp
 fn extract_date(ts: &str, timezone: Timezone) -> String {
-    if let Ok(utc_dt) = ts.parse::<DateTime<Utc>>() {
+    if let Ok(utc_dt) = ts.parse::<Timestamp>() {
         let local = timezone.to_fixed_offset(utc_dt);
-        return local.date_naive().format(DATE_FORMAT).to_string();
+        return local.date().strftime(DATE_FORMAT).to_string();
     }
     ts.split('T').next().unwrap_or(ts).to_string()
 }
 
 fn parse_timestamp_millis(ts: &str) -> Option<i64> {
-    DateTime::parse_from_rfc3339(ts)
+    ts.parse::<jiff::Timestamp>()
         .ok()
-        .map(|dt| dt.timestamp_millis())
+        .map(jiff::Timestamp::as_millisecond)
 }
 
 pub(super) fn compare_session_last_timestamp(a: &SessionStats, b: &SessionStats) -> Ordering {

@@ -3,7 +3,7 @@ use std::io::{self, IsTerminal, Write};
 use std::thread;
 use std::time::Duration;
 
-use chrono::{Datelike, Utc};
+use jiff::Timestamp;
 use serde_json::json;
 
 use crate::app::{CommandContext, print_json};
@@ -52,9 +52,11 @@ struct Frame {
 }
 
 fn render_frame(once: bool, ctx: &CommandContext<'_>) -> Frame {
-    let today = ctx.timezone.to_fixed_offset(Utc::now()).date_naive();
-    let week_start =
-        today - chrono::Duration::days(i64::from(today.weekday().num_days_from_monday()));
+    let today = ctx.timezone.to_fixed_offset(Timestamp::now()).date();
+    let week_start = today
+        - jiff::SignedDuration::from_hours(
+            24 * (i64::from(today.weekday().to_monday_zero_offset())),
+        );
     let today_cost = period_cost("today", &DateFilter::new(Some(today), Some(today)), ctx);
     let week_cost = period_cost("week", &DateFilter::new(Some(week_start), Some(today)), ctx);
     let snapshot = collect_limits(ctx, ctx.cli.source.as_deref()).ok();
@@ -71,7 +73,9 @@ fn render_frame(once: bool, ctx: &CommandContext<'_>) -> Frame {
     let _ = writeln!(
         text,
         "ccstats watch  {today} {}",
-        ctx.timezone.to_fixed_offset(Utc::now()).format("%H:%M")
+        ctx.timezone
+            .to_fixed_offset(Timestamp::now())
+            .strftime("%H:%M")
     );
     text.push_str(&format_period_line(&today_cost, ctx));
     text.push_str(&format_period_line(&week_cost, ctx));

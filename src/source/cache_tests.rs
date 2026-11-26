@@ -2,7 +2,6 @@ use super::*;
 use crate::core::DedupAccumulator;
 use crate::source::Source;
 use crate::source::codex::{CodexScope, CodexSource};
-use chrono::NaiveDate;
 use std::io::Write;
 
 fn cache(root: &Path) -> UsageFactCache {
@@ -159,10 +158,10 @@ fn cached_ranges_and_timezone_changes_match_uncached_filtering() {
     session(&path);
     let cache = cache(root.path());
     parse(&cache, &path, &DateFilter::default(), utc());
-    let day = NaiveDate::from_ymd_opt(2026, 9, 2).unwrap();
+    let day = jiff::civil::Date::new(2026, 9, 2).unwrap();
     let filters = [
         DateFilter::new(Some(day), Some(day)),
-        DateFilter::new(Some(day.succ_opt().unwrap()), None),
+        DateFilter::new(Some(day.tomorrow().unwrap()), None),
         DateFilter::default().with_exact_timestamp_range(
             "2026-09-01T23:30:00.123457Z".parse().unwrap(),
             "2026-09-02T00:30:00Z".parse().unwrap(),
@@ -191,7 +190,7 @@ fn date_filtered_first_run_keeps_history_in_the_cache() {
     let path = root.path().join("session.jsonl");
     session(&path);
     let cache = cache(root.path());
-    let date = NaiveDate::from_ymd_opt(2026, 9, 2).unwrap();
+    let date = jiff::civil::Date::new(2026, 9, 2).unwrap();
     assert_eq!(
         parse(&cache, &path, &DateFilter::new(Some(date), None), utc())
             .entries
@@ -382,7 +381,7 @@ fn prune_skips_files_older_than_since() {
     let dated = root.path().join("2026-01-01.jsonl");
     fs::write(&old, "").unwrap();
     fs::write(&dated, "").unwrap();
-    let since = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+    let since = jiff::civil::Date::new(2026, 9, 1).unwrap();
     let filter = DateFilter::new(Some(since), None);
     let kept = prune_discovered_files(vec![old, dated], &filter, utc());
     assert_eq!(kept.len(), 1);

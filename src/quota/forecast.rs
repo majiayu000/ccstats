@@ -14,7 +14,7 @@
 //! Otherwise the forecast stays empty with a reason. A forecast is always an
 //! estimate and serializes with `"source": "estimated"`.
 
-use chrono::{DateTime, Duration, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Minimum observations in the current window before history is trusted.
@@ -34,19 +34,15 @@ const RESET_DROP_PCT: f64 = 0.5;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct QuotaSample {
-    pub observed_at: DateTime<Utc>,
+    pub observed_at: Timestamp,
     pub used_pct: f64,
     /// Reset time reported with this observation; `None` when unknown.
-    pub resets_at: Option<DateTime<Utc>>,
+    pub resets_at: Option<Timestamp>,
 }
 
 impl QuotaSample {
     #[must_use]
-    pub fn new(
-        observed_at: DateTime<Utc>,
-        used_pct: f64,
-        resets_at: Option<DateTime<Utc>>,
-    ) -> Self {
+    pub fn new(observed_at: Timestamp, used_pct: f64, resets_at: Option<Timestamp>) -> Self {
         Self {
             observed_at,
             used_pct,
@@ -125,7 +121,7 @@ pub struct LimitForecast {
     /// Percentage points per hour; `None` when it cannot be estimated.
     pub burn_pct_per_hour: Option<f64>,
     /// When the window reaches 100% at the current pace.
-    pub projected_exhaustion_at: Option<DateTime<Utc>>,
+    pub projected_exhaustion_at: Option<Timestamp>,
     /// `Some(true)` when 100% is reached before the reset.
     pub exhausts_before_reset: Option<bool>,
     pub basis: Option<ForecastBasis>,
@@ -166,24 +162,24 @@ pub struct ForecastInput<'a> {
     /// Latest official used percentage.
     pub used_pct: Option<f64>,
     /// When `used_pct` was observed.
-    pub observed_at: DateTime<Utc>,
-    pub resets_at: Option<DateTime<Utc>>,
+    pub observed_at: Timestamp,
+    pub resets_at: Option<Timestamp>,
     /// Start of the window, when the provider window length is known.
-    pub window_start: Option<DateTime<Utc>>,
+    pub window_start: Option<Timestamp>,
     /// Recorded observations in any order; other windows are filtered out.
     pub history: &'a [QuotaSample],
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
 }
 
 impl<'a> ForecastInput<'a> {
     #[must_use]
     pub fn new(
         used_pct: Option<f64>,
-        observed_at: DateTime<Utc>,
-        resets_at: Option<DateTime<Utc>>,
-        window_start: Option<DateTime<Utc>>,
+        observed_at: Timestamp,
+        resets_at: Option<Timestamp>,
+        window_start: Option<Timestamp>,
         history: &'a [QuotaSample],
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Self {
         Self {
             used_pct,
@@ -254,9 +250,11 @@ pub fn forecast_limit(input: &ForecastInput<'_>) -> LimitForecast {
     }
     let seconds = ((100.0 - used) / rate * 3600.0).round();
     let projected = (seconds < i64::MAX as f64)
-        .then(|| Duration::try_seconds(seconds as i64))
-        .flatten()
-        .and_then(|delta| input.observed_at.checked_add_signed(delta));
+        .then(|| {
+            let delta = jiff::SignedDuration::from_secs(seconds as i64);
+            input.observed_at.checked_add(delta).ok()
+        })
+        .flatten();
     if let Some(at) = projected {
         forecast.projected_exhaustion_at = Some(at);
         forecast.exhausts_before_reset = Some(at < resets_at);
@@ -267,9 +265,10 @@ pub fn forecast_limit(input: &ForecastInput<'_>) -> LimitForecast {
     forecast
 }
 
-fn same_window(sample_reset: Option<DateTime<Utc>>, resets_at: DateTime<Utc>) -> bool {
-    sample_reset
-        .is_some_and(|reset| (reset - resets_at).num_seconds().abs() <= RESET_TOLERANCE_SECONDS)
+fn same_window(sample_reset: Option<Timestamp>, resets_at: Timestamp) -> bool {
+    sample_reset.is_some_and(|reset| {
+        reset.duration_since(resets_at).as_secs().abs() <= RESET_TOLERANCE_SECONDS
+    })
 }
 
 /// Observations of the current window, oldest first, starting after the
@@ -277,9 +276,9 @@ fn same_window(sample_reset: Option<DateTime<Utc>>, resets_at: DateTime<Utc>) ->
 fn current_window_points(
     input: &ForecastInput<'_>,
     used: f64,
-    resets_at: DateTime<Utc>,
-) -> Vec<(DateTime<Utc>, f64)> {
-    let mut points: Vec<(DateTime<Utc>, f64)> = input
+    resets_at: Timestamp,
+) -> Vec<(Timestamp, f64)> {
+    let mut points: Vec<(Timestamp, f64)> = input
         .history
         .iter()
         .filter(|sample| sample.used_pct.is_finite())
@@ -311,18 +310,18 @@ fn current_window_points(
     points
 }
 
-fn hours_between(from: DateTime<Utc>, to: DateTime<Utc>) -> f64 {
-    (to - from).num_milliseconds() as f64 / 3_600_000.0
+fn hours_between(from: Timestamp, to: Timestamp) -> f64 {
+    to.duration_since(from).as_millis() as f64 / 3_600_000.0
 }
 
 /// Least-squares slope in percentage points per hour.
-fn history_rate(points: &[(DateTime<Utc>, f64)]) -> Option<f64> {
+fn history_rate(points: &[(Timestamp, f64)]) -> Option<f64> {
     if points.len() < MIN_HISTORY_SAMPLES {
         return None;
     }
     let first = points.first()?.0;
     let last = points.last()?.0;
-    if last - first < Duration::minutes(MIN_HISTORY_SPAN_MINUTES) {
+    if last.duration_since(first) < jiff::SignedDuration::from_mins(MIN_HISTORY_SPAN_MINUTES) {
         return None;
     }
     let n = points.len() as f64;
@@ -343,14 +342,14 @@ fn history_rate(points: &[(DateTime<Utc>, f64)]) -> Option<f64> {
 
 fn average_rate(
     used: f64,
-    observed_at: DateTime<Utc>,
-    window_start: Option<DateTime<Utc>>,
-    resets_at: DateTime<Utc>,
+    observed_at: Timestamp,
+    window_start: Option<Timestamp>,
+    resets_at: Timestamp,
 ) -> Option<f64> {
     let start = window_start?;
-    let window = resets_at - start;
-    let min_elapsed = Duration::minutes(MIN_AVERAGE_ELAPSED_MINUTES).max(window / 20);
-    if observed_at - start < min_elapsed {
+    let window = resets_at.duration_since(start);
+    let min_elapsed = jiff::SignedDuration::from_mins(MIN_AVERAGE_ELAPSED_MINUTES).max(window / 20);
+    if observed_at.duration_since(start) < min_elapsed {
         return None;
     }
     let rate = used / hours_between(start, observed_at);
@@ -365,12 +364,12 @@ fn round_2(value: f64) -> f64 {
 mod tests {
     use super::*;
 
-    fn t(hours: f64) -> DateTime<Utc> {
-        DateTime::from_timestamp(1_800_000_000, 0).unwrap()
-            + Duration::seconds((hours * 3600.0) as i64)
+    fn t(hours: f64) -> Timestamp {
+        jiff::Timestamp::from_second(1_800_000_000).ok().unwrap()
+            + jiff::SignedDuration::from_secs((hours * 3600.0) as i64)
     }
 
-    fn samples(points: &[(f64, f64)], reset: DateTime<Utc>) -> Vec<QuotaSample> {
+    fn samples(points: &[(f64, f64)], reset: Timestamp) -> Vec<QuotaSample> {
         points
             .iter()
             .map(|(hours, pct)| QuotaSample::new(t(*hours), *pct, Some(reset)))
@@ -380,8 +379,8 @@ mod tests {
     fn run(
         used: f64,
         observed_h: f64,
-        reset: DateTime<Utc>,
-        start: Option<DateTime<Utc>>,
+        reset: Timestamp,
+        start: Option<Timestamp>,
         history: &[QuotaSample],
     ) -> LimitForecast {
         forecast_limit(&ForecastInput::new(

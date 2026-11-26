@@ -5,7 +5,6 @@ use crate::utils::paths as dirs;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::Deserialize;
 
@@ -594,8 +593,9 @@ fn entry_from_database_message(
     }
 
     let timestamp_ms = finite_millis(message.time.created)?;
-    let timestamp =
-        DateTime::<Utc>::from_timestamp_millis(timestamp_ms).ok_or("invalid time.created")?;
+    let timestamp = jiff::Timestamp::from_millisecond(timestamp_ms)
+        .ok()
+        .ok_or("invalid time.created")?;
     let project_path = row
         .project_path
         .as_deref()
@@ -614,12 +614,12 @@ fn entry_from_database_message(
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(timestamp),
         timestamp_ms,
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(source_wide_message_id(profile.source, &row.id)),
         session_key: format!("{}::{}", profile.source, row.session_id),

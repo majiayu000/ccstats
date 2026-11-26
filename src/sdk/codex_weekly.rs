@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use chrono::{Duration, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -16,9 +16,9 @@ use crate::source::{
 /// model/cache mix. It is not an official dollar allowance from the provider.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodexWeeklyValueEstimate {
-    pub observed_at: chrono::DateTime<Utc>,
-    pub window_started_at: chrono::DateTime<Utc>,
-    pub resets_at: chrono::DateTime<Utc>,
+    pub observed_at: jiff::Timestamp,
+    pub window_started_at: jiff::Timestamp,
+    pub resets_at: jiff::Timestamp,
     pub used_pct: f64,
     pub observed_cost_usd: f64,
     pub estimated_weekly_value_usd: f64,
@@ -44,8 +44,8 @@ pub struct CodexModelTokenEstimate {
 /// Provider-authoritative window used to align a Codex weekly value estimate.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodexWeeklyValueWindow {
-    pub observed_at: chrono::DateTime<Utc>,
-    pub resets_at: chrono::DateTime<Utc>,
+    pub observed_at: jiff::Timestamp,
+    pub resets_at: jiff::Timestamp,
     pub window_minutes: i64,
     pub used_pct: f64,
 }
@@ -172,29 +172,29 @@ fn validate_window(window: &CodexWeeklyValueWindow) -> Result<(), CodexWeeklyVal
             reason: "used percentage must be greater than zero",
         });
     }
-    let duration = Duration::try_minutes(window.window_minutes).ok_or(
+    let duration = jiff::SignedDuration::try_from_mins(window.window_minutes).ok_or(
         CodexWeeklyValueWindowError::InvalidWindow {
             reason: "window length is outside the supported range",
         },
     )?;
-    if duration <= Duration::zero() {
+    if duration <= jiff::SignedDuration::ZERO {
         return Err(CodexWeeklyValueWindowError::InvalidWindow {
             reason: "window length must be positive",
         });
     }
-    let window_started_at = window.resets_at.checked_sub_signed(duration).ok_or(
+    let window_started_at = window.resets_at.checked_sub(duration).map_err(|_| {
         CodexWeeklyValueWindowError::InvalidWindow {
             reason: "window start is outside the supported timestamp range",
-        },
-    )?;
+        }
+    })?;
     if window.observed_at < window_started_at || window.observed_at >= window.resets_at {
         return Err(CodexWeeklyValueWindowError::InvalidWindow {
             reason: "observation must fall inside the active window",
         });
     }
-    let now = Utc::now();
-    if window.observed_at > now + Duration::minutes(5)
-        || now - window.observed_at > Duration::hours(24)
+    let now = Timestamp::now();
+    if window.observed_at > now + jiff::SignedDuration::from_mins(5)
+        || now.duration_since(window.observed_at) > jiff::SignedDuration::from_hours(24)
     {
         return Err(CodexWeeklyValueWindowError::InvalidWindow {
             reason: "observation must describe the current provider window",
@@ -223,12 +223,12 @@ fn estimate_codex_weekly_value_for_window_with_pricing(
     if window.used_pct <= 0.0 {
         return Err(CodexWeeklyValueError::ZeroUsagePercentage);
     }
-    let duration = Duration::try_minutes(window.window_minutes)
+    let duration = jiff::SignedDuration::try_from_mins(window.window_minutes)
         .ok_or(CodexWeeklyValueError::NonFiniteEstimate)?;
     let window_started_at = window
         .resets_at
-        .checked_sub_signed(duration)
-        .ok_or(CodexWeeklyValueError::NonFiniteEstimate)?;
+        .checked_sub(duration)
+        .map_err(|_| CodexWeeklyValueError::NonFiniteEstimate)?;
 
     let usage = load_weekly_window_usage_from_home(
         window.observed_at,
@@ -319,10 +319,10 @@ mod tests {
     use super::*;
 
     fn window() -> CodexWeeklyValueWindow {
-        let observed_at = Utc::now() - Duration::hours(1);
+        let observed_at = Timestamp::now() - jiff::SignedDuration::from_hours(1);
         CodexWeeklyValueWindow {
             observed_at,
-            resets_at: observed_at + Duration::days(6),
+            resets_at: observed_at + jiff::SignedDuration::from_hours(24 * 6),
             window_minutes: 10_080,
             used_pct: 25.0,
         }

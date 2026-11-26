@@ -1,6 +1,7 @@
 use std::time::Instant;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -67,8 +68,8 @@ pub struct MultiCostSummary {
 #[derive(Debug, Clone)]
 struct ResolvedRange {
     range: UsageRange,
-    since: Option<NaiveDate>,
-    until: Option<NaiveDate>,
+    since: Option<Date>,
+    until: Option<Date>,
     filter: DateFilter,
 }
 
@@ -99,7 +100,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
 
     let timezone = Timezone::parse(timezone.as_deref())
         .map_err(|err| SdkError::Configuration(err.to_string()))?;
-    let today = timezone.to_fixed_offset(Utc::now()).date_naive();
+    let today = timezone.to_fixed_offset(Timestamp::now()).date();
     let resolved_ranges = resolve_ranges(&ranges, today)?;
 
     let source = get_source(usage_source.as_str()).ok_or_else(|| SdkError::InvalidSource {
@@ -140,7 +141,7 @@ pub fn summarize_cost_ranges(options: MultiSummaryOptions) -> Result<MultiCostSu
         source_name: source.name().to_string(),
         display_name: source.display_name().to_string(),
         currency: currency_code,
-        generated_at: Utc::now().to_rfc3339(),
+        generated_at: crate::utils::rfc3339(Timestamp::now()),
         summaries,
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
     })
@@ -183,7 +184,7 @@ fn apply_cli_config_multi(
     options
 }
 
-fn resolve_ranges(ranges: &[UsageRange], today: NaiveDate) -> Result<Vec<ResolvedRange>, SdkError> {
+fn resolve_ranges(ranges: &[UsageRange], today: Date) -> Result<Vec<ResolvedRange>, SdkError> {
     if ranges.is_empty() {
         return Err(SdkError::Configuration(
             "at least one usage range is required".to_string(),
@@ -208,7 +209,7 @@ fn resolve_ranges(ranges: &[UsageRange], today: NaiveDate) -> Result<Vec<Resolve
         .collect()
 }
 
-fn contains_any_range(entry: &RawEntry, date: NaiveDate, ranges: &[ResolvedRange]) -> bool {
+fn contains_any_range(entry: &RawEntry, date: Date, ranges: &[ResolvedRange]) -> bool {
     ranges.iter().any(|range| {
         if range.filter.has_timestamp_range() {
             range
@@ -250,11 +251,8 @@ fn load_daily_ranges(
                 .into_iter()
                 .filter_map(|mut entry| {
                     if needs_timestamp && entry.timestamp_ms == 0 {
-                        entry.timestamp_ms = entry
-                            .timestamp
-                            .parse::<DateTime<Utc>>()
-                            .ok()?
-                            .timestamp_millis();
+                        entry.timestamp_ms =
+                            entry.timestamp.parse::<Timestamp>().ok()?.as_millisecond();
                     }
                     let date = normalize_entry_date(&mut entry, timezone)?;
                     contains_any_range(&entry, date, ranges).then_some(entry)
@@ -282,15 +280,15 @@ fn load_daily_ranges(
         .collect()
 }
 
-fn normalize_entry_date(entry: &mut RawEntry, timezone: Timezone) -> Option<NaiveDate> {
-    if let Ok(date) = NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT) {
+fn normalize_entry_date(entry: &mut RawEntry, timezone: Timezone) -> Option<Date> {
+    if let Ok(date) = Date::strptime(DATE_FORMAT, &entry.date_str) {
         return Some(date);
     }
 
-    let utc_dt = entry.timestamp.parse::<DateTime<Utc>>().ok()?;
-    let date = timezone.to_fixed_offset(utc_dt).date_naive();
-    entry.date_str = date.format(DATE_FORMAT).to_string();
-    entry.timestamp_ms = utc_dt.timestamp_millis();
+    let utc_dt = entry.timestamp.parse::<Timestamp>().ok()?;
+    let date = timezone.to_fixed_offset(utc_dt).date();
+    entry.date_str = date.strftime(DATE_FORMAT).to_string();
+    entry.timestamp_ms = utc_dt.as_millisecond();
     Some(date)
 }
 
@@ -305,8 +303,7 @@ fn aggregate_entries_for_filter(
             if filter.has_timestamp_range() {
                 filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms)
             } else {
-                NaiveDate::parse_from_str(&entry.date_str, DATE_FORMAT)
-                    .is_ok_and(|date| filter.contains(date))
+                Date::strptime(DATE_FORMAT, &entry.date_str).is_ok_and(|date| filter.contains(date))
             }
         })
         .cloned()
@@ -385,15 +382,15 @@ mod tests {
     use crate::core::RawEntry;
     use crate::source::{Capabilities, ParseOutput};
 
-    fn d(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    fn d(year: i16, month: i8, day: i8) -> Date {
+        jiff::civil::Date::new(year, month, day).unwrap()
     }
 
     fn entry_at(timestamp: &str) -> RawEntry {
         let timestamp_ms = timestamp
-            .parse::<DateTime<Utc>>()
+            .parse::<Timestamp>()
             .expect("valid timestamp")
-            .timestamp_millis();
+            .as_millisecond();
         RawEntry {
             agent_version: None,
             claude_diagnostics: None,
@@ -692,16 +689,16 @@ mod tests {
         assert_eq!(
             source.since_ms.load(Ordering::SeqCst),
             "2026-08-21T05:00:00Z"
-                .parse::<DateTime<Utc>>()
+                .parse::<Timestamp>()
                 .expect("valid since")
-                .timestamp_millis()
+                .as_millisecond()
         );
         assert_eq!(
             source.until_ms.load(Ordering::SeqCst),
             "2026-08-21T09:00:00Z"
-                .parse::<DateTime<Utc>>()
+                .parse::<Timestamp>()
                 .expect("valid until")
-                .timestamp_millis()
+                .as_millisecond()
         );
     }
 

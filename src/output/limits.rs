@@ -162,8 +162,8 @@ fn csv_i64(value: Option<i64>) -> String {
     value.map_or(String::new(), |v| v.to_string())
 }
 
-fn timestamp(value: chrono::DateTime<chrono::Utc>) -> String {
-    value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+fn timestamp(value: jiff::Timestamp) -> String {
+    value.strftime("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 fn quota_value_columns(value_estimate: QuotaValueEstimate<'_>) -> (String, String) {
@@ -431,7 +431,7 @@ pub(crate) fn format_runs_out(forecast: &LimitForecast, timezone: Timezone) -> S
     ) {
         (Some(at), Some(true), _) => format!(
             "{} est.",
-            timezone.to_fixed_offset(at).format("%Y-%m-%d %H:%M %:z")
+            timezone.to_fixed_offset(at).strftime("%Y-%m-%d %H:%M %:z")
         ),
         (Some(_), _, _) => "after reset".to_string(),
         (None, _, Some(ForecastReason::AlreadyExhausted)) => "exhausted".to_string(),
@@ -445,12 +445,12 @@ fn format_reset(resets_at: Option<&str>, timezone: Timezone) -> String {
     let Some(raw) = resets_at else {
         return "unknown".to_string();
     };
-    chrono::DateTime::parse_from_rfc3339(raw).map_or_else(
+    raw.parse::<jiff::Timestamp>().map_or_else(
         |_| raw.to_string(),
         |at| {
             timezone
-                .to_fixed_offset(at.with_timezone(&chrono::Utc))
-                .format("%Y-%m-%d %H:%M %:z")
+                .to_fixed_offset(at)
+                .strftime("%Y-%m-%d %H:%M %:z")
                 .to_string()
         },
     )
@@ -548,7 +548,6 @@ fn print_claude_window_table(
 mod tests {
     use super::*;
     use crate::source::CodexQuotaStatus;
-    use chrono::DateTime;
     use std::collections::HashMap;
 
     use crate::core::Stats;
@@ -556,9 +555,11 @@ mod tests {
 
     fn report() -> CodexWeeklyQuota {
         CodexWeeklyQuota {
-            observed_at: "2026-08-22T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            resets_at: "2026-08-28T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            estimated_depletion_at: Some("2026-08-25T00:00:00Z".parse::<DateTime<_>>().unwrap()),
+            observed_at: "2026-08-22T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            resets_at: "2026-08-28T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            estimated_depletion_at: Some(
+                "2026-08-25T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            ),
             window_minutes: 10_080,
             used_pct: 25.0,
             remaining_pct: 75.0,
@@ -569,9 +570,9 @@ mod tests {
 
     fn estimate() -> CodexWeeklyValueEstimate {
         CodexWeeklyValueEstimate {
-            observed_at: "2026-08-22T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            window_started_at: "2026-08-21T00:00:00Z".parse::<DateTime<_>>().unwrap(),
-            resets_at: "2026-08-28T00:00:00Z".parse::<DateTime<_>>().unwrap(),
+            observed_at: "2026-08-22T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            window_started_at: "2026-08-21T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            resets_at: "2026-08-28T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             used_pct: 25.0,
             observed_cost_usd: 50.0,
             estimated_weekly_value_usd: 200.0,

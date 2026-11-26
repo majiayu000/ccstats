@@ -4,7 +4,6 @@ use crate::utils::paths as dirs;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -145,7 +144,8 @@ fn goose_entry(row: GooseUsageRow, timezone: Timezone) -> Result<Option<RawEntry
         .checked_mul(1_000)
         .filter(|timestamp| *timestamp > 0)
         .ok_or("invalid created timestamp")?;
-    let timestamp = DateTime::<Utc>::from_timestamp_millis(timestamp_ms)
+    let timestamp = jiff::Timestamp::from_millisecond(timestamp_ms)
+        .ok()
         .ok_or("created timestamp is outside supported range")?;
     let model = row
         .model
@@ -159,12 +159,12 @@ fn goose_entry(row: GooseUsageRow, timezone: Timezone) -> Result<Option<RawEntry
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(timestamp),
         timestamp_ms,
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(format!("goose:{}:{}", row.session_id, row.id)),
         session_key: format!("goose::{}", row.session_id),

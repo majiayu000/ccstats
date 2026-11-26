@@ -1,11 +1,11 @@
 mod common;
 
-use chrono::Utc;
 use common::{run_ccstats, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use std::fs;
 
 fn write_today_claude(root: &std::path::Path, input_tokens: i64, output_tokens: i64) {
-    let today = Utc::now().format("%Y-%m-%dT12:00:00Z");
+    let today = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z");
     let path = root.join(".claude/projects/myproject/session-a.jsonl");
     write_file(
         &path,
@@ -235,7 +235,7 @@ fn daily_table_does_not_say_today() {
 #[test]
 fn unpriced_table_does_not_headline_zero_dollars() {
     let root = unique_temp_dir("period-conclusion-unpriced");
-    let today = Utc::now().format("%Y-%m-%dT12:00:00Z");
+    let today = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z");
     let path = root.join(".claude/projects/myproject/session-a.jsonl");
     write_file(
         &path,
@@ -274,7 +274,8 @@ fn unpriced_table_does_not_headline_zero_dollars() {
 
 fn write_prior_days(root: &std::path::Path, offsets: &[i64]) {
     for offset in offsets {
-        let timestamp = (Utc::now() - chrono::Duration::days(*offset)).format("%Y-%m-%dT12:00:00Z");
+        let timestamp = (Timestamp::now() - jiff::SignedDuration::from_hours(24 * (*offset)))
+            .strftime("%Y-%m-%dT12:00:00Z");
         write_file(
             &root.join(format!(".claude/projects/myproject/prior-{offset}.jsonl")),
             &serde_json::json!({"timestamp":timestamp.to_string(),"message":{

@@ -22,7 +22,6 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -239,7 +238,7 @@ fn parse_usage_line(
         }
         return None;
     };
-    let Some(utc_dt) = DateTime::<Utc>::from_timestamp_millis(time_ms) else {
+    let Some(utc_dt) = jiff::Timestamp::from_millisecond(time_ms).ok() else {
         *errors += 1;
         if debug {
             eprintln!(
@@ -265,9 +264,9 @@ fn parse_usage_line(
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: utc_dt.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(utc_dt),
         timestamp_ms: time_ms,
-        date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),
+        date_str: local_dt.date().strftime(DATE_FORMAT).to_string(),
         message_id: None,
         session_key: ctx.session_key.clone(),
         session_id: ctx.session_id.clone(),

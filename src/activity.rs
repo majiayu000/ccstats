@@ -1,6 +1,6 @@
 //! Per-model-turn and tool-call evidence for graphical and SDK consumers.
 
-use chrono::Utc;
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{AnalyticsQuality, apply_cli_config};
@@ -80,7 +80,7 @@ pub fn turn_tool_breakdown(options: &SummaryOptions) -> Result<TurnToolBreakdown
     })?;
     let timezone = Timezone::parse(options.timezone.as_deref())
         .map_err(|error| SdkError::Configuration(error.to_string()))?;
-    let today = timezone.to_fixed_offset(Utc::now()).date_naive();
+    let today = timezone.to_fixed_offset(Timestamp::now()).date();
     let (since, until) = options.range.resolve(today)?;
     let mut filter = DateFilter::new(since, until);
     if let Some((since_timestamp, until_timestamp)) = options.range.timestamp_bounds() {

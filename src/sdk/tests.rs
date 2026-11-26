@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 #[test]
 fn usage_windows_record_timezone_specific_utc_boundaries() {
-    let now = "2026-09-02T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+    let now = "2026-09-02T12:00:00Z".parse::<Timestamp>().unwrap();
     let utc = current_usage_windows(Timezone::UTC, now).unwrap();
     let shanghai =
         current_usage_windows(Timezone::Named(tzdb::time_zone::asia::SHANGHAI), now).unwrap();
@@ -99,21 +99,21 @@ fn registry_concrete_sources_match_sdk_usage_sources() {
 
 #[test]
 fn usage_range_this_week_starts_on_monday() {
-    let today = NaiveDate::from_ymd_opt(2026, 5, 9).unwrap();
+    let today = jiff::civil::Date::new(2026, 5, 9).unwrap();
     let (since, until) = UsageRange::ThisWeek.resolve(today).unwrap();
-    assert_eq!(since, Some(NaiveDate::from_ymd_opt(2026, 5, 4).unwrap()));
+    assert_eq!(since, Some(jiff::civil::Date::new(2026, 5, 4).unwrap()));
     assert_eq!(until, Some(today));
 }
 
 #[test]
 fn usage_range_rejects_reversed_dates() {
     let range = UsageRange::DateRange {
-        since: Some(NaiveDate::from_ymd_opt(2026, 5, 10).unwrap()),
-        until: Some(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap()),
+        since: Some(jiff::civil::Date::new(2026, 5, 10).unwrap()),
+        until: Some(jiff::civil::Date::new(2026, 5, 9).unwrap()),
     };
     assert!(
         range
-            .resolve(NaiveDate::from_ymd_opt(2026, 5, 9).unwrap())
+            .resolve(jiff::civil::Date::new(2026, 5, 9).unwrap())
             .is_err()
     );
 }
@@ -142,7 +142,7 @@ fn usage_range_accepts_exact_utc_timestamps_and_rejects_reversed_bounds() {
     .expect("deserialize reversed range");
     assert!(
         reversed
-            .resolve(NaiveDate::from_ymd_opt(2026, 8, 21).expect("valid date"))
+            .resolve(jiff::civil::Date::new(2026, 8, 21).expect("valid date"))
             .is_err()
     );
 }

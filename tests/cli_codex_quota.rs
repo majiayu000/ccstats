@@ -3,27 +3,27 @@ mod common;
 use std::fs;
 use std::path::Path;
 
-use chrono::{Duration, SecondsFormat, Timelike, Utc};
 use common::{run_ccstats, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use serde_json::{Value, json};
 
 fn quota_event(
-    observed_at: chrono::DateTime<Utc>,
+    observed_at: jiff::Timestamp,
     used_pct: f64,
-    resets_at: chrono::DateTime<Utc>,
+    resets_at: jiff::Timestamp,
     weekly_in_secondary: bool,
 ) -> String {
     let weekly = json!({
         "used_percent": used_pct,
         "window_minutes": 10_080,
-        "resets_at": resets_at.timestamp(),
+        "resets_at": resets_at.as_second(),
     });
     let rate_limits = if weekly_in_secondary {
         json!({
             "primary": {
                 "used_percent": 10.0,
                 "window_minutes": 300,
-                "resets_at": (observed_at + Duration::hours(4)).timestamp(),
+                "resets_at": (observed_at + jiff::SignedDuration::from_hours(4)).as_second(),
             },
             "secondary": weekly,
         })
@@ -34,7 +34,7 @@ fn quota_event(
     format!(
         "{}\n",
         json!({
-            "timestamp": observed_at.to_rfc3339_opts(SecondsFormat::Secs, true),
+            "timestamp": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "type": "event_msg",
             "payload": {
                 "type": "token_count",
@@ -61,12 +61,23 @@ fn quota_event(
     )
 }
 
-fn write_current_quota_fixture(codex_home: &Path) -> chrono::DateTime<Utc> {
-    let observed_at = Utc::now().with_nanosecond(0).unwrap();
-    let resets_at = observed_at + Duration::days(6);
+fn write_current_quota_fixture(codex_home: &Path) -> jiff::Timestamp {
+    let observed_at = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
+        .unwrap();
+    let resets_at = observed_at + jiff::SignedDuration::from_hours(24 * 6);
     write_file(
         &codex_home.join("sessions/older.jsonl"),
-        &quota_event(observed_at - Duration::hours(1), 20.0, resets_at, false),
+        &quota_event(
+            observed_at - jiff::SignedDuration::from_hours(1),
+            20.0,
+            resets_at,
+            false,
+        ),
     );
     write_file(
         &codex_home.join("sessions/newer.jsonl"),
@@ -108,7 +119,7 @@ fn quota_and_codex_quota_return_the_same_json() {
     assert_eq!(value["status"], "likely_exhausted");
     assert_eq!(
         value["resets_at"],
-        resets_at.to_rfc3339_opts(SecondsFormat::Secs, true)
+        resets_at.strftime("%Y-%m-%dT%H:%M:%SZ").to_string()
     );
     assert!(value["estimated_depletion_at"].is_string());
     assert_eq!(value["value_estimate"]["kind"], "api_equivalent");
@@ -123,7 +134,9 @@ fn quota_and_codex_quota_return_the_same_json() {
     assert!((weekly_tokens / observed_tokens - 4.0).abs() < f64::EPSILON);
     assert_eq!(
         estimate["window_started_at"],
-        (resets_at - Duration::minutes(10_080)).to_rfc3339_opts(SecondsFormat::Secs, true)
+        (resets_at - jiff::SignedDuration::from_mins(10_080))
+            .strftime("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
     );
     assert!(value["value_estimate_error"].is_null());
 
@@ -224,10 +237,21 @@ fn quota_fails_when_weekly_snapshot_is_missing() {
 fn quota_does_not_fall_back_when_explicit_codex_home_is_missing() {
     let root = unique_temp_dir("codex-quota-missing-home");
     let codex_home = root.join("does-not-exist");
-    let observed_at = Utc::now().with_nanosecond(0).unwrap();
+    let observed_at = Timestamp::now()
+        .round(
+            jiff::TimestampRound::new()
+                .smallest(jiff::Unit::Second)
+                .mode(jiff::RoundMode::Trunc),
+        )
+        .unwrap();
     write_file(
         &root.join(".codex/sessions/fallback.jsonl"),
-        &quota_event(observed_at, 25.0, observed_at + Duration::days(6), false),
+        &quota_event(
+            observed_at,
+            25.0,
+            observed_at + jiff::SignedDuration::from_hours(24 * 6),
+            false,
+        ),
     );
 
     let (ok, _stdout, stderr) = run_ccstats(
@@ -245,8 +269,8 @@ fn quota_does_not_fall_back_when_explicit_codex_home_is_missing() {
 fn quota_fails_when_latest_snapshot_is_stale() {
     let root = unique_temp_dir("codex-quota-stale");
     let codex_home = root.join("codex-home");
-    let observed_at = Utc::now() - Duration::days(2);
-    let resets_at = Utc::now() - Duration::days(1);
+    let observed_at = Timestamp::now() - jiff::SignedDuration::from_hours(24 * 2);
+    let resets_at = Timestamp::now() - jiff::SignedDuration::from_hours(24);
     write_file(
         &codex_home.join("sessions/stale.jsonl"),
         &quota_event(observed_at, 80.0, resets_at, false),

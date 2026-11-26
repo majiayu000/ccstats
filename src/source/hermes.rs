@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags};
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -176,7 +175,8 @@ fn entry_from_row(row: &HermesRow, timezone: Timezone) -> Result<Option<RawEntry
     if !timestamp_ms.is_finite() || timestamp_ms <= 0.0 || timestamp_ms > i64::MAX as f64 {
         return Err("invalid timestamp");
     }
-    let timestamp = DateTime::<Utc>::from_timestamp_millis(timestamp_ms as i64)
+    let timestamp = jiff::Timestamp::from_millisecond(timestamp_ms as i64)
+        .ok()
         .ok_or("timestamp outside supported range")?;
     let identity = format!(
         "{}:{}:{}:{}:{}:{}",
@@ -187,12 +187,12 @@ fn entry_from_row(row: &HermesRow, timezone: Timezone) -> Result<Option<RawEntry
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
-        timestamp_ms: timestamp.timestamp_millis(),
+        timestamp: crate::utils::rfc3339(timestamp),
+        timestamp_ms: timestamp.as_millisecond(),
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(source_wide_message_id("hermes", &identity)),
         session_key: format!("hermes::{}", row.session_id),

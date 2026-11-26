@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::Timestamp;
 
 use crate::core::{DateFilter, RawEntry};
 use crate::source::{Capabilities, ParseOutput, Source, load_entries};
@@ -79,17 +79,17 @@ fn entry_at(id: &str, timestamp: &str) -> RawEntry {
     let mut entry = entry(id, 10);
     entry.timestamp = timestamp.to_string();
     entry.timestamp_ms = timestamp
-        .parse::<DateTime<Utc>>()
+        .parse::<Timestamp>()
         .expect("valid timestamp")
-        .timestamp_millis();
+        .as_millisecond();
     entry.date_str = "2026-08-21".to_string();
     entry
 }
 
 fn filter() -> DateFilter {
     DateFilter::new(
-        NaiveDate::from_ymd_opt(2026, 2, 6),
-        NaiveDate::from_ymd_opt(2026, 2, 6),
+        jiff::civil::Date::new(2026, 2, 6).ok(),
+        jiff::civil::Date::new(2026, 2, 6).ok(),
     )
 }
 
@@ -151,13 +151,13 @@ fn load_entries_preserves_non_deduplicated_records_without_message_identity() {
 #[test]
 fn load_daily_honors_exact_timestamp_bounds() {
     let since = "2026-08-21T05:41:00Z"
-        .parse::<DateTime<Utc>>()
+        .parse::<Timestamp>()
         .expect("valid since")
-        .timestamp_millis();
+        .as_millisecond();
     let until = "2026-08-21T05:43:00Z"
-        .parse::<DateTime<Utc>>()
+        .parse::<Timestamp>()
         .expect("valid until")
-        .timestamp_millis();
+        .as_millisecond();
     let source = TestSource {
         needs_dedup: false,
         files: vec![(

@@ -84,8 +84,9 @@ pub use sdk::{
 };
 pub use source::session_titles::{SessionTitle, SessionTitleOrigin, load_session_titles};
 
-use chrono::{NaiveDate, Utc};
 use clap::Parser;
+use jiff::Timestamp;
+use jiff::civil::Date;
 
 use app::{CommandContext, handle_all_sources_command, handle_source_command};
 use cli::{Cli, Commands, SourceCommand, parse_command};
@@ -152,7 +153,7 @@ fn resolve_number_format(locale: Option<&str>) -> NumberFormat {
     }
 }
 
-fn parse_date_flag(value: Option<&str>, flag: &str) -> Option<NaiveDate> {
+fn parse_date_flag(value: Option<&str>, flag: &str) -> Option<Date> {
     value.map(|s| match parse_date(s) {
         Ok(date) => date,
         Err(err) => {
@@ -162,7 +163,7 @@ fn parse_date_flag(value: Option<&str>, flag: &str) -> Option<NaiveDate> {
     })
 }
 
-fn validate_date_range(since: Option<NaiveDate>, until: Option<NaiveDate>) {
+fn validate_date_range(since: Option<Date>, until: Option<Date>) {
     if let (Some(s), Some(u)) = (since, until)
         && s > u
     {
@@ -191,9 +192,9 @@ fn validate_monthly_budget(cli: &Cli, source_cmd: SourceCommand) {
 
 fn build_date_filter(
     source_cmd: SourceCommand,
-    today: NaiveDate,
-    since: Option<NaiveDate>,
-    until: Option<NaiveDate>,
+    today: Date,
+    since: Option<Date>,
+    until: Option<Date>,
 ) -> DateFilter {
     if source_cmd.needs_today_filter() {
         DateFilter::new(Some(today), Some(today))
@@ -405,7 +406,7 @@ pub fn run_cli() {
     validate_date_range(since, until);
     validate_monthly_budget(&cli, source_cmd);
 
-    let today = timezone.to_fixed_offset(Utc::now()).date_naive();
+    let today = timezone.to_fixed_offset(Timestamp::now()).date();
     let budget_as_of = until.map_or(today, |end| end.min(today));
     let filter = build_date_filter(source_cmd, today, since, until);
     let show_cost = cli.show_cost();

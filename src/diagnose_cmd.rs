@@ -1,7 +1,7 @@
 //! Local Claude usage evidence, never a reconstruction of subscription billing.
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{Duration, Utc};
+use jiff::Timestamp;
 use serde::Serialize;
 
 use crate::app::{CommandContext, print_json};
@@ -123,8 +123,9 @@ pub(crate) struct Report {
 }
 
 fn timestamp(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    jiff::Timestamp::from_millisecond(ms)
+        .ok()
+        .map(|at| at.strftime("%Y-%m-%dT%H:%M:%SZ").to_string())
         .unwrap_or_default()
 }
 
@@ -542,9 +543,9 @@ pub(crate) fn report(
     window: DiagnoseWindow,
     session: Option<&str>,
 ) -> Result<Report, String> {
-    let now = Utc::now();
-    let end = now.timestamp_millis();
-    let today = ctx.timezone.to_fixed_offset(now).date_naive();
+    let now = Timestamp::now();
+    let end = now.as_millisecond();
+    let today = ctx.timezone.to_fixed_offset(now).date();
     let (start, span) = match window {
         DiagnoseWindow::FiveHours => (end - FIVE_HOURS, FIVE_HOURS),
         DiagnoseWindow::Today => (
@@ -562,14 +563,14 @@ pub(crate) fn report(
         // including timezone offset changes rather than assuming every day is 24h.
         let local_now = ctx.timezone.to_fixed_offset(now);
         for days in (1..=14).rev() {
-            let date = today - Duration::days(days);
+            let date = today - jiff::SignedDuration::from_hours(24 * days);
             let a = ctx
                 .timezone
                 .date_start_utc_millis(date)
                 .ok_or("Cannot resolve baseline midnight")?;
             let b = ctx
                 .timezone
-                .local_datetime_utc_millis(date.and_time(local_now.time()))
+                .local_datetime_utc_millis(date.to_datetime(local_now.time()))
                 .ok_or("Cannot resolve baseline local time")?;
             ranges.push((a, b));
         }
@@ -584,8 +585,8 @@ pub(crate) fn report(
     let filter = DateFilter::new(
         Some(
             ctx.timezone
-                .to_fixed_offset(now - Duration::days(22))
-                .date_naive(),
+                .to_fixed_offset(now - jiff::SignedDuration::from_hours(24 * 22))
+                .date(),
         ),
         Some(today),
     );

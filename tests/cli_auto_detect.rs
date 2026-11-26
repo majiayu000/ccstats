@@ -1,7 +1,7 @@
 mod common;
 
-use chrono::Utc;
 use common::{run_ccstats, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -132,7 +132,7 @@ fn empty_home_statusline_is_quiet_single_line() {
 fn codex_only_today_matches_explicit_codex_source() {
     let root = unique_temp_dir("auto-detect-codex-only");
     let codex_home = root.join("codex-home");
-    let timestamp = Utc::now().format("%Y-%m-%dT12:00:00Z").to_string();
+    let timestamp = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z").to_string();
     write_codex_session(&codex_home, &timestamp, 10);
 
     let args_auto = ["today", "-j", "-O", "--no-cost", "--timezone", "UTC"];

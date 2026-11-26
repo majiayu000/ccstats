@@ -14,9 +14,9 @@ use crate::core::{
 };
 use crate::source::Source;
 use crate::utils::Timezone;
+use jiff::Timestamp;
 #[cfg(test)]
-use chrono::NaiveDate;
-use chrono::{DateTime, Utc};
+use jiff::civil::Date;
 
 /// Load data from a source
 pub(super) struct DataLoader<'a> {
@@ -42,9 +42,14 @@ impl<'a> DataLoader<'a> {
     }
 
     #[cfg(test)]
-    fn parse_date_fast(date_str: &str) -> Option<NaiveDate> {
+    fn parse_date_fast(date_str: &str) -> Option<Date> {
         let (year, month, day) = Self::parse_date_parts_fast(date_str)?;
-        NaiveDate::from_ymd_opt(year, month, day)
+        jiff::civil::Date::new(
+            year.try_into().ok()?,
+            month.try_into().ok()?,
+            day.try_into().ok()?,
+        )
+        .ok()
     }
 
     fn parse_digit(byte: u8) -> Option<u32> {
@@ -111,10 +116,10 @@ impl<'a> DataLoader<'a> {
     ) -> Vec<RawEntry> {
         let since_key = filter
             .since
-            .map(|date| date.format(DATE_FORMAT).to_string());
+            .map(|date| date.strftime(DATE_FORMAT).to_string());
         let until_key = filter
             .until
-            .map(|date| date.format(DATE_FORMAT).to_string());
+            .map(|date| date.strftime(DATE_FORMAT).to_string());
         let since_key = since_key.as_deref();
         let until_key = until_key.as_deref();
 
@@ -122,23 +127,23 @@ impl<'a> DataLoader<'a> {
         for mut entry in entries {
             if filter.has_timestamp_range() {
                 if entry.timestamp_ms == 0 {
-                    let Ok(utc_dt) = entry.timestamp.parse::<DateTime<Utc>>() else {
+                    let Ok(utc_dt) = entry.timestamp.parse::<Timestamp>() else {
                         continue;
                     };
-                    entry.timestamp_ms = utc_dt.timestamp_millis();
+                    entry.timestamp_ms = utc_dt.as_millisecond();
                 }
                 if !filter.contains_entry_timestamp(&entry.timestamp, entry.timestamp_ms) {
                     continue;
                 }
                 if Self::parse_date_parts_fast(&entry.date_str).is_none() {
-                    let Some(utc_dt) = DateTime::<Utc>::from_timestamp_millis(entry.timestamp_ms)
+                    let Some(utc_dt) = jiff::Timestamp::from_millisecond(entry.timestamp_ms).ok()
                     else {
                         continue;
                     };
                     entry.date_str = timezone
                         .to_fixed_offset(utc_dt)
-                        .date_naive()
-                        .format(DATE_FORMAT)
+                        .date()
+                        .strftime(DATE_FORMAT)
                         .to_string();
                 }
                 filtered.push(entry);
@@ -151,12 +156,12 @@ impl<'a> DataLoader<'a> {
                 continue;
             }
 
-            if let Ok(utc_dt) = entry.timestamp.parse::<DateTime<Utc>>() {
+            if let Ok(utc_dt) = entry.timestamp.parse::<Timestamp>() {
                 let local_dt = timezone.to_fixed_offset(utc_dt);
-                let date = local_dt.date_naive();
+                let date = local_dt.date();
                 if filter.contains(date) {
-                    entry.date_str = date.format(DATE_FORMAT).to_string();
-                    entry.timestamp_ms = utc_dt.timestamp_millis();
+                    entry.date_str = date.strftime(DATE_FORMAT).to_string();
+                    entry.timestamp_ms = utc_dt.as_millisecond();
                     filtered.push(entry);
                 }
             }
@@ -566,7 +571,6 @@ pub(crate) fn load_blocks(
 mod tests {
     use super::*;
     use crate::core::Stats;
-    use chrono::NaiveDate;
 
     fn make_entry(date_str: &str, model: &str, input: i64) -> RawEntry {
         RawEntry {
@@ -624,7 +628,7 @@ mod tests {
             make_entry("2025-03-01", "m", 20),
             make_entry("2025-06-01", "m", 30),
         ];
-        let since = NaiveDate::from_ymd_opt(2025, 3, 1);
+        let since = jiff::civil::Date::new(2025, 3, 1).ok();
         let filter = DateFilter::new(since, None);
         let result = DataLoader::filter_entries(entries, &filter, tz());
         assert_eq!(result.len(), 2);
@@ -639,7 +643,7 @@ mod tests {
             make_entry("2025-03-01", "m", 20),
             make_entry("2025-06-01", "m", 30),
         ];
-        let until = NaiveDate::from_ymd_opt(2025, 3, 1);
+        let until = jiff::civil::Date::new(2025, 3, 1).ok();
         let filter = DateFilter::new(None, until);
         let result = DataLoader::filter_entries(entries, &filter, tz());
         assert_eq!(result.len(), 2);
@@ -661,7 +665,7 @@ mod tests {
     #[test]
     fn parse_date_fast_valid() {
         let parsed = DataLoader::parse_date_fast("2025-12-31");
-        assert_eq!(parsed, NaiveDate::from_ymd_opt(2025, 12, 31));
+        assert_eq!(parsed, jiff::civil::Date::new(2025, 12, 31).ok());
     }
 
     #[test]

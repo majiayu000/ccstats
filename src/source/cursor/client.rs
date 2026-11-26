@@ -7,7 +7,7 @@
 use std::thread;
 use std::time::Duration;
 
-use chrono::Utc;
+use jiff::Timestamp;
 use serde_json::{Value, json};
 
 use crate::credentials::{CursorAuth, resolve_cursor_credentials};
@@ -243,20 +243,20 @@ fn date_window(
     requested_end_ms: Option<i64>,
     debug: bool,
 ) -> (i64, i64) {
-    let end = Utc::now();
-    let default_start = end - chrono::Duration::days(DEFAULT_LOOKBACK_DAYS);
+    let end = Timestamp::now();
+    let default_start = end - jiff::SignedDuration::from_hours(24 * DEFAULT_LOOKBACK_DAYS);
     let provider_start = if matches!(api, CursorApi::Dashboard)
         && let Some(start) = dashboard_billing_start(api_key, session_token, debug)
     {
         start
     } else {
-        default_start.timestamp_millis()
+        default_start.as_millisecond()
     };
     (
         requested_start_ms.unwrap_or(provider_start),
         requested_end_ms
-            .unwrap_or_else(|| end.timestamp_millis())
-            .min(end.timestamp_millis()),
+            .unwrap_or_else(|| end.as_millisecond())
+            .min(end.as_millisecond()),
     )
 }
 
@@ -267,11 +267,11 @@ fn dashboard_billing_start(
 ) -> Option<i64> {
     let payload = get_json(DASHBOARD_SUMMARY_URL, api_key, session_token).ok()?;
     let start = payload.get("billingCycleStart")?.as_str()?;
-    let parsed = start.parse::<chrono::DateTime<Utc>>().ok()?;
+    let parsed = start.parse::<jiff::Timestamp>().ok()?;
     if debug {
         eprintln!("Cursor billing cycle starts at {start}");
     }
-    Some(parsed.timestamp_millis())
+    Some(parsed.as_millisecond())
 }
 
 fn page_body(api: CursorApi, start_ms: i64, end_ms: i64, page: u32) -> Value {
@@ -428,7 +428,6 @@ fn base64_encode(input: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     #[test]
     fn base64_encode_basic_auth_credential() {
@@ -470,9 +469,12 @@ mod tests {
     fn default_date_window_is_bounded() {
         let (start, end) = date_window(CursorApi::Admin, None, None, None, None, false);
         assert!(end >= start);
-        let start_dt = Utc.timestamp_millis_opt(start).single().unwrap();
-        let end_dt = Utc.timestamp_millis_opt(end).single().unwrap();
-        assert!(end_dt - start_dt <= chrono::Duration::days(DEFAULT_LOOKBACK_DAYS + 1));
+        let start_dt = jiff::Timestamp::from_millisecond(start).ok().unwrap();
+        let end_dt = jiff::Timestamp::from_millisecond(end).ok().unwrap();
+        assert!(
+            end_dt.duration_since(start_dt)
+                <= jiff::SignedDuration::from_hours(24 * (DEFAULT_LOOKBACK_DAYS + 1))
+        );
     }
 
     #[test]

@@ -182,12 +182,12 @@ impl Projection {
             claude_diagnostics: None,
             response: None,
             timestamp,
-            timestamp_ms: at.timestamp_millis(),
+            timestamp_ms: at.as_millisecond(),
             date_str: self
                 .timezone
                 .to_fixed_offset(at)
-                .date_naive()
-                .format(DATE_FORMAT)
+                .date()
+                .strftime(DATE_FORMAT)
                 .to_string(),
             message_id: Some(message_id),
             session_key: self.session_key.clone(),
@@ -354,8 +354,8 @@ impl session_reader::LineObserver for ResponseClock {
         let Some(at) = head
             .timestamp
             .as_deref()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|at| at.timestamp_millis())
+            .and_then(|s| s.parse::<jiff::Timestamp>().ok())
+            .map(jiff::Timestamp::as_millisecond)
         else {
             return;
         };

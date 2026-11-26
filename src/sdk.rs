@@ -7,7 +7,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use chrono::{DateTime, Datelike, Days, NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -81,48 +82,43 @@ pub enum UsageRange {
     ThisMonth,
     /// Explicit inclusive date range. `None` means unbounded on that side.
     DateRange {
-        since: Option<NaiveDate>,
-        until: Option<NaiveDate>,
+        since: Option<Date>,
+        until: Option<Date>,
     },
     /// Explicit inclusive UTC timestamp range.
-    TimestampRange {
-        since: DateTime<Utc>,
-        until: DateTime<Utc>,
-    },
+    TimestampRange { since: Timestamp, until: Timestamp },
 }
 
 /// Absolute UTC boundaries for a rolling usage range in the configured timezone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CurrentUsageWindow {
     pub range: UsageRange,
-    pub since: NaiveDate,
-    pub until: NaiveDate,
+    pub since: Date,
+    pub until: Date,
     pub since_utc_ms: i64,
     pub until_exclusive_utc_ms: i64,
 }
 
 impl UsageRange {
-    pub(crate) fn timestamp_bounds(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    pub(crate) fn timestamp_bounds(&self) -> Option<(Timestamp, Timestamp)> {
         match self {
             UsageRange::TimestampRange { since, until } => Some((*since, *until)),
             _ => None,
         }
     }
 
-    pub(crate) fn resolve(
-        &self,
-        today: NaiveDate,
-    ) -> Result<(Option<NaiveDate>, Option<NaiveDate>), SdkError> {
+    pub(crate) fn resolve(&self, today: Date) -> Result<(Option<Date>, Option<Date>), SdkError> {
         let range = match self {
             UsageRange::Today => (Some(today), Some(today)),
             UsageRange::ThisWeek => {
+                let days_since_monday = i64::from(today.weekday().to_monday_zero_offset());
                 let start = today
-                    .checked_sub_days(Days::new(u64::from(today.weekday().num_days_from_monday())))
+                    .checked_sub(jiff::SignedDuration::from_hours(24 * days_since_monday))
                     .unwrap_or(today);
                 (Some(start), Some(today))
             }
             UsageRange::ThisMonth => {
-                let start = today.with_day(1).unwrap_or(today);
+                let start = today.first_of_month();
                 (Some(start), Some(today))
             }
             UsageRange::DateRange { since, until } => (*since, *until),
@@ -133,7 +129,8 @@ impl UsageRange {
                         until: *until,
                     });
                 }
-                (Some(since.date_naive()), Some(until.date_naive()))
+                let utc_date = |at: &jiff::Timestamp| at.to_zoned(jiff::tz::TimeZone::UTC).date();
+                (Some(utc_date(since)), Some(utc_date(until)))
             }
         };
 
@@ -276,8 +273,8 @@ pub struct CostSummary {
     pub source_name: String,
     pub display_name: String,
     pub range: UsageRange,
-    pub since: Option<NaiveDate>,
-    pub until: Option<NaiveDate>,
+    pub since: Option<Date>,
+    pub until: Option<Date>,
     pub currency: String,
     pub cost: Option<f64>,
     pub cost_usd: Option<f64>,
@@ -302,13 +299,10 @@ pub enum SdkError {
     InvalidSource { name: String },
 
     #[error("invalid date range: since {since} is after until {until}")]
-    InvalidDateRange { since: NaiveDate, until: NaiveDate },
+    InvalidDateRange { since: Date, until: Date },
 
     #[error("invalid timestamp range: since {since} is after until {until}")]
-    InvalidTimestampRange {
-        since: DateTime<Utc>,
-        until: DateTime<Utc>,
-    },
+    InvalidTimestampRange { since: Timestamp, until: Timestamp },
 
     #[error("{0}")]
     Configuration(String),
@@ -323,7 +317,7 @@ pub enum SdkError {
 pub fn summarize_cost(options: SummaryOptions) -> Result<CostSummary, SdkError> {
     let timezone = Timezone::parse(options.timezone.as_deref())
         .map_err(|err| SdkError::Configuration(err.to_string()))?;
-    let today = timezone.to_fixed_offset(Utc::now()).date_naive();
+    let today = timezone.to_fixed_offset(Timestamp::now()).date();
     let (since, until) = options.range.resolve(today)?;
     let mut filter = DateFilter::new(since, until);
     if let Some((since_timestamp, until_timestamp)) = options.range.timestamp_bounds() {
@@ -386,18 +380,18 @@ pub fn summarize_cost_with_cli_config(options: SummaryOptions) -> Result<CostSum
 /// # Errors
 ///
 /// Returns an error when CLI configuration cannot be loaded or its timezone is invalid.
-pub fn current_usage_date_with_cli_config() -> Result<NaiveDate, SdkError> {
+pub fn current_usage_date_with_cli_config() -> Result<Date, SdkError> {
     let config = load_cli_config()?;
     let timezone = Timezone::parse(config.timezone.as_deref())
         .map_err(|error| SdkError::Configuration(error.to_string()))?;
-    Ok(timezone.to_fixed_offset(Utc::now()).date_naive())
+    Ok(timezone.to_fixed_offset(Timestamp::now()).date())
 }
 
 fn current_usage_windows(
     timezone: Timezone,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Result<Vec<CurrentUsageWindow>, SdkError> {
-    let today = timezone.to_fixed_offset(now).date_naive();
+    let today = timezone.to_fixed_offset(now).date();
     [
         UsageRange::Today,
         UsageRange::ThisWeek,
@@ -410,7 +404,7 @@ fn current_usage_windows(
                 "rolling usage range did not resolve to bounded dates".to_string(),
             ));
         };
-        let until_exclusive = until.checked_add_days(Days::new(1)).ok_or_else(|| {
+        let until_exclusive = until.tomorrow().map_err(|_| {
             SdkError::Configuration("usage window end is not representable".to_string())
         })?;
         let since_utc_ms = timezone.date_start_utc_millis(since).ok_or_else(|| {
@@ -444,7 +438,7 @@ pub fn current_usage_windows_with_cli_config() -> Result<Vec<CurrentUsageWindow>
     let config = load_cli_config()?;
     let timezone = Timezone::parse(config.timezone.as_deref())
         .map_err(|error| SdkError::Configuration(error.to_string()))?;
-    current_usage_windows(timezone, Utc::now())
+    current_usage_windows(timezone, Timestamp::now())
 }
 
 pub(super) fn load_cli_config() -> Result<Config, SdkError> {
@@ -489,8 +483,8 @@ pub(in crate::sdk) fn build_cost_summary(
     usage_source: UsageSource,
     source: &dyn Source,
     range: UsageRange,
-    since: Option<NaiveDate>,
-    until: Option<NaiveDate>,
+    since: Option<Date>,
+    until: Option<Date>,
     result: &LoadResult,
     pricing_db: &PricingDb,
     currency: Option<&CurrencyConverter>,

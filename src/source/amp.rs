@@ -7,7 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -185,9 +184,10 @@ fn non_empty(value: Option<String>) -> Option<String> {
 
 fn parse_rfc3339_ms(value: Option<&str>) -> Option<i64> {
     value.and_then(|value| {
-        DateTime::parse_from_rfc3339(value)
+        value
+            .parse::<jiff::Timestamp>()
             .ok()
-            .map(|timestamp| timestamp.timestamp_millis())
+            .map(jiff::Timestamp::as_millisecond)
     })
 }
 
@@ -324,17 +324,17 @@ fn into_raw_entry(
     session_id: &str,
     record: AmpRecord,
 ) -> Option<RawEntry> {
-    let utc = DateTime::<Utc>::from_timestamp_millis(record.timestamp_ms)?;
+    let utc = jiff::Timestamp::from_millisecond(record.timestamp_ms).ok()?;
     Some(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: utc.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(utc),
         timestamp_ms: record.timestamp_ms,
         date_str: timezone
             .to_fixed_offset(utc)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: record.message_id.map(|id| format!("amp:{session_id}:{id}")),
         session_key: format!("{}::{session_id}", path.display()),

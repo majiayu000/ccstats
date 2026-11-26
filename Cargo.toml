@@ -23,12 +23,12 @@ pkg-fmt = "zip"
 bin-dir = "ccstats.exe"
 
 [dependencies]
-agent-sessions = "0.4.0"
+agent-sessions = "0.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 memchr = "2.8.3"
 glob = "0.3.3"
-chrono = { version = "0.4.43", features = ["serde"] }
+jiff = { version = "0.2", features = ["serde"] }
 tz-rs = { version = "0.7.3", default-features = false, features = ["alloc"] }
 tzdb = { version = "0.7.3", default-features = false }
 clap = { version = "4.5.58", features = ["derive"] }

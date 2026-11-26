@@ -12,7 +12,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::Deserialize;
 
 use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -169,13 +169,13 @@ pub(super) fn first_non_empty(values: &[Option<&str>]) -> Option<String> {
         .map(std::string::ToString::to_string)
 }
 
-fn parse_timestamp(summary: &Summary) -> Option<DateTime<Utc>> {
+fn parse_timestamp(summary: &Summary) -> Option<Timestamp> {
     first_non_empty(&[
         summary.updated_at.as_deref(),
         summary.last_active_at.as_deref(),
         summary.created_at.as_deref(),
     ])
-    .and_then(|timestamp| timestamp.parse::<DateTime<Utc>>().ok())
+    .and_then(|timestamp| timestamp.parse::<Timestamp>().ok())
 }
 
 fn total_context_tokens(signals: &Signals) -> i64 {
@@ -423,9 +423,9 @@ fn parse_grok_session_file(
             agent_version: None,
             claude_diagnostics: None,
             response: None,
-            timestamp: utc_dt.to_rfc3339(),
-            timestamp_ms: utc_dt.timestamp_millis(),
-            date_str: local_dt.date_naive().format(DATE_FORMAT).to_string(),
+            timestamp: crate::utils::rfc3339(utc_dt),
+            timestamp_ms: utc_dt.as_millisecond(),
+            date_str: local_dt.date().strftime(DATE_FORMAT).to_string(),
             message_id: Some(session_id.clone()),
             session_key: ctx.session_key,
             session_id,

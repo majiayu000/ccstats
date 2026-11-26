@@ -224,9 +224,10 @@ fn native_user_boundaries_tool_results_metadata_and_compactions_survive_projecti
     assert!(d[1].is_subagent);
     assert_eq!(d[1].parent_session_id.as_deref(), Some("parent"));
     assert_eq!(parsed.entries[2].agent_version.as_deref(), Some("2.1.286"));
-    let start = chrono::DateTime::parse_from_rfc3339("2026-10-07T10:00:00Z")
+    let start = "2026-10-07T10:00:00Z"
+        .parse::<jiff::Timestamp>()
         .unwrap()
-        .timestamp_millis();
+        .as_millisecond();
     let r = analyze(&parsed.entries, start, start + 600_000, &[], None);
     assert_eq!(r.usage.compactions, 1);
     assert_eq!(r.usage.turns, 2);
@@ -270,13 +271,12 @@ fn version_direction_is_independent_of_dedup_output_order() {
 
 #[test]
 fn loader_date_cut_does_not_turn_old_prefix_into_a_complete_new_turn() {
-    use chrono::Duration;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("projects/redacted/main.jsonl");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let now = Utc::now();
-    let old = (now - Duration::days(23)).to_rfc3339();
-    let recent = (now - Duration::hours(1)).to_rfc3339();
+    let now = Timestamp::now();
+    let old = crate::utils::rfc3339(now - jiff::SignedDuration::from_hours(24 * 23));
+    let recent = crate::utils::rfc3339(now - jiff::SignedDuration::from_hours(1));
     let rows = [
         serde_json::json!({"type":"user","timestamp":old,"version":"2.1.286","message":{"content":"redacted"}}),
         serde_json::json!({"type":"assistant","timestamp":old,"message":{"id":"old","model":"claude-sonnet-4","stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":100,"inference_geo":"not_available"}}}),
@@ -292,14 +292,14 @@ fn loader_date_cut_does_not_turn_old_prefix_into_a_complete_new_turn() {
     .unwrap();
     let parsed = ClaudeSource::new().parse_file(&path, crate::utils::Timezone::UTC, false);
     assert_eq!(parsed.errors, 0);
-    let cutoff = (now - Duration::days(22)).timestamp_millis();
+    let cutoff = (now - jiff::SignedDuration::from_hours(24 * 22)).as_millisecond();
     let filtered: Vec<_> = parsed
         .entries
         .iter()
         .filter(|e| e.timestamp_ms >= cutoff)
         .collect();
     assert_eq!(filtered.len(), 1);
-    assert!(version_rows(&filtered, cutoff, now.timestamp_millis()).is_empty());
+    assert!(version_rows(&filtered, cutoff, now.as_millisecond()).is_empty());
 }
 
 #[test]

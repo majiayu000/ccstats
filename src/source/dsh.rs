@@ -7,7 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::consts::DATE_FORMAT;
@@ -626,18 +625,18 @@ fn reattribute_attempt(
     let Some(last) = last_attempt.filter(|last| last.turn == turn && last.step == step) else {
         return;
     };
-    let Some(timestamp) = DateTime::<Utc>::from_timestamp_millis(event_time) else {
+    let Some(timestamp) = jiff::Timestamp::from_millisecond(event_time).ok() else {
         output.errors += 1;
         return;
     };
     let entry = &mut output.entries[last.entry_index];
     entry.model = model;
-    entry.timestamp = timestamp.to_rfc3339();
+    entry.timestamp = crate::utils::rfc3339(timestamp);
     entry.timestamp_ms = event_time;
     entry.date_str = timezone
         .to_fixed_offset(timestamp)
-        .date_naive()
-        .format(DATE_FORMAT)
+        .date()
+        .strftime(DATE_FORMAT)
         .to_string();
 }
 

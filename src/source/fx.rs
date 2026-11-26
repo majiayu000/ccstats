@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -251,18 +250,19 @@ fn entry(fact: &Fact, timezone: Timezone) -> Result<RawEntry, &'static str> {
     if !fact.total_cost.is_finite() || fact.total_cost < 0.0 {
         return Err("invalid total cost");
     }
-    let timestamp = DateTime::<Utc>::from_timestamp_millis(fact.created_at_ms)
+    let timestamp = jiff::Timestamp::from_millisecond(fact.created_at_ms)
+        .ok()
         .ok_or("timestamp outside supported range")?;
     Ok(RawEntry {
         agent_version: None,
         claude_diagnostics: None,
         response: None,
-        timestamp: timestamp.to_rfc3339(),
+        timestamp: crate::utils::rfc3339(timestamp),
         timestamp_ms: fact.created_at_ms,
         date_str: timezone
             .to_fixed_offset(timestamp)
-            .date_naive()
-            .format(DATE_FORMAT)
+            .date()
+            .strftime(DATE_FORMAT)
             .to_string(),
         message_id: Some(source_wide_message_id("fx", &fact.id)),
         session_key: "fx::profile".to_string(),

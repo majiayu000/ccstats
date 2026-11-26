@@ -46,7 +46,7 @@ mod reasonix {
     use std::io::{BufRead, BufReader};
     use std::path::{Path, PathBuf};
 
-    use chrono::{DateTime, NaiveDate, Utc};
+    use jiff::civil::Date;
     use serde::Deserialize;
 
     use crate::consts::{DATE_FORMAT, UNKNOWN};
@@ -168,7 +168,7 @@ mod reasonix {
         files.retain(|path| {
             path.file_stem()
                 .and_then(|name| name.to_str())
-                .is_some_and(|day| NaiveDate::parse_from_str(day, DATE_FORMAT).is_ok())
+                .is_some_and(|day| Date::strptime(DATE_FORMAT, day).is_ok())
         });
         files.sort();
         (files, errors)
@@ -296,10 +296,9 @@ mod reasonix {
         {
             return Err("positive total has no token bucket detail");
         }
-        let timestamp =
-            DateTime::parse_from_rfc3339(record.ts.as_deref().ok_or("missing timestamp")?)
-                .map_err(|_| "invalid timestamp")?
-                .with_timezone(&Utc);
+        let timestamp = (record.ts.as_deref().ok_or("missing timestamp")?)
+            .parse::<jiff::Timestamp>()
+            .map_err(|_| "invalid timestamp")?;
         let (recorded_cost_usd, cost_error) = match recorded_usd(record) {
             Ok(cost) => (cost, false),
             Err(_) => (None, true),
@@ -310,12 +309,12 @@ mod reasonix {
                 agent_version: None,
                 claude_diagnostics: None,
                 response: None,
-                timestamp: timestamp.to_rfc3339(),
-                timestamp_ms: timestamp.timestamp_millis(),
+                timestamp: crate::utils::rfc3339(timestamp),
+                timestamp_ms: timestamp.as_millisecond(),
                 date_str: timezone
                     .to_fixed_offset(timestamp)
-                    .date_naive()
-                    .format(DATE_FORMAT)
+                    .date()
+                    .strftime(DATE_FORMAT)
                     .to_string(),
                 message_id: Some(source_wide_message_id("reasonix", &identity)),
                 session_key: "reasonix::ledger".to_string(),

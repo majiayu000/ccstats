@@ -1,7 +1,7 @@
 mod common;
 
-use chrono::Utc;
 use common::{run_ccstats, unique_temp_dir, write_file};
+use jiff::Timestamp;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -628,7 +628,7 @@ fn all_sources_json_separates_real_and_grok_estimated_cost() {
 fn all_sources_statusline_json_excludes_grok_estimated_cost() {
     let root = unique_temp_dir("all-statusline-grok-estimated");
     let grok_home = root.join("grok-home");
-    let today = Utc::now().format("%Y-%m-%dT12:00:00Z").to_string();
+    let today = Timestamp::now().strftime("%Y-%m-%dT12:00:00Z").to_string();
     write_claude_session_at(&root, &today);
     write_grok_session_at(&grok_home, &today, &today);
 
