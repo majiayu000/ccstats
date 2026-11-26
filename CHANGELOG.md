@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Replace the unmaintained `chrono` (RUSTSEC-2026-0543) with `jiff` 0.2 and adopt `agent-sessions` 0.5. The SDK's public times are now `jiff::Timestamp` and its dates `jiff::civil::Date`. Usage timestamps keep the previous `+00:00` RFC 3339 form; serialized SDK and sync times drop trailing zeros in fractional seconds (`.120Z` is now `.12Z`), which both libraries read as the same instant.
+- Rebuild usage facts once in `usage-facts-v4.sqlite3` so timestamps before the Unix epoch use the corrected millisecond and timezone boundaries.
 
 ## [0.12.0] - 2026-11-05
 

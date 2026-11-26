@@ -1,6 +1,6 @@
 //! Shared usage-facts cache. Source files remain authoritative.
 //!
-//! Filename carries the schema version (`usage-facts-v3.sqlite3`). Bump
+//! Filename carries the schema version (`usage-facts-v4.sqlite3`). Bump
 //! `CACHE_VERSION` (and the filename) when parser semantics or stored fields
 //! change so old rows cannot silently mix with a new algorithm.
 
@@ -31,8 +31,8 @@ use crate::utils::{Timezone, epoch_millis};
 type CacheResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Bump together with [`CACHE_FILE`] when stored facts or parser meaning change.
-pub(crate) const CACHE_VERSION: u32 = 3;
-pub(crate) const CACHE_FILE: &str = "usage-facts-v3.sqlite3";
+pub(crate) const CACHE_VERSION: u32 = 4;
+pub(crate) const CACHE_FILE: &str = "usage-facts-v4.sqlite3";
 const _: () = assert!(CACHE_VERSION >= 1);
 
 static DISABLED: AtomicBool = AtomicBool::new(false);

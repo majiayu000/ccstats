@@ -403,7 +403,7 @@ Preferred file: platform cache dir / `ccstats/pricing.json` (for example `~/Libr
 
 ## Usage-facts cache
 
-Shared SQLite at `<platform cache>/ccstats/usage-facts-v3.sqlite3`. The `v3` in the filename is `CACHE_VERSION`; bump both when parser semantics or stored `RawEntry` fields change so a new algorithm cannot mix with old rows.
+Shared SQLite at `<platform cache>/ccstats/usage-facts-v4.sqlite3`. The `v4` in the filename is `CACHE_VERSION`; bump both when parser semantics or stored `RawEntry` fields change so a new algorithm cannot mix with old rows.
 
 Key = `(source, cache_partition, absolute path, fingerprint of mtime/size/inode)`. Payload is zstd JSON of token/cost facts plus `session_key`. Prompt text, message content, and source code are not stored (`docs/PRIVACY.md`). `--no-cache` skips the layer; `--debug` prints per-file hit/miss and the loader prints hit/miss counts.
 
@@ -412,7 +412,7 @@ Key = `(source, cache_partition, absolute path, fingerprint of mtime/size/inode)
 ## Performance
 
 - Parallel file parse (rayon)
-- Date-range file prune, then usage-facts cache (`usage-facts-v3.sqlite3`)
+- Date-range file prune, then usage-facts cache (`usage-facts-v4.sqlite3`)
 - Filter after parse (local date + timezone, optional timestamp bounds)
 - Lazy pricing load and 24h cache
 - Streaming JSONL reads
